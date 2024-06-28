@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2024-05-10 11:35:32
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2024-06-04 20:13:52
+ * @LastEditTime: 2024-06-14 17:17:56
  * @FilePath: /GoProject/MLC_GO/hellow.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,7 +23,7 @@ var (
 )
 
 func main() {
-	fmt.Println("🍎 我创建了一个简单 hello, world")
+	fmt.Println("<================🍎Go语言学习开始==============>\n")
 
 	//testVariable00()
 	//testVariable01()
@@ -34,30 +34,58 @@ func main() {
 
 	//testStruct()
 
-    testInterface()
+	//testInterface()
+
+	// testStr()
+
+	testFormatLog()
+
+	fmt.Println("\n<================🍎Go语言学习结束==============>")
 }
 
+func testFormatLog() { //格式化输出
+	pi := 3.141592653589793
+	value1 := fmt.Sprintf("%v", pi)
+	fmt.Println("value1 =", value1)
+
+	value2 := fmt.Sprintf("%f", pi)
+	fmt.Println("value2 =", value2)
+
+	fmt.Printf("\n直接打印 value1 =%v", pi)
+	fmt.Printf("\n直接打印 value2 =%f", pi)
+
+}
+
+func testStr() {
+	str := "张三 Hello"
+	str1 := str[0:2]
+
+	//当字符串包含中文时，需要先将字符串显式转换成rune数组，再传入len()函数。
+	srn := []rune(str)
+	str2 := srn[0:2]
+
+	fmt.Println("str1 = ", string(str1), "\nstr2 =", string(str2))
+}
 
 type error interface {
-    Error() string
-}
-func testInterface(){//接口
-    var ErrExampleNew = errors.New("你好 🌍世界 error")
-    var ErrExampleFmt = fmt.Errorf("你好 🌍世界, 格式化： %s", "error")
-
-    fmt.Println(reflect.TypeOf(ErrExampleNew),reflect.TypeOf(ErrExampleFmt))
+	Error() string
 }
 
+func testInterface() { //接口
+	var ErrExampleNew = errors.New("你好 🌍世界 error")
+	var ErrExampleFmt = fmt.Errorf("你好 🌍世界, 格式化： %s", "error")
 
+	fmt.Println("类型：", reflect.TypeOf(ErrExampleNew), "类型：", reflect.TypeOf(ErrExampleFmt))
+}
 
 // 结构体可以绑定相应的方法。
 // 结构体的字段和方法是否可以访问需要根据字段和方法首字母的大小写来确定，大写表示可访问（公有），而小写表示私有。
 func testStruct() { //结构体
-    /**
-    结构体在Go语言中是不同数据类型的集合，包含字段和方法。方法和函数的区别在于，方法绑定给了对象，即结构体类型，而函数是代码块的封装。
-    结构体能够以不同的组合继承相应结构体的字段和方法。
-    匿名字段的主结构体可以自动拥有字段和方法。结构体初始化时会分配一段连续的内存地址。
-    */
+	/**
+	  结构体在Go语言中是不同数据类型的集合，包含字段和方法。方法和函数的区别在于，方法绑定给了对象，即结构体类型，而函数是代码块的封装。
+	  结构体能够以不同的组合继承相应结构体的字段和方法。
+	  匿名字段的主结构体可以自动拥有字段和方法。结构体初始化时会分配一段连续的内存地址。
+	*/
 	fmt.Println("\n<===================结构体===================>")
 
 	type Info struct {
@@ -97,16 +125,16 @@ func testStruct() { //结构体
 		Location string
 	}
 	type Student struct {
-		Name string
-		University//匿名字段为University
+		Name       string
+		University //匿名字段为University
 	}
 
-    //匿名字段具有和主结构体相同的字段Name，初始化赋值时需要采用多层级“.”的形式来引用，比如std.University.Name="ShangHai"，以这种方式可以直接赋值。
+	//匿名字段具有和主结构体相同的字段Name，初始化赋值时需要采用多层级“.”的形式来引用，比如std.University.Name="ShangHai"，以这种方式可以直接赋值。
 	var std Student
 	std.Name = "逻辑思维"
 	std.University.Name = "匿名字段-布谷鸟"
 	std.Location = "南极大陆"
-	fmt.Println("\n",std)
+	fmt.Println("\n", std)
 
 }
 
