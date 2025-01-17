@@ -25,7 +25,7 @@ func main() {
 	fmt.Printf("<=============== 🍎 🍎 🍎 ===============> \n\n")
 	//fmt.Println("🍎 welcome to Go Lang! 🍎 ")
 
-	init_array()
+	init_array()//测试数组
 	// point_flag()
 	//chargeValue()
 	//pointTest1()
