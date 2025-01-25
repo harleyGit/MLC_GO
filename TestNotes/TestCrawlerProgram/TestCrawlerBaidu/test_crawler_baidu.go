@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-01-23 14:38:00
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-01-25 11:13:02
+ * @LastEditTime: 2025-01-25 13:40:03
  * @FilePath: /MLC_GO/TestNotes/TestCrawlerProgram/TestCrawlerBaidu/test_crawler_baidu.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE.
  */
@@ -10,9 +10,13 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
+
 	// "io"
 	"bufio"
+
+	"github.com/gin-gonic/gin"
 	"github.com/gocolly/colly"
 )
 
@@ -24,8 +28,27 @@ func main() {
 	//testCrawlerAppointWebpage("https://news.baidu.com")
 
 	// 存储爬虫文件
+	// testCrawlerAppointWebpageAndSaveTxt("https://news.baidu.com")
 	
+	// 把爬虫程序设置成Web服务
+	testCrawlerAppointWebpageAndSaveTxtV2()
+}
+
+// 把爬虫程序设置成Web服务
+func testCrawlerAppointWebpageAndSaveTxtV2() {
+	// 初始化引擎
+	engine := gin.Default()
+	// 注册一个路由和处理函数
+	engine.Any("/", WebRoot)
+	// 绑定端口
+	engine.Run(":9200")
+}
+// 处理路由函数
+func WebRoot(context *gin.Context){
+	// 调用 testCrawlerAppointWebpageAndSaveTxt()函数
 	testCrawlerAppointWebpageAndSaveTxt("https://news.baidu.com")
+	// 设置网页上的文本内容
+	context.String(http.StatusOK, "已经把http://news.baidu.com 的网页内容全部抓取下来\n 请查看当前项目目录下的news.txt文本文件！")
 }
 
 // 存储爬虫文件
