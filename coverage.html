@@ -1,0 +1,2843 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>TestBaseV1: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">MLC_GO/TestNotes/TestBaseV1/TestBaseV1.go (0.0%)</option>
+				
+				<option value="file1">MLC_GO/TestNotes/TestCompileAndTestTool/TestDemo/main.go (0.0%)</option>
+				
+				<option value="file2">MLC_GO/TestNotes/TestCrawlerProgram/TestCrawlerBaidu/test_crawler_baidu.go (0.0%)</option>
+				
+				<option value="file3">MLC_GO/TestNotes/TestError.go (0.0%)</option>
+				
+				<option value="file4">MLC_GO/TestNotes/TestFileHandle/TestBinaryReadAndWrite/test_binary_rw.go (0.0%)</option>
+				
+				<option value="file5">MLC_GO/TestNotes/TestFileHandle/TestFileHandelV0/test_file_handleV0.go (0.0%)</option>
+				
+				<option value="file6">MLC_GO/TestNotes/TestFileHandle/TestFileLock/test_file_lock.go (0.0%)</option>
+				
+				<option value="file7">MLC_GO/TestNotes/TestMySQL/TestMySQLV1/test_mysql_v1.go (0.0%)</option>
+				
+				<option value="file8">MLC_GO/TestNotes/TestNetProgram/TestHttp/TestHttpClient/test_http_client.go (0.0%)</option>
+				
+				<option value="file9">MLC_GO/TestNotes/TestNetProgram/TestHttp/TestHttpServer/test_http_server.go (0.0%)</option>
+				
+				<option value="file10">MLC_GO/TestNotes/TestNetProgram/TestTcpSocket/TestTCPClientSocket/test_tcp_client_socket.go (0.0%)</option>
+				
+				<option value="file11">MLC_GO/TestNotes/TestNetProgram/TestTcpSocket/TestTCPServerSocket/test_tcp_server_socket.go (0.0%)</option>
+				
+				<option value="file12">MLC_GO/TestNotes/TestNetProgram/TestUDPSocket/TestUDPClientSocket/test_udp_client_socket.go (0.0%)</option>
+				
+				<option value="file13">MLC_GO/TestNotes/TestNetProgram/TestUDPSocket/TestUDPServerSocket/test_udp_server_socket.go (0.0%)</option>
+				
+				<option value="file14">MLC_GO/TestNotes/TestPackage/demo/demo.go (0.0%)</option>
+				
+				<option value="file15">MLC_GO/TestNotes/TestPackage/main/main.go (0.0%)</option>
+				
+				<option value="file16">MLC_GO/TestNotes/TestReflect/testReflectStructTag/test_struct_tag.go (0.0%)</option>
+				
+				<option value="file17">MLC_GO/TestNotes/TestReflect/testReflectType/test_reflect_v1.go (0.0%)</option>
+				
+				<option value="file18">MLC_GO/TestNotes/TestReflect/test_reflect_v0.go (0.0%)</option>
+				
+				<option value="file19">MLC_GO/TestNotes/TestStandardLibs/TestJson/test_json.go (0.0%)</option>
+				
+				<option value="file20">MLC_GO/TestNotes/TestStandardLibs/TestLib/test_lib_main.go (0.0%)</option>
+				
+				<option value="file21">MLC_GO/TestNotes/TestStandardLibs/TestLog/test_lib_log.go (0.0%)</option>
+				
+				<option value="file22">MLC_GO/TestNotes/TestTemplateEngine/test_template_engine.go (0.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">/*
+ * @title: 学习测试
+ * @Author: gang.huang
+ * @Date: 2021-08-20 22:51:45
+ * @LastEditTime: 2024-06-14 17:20:07
+ * @FilePath: /GoDemo/main.go
+ */
+
+package main
+
+import (
+        "bytes"
+        "container/list"
+        "errors"
+        "flag"
+        "fmt"
+        "net"
+        "os"
+        "reflect"
+        "runtime"
+        "sync/atomic"
+)
+
+func main() <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+        //fmt.Println("🍎 welcome to Go Lang! 🍎 ")
+
+        init_array()//测试数组
+        // point_flag()
+        //chargeValue()
+        //pointTest1()
+        //lowVar()
+        // section_test()
+        //multiplication_table()
+        // list_delete()
+        // paramTranslate()
+        // testAnonymousFunction()
+        // testAnnoymousFunction1()
+        // testFuncImplInterface()
+        // testFuncImplInterface1()
+        // testClosure1_1()
+        // testVariableParameters("hammer", " mom", " and", " hawk")
+        // testDef()
+        // testError("💣 ❌ 错误测试")
+        // fmt.Println(testError1(1, 0))
+        // testError2()
+        // panic("💣 ❌  崩溃 ")
+        // testPanic()
+        // testPanic1()
+
+        /*
+                var version int = 1
+                cmd := testStruct(
+                        "version",
+                        &amp;version,
+                        "show version",
+                )
+                fmt.Println("取地址结构体 cmd：", cmd)
+        */
+        // testFuncMethod()
+        // testFuncMethod1()
+        // testStruct1()
+        // testStruct2()
+        // testStruct3()
+        // testInterface1()
+        // testInterface2()
+        // testInterface3()
+        // testInterface4()
+        // testInterface5()
+        // testInterface6()
+
+        // testGoroutine1()
+
+        testLock1()
+
+        fmt.Printf("\n\n&lt;=============== 🍑 🍑 🍑 ===============&gt; ")
+
+}</span>
+
+
+/**
+ * @description: 序列号生成器
+ */
+
+var (
+        // 序列号
+        seq int64
+)
+
+func testLock1() <span class="cov0" title="0">{
+        //生成10个并发序列号
+        for i := 0; i &lt; 10; i++ </span><span class="cov0" title="0">{
+                go GenID()
+        }</span>
+        <span class="cov0" title="0">fmt.Println(GenID())</span>
+}
+func GenID() int64 <span class="cov0" title="0">{
+        // 尝试原子的增加序列号
+        // 使用原子操作函数atomic.Add Int64()对seq()函数加1操作。
+        // 不过这里故意没有使用atomic.Add Int64()的返回值作为Gen ID()函数的返回值，因此会造成一个竞态问题
+        // atomic.AddInt64(&amp;seq, 1)
+        // return seq
+
+        // 尝试原子的增加序列号
+        return atomic.AddInt64(&amp;seq, 1)
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+
+func testGoroutine1() <span class="cov0" title="0">{
+        fmt.Println("CPU线程数量: ", runtime.NumCPU())
+
+        runtime.GOMAXPROCS(runtime.NumCPU())
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+/**
+ * @description: 状态接口
+ */
+type State interface {
+        // 获取状态名字
+        Name() string
+        // 该状态是否允许同状态转移
+        EnableSameTransit() bool
+        // 响应状态开始时
+        OnBegin()
+        // 响应状态结束时
+        OnEnd()
+        // 判断能否转移到某个状态
+        CanTransitTo(name string) bool
+}
+
+// 从状态实例获取状态名
+func StateName(s State) string <span class="cov0" title="0">{
+        if s == nil </span><span class="cov0" title="0">{
+                return "none"
+        }</span>
+        // 使用反射获取状态的名称
+        <span class="cov0" title="0">return reflect.TypeOf(s).Elem().Name()</span>
+}
+
+/**
+ * @description: 状态基本信息
+ */
+// 状态的基础信息和默认实现
+type StateInfo struct {
+        // 状态名
+        name string
+}
+
+// 状态名
+func (s *StateInfo) Name() string <span class="cov0" title="0">{
+        return s.name
+}</span>
+
+// 提供给内部设置名字
+// setName()方法的首字母小写，表示这个方法只能在同包内被调用。
+// 这里我们希望setName()不能被使用者在状态初始化后随意修改名称，而是通过后面提到的状态管理器自动赋值
+func (s *StateInfo) setName(name string) <span class="cov0" title="0">{
+        s.name = name
+}</span>
+
+// 允许同状态转移
+func (s *StateInfo) EnableSameTransit() bool <span class="cov0" title="0">{
+        return false
+}</span>
+
+// 默认将状态开启时实现
+func (s *StateInfo) OnBegin() {<span class="cov0" title="0">
+
+}</span>
+
+// 默认将状态结束时实现
+func (s *StateInfo) OnEnd() {<span class="cov0" title="0">}</span>
+
+// 默认可以转移到任何状态
+func (s *StateInfo) CanTransitTo(name string) bool <span class="cov0" title="0">{
+        return true
+}</span>
+
+/**
+ * @description: 状态管理器
+ */
+
+type StateManager struct {
+        // 已经添加的状态
+        // 声明一个以状态名为键，以State接口为值的map
+        stateByName map[string]State
+        // 状态改变时的回调
+        OnChange func(from, to State)
+        // 当前状态
+        curr State
+}
+
+// 添加一个状态到管理器中
+func (sm *StateManager) Add(s State) <span class="cov0" title="0">{
+        // 获取状态的名称
+        name := StateName(s)
+        // 将s转换为能设置名字的接口，然后调用该接口
+        // 将s（State接口）通过类型断言转换为带有set Name()方法(name string)的接口。
+        // 接着调用这个接口的set Name()方法设置状态的名称。使用该方法可以快速调用一个接口实现的其他方法
+        s.(interface {
+                setName(name string)
+        }).setName(name)
+        // 根据状态名获取已经添加的状态，检查该状态是否存在
+        if sm.Get(name) != nil </span><span class="cov0" title="0">{
+                panic("duplicate state:" + name)</span>
+        }
+        // 根据名字保存到map中
+        <span class="cov0" title="0">sm.stateByName[name] = s</span>
+}
+
+// 根据名字获取指定状态
+func (sm *StateManager) Get(name string) State <span class="cov0" title="0">{
+        if v, ok := sm.stateByName[name]; ok </span><span class="cov0" title="0">{
+                return v
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+
+// 初始化状态管理器
+func NewStateManager() *StateManager <span class="cov0" title="0">{
+        return &amp;StateManager{
+                stateByName: make(map[string]State),
+        }
+}</span>
+
+/**
+ * @description: 在状态间转移
+ */
+// 状态没有找到的错误
+var ErrStateNotFound = errors.New("state not found")
+
+// 禁止在同状态间转移
+var ErrForbidSameStateTransit = errors.New("forbid same state transit")
+
+// 不能转移到指定状态
+var ErrCannotTransitToState = errors.New("cannot transit to state")
+
+// 获取当前的状态
+func (sm *StateManager) CurrState() State <span class="cov0" title="0">{
+        return sm.curr
+}</span>
+
+// 当前状态能否转移到目标状态
+func (sm *StateManager) CanCurrTransitTo(name string) bool <span class="cov0" title="0">{
+        if sm.curr == nil </span><span class="cov0" title="0">{
+                return true
+        }</span>
+        // 相同的状态不用转换
+        <span class="cov0" title="0">if sm.curr.Name() == name &amp;&amp; !sm.curr.EnableSameTransit() </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        // 使用当前状态，检查能否转移到指定名字的状态
+        <span class="cov0" title="0">return sm.curr.CanTransitTo(name)</span>
+}
+
+// 转移到指定状态
+func (sm *StateManager) Transit(name string) error <span class="cov0" title="0">{
+        // 获取目标状态
+        next := sm.Get(name)
+        // 目标不存在
+        if next == nil </span><span class="cov0" title="0">{
+                return ErrStateNotFound
+        }</span>
+        // 记录转移前的状态
+        <span class="cov0" title="0">pre := sm.curr
+        // 当前有状态
+        if sm.curr != nil </span><span class="cov0" title="0">{
+                // 相同的状态不用转换
+                if sm.curr.Name() == name &amp;&amp; !sm.curr.EnableSameTransit() </span><span class="cov0" title="0">{
+                        return ErrForbidSameStateTransit
+                }</span>
+                // 不能转移到目标状态
+                <span class="cov0" title="0">if !sm.curr.CanTransitTo(name) </span><span class="cov0" title="0">{
+                        return ErrCannotTransitToState
+                }</span>
+                // 结束当前状态
+                <span class="cov0" title="0">sm.curr.OnEnd()</span>
+        }
+        // 将当前状态切换为要转移到的目标状态
+        <span class="cov0" title="0">sm.curr = next
+        // 调用新状态的开始
+        sm.curr.OnBegin()
+        // 通知回调
+        if sm.OnChange != nil </span><span class="cov0" title="0">{
+                sm.OnChange(pre, sm.curr)
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+
+/**
+ * @description: 自定义状态实现状态接口
+ */
+
+// 闲置状态
+type IdleState struct {
+        StateInfo // 使用State Info实现基础接口
+}
+
+// 重新实现状态开始
+func (i *IdleState) OnBegin() <span class="cov0" title="0">{
+        fmt.Println("Idle State begin")
+}</span>
+
+// 重新实现状态结束
+func (i *IdleState) OnEnd() <span class="cov0" title="0">{
+        fmt.Println("Idle State end")
+}</span>
+
+// 移动状态
+type MoveState struct {
+        StateInfo
+}
+
+func (m *MoveState) OnBegin() <span class="cov0" title="0">{
+        fmt.Println("Move State begin")
+}</span>
+
+// 允许移动状态互相转换
+func (m *MoveState) EnableSameTransit() bool <span class="cov0" title="0">{
+        return true
+}</span>
+
+// 跳跃状态
+type JumpState struct {
+        StateInfo
+}
+
+func (j *JumpState) OnBegin() <span class="cov0" title="0">{
+        fmt.Println("Jump State begin")
+}</span> // 跳跃状态不能转移到移动状态
+func (j *JumpState) CanTransitTo(name string) bool <span class="cov0" title="0">{
+        return name != "Move State"
+}</span>
+
+func testInterface6() <span class="cov0" title="0">{
+        // 实例化一个状态管理器
+        sm := NewStateManager()
+        // 响应状态转移的通知
+        sm.OnChange = func(from, to State) </span><span class="cov0" title="0">{
+                // 打印状态转移的流向
+                fmt.Printf("%s ---&gt; %s\n\n", StateName(from), StateName(to))
+        }</span>
+        // 添加3个状态
+        <span class="cov0" title="0">sm.Add(new(IdleState))
+        sm.Add(new(MoveState))
+        sm.Add(new(JumpState))
+        // 在不同状态间转移
+        transitAndReport(sm, "IdleState")
+        transitAndReport(sm, "MoveState")
+        transitAndReport(sm, "MoveState")
+        transitAndReport(sm, "JumpState")
+        transitAndReport(sm, "JumpState")
+        transitAndReport(sm, "IdleState")</span>
+}
+
+// 封装转移状态和输出日志
+func transitAndReport(sm *StateManager, target string) <span class="cov0" title="0">{
+        if err := sm.Transit(target); err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("FAILED! %s --&gt; %s, %s\n\n", sm.CurrState().Name(), target, err.Error())
+        }</span>
+}
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+
+func printType(v interface{}) <span class="cov0" title="0">{
+        switch v.(type) </span>{
+        case int:<span class="cov0" title="0">
+                fmt.Println(v, "is int")</span>
+        case string:<span class="cov0" title="0">
+                fmt.Println(v, "is string")</span>
+        case bool:<span class="cov0" title="0">
+                fmt.Println(v, "is bool")</span>
+        }
+}
+func testInterface5() <span class="cov0" title="0">{
+        printType(1024)
+        printType("pig")
+        printType(true)
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 定义飞行动物接口
+type Flyer interface {
+        Fly()
+}
+
+// 定义行走动物接口
+type Walker interface {
+        Walk()
+}
+
+// 定义鸟类
+type bird struct{}
+
+// 实现飞行动物接口
+func (b *bird) Fly() <span class="cov0" title="0">{
+        fmt.Println("bird: fly")
+}</span>
+
+// 为鸟添加Walk()方法，实现行走动物接口
+func (b *bird) Walk() <span class="cov0" title="0">{
+        fmt.Println("bird: walk")
+}</span>
+
+// 定义猪
+type pig struct{}
+
+// 为猪添加Walk()方法，实现行走动物接口
+func (p *pig) Walk() <span class="cov0" title="0">{
+        fmt.Println("pig: walk")
+}</span>
+func testInterface3() <span class="cov0" title="0">{
+        // 创建动物的名字到实例的映射
+        animals := map[string]interface{}{
+                "bird": new(bird),
+                "pig":  new(pig),
+        }
+        // 遍历映射
+        for name, obj := range animals </span><span class="cov0" title="0">{
+                // 使用类型断言获得f，类型为Flyer及is Flyer的断言成功的判定
+                f, isFlyer := obj.(Flyer)
+                // 判断对象是否为行走动物
+                w, isWalker := obj.(Walker)
+                fmt.Printf("name: %s is Flyer: %v is Walker: %v\n", name, isFlyer, isWalker)
+                // 如果是飞行动物则调用飞行动物接口
+                if isFlyer </span><span class="cov0" title="0">{
+                        f.Fly()
+                }</span>
+                // 如果是行走动物则调用行走动物接口
+                <span class="cov0" title="0">if isWalker </span><span class="cov0" title="0">{
+                        w.Walk()
+                }</span>
+        }
+}
+
+func testInterface4() <span class="cov0" title="0">{
+        p1 := new(pig)
+
+        var a Walker = p1
+        p2 := a.(*pig)
+
+        fmt.Printf("p1=%p p2=%p", p1, p2)
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+/**
+ * @description: 日志对外接口
+ */
+// 声明日志写入器接口
+type LogWriter interface {
+        Write(data interface{}) error
+}
+
+// 日志器
+type Logger struct {
+        // 这个日志器用到的日志写入器
+        writerList []LogWriter
+}
+
+// 注册一个日志写入器
+func (l *Logger) RegisterWriter(writer LogWriter) <span class="cov0" title="0">{
+        l.writerList = append(l.writerList, writer)
+}</span>
+
+// 将一个data类型的数据写入日志
+func (l *Logger) Log(data interface{}) <span class="cov0" title="0">{
+        // 遍历所有注册的写入器
+        for _, writer := range l.writerList </span><span class="cov0" title="0">{
+                // 将日志输出到每一个写入器中
+                writer.Write(data)
+        }</span>
+}
+
+// 创建日志器的实例￼
+func NewLogger() *Logger <span class="cov0" title="0">{
+        return &amp;Logger{}
+}</span>
+
+// 声明文件写入器
+/**
+ * @description: 文件写入器
+ * 文件写入器的功能是根据一个文件名创建日志文件（file Writer的Set File方法）。
+ * 在有日志写入时，将日志写入文件中。
+ */
+// 声明文件写入器，在结构体中保存一个文件句柄，以方便每次写入时操作
+type fileWriter struct {
+        file *os.File
+}
+
+// 设置文件写入器写入的文件名
+func (f *fileWriter) SetFile(filename string) (err error) <span class="cov0" title="0">{
+        // 如果文件已经打开，关闭前一个文件
+        // 考虑到SetFile()方法可以被多次调用（函数可重入性）
+        // 假设之前已经调用过Set File()后再次调用，此时的f.file不为空，就需要关闭之前的文件，重新创建新的文件。
+        if f.file != nil </span><span class="cov0" title="0">{
+                f.file.Close()
+        }</span>
+        // 创建一个文件并保存文件句柄
+        <span class="cov0" title="0">f.file, err = os.Create(filename)
+        // 如果创建的过程出现错误，则返回错误
+        return err</span>
+}
+
+// 实现LogWriter的Write()方法
+func (f *fileWriter) Write(data interface{}) error <span class="cov0" title="0">{
+        // 如果文件没有准备好，文件句柄为nil
+        // 此时使用errors包的New()函数返回一个错误对象，包含一个字符串“file not created”
+        if f.file == nil </span><span class="cov0" title="0">{
+                // 日志文件没有准备好
+                return errors.New("file not created")
+        }</span>
+        // 将数据序列化为字符串
+        // 使用fmt.Sprintf将data转换为字符串，这里使用的格式化参数是“%v”，意思是将data按其本来的值转换为字符串
+        <span class="cov0" title="0">str := fmt.Sprintf("%v\n", data)
+        // 通过f.file的Write()方法，将str字符串转换为[]byte字节数组，再写入到文件中。如果发生错误，则返回
+        _, err := f.file.Write([]byte(str))
+        return err</span>
+}
+
+// 创建文件写入器实例
+func newFileWriter() *fileWriter <span class="cov0" title="0">{
+        return &amp;fileWriter{}
+}</span>
+
+/**命令行写入
+ * @description:
+ */
+// 命令行写入器
+type consoleWriter struct{}
+
+// 实现LogWriter的Write()方法
+func (f *consoleWriter) Write(data interface{}) error <span class="cov0" title="0">{
+        // 将数据序列化为字符串
+        str := fmt.Sprintf("%v\n", data)
+        // 将数据以字节数组写入命令行中
+        _, err := os.Stdout.Write([]byte(str))
+        return err
+}</span>
+
+// 创建命令行写入器实例
+func newConsoleWriter() *consoleWriter <span class="cov0" title="0">{
+        return &amp;consoleWriter{}
+}</span>
+
+/** 使用日志
+ * @description:
+ */
+
+// 创建日志器
+func testInterface2() <span class="cov0" title="0">{
+        // 创建日志器
+        l := NewLogger()
+        // 创建命令行写入器
+        cw := newConsoleWriter()
+        // 注册命令行写入器到日志器中
+        l.RegisterWriter(cw)
+        // 创建文件写入器
+        fw := newFileWriter()
+        // 设置文件名
+        if err := fw.SetFile("log.log"); err != nil </span><span class="cov0" title="0">{
+                fmt.Println(err)
+        }</span>
+        // 注册文件写入器到日志器中
+        <span class="cov0" title="0">l.RegisterWriter(fw)
+
+        // 写一个日志
+        l.Log("hello")</span>
+}
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 定义一个数据写入器
+type DataWriter interface {
+        // interface{}类型的data，返回一个error结构表示可能发生的错误
+        WriteData(data interface{}) error
+}
+
+// 定义文件结构，用于实现DataWriter
+type file struct{}
+
+// 实现DataWriter接口的WriteData()方法
+func (d *file) WriteData(data interface{}) error <span class="cov0" title="0">{
+        // 模拟写入数据
+        fmt.Println("Write Data:", data)
+        return nil
+}</span>
+
+/** 接口的方法与实现接口的类型方法格式一致
+ * @description:
+ */
+func testInterface1() <span class="cov0" title="0">{
+        // 实例化file赋值给f，f的类型为*file
+        f := new(file)
+        // 声明一个DataWriter的接口
+        var writer DataWriter
+        // 将接口赋值f，也就是＊file类型
+        writer = f
+        // 使用DataWriter接口进行数据写入
+        writer.WriteData("data")
+}</span>
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+
+// 车轮
+type Wheel struct {
+        Size int
+}
+
+// 车
+type Car struct {
+        Wheel
+        // 引擎
+        Engine struct {
+                Power int    // 功率
+                Type  string // 类型
+        }
+}
+
+func testStruct3() <span class="cov0" title="0">{
+        c := Car{
+                // 初始化轮子（初始化结构体内嵌）
+                Wheel: Wheel{
+                        Size: 18,
+                },
+                // 初始化引擎（初始化内嵌匿名结构体）
+                Engine: struct {
+                        Power int
+                        Type  string
+                }{
+                        Type:  "1.4T",
+                        Power: 143,
+                },
+        }
+        fmt.Printf("%+v\n", c)
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 可飞行的
+type Flying struct{}
+
+func (f *Flying) Fly() <span class="cov0" title="0">{
+        fmt.Println("can fly")
+}</span>
+
+// 可行走的
+type Walkable struct{}
+
+func (f *Walkable) Walk() <span class="cov0" title="0">{
+        fmt.Println("can calk")
+}</span>
+
+// 人类
+type Human struct {
+        Walkable
+        // 人类能行走
+}
+
+// 鸟类
+type Bird struct {
+        Walkable
+        // 鸟类能行走
+        Flying
+        // 鸟类能飞行
+}
+
+func testStruct2() <span class="cov0" title="0">{
+        // 实例化鸟类
+        b := new(Bird)
+        fmt.Println("Bird: ")
+        b.Fly()
+        b.Walk()
+        // 实例化人类
+        h := new(Human)
+        fmt.Println("Human: ")
+        h.Walk()
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+type BasicColor struct {
+        R, G, B float32
+}
+type Color struct {
+        // 结构体内嵌
+        BasicColor
+        Alpha float32
+}
+
+/**
+ * @description: 声明结构体内嵌
+ */
+func testStruct1() <span class="cov0" title="0">{
+        // 实例化一个完整颜色结构体
+        var c Color
+        c.R = 1
+        c.G = 1
+        c.B = 0
+        c.Alpha = 1
+        fmt.Printf("%+v", c)
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+// 实例化一个通过字符串映射函数切片的map
+// 创建一个map实例，这个map通过事件名（string）关联回调列表（[]func(interface{}），
+// 同一个事件名称可能存在多个事件回调，因此使用回调列表保存。回调的函数声明为func(interface{})
+var eventByName = make(map[string][]func(interface{}))
+
+/**事件注册
+ * @description: 注册事件，提供事件名和回调函数
+ */
+func RegisterEvent(name string, callback func(interface{})) <span class="cov0" title="0">{
+        // 通过名字查找事件列表
+        list := eventByName[name]
+        // 在列表切片中添加函数
+        // 为同一个事件名称在已经注册的事件回调的列表中再添加一个回调函数
+        list = append(list, callback)
+        // 保存修改的事件列表切片
+        eventByName[name] = list
+}</span>
+
+/**事件调用
+ * @description:调用事件
+ */
+func CallEvent(name string, param interface{}) <span class="cov0" title="0">{
+        // 通过名字找到事件列表
+        list := eventByName[name]
+        // 遍历这个事件的所有回调
+        for _, callback := range list </span><span class="cov0" title="0">{
+                // 传入参数调用回调
+                callback(param)
+        }</span>
+}
+
+/**使用事件系统
+ * @description:
+ */
+// 声明角色的结构体
+type Actor struct{}
+
+// 为角色添加一个事件处理函数
+// 拥有param参数，类型为interface{}，与事件系统的函数（func(interface{})）签名一致
+func (a *Actor) OnEvent(param interface{}) <span class="cov0" title="0">{
+        fmt.Println("actor event:", param)
+}</span>
+
+// 全局事件
+func GlobalEvent(param interface{}) <span class="cov0" title="0">{
+        fmt.Println("global event:", param)
+}</span>
+func testFuncMethod1() <span class="cov0" title="0">{
+        // 实例化一个角色
+        a := new(Actor)
+        // 注册名为On Skill的回调
+        RegisterEvent("On Skill", a.OnEvent) // 再次在OnSkill上注册全局事件
+        RegisterEvent("On Skill", GlobalEvent)
+        // 调用事件，所有注册的同名函数都会被调用
+        CallEvent("On Skill", 100)
+}</span>
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+
+// &gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+// 声明一个结构体
+type class struct{}
+
+// 给结构体添加Do()方法
+func (c *class) Do(v int) <span class="cov0" title="0">{
+        fmt.Println("call method do:", v)
+}</span>
+
+// 普通函数的Do()方法
+func funcDo(v int) <span class="cov0" title="0">{
+        fmt.Println("call function do:", v)
+}</span>
+
+/**
+ * @description:方法和函数的统一调用
+ */
+func testFuncMethod() <span class="cov0" title="0">{
+        // 声明一个函数回调
+        var delegate func(int)
+        // 创建结构体实例
+        c := new(class)
+        // 将回调设为c的Do方法
+        delegate = c.Do
+        // 调用
+        delegate(100)
+        // 将回调设为普通函数
+        delegate = funcDo
+        // 调用3
+        delegate(100)
+}</span>
+
+//&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+type Command struct {
+        Name    string // 指令名称
+        Var     *int   // 指令绑定的变量
+        Comment string // 指令的解释
+}
+
+/**
+ * @description: 取地址结构体实例化
+ * @param {string} name
+ * @param {*int} varref
+ * @param {string} comment 描述
+ * @return {*}
+ */
+func testStruct(name string, varref *int, comment string) *Command <span class="cov0" title="0">{
+        return &amp;Command{
+                Name:    name,
+                Var:     varref,
+                Comment: comment}
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 崩溃时需要传递的上下文信息
+type panicContext struct {
+        function string // 所在函数
+}
+
+// 保护方式允许一个函数
+func ProtectRun(entry func()) <span class="cov0" title="0">{
+        // 使用defer将闭包延迟执行，当panic触发崩溃时，ProtectRun()函数将结束运行，此时defer后的闭包将会发生调用
+        defer func() </span><span class="cov0" title="0">{
+                // 发生宕机时，获取panic传递的上下文并打印
+                // recover()获取到panic传入的参数
+                err := recover()
+                switch err.(type) </span>{
+                case runtime.Error:<span class="cov0" title="0"> // 如果错误是有Runtime层抛出的运行时错误，如空指针访问、除数为0等情况，打印运行时错误
+                        fmt.Println("runtime error:", err)</span>
+                default:<span class="cov0" title="0"> // 非运行时错误
+                        fmt.Println("error:", err)</span>
+                }
+        }()
+        <span class="cov0" title="0">entry()</span>
+}
+
+/**
+ * @description: 宕机处理
+ * @param {*}
+ * @return {*}
+ */
+func testPanic1() <span class="cov0" title="0">{
+        fmt.Println("运行前")
+        // 允许一段手动触发的错误
+        ProtectRun(func() </span><span class="cov0" title="0">{
+                fmt.Println("手动宕机前")
+                // 使用panic传递上下文
+                // 使用panic手动触发一个错误，并将一个结构体附带信息传递过去，此时，recover就会获取到这个结构体信息，并打印出来
+                panic(&amp;panicContext{
+                        "手动触发panic",
+                })</span>
+                <span class="cov0" title="0">fmt.Println("手动宕机后")</span>
+        })
+        // 故意造成空指针访问错误
+        <span class="cov0" title="0">ProtectRun(func() </span><span class="cov0" title="0">{
+                fmt.Println("赋值宕机前")
+                var a *int
+                // 模拟代码中空指针赋值造成的错误，此时会由Runtime层抛出错误，被ProtectRun()函数的recover()函数捕获到
+                *a = 1
+                fmt.Println("赋值宕机后")
+        }</span>)
+        <span class="cov0" title="0">fmt.Println("运行后")</span>
+}
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+func testPanic() <span class="cov0" title="0">{
+        defer fmt.Println("💣 宕机后要做的事情1 ")
+        defer fmt.Println("❌ 宕机后要做的事情2 ")
+
+        panic("宕机")</span>
+}
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 声明一个解析错误
+type ParseError struct {
+        Filename string // 文件名
+        Line     int    // 行号
+}
+
+// 实现error接口，返回错误描述
+func (e *ParseError) Error() string <span class="cov0" title="0">{
+        return fmt.Sprintf("%s:%d", e.Filename, e.Line)
+}</span>
+
+/**
+ * @description: 自定义Error
+ * @param {*}
+ * @return {*}
+ */
+func testError2() <span class="cov0" title="0">{
+        var e error
+        // 创建一个错误实例，包含文件名和行号
+        e = &amp;ParseError{"main.go", 1}
+
+        // 通过error接口查看错误描述
+        fmt.Println(e.Error())
+
+        // 根据错误接口的具体类型，获取详细的错误信息
+        switch detail := e.(type) </span>{
+        case *ParseError:<span class="cov0" title="0"> // 这是一个解析错误
+                fmt.Printf("Filename: %s Line: %d\n", detail.Filename, detail.Line)</span>
+        default:<span class="cov0" title="0"> // 其他类型的错误
+                fmt.Println("other error")</span>
+        }
+}
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+/**
+ * @description:除法错误测试
+ * @param {*}
+ * @return {*}
+ */
+// 定义除数为0的错误
+var errDivisionByZero = errors.New("division by zero")
+
+func testError1(dividend, divisor int) (int, error) <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 判断除数为0的情况并返回
+        if divisor == 0 </span><span class="cov0" title="0">{
+
+                return 0, errDivisionByZero
+        }</span>
+        // 正常计算，打印空错误
+        <span class="cov0" title="0">return dividend / divisor, nil</span>
+
+}
+
+// &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+// 错误字符串
+type errorString struct {
+        s string
+}
+
+// 返回发生何种错误
+// 实现error接口的Error()方法，该方法返回成员中的错误描述
+func (e *errorString) Error() string <span class="cov0" title="0">{
+        return e.s
+}</span>
+
+/**
+ * @description: 错误
+ * @param {*}
+ * @return {*}
+ */
+func testError(text string) <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+        fmt.Print(&amp;errorString{text})
+}</span>
+
+//&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;
+
+/**延迟语法
+ * @description:
+ * @param {*}
+ * @return {*}
+ */
+func testDef() <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        filename := "/Users/harleyhuang/Documents/GitHub/Go/GoDemo/main.go"
+
+        f, err := os.Open(filename)
+        if err != nil </span><span class="cov0" title="0">{
+                return
+        }</span>
+        // 延迟调用Close，此时Close不会被调用
+        <span class="cov0" title="0">defer f.Close()
+        info, err := f.Stat()
+        if err != nil </span><span class="cov0" title="0">{
+                // defer机制触发，调用Close关闭文件
+                return
+        }</span>
+        <span class="cov0" title="0">size := info.Size()
+        // defer机制触发，调用Close关闭文件
+        fmt.Println("文件size：", size)</span>
+}
+
+/**
+ * @description: 可变参数
+ * @param {*}
+ * @return {*}
+ */
+func testVariableParameters(slist ...string) <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 定义一个字节缓冲，快速地连接字符串
+        var b bytes.Buffer
+        // 遍历可变参数列表slist，类型为[]string
+        for _, s := range slist </span><span class="cov0" title="0">{
+                // 将遍历出的字符串连续写入字节数组
+                b.WriteString(s)
+        }</span>
+        // 将连接好的字节数组转换为字符串并输出
+        <span class="cov0" title="0">fmt.Printf(b.String())</span>
+
+}
+
+/**
+ * @description: 闭包的记忆效应
+ * @param {*}
+ * @return {*}
+ */
+func testClosure1_1() <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 创建一个累加器，初始值为1，
+        // 返回的accumulator是类型为func() int的函数变量。
+        accumulator := testClosure1(1)
+        // 调用accumulator()时，开始执行func() int{}匿名函数逻辑，直到返回类加值
+        fmt.Println(accumulator())
+        fmt.Println(accumulator())
+        // 打印累加器的函数地址
+        fmt.Printf("%p\n", accumulator)
+        // 创建一个累加器，初始值为
+        accumulator2 := testClosure1(10)
+        // 累加1并打印
+        fmt.Println(accumulator2())
+        // 打印累加器的函数地址
+        fmt.Printf("%p\n", accumulator2)
+
+}</span>
+
+/**
+ * @description: 累加器生成函数，这个函数输出一个初始值，调用时返回一个为初始值创建的闭包函数
+ * @param {*}
+ * @return {*}
+ */
+func testClosure1(value int) func() int <span class="cov0" title="0">{
+
+        // 返回一个闭包函数，每次返回会创建一个新的函数实例
+        return func() int </span><span class="cov0" title="0">{
+                // 对引用的testClosure1参数变量进行累加，
+                // 注意value不是要返回的匿名函数定义的，但是被这个匿名函数引用，所以形成闭包。
+                value++
+                // 返回一个累加值
+                return value
+        }</span>
+}
+
+// 函数定义为类型
+type FuncCaller func(interface{})
+
+// 实现Invoker的Call
+func (f FuncCaller) Call(p interface{}) <span class="cov0" title="0">{
+        // 调用f()函数本体
+        f(p)
+}</span>
+
+/**
+ * @description: 函数实现接口
+ * @param {*}
+ * @return {*}
+ */
+func testFuncImplInterface1() <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 声明接口变量
+        var invoker Invoker
+        // 将匿名函数转为Func Caller类型，再赋值给接口
+        invoker = FuncCaller(func(v interface{}) </span><span class="cov0" title="0">{
+                fmt.Println("from function", v)
+        }</span>)
+        // 使用接口调用Func Caller.Call，内部会调用函数本体
+        <span class="cov0" title="0">invoker.Call("🍓 函数接口 hello")</span>
+}
+
+// 调用器接口
+type Invoker interface {
+        // 需要实现一个Call()方法
+        Call(interface{})
+}
+
+type Struct struct{}
+
+func (s *Struct) Call(p interface{}) <span class="cov0" title="0">{
+        fmt.Println("from struct", p)
+}</span>
+
+/**
+ * @description: 结构体实现接口
+ * @param {*}
+ * @return {*}
+ */
+func testFuncImplInterface() <span class="cov0" title="0">{
+        fmt.Printf("&lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 声明接口变量
+        var invoker Invoker
+        // 实例化结构体
+        s := new(Struct)
+        // 将实例化的结构体赋值到接口
+        invoker = s
+        // 使用接口调用实例化结构体的方法Struct.Call
+        invoker.Call("🍎 hello 函数实现接口")
+}</span>
+
+/**
+ * @description: 匿名函数封装
+ * @param {*}
+ * @return {*}
+ */
+func testAnnoymousFunction1() <span class="cov0" title="0">{
+
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 定义命令行skillParam，从命令行输入—skill可以将空格后的字符串传入skill Param指针变量
+        var skillParam = flag.String("skill", "", "skill to perform")
+
+        // 解析命令行参数，解析完成后，skillParam指针变量将指向命令行传入的值
+        flag.Parse()
+
+        // 定义一个从字符串映射到func()的map，然后填充这个map
+        var skill = map[string]func(){
+                "fire": func() </span><span class="cov0" title="0">{
+                        fmt.Println("chicken fire")
+                }</span>,
+                "run": func() <span class="cov0" title="0">{
+                        fmt.Println("soldier run")
+                }</span>,
+                "fly": func() <span class="cov0" title="0">{
+                        fmt.Println("angel fly")
+                }</span>}
+
+        // skillParam是一个*string类型的指针变量，使用*skill Param获取到命令行传过来的值，并在map中查找对应命令行参数指定的字符串的函数
+        <span class="cov0" title="0">if f, ok := skill[*skillParam]; ok </span><span class="cov0" title="0">{
+                f()
+        }</span> else<span class="cov0" title="0"> {
+                fmt.Println("skill not found")
+        }</span>
+}
+
+// 遍历切片的每个元素，通过给定函数进行元素访问
+func visit(list []int, f func(int)) <span class="cov0" title="0">{
+        for _, v := range list </span><span class="cov0" title="0">{
+                f(v)
+        }</span>
+}
+
+/**
+ * @description: 匿名函数
+ * @param {*}
+ * @return {*}
+ */
+func testAnonymousFunction() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 使用匿名函数打印切片内容18
+        visit([]int{1, 2, 3, 4}, func(v int) </span><span class="cov0" title="0">{
+                fmt.Println(v)
+        }</span>)
+
+        <span class="cov0" title="0">func(data int) </span><span class="cov0" title="0">{
+                fmt.Println("hello", data)
+        }</span>(100)
+
+        // 将匿名函数体保存到f()
+        <span class="cov0" title="0">f := func(data int) </span><span class="cov0" title="0">{
+                fmt.Println("hello", data)
+        }</span>
+        // 使用f()调用
+        <span class="cov0" title="0">f(100)</span>
+
+}
+
+// 用于测试值传递效果的结构体
+type Data struct {
+        // 测试切片在参数传递中的效果
+        complax []int
+
+        instance InnerData
+        // 实例分配的inner Data
+        ptr *InnerData
+        // 将ptr声明为Inner Data的指针类型
+}
+
+// 代表各种结构体字段
+type InnerData struct {
+        a int
+}
+
+func passByValue(inFunc Data) Data <span class="cov0" title="0">{
+        // 输出参数的成员情况
+        // 使用格式化的“%+v”动词输出in变量的详细结构，以便观察Data结构在传递前后的内部数值的变化情况
+        fmt.Printf("in Func value: %+v\n", inFunc)
+        // 打印inFunc的指针，在计算机中，拥有相同地址且类型相同的变量，表示的是同一块内存区域
+        fmt.Printf("in Func ptr: %p\n", &amp;inFunc)
+        return inFunc
+}</span>
+
+/**
+ * @description: 值传递的测试函数
+ * @param {*}
+ * @return {*}
+ */
+func paramTranslate() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        in := Data{
+                //切片
+                complax: []int{1, 2, 3},
+                // 结构体
+                instance: InnerData{
+                        5,
+                },
+                // 指针
+                ptr: &amp;InnerData{1},
+        }
+        // 输入结构的成员情况
+        fmt.Printf("in value: %+v\n", in)
+        // 输入结构的指针地址
+        fmt.Printf("in ptr: %p\n", &amp;in)
+        // 传入结构体，返回同类型的结构体
+        out := passByValue(in)
+        // 输出结构的成员情况
+        fmt.Printf("out value: %+v\n", out)
+        // 输出结构的指针地址
+        fmt.Printf("out ptr: %p\n", &amp;out)
+}</span>
+
+// 列表删除
+func list_delete() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        l := list.New()
+
+        // 尾部添加
+        l.PushBack("canon")
+        // 头部添加
+        l.PushFront(67)
+        // 尾部添加后保存元素句柄
+        element := l.PushBack("fist")
+        // 在fist之后添加high
+        l.InsertAfter("high", element)
+        // 在fist之前添加noon
+        l.InsertBefore("noon", element)
+        // 使用
+        l.Remove(element)
+
+        for i := l.Front(); i != nil; i = i.Next() </span><span class="cov0" title="0">{
+                fmt.Println(i.Value)
+        }</span>
+}
+
+// 九九乘法表：
+func multiplication_table() <span class="cov0" title="0">{
+
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 遍历，决定处理第几行
+        for y := 1; y &lt;= 9; y++ </span><span class="cov0" title="0">{
+                // 遍历，决定这一行有多少列
+                for x := 1; x &lt;= y; x++ </span><span class="cov0" title="0">{
+                        fmt.Printf("%d＊%d=%d ", x, y, x*y)
+                }</span>
+                // 手动生成回车
+                <span class="cov0" title="0">fmt.Println()</span>
+        }
+}
+
+// 切片
+func section_test() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        var a = [4]int{10, 20, 30, 40}
+
+        fmt.Println(a, "\n", a[1:3])
+}</span>
+
+// 初始化数组
+func init_array() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        var member = [...]string{"曹可馨", "是个", "放屁精🐳", "曹智宸", "是个", "调皮鬼😝", "李亚", "是个", "小螃蟹🦀️"}
+
+        for k, v := range member </span><span class="cov0" title="0">{
+                fmt.Println(k, v)
+
+        }</span>
+
+        <span class="cov0" title="0">scene := make(map[string]int)
+        scene["route"] = 66
+        fmt.Println(scene["route"])
+        v := scene["route2"]
+
+        fmt.Println(v)
+
+        m := map[string]string{
+                "W": "forward",
+                "A": "left",
+                "D": "right",
+                "S": "backward",
+        }
+
+        for k, v := range m </span><span class="cov0" title="0">{
+                fmt.Println(k, v)
+        }</span>
+
+}
+
+// 使用指针变量获取命令行的输入信息
+func point_flag() <span class="cov0" title="0">{
+        // 定义命令行参数
+        /*
+        * 3个参数分别如下：
+        * 参数名称：在给应用输入参数时，使用这个名称
+        * 参数值的默认值：与flag所使用的函数创建变量类型对应，String对应字符串、Int对应整型、Bool对应布尔型等
+        * 参数说明：使用-help时，会出现在说明中
+         */
+        var mode = flag.String("mode", "🍊 🍊", "process mode")
+
+        // 解析命令行参数
+        flag.Parse()
+
+        fmt.Println(*mode)
+}</span>
+
+// 函数的交换
+func chargeValue() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // 准备两个变量，赋值1和2
+        x, y := 1, 2
+        // 交换变量值
+        swap(&amp;x, &amp;y)
+
+        fmt.Println(x, y)
+
+}</span>
+
+func swap(a, b *int) <span class="cov0" title="0">{
+        // 取a指针的值，赋给临时变量
+        t := *a
+
+        // 取b指针的值，赋给a指针指向的变量
+        // 注意，此时“*a”的意思不是取a指针的值，而是“a指向的变量”
+        *a = *b
+        // 将a指针的值赋给b指针指向的变量
+        *b = t
+}</span>
+
+// 从指针获取指针指向的值
+func pointTest1() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        var house string = "🏠 房屋 366——26-404"
+
+        ptr := &amp;house
+
+        fmt.Printf("ptr type: %T\n", ptr)
+        fmt.Printf("address: %p\n", ptr)
+
+        value := *ptr
+
+        fmt.Printf("value type: %T\n", value)
+        fmt.Printf("value: %s\n", value)
+}</span>
+
+func pointTest0() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        var cat int = 1
+        var str string = "banana"
+
+        fmt.Printf("%p %p ", &amp;cat, &amp;str)
+}</span>
+
+// 短变量声明并初始化
+func lowVar() <span class="cov0" title="0">{
+        fmt.Printf("\n\n &lt;=============== 🍎 🍎 🍎 ===============&gt; \n\n")
+
+        // Go语言的推导声明写法，编译器会自动根据右值类型推断出左值的对应类型
+        // 注意：由于使用了“:=”，而不是赋值的“=”，因此推导声明写法的左值变量必须是没有定义过的变量。若定义过，将会发生编译错误。
+        hp := 10
+
+        // 注意：在多个短变量声明和赋值中，至少有一个新声明的变量出现在左值中，即便其他变量名可能是重复声明的，编译器也不会报错
+        conn, err := net.Dial("tcp", "127.0.0.1: 8080")
+        conn2, err := net.Dial("tcp", "127.0.0.1: 8080")
+
+        fmt.Printf("hp: %d, conn: %s, err: %s, conn2: %s", hp, conn, err, conn2)
+
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-17 14:15:58
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-17 14:36:56
+ * @FilePath: /MLC_GO/TestNotes/TestCompileAndTestTool/TestDemo/main.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "fmt"
+)
+
+func main() <span class="cov0" title="0">{
+        fmt.Println("hellow world!!!")
+}</span>
+
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-23 14:38:00
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-25 13:40:03
+ * @FilePath: /MLC_GO/TestNotes/TestCrawlerProgram/TestCrawlerBaidu/test_crawler_baidu.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE.
+ */
+package main
+
+import (
+        "fmt"
+        "net/http"
+        "os"
+
+        // "io"
+        "bufio"
+
+        "github.com/gin-gonic/gin"
+        "github.com/gocolly/colly"
+)
+
+func main() <span class="cov0" title="0">{
+        // 根据http://news.baidu.com开始抓取页面结果
+        //testCrawlerBaidu()
+
+        // 访问指定网址
+        //testCrawlerAppointWebpage("https://news.baidu.com")
+
+        // 存储爬虫文件
+        // testCrawlerAppointWebpageAndSaveTxt("https://news.baidu.com")
+        
+        // 把爬虫程序设置成Web服务
+        testCrawlerAppointWebpageAndSaveTxtV2()
+}</span>
+
+// 把爬虫程序设置成Web服务
+func testCrawlerAppointWebpageAndSaveTxtV2() <span class="cov0" title="0">{
+        // 初始化引擎
+        engine := gin.Default()
+        // 注册一个路由和处理函数
+        engine.Any("/", WebRoot)
+        // 绑定端口
+        engine.Run(":9200")
+}</span>
+// 处理路由函数
+func WebRoot(context *gin.Context)<span class="cov0" title="0">{
+        // 调用 testCrawlerAppointWebpageAndSaveTxt()函数
+        testCrawlerAppointWebpageAndSaveTxt("https://news.baidu.com")
+        // 设置网页上的文本内容
+        context.String(http.StatusOK, "已经把http://news.baidu.com 的网页内容全部抓取下来\n 请查看当前项目目录下的news.txt文本文件！")
+}</span>
+
+// 存储爬虫文件
+func testCrawlerAppointWebpageAndSaveTxt(urls string) <span class="cov0" title="0">{
+        // 创建 Collector 对象
+        c := colly.NewCollector()
+        /* 
+        * 是否抓取指定链接的网页内容
+        * 初始设置为不抓取指定链接的网页内容
+         */
+        visited := false
+        // 使用 Collector 对象抓取 URL
+        c.OnResponse(func (r *colly.Response)  </span><span class="cov0" title="0">{
+                if !visited </span><span class="cov0" title="0">{
+                        visited = true
+                        r.Request.Visit("/get?q=2")
+                }</span>
+        })
+
+        // 文件的创建和持续写入
+        <span class="cov0" title="0">filename := "news.txt"        // 文件名
+        var f *os.File
+        var fileErr error 
+        if testCheckFileExist(filename) </span><span class="cov0" title="0">{        // 如果文件存在
+                f, fileErr = os.OpenFile(filename, os.O_APPEND | os.O_WRONLY, 0666)        // 打开文件
+                if fileErr != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("❌ 打开文件 news.txt 失败：%v\n", fileErr)
+                }</span>
+        } else<span class="cov0" title="0"> {
+                f,_ = os.Create(filename)        // 创建文件
+                fmt.Println("🍎 新建文件 news.txt")
+
+        }</span>
+        <span class="cov0" title="0">defer f.Close()        // 关闭文件
+        write := bufio.NewWriter(f)
+        defer write.Flush()
+
+        // 对指定链接网页内容进行处理
+        c.OnHTML("a[href]", func (e *colly.HTMLElement)  </span><span class="cov0" title="0">{
+                href := e.Text        // 获取指定链接的网页内容
+                write.WriteString("🍒 "+href+"\n")
+                fmt.Println("🍎 网页内容：",href)        // 打印指定链接的网页内容
+        }</span>)
+
+
+        <span class="cov0" title="0">c.Visit(urls)</span>        //访问指定链接
+}
+/* 检测文件是否存在
+* fileName 文件名
+ */
+func testCheckFileExist(filename string) bool <span class="cov0" title="0">{
+        var exist = true
+        if _, err := os.Stat(filename); os.IsNotExist(err) </span><span class="cov0" title="0">{
+                exist = false
+        }</span>
+        <span class="cov0" title="0">return exist</span>
+}
+
+/// 抓取指定连接的网页内容 urls: 指定链接
+func testCrawlerAppointWebpage(urls string) <span class="cov0" title="0">{
+        // 创建 Collector 对象
+        c := colly.NewCollector()
+        /* 
+        * 是否抓取指定链接的网页内容
+        * 初始设置为不抓取指定链接的网页内容
+         */
+        visited := false
+        // 使用 Collector 对象抓取 URL
+        c.OnResponse(func (r *colly.Response)  </span><span class="cov0" title="0">{
+                if !visited </span><span class="cov0" title="0">{
+                        visited = true
+                        r.Request.Visit("/get?q=2")
+                }</span>
+        })
+
+        // 对指定链接网页内容进行处理
+        <span class="cov0" title="0">c.OnHTML("a[href]", func (e *colly.HTMLElement)  </span><span class="cov0" title="0">{
+                href := e.Text        // 获取指定链接的网页内容
+                fmt.Println("🍎 网页内容：",href)        // 打印指定链接的网页内容
+        }</span>)
+        <span class="cov0" title="0">c.Visit(urls)</span>        //访问指定链接
+}
+
+// / 爬虫百度新闻网页
+func testCrawlerBaidu() <span class="cov0" title="0">{
+        c := colly.NewCollector(
+                // colly.AllowedDomains("news.baidu.com"),
+                colly.UserAgent("Opera/9.80(Windows NT 6.1; U; zh-cn) Presto/2.9.168 Version/11.50"))
+        // 发出请求时向 Collector 对象附加的回调函数
+        c.OnRequest(func(r *colly.Request) </span><span class="cov0" title="0">{
+                // 设置请求头
+                r.Headers.Set("Host", "baidu.com")
+                r.Headers.Set("Connection", "keep-alive")
+                r.Headers.Set("Accept", "*/*")
+                r.Headers.Set("Origin", "")
+                r.Headers.Set("Referer", "http://www.baidu.com")
+                r.Headers.Set("Accept-Encoding", "gzip, deflate")
+                r.Headers.Set("Accept-Language", "zh-CN, zh;q=0.9")
+                fmt.Println("正在访问：", r.URL)
+        }</span>)
+
+        // 处理HTML中的文档标题
+        <span class="cov0" title="0">c.OnHTML("title", func(e *colly.HTMLElement) </span><span class="cov0" title="0">{
+                fmt.Println("文档标题：", e.Text)
+        }</span>)
+
+        // 处理HTML中的文档内容
+        <span class="cov0" title="0">c.OnHTML("body", func(e *colly.HTMLElement) </span><span class="cov0" title="0">{
+                e.ForEach(".hotnews a", func(i int, el *colly.HTMLElement) </span><span class="cov0" title="0">{
+                        band := el.Attr("href")
+                        title := el.Text
+                        fmt.Printf("文档内容 %d: %s\n%s\n", i+1, title, band)
+                }</span>)
+        })
+
+        // 获取收到的响应内容的数量
+        <span class="cov0" title="0">c.OnResponse(func(r *colly.Response) </span><span class="cov0" title="0">{
+                fmt.Println("收到响应内容的数量： ", r.StatusCode)
+        }</span>)
+
+        // 限制 visit 的线程数， visit 可以同时运行多个
+        <span class="cov0" title="0">c.Limit(&amp;colly.LimitRule{
+                Parallelism: 2,
+        })
+
+        c.Visit("http://news.baidu.com")</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2024-05-22 19:48:47
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2024-05-22 20:05:25
+ * @FilePath: /MLC_GO/TestNotes/TestError.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "errors"
+        "fmt"
+)
+
+func ErrorUsage() <span class="cov0" title="0">{
+        err := errors.New("type")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println(err.Error())
+        }</span>
+
+        <span class="cov0" title="0">err2 := fmt.Errorf("err: %s", "found 2")
+        if err2 != nil </span><span class="cov0" title="0">{
+                fmt.Println(err2.Error())
+        }</span>
+}
+
+func main() <span class="cov0" title="0">{
+        ErrorUsage()
+}</span>
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-22 15:29:12
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-22 15:47:52
+ * @FilePath: /MLC_GO/TestNotes/TestFileHandle/TestBinaryReadAndWrite/test_binary_rw.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "bytes"
+        "encoding/binary"
+        "encoding/gob"
+        "fmt"
+        "os"
+)
+
+
+func main() <span class="cov0" title="0">{
+        // 二进制文件并写入
+        // testBinaryWrite()
+
+
+        // 自定义二进制写入
+        testCustomBinaryWrite()
+}</span>
+
+type Website struct {
+        Url int32
+}
+// 自定义二进制写入
+func testCustomBinaryWrite() <span class="cov0" title="0">{
+        file, err := os.Create("output.bin")
+        for i := 1; i &lt;= 10; i++ </span><span class="cov0" title="0">{
+                info := Website{ int32(i) }
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("文件创建失败", err.Error())
+                        return
+                }</span>
+
+                <span class="cov0" title="0">defer file.Close()
+
+                var bin_buf bytes.Buffer
+                binary.Write(&amp;bin_buf, binary.LittleEndian, info)
+                b := bin_buf.Bytes()
+                _,err = file.Write(b)
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("编码失败", err.Error())
+                        return
+                }</span>
+        }
+        <span class="cov0" title="0">fmt.Println("编码成功")</span>
+}
+
+// 二进制文件并写入
+func testBinaryWrite() <span class="cov0" title="0">{
+        info := "黄沙百战穿金甲，不破楼兰终不还。"
+        file, err := os.Create("output.gob")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("创建文件失败", err.Error())
+        }</span>
+        <span class="cov0" title="0">defer file.Close()
+
+        encoder := gob.NewEncoder(file)
+        err = encoder.Encode(info)
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("编码错误", err.Error())
+        }</span>else<span class="cov0" title="0"> {
+                fmt.Println("编码成功")
+        }</span>
+}</pre>
+		
+		<pre class="file" id="file5" style="display: none">/// 创建文件并写入
+
+package main
+
+import (
+        "bufio"
+        "fmt"
+        "os"
+)
+
+
+func main() <span class="cov0" title="0">{
+        testCreateFileAndWrite()
+}</span>
+
+// 创建文件并写入
+func testCreateFileAndWrite() <span class="cov0" title="0">{
+        // 打开文件
+        // 0666 表示当前文件没有特殊权限， 任何用户都可以对其执行写入、读取操作
+        file, err := os.OpenFile("poetry.txt", os.O_WRONLY|os.O_CREATE, 0666)
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("打开文件失败", err)
+        }</span>
+
+        <span class="cov0" title="0">defer file.Close()
+
+        // 使用带缓存的Writer
+        write := bufio.NewWriter(file)
+        write.WriteString("青海白云暗雪山，")
+        write.WriteString("孤城遥望玉门关。")
+        write.WriteString("黄沙百战穿金甲，")
+        write.WriteString("不破楼兰终不还。")
+
+        // 将缓存的数据写入文件
+        write.Flush()
+
+        fmt.Println("诗句以ing写入文件， 请查看")</span>
+}</pre>
+		
+		<pre class="file" id="file6" style="display: none">package main
+
+import (
+        "fmt"
+        "os"
+        "sync"
+        "syscall"
+        "time"
+)
+
+// 文件锁
+type FileLock struct {
+        dir string
+        f *os.File
+}
+
+func main() <span class="cov0" title="0">{
+        test_file_path,_ := os.Getwd()
+        locked_file := test_file_path
+
+        wg := sync.WaitGroup{}
+
+        for i := 0; i &lt; 10; i++ </span><span class="cov0" title="0">{
+                wg.Add(1)
+                go func (num int)  </span><span class="cov0" title="0">{
+                        flock := new(locked_file)
+                        err := flock.Lock()
+                        if err != nil </span><span class="cov0" title="0">{
+                                wg.Done()
+                                fmt.Println(err.Error())
+                                return
+                        }</span>
+                        <span class="cov0" title="0">fmt.Printf("output: %d\n", num)
+                        wg.Done()</span>
+                }(i)
+        }
+        <span class="cov0" title="0">wg.Wait()
+        time.Sleep(2*time.Second)</span>
+}
+
+func new(dir string) *FileLock <span class="cov0" title="0">{
+        return &amp;FileLock{
+                dir: dir,
+        }
+}</span>
+
+// 加锁
+func (l *FileLock) Lock() error <span class="cov0" title="0">{
+        f, err := os.Open(l.dir)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov0" title="0">l.f = f
+        err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("cannot flock directory %s-%s", l.dir, err)
+        }</span>
+        <span class="cov0" title="0">return nil</span>
+}
+
+// 释放锁
+func (l *FileLock) unlock() error <span class="cov0" title="0">{
+        defer l.f.Close()
+        return syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+}</span>
+
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-22 10:28:46
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-22 14:04:02
+ * @FilePath: /MLC_GO/TestNotes/TestMySQL/TestMySQLV1/test_mysql_v1.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "fmt"
+        "log"
+
+        // 当导入带有空白标识符前缀“_”的包时，将调用包的init()函数，以注册go-mysql驱动程序。
+        "database/sql"
+
+        _ "github.com/go-sql-driver/mysql"
+)
+
+func main() <span class="cov0" title="0">{
+        // 数据库版本
+        //testMysqlV1_version()
+
+        // 新建数据表
+        //TestMySQLV2_createTable()
+
+        // 插入数据
+        //testMySQLV2_insert()
+
+        // 查询数据
+        //testMySQLV2_query()
+
+        // 修改数据
+        // testMySQLV2_update()
+
+        // 删除数据
+        testMySQLV2_delete()
+}</span>
+
+
+// 删除数据
+func testMySQLV2_delete() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        // 删除用户名字的SQL语句
+        <span class="cov0" title="0">sql := "DELETE FROM user WHERE id = 1"
+        _,err2 := db.Exec(sql)
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+        <span class="cov0" title="0">fmt.Print("已成功删除数据表 user 中的数据！\n") //修改数据后，打印提示信息
+
+
+        // 查询数据表 user 中的所有数据
+        result,err3 := db.Query("SELECT * FROM user")
+        if err3 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err3)
+        }</span>
+
+        //遍历查询结果
+        <span class="cov0" title="0">for result.Next() </span><span class="cov0" title="0">{
+                var id int        // 主键id
+                var name string        // 用户的名字
+
+                err = result.Scan(&amp;id, &amp;name)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("id: %d, name: %s\n", id,name)</span>
+        }
+
+}
+
+
+// 修改数据
+func testMySQLV2_update() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        // 修改用户名字的SQL语句
+        <span class="cov0" title="0">sql := "update user set name = ? WHERE id = ?"
+        _,err2 := db.Exec(sql, "张三🍔", 2)
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+        <span class="cov0" title="0">fmt.Print("已成功修改数据表 user 中的数据！\n") //修改数据后，打印提示信息
+
+
+        // 查询数据表 user 中的所有数据
+        result,err3 := db.Query("SELECT * FROM user")
+        if err3 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err3)
+        }</span>
+
+        //遍历查询结果
+        <span class="cov0" title="0">for result.Next() </span><span class="cov0" title="0">{
+                var id int        // 主键id
+                var name string        // 用户的名字
+
+                err = result.Scan(&amp;id, &amp;name)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("id: %d, name: %s\n", id,name)</span>
+        }
+
+}
+
+// 查询数据
+func testMySQLV2_query() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        // 插入一条数据
+        <span class="cov0" title="0">_,err2 := db.Query("INSERT INTO user VALUES(2, '司马懿🍎')")
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+
+        // 查询数据表 user 中的所有数据
+        <span class="cov0" title="0">result,err3 := db.Query("SELECT * FROM user")
+        if err3 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err3)
+        }</span>
+
+        //遍历查询结果
+        <span class="cov0" title="0">for result.Next() </span><span class="cov0" title="0">{
+                var id int        // 主键id
+                var name string        // 用户的名字
+
+                err = result.Scan(&amp;id, &amp;name)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(err)</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("id: %d, name: %s\n", id,name)</span>
+        }
+
+}
+
+// 插入数据
+func testMySQLV2_insert() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        <span class="cov0" title="0">_,err2 := db.Query("INSERT INTO user VALUES(1, 'David')")
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+        <span class="cov0" title="0">fmt.Print("已成功向数据表 user 插入数据！\n")</span>
+}
+
+// 数据库版本
+func testMysqlV1_version() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        <span class="cov0" title="0">var version string                                     // 声明 MySQL 数据库版本
+        err2 := db.QueryRow("SELECT VERSION()").Scan(&amp;version) // 单行查询
+
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+
+        <span class="cov0" title="0">fmt.Println(version)</span> // 打印 MySQL 数据库版本
+}
+
+//  新建数据表user
+func TestMySQLV2_createTable() <span class="cov0" title="0">{
+        // 创建数据对象
+        db, err := sql.Open("mysql", "root:hh109@tcp(127.0.0.1:3306)/DB_TEST")
+        db.Ping()        // 与数据库建立连接
+        defer db.Close() // 延迟关闭数据库
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("数据库连接失败！")
+                log.Fatal(err)
+        }</span>
+
+        // 执行SQL语句
+        <span class="cov0" title="0">_,err2 := db.Exec("CREATE TABLE user(id INT NOT NULL, name VARCHAR(20), PRIMARY KEY(ID));")
+        if err2 != nil </span><span class="cov0" title="0">{
+                log.Fatal(err2)
+        }</span>
+        
+        <span class="cov0" title="0">fmt.Print("已成功新建数据表 user! \n")</span> // 打印 MySQL 数据库版本
+}
+
+
+
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-23 13:23:01
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 13:23:04
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestHttp/TestHttpClient/test_http_client.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "fmt"
+        "io/ioutil"
+        "net/http"
+)
+
+func main() <span class="cov0" title="0">{
+        // http客户端发送请求
+        testHttpClientV0()
+}</span>
+
+// http客户端发送请求
+func testHttpClientV0() <span class="cov0" title="0">{
+        response, _ := http.Get("http://localhost:3000/hello")// 发送HTTP请求， 请求一个网页
+        defer response.Body.Close() // 关闭请求
+        body, _ := ioutil.ReadAll(response.Body) // 接收数据
+        fmt.Println(string(body))        
+}</pre>
+		
+		<pre class="file" id="file9" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-23 13:19:57
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 14:32:36
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestHttp/test_http.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "flag"
+        "net/http"
+)
+
+func main() <span class="cov0" title="0">{
+        // http服务端请求
+        testHttpServerV0()
+}</span>
+
+// http服务端请求
+func testHttpServerV0() <span class="cov0" title="0">{
+        host := flag.String("host", "127.0.0.1", "listen host")        // 域名
+        port := flag.String("port", "3000", "listen port")        // 端口
+
+        http.HandleFunc("/hello", Hello)
+
+        err := http.ListenAndServe(*host+":"+*port, nil) //处理HTTP请求
+        if err != nil </span><span class="cov0" title="0">{
+                panic(err)</span> 
+        }
+}
+func Hello(w http.ResponseWriter, req *http.Request)<span class="cov0" title="0">{
+        w.Write([]byte("你好， 客户端！"))
+}</pre>
+		
+		<pre class="file" id="file10" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-22 21:54:28
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 10:14:02
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestTCPClientSocket/test_tcp_client_socket.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+/// 客户端建立连接
+package main
+
+import (
+        "bufio"
+        "fmt"
+        "net"
+        "os"
+        "strings"
+)
+
+
+func main() <span class="cov0" title="0">{
+        // 客户端连接
+        //testClientConnect()
+
+        // 客户端发送数据
+        testTCPClientConnectV2()
+}</span>
+
+// 客户端发送数据
+func testTCPClientConnectV2() <span class="cov0" title="0">{
+        conn, err := net.Dial("tcp", "127.0.0.1:3000")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("连接失败！发生错误：%v\n", err.Error())
+                return
+        }</span>
+
+        <span class="cov0" title="0">fmt.Println("客户端向服务器端发送连接请求......")
+        defer conn.Close()
+        inputReader := bufio.NewReader(os.Stdin)
+        for</span><span class="cov0" title="0">{
+                input, err  := inputReader.ReadString('\n')
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("无法读取在控制台上输入的数据！发生错误： %v\n", err)
+                        break</span>
+                }
+                <span class="cov0" title="0">trimmedInput := strings.TrimSpace(input)
+                if trimmedInput == "Q" </span><span class="cov0" title="0">{
+                        break</span>
+                }
+                // 发送数据
+                <span class="cov0" title="0">if _,err := conn.Write([]byte(trimmedInput)); err != nil</span><span class="cov0" title="0">{
+                        fmt.Printf("发送数据失败！发生错误：%v\n", err)
+                        break</span>
+                }
+
+                // 接收数据
+                <span class="cov0" title="0">var recvData = make([]byte, 1024)
+                if _,err := conn.Read(recvData); err != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("接收数据失败！ 发生错误：%v\n", err)
+                        break</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("已成功接收数据： %v\n", string(recvData))</span>
+        }
+}
+
+func testClientConnect() <span class="cov0" title="0">{
+        conn, err := net.Dial("tcp", "127.0.0.1:3000")        // 建立与服务端的连接
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("连接失败！ 发生错误： %v\n", err.Error())
+                return
+        }</span>
+
+        <span class="cov0" title="0">fmt.Println("客户端向服务端发送连接请求.....")
+        defer conn.Close()</span>
+}</pre>
+		
+		<pre class="file" id="file11" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-22 16:52:30
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 10:38:23
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestNetSocket/test_socketV0.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+ /// 服务端建立连接
+package main
+
+import (
+        "fmt"
+        "net"
+)
+
+func main() <span class="cov0" title="0">{
+        // 创建TCP连接
+        // testServerSocketListenV1()
+
+        // TCP连接并发送数据
+        testTCPServerSocketListenV2()
+}</span>
+
+// TCP服务端连接、发送数据
+func testTCPServerSocketListenV2()<span class="cov0" title="0">{
+        // 使用 net.Listen() 函数监听连接的地址与端口
+        listener, err := net.Listen("tcp", "127.0.0.1:3000")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("监听失败！发送错误：%v\n", err)
+                return
+        }</span>
+        <span class="cov0" title="0">fmt.Println("服务端已开启！等待客户端的连接请求.......")
+        for</span><span class="cov0" title="0">{
+                // 响应由TCP客户端发送的连接请求
+                conn, err := listener.Accept()
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("响应失败！ 发生错误： %v\n", err)
+                        continue</span>
+                }
+                // 对每个新连接创建的协程收发数据
+                <span class="cov0" title="0">go process(conn)</span>
+        }
+
+}
+func process(conn net.Conn)<span class="cov0" title="0">{
+        defer conn.Close()
+
+        for</span><span class="cov0" title="0">{
+                var buf[128]byte
+                // 接收数据
+                n, err := conn.Read(buf[:])
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("接收数据失败！ 发生错误：%v\n", err)
+                        break</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("已成功接收数据：%v\n", string(buf[:n]))
+                // 发送数据
+                if _, err = conn.Write([]byte("服务端消息！")); err != nil </span><span class="cov0" title="0">{
+                        fmt.Printf("发生数据失败！ 发生错误：%v\n", err)
+                        break</span>
+                }
+        }
+}
+
+// TCP服务端服务- 创建TCP连接
+func testServerSocketListenV1()<span class="cov0" title="0">{
+        // 使用 net.Listen() 函数监听连接的地址与端口
+        listener, err := net.Listen("tcp", "127.0.0.1:3000")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("监听失败！发送错误：%v\n", err)
+                return
+        }</span>
+        <span class="cov0" title="0">fmt.Println("服务端已开启！等待客户端的连接请求.......")
+        // 响应由TCP客户端发送的连接请求
+        conn, err := listener.Accept()
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("响应失效！ 发生错误: %v\n", err)
+        }</span>
+        <span class="cov0" title="0">fmt.Println("服务端已连接客户端！")
+        defer conn.Close()</span>
+}
+
+</pre>
+		
+		<pre class="file" id="file12" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-23 10:55:12
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 11:28:56
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestUDPSocket/TestUDPClientSocket/test_udp_client_socket.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+/// udp客户端接收数据
+package main
+
+import (
+        "fmt"
+        "net"
+)
+
+func main() <span class="cov0" title="0">{
+        // udp客户端接收数据
+        testUDPClientSocket()
+}</span>
+
+func testUDPClientSocket() <span class="cov0" title="0">{
+        conn, err := net.DialUDP("udp", nil, &amp;net.UDPAddr{
+                IP: net.IPv4(127, 0, 0, 1),
+                Port: 3000,
+                Zone: "",
+        })
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("连接失败！发生错误❌：", err)
+                return
+        }</span>
+        <span class="cov0" title="0">fmt.Println("客户端向服务器端发送连接请求......")
+        defer conn.Close()
+
+        // 发送数据
+        sendData := []byte("👋你好，服务器🧧端！！")
+        _, errs := conn.Write(sendData)
+        if errs != nil </span><span class="cov0" title="0">{
+                fmt.Println("发送数据失败！发生错误：", errs)
+                return
+        }</span>
+
+        // 接收数据
+        <span class="cov0" title="0">data := make([]byte, 4096)
+        _,_, errors := conn.ReadFromUDP(data)
+        if errors != nil </span><span class="cov0" title="0">{
+                fmt.Println("接收数据失败！ 发生错误：", errors)
+                return
+        }</span>
+        <span class="cov0" title="0">fmt.Printf("已成功接收数据： %s\n", string(data))</span>
+}</pre>
+		
+		<pre class="file" id="file13" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-23 10:54:26
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-23 11:33:44
+ * @FilePath: /MLC_GO/TestNotes/TestNetProgram/TestUDPSocket/TestUDPServerSocket/test_udp_server_socket.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+ /// udp服务端接收数据
+package main
+
+import (
+        "fmt"
+        "net"
+)
+
+func main() <span class="cov0" title="0">{
+        // udp服务端接收数据
+        testUDPServerSocketV0()
+}</span>
+
+func testUDPServerSocketV0() <span class="cov0" title="0">{
+        // 使用
+        conn, err := net.ListenUDP("udp", &amp;net.UDPAddr{
+                IP: net.IPv4(127,0,0,1),
+                Port: 3000,
+                Zone: "",
+        })
+
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Println("监听失败！发送错误：", err)
+                return
+        }</span>
+        <span class="cov0" title="0">fmt.Println("服务端开启！ 等待客户端的连接请求.......")
+
+        for</span><span class="cov0" title="0">{
+                var data[1024]byte
+
+                // 接收数据
+                count, addr, err := conn.ReadFromUDP(data[:])
+                if err != nil </span><span class="cov0" title="0">{
+                        fmt.Println("接收数据失败！发送错误：", err)
+                        continue</span>
+                }
+                <span class="cov0" title="0">fmt.Printf("已成功接收数据： %s\n", data[0: count])
+
+                
+                // 发送数据
+                _, errs := conn.WriteToUDP([]byte("👋你好！ 客户端！🍏"), addr)
+                if errs != nil </span><span class="cov0" title="0">{
+                        fmt.Println("发送数据失败！ 发生错误❌：", errs)
+                        continue</span>
+                }
+        }
+}
+</pre>
+		
+		<pre class="file" id="file14" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-10 22:34:49
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-10 23:05:17
+ * @FilePath: /MLC_Package/demo.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+ 
+package demo
+
+import(
+        "fmt"
+)
+
+func PrintStr() <span class="cov0" title="0">{
+        fmt.Println("hello, go")
+}</pre>
+		
+		<pre class="file" id="file15" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-10 22:37:54
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-10 22:40:28
+ * @FilePath: /main/main.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "MLC_GO/TestNotes/TestPackage/demo"
+)
+
+func main() <span class="cov0" title="0">{
+        demo.PrintStr()
+}</span>
+</pre>
+		
+		<pre class="file" id="file16" style="display: none">
+
+/// 结构体标签的获取
+package main
+
+import(
+        "fmt"
+        "reflect"
+)
+
+type Book struct {        // 定义新类型Book， 其数据类型是struct
+        BookName string `json: "name"`
+        BookPrice float64 `json: "price"`
+}
+
+func main() <span class="cov0" title="0">{
+        book := reflect.TypeOf(Book{})        // 创建结构体Book{} 的反射对象
+        nm,_ := book.FieldByName("BookName")        //获取字段BookName的信息
+        fmt.Println("字段BookNam的信息： \n", nm)
+        fmt.Println()
+
+        tag := nm.Tag        // 获取与字段BookName对应结构体标签
+        fmt.Println("与字段BookName对应的结构体标签： \n", tag)
+        value,_ := tag.Lookup("json")        //获取与字段 BookName对应的结构体标签中的键值对
+        fmt.Println("与字段 BookName 对应的结构体标签中的键值对：\n key: json, value: ", value)
+}</span>
+</pre>
+		
+		<pre class="file" id="file17" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-19 20:24:22
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-20 20:55:07
+ * @FilePath: /MLC_GO/TestNotes/TestReflect/test_reflect_v1.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+
+ /// 反射的类型与种类
+package main
+
+import(
+        "fmt"
+        "reflect"
+)
+
+type myint int
+
+type Book struct {        // 定义新类型Book， 其数据类型是struct
+        BookName string
+}
+
+func main() <span class="cov0" title="0">{
+        var i int = 711 // 定义 int 类型的变量i
+        typel := reflect.TypeOf(i)        // 创建变量i地反射对象
+        // 打印反射对象typel的类型和种类
+        fmt.Println("反射对象typel的类型：", typel.Name())
+        fmt.Println("反射对象typel的种类：", typel.Kind())
+        fmt.Println()
+
+        var mi myint = 44        // 定义 myint 类型的变量mi
+        typeMI := reflect.TypeOf(mi)        // 创建变量mi的反射对象
+        // 打印反射对象 typeMI 的类型和种类
+        fmt.Println("反射对象 typeMI 的类型：", typeMI.Name())
+        fmt.Println("反射对象 typeMI 的种类：", typeMI.Kind())
+        fmt.Println()
+
+        book := Book{BookName: " GOlang 语言从入门到精通" } // 定义Book类型的变量book
+        typeBook := reflect.TypeOf(book)        // 创建变量book的反射对象
+        // 打印反射对象 typeBook 的类型和种类
+        fmt.Println("反射对象 typeBook 的类型：", typeBook.Name())
+        fmt.Println("反射对象 typeBook 的种类：", typeBook.Kind())
+}</span>
+
+</pre>
+		
+		<pre class="file" id="file18" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-19 20:13:35
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-19 20:23:54
+ * @FilePath: /MLC_GO/TestNotes/TestReflect/test_reflect_v0.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+ /// 反射值的修改
+package main
+
+import(
+        "fmt"
+        "reflect"
+)
+
+func main() <span class="cov0" title="0">{
+        var f float64 = 3.1415926
+        valueF := reflect.ValueOf(&amp;f).Elem()        // 获取指针指向的反射对象的值
+        // 打印反射对象valueF 是否具有 “可写性”
+        fmt.Println("反射对象 valueF 是否具有 “可写性”：", valueF.CanSet())
+        fmt.Println("反射对象 valueF 的初始值：", valueF) // 打印反射对象 valueF 的初始值
+        valueF.SetFloat(3.14)        // 把反射对象的值修改为3.14
+        fmt.Println("反射对象 valueF 的初始值被修改为：", valueF) // 打印反射对象 valueF 的修改后的值
+}</pre>
+		
+		<pre class="file" id="file19" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-17 13:53:32
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-17 14:00:52
+ * @FilePath: /MLC_GO/TestNotes/TestStandardLibs/TestJson/test_json.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%Ap
+ */
+
+package main
+
+import(
+        "encoding/json"
+        "fmt"
+)
+
+type Person struct {
+        Name string
+        Age int
+        Sex string
+}
+
+// 字符串转换成届构体
+func Unmarshal() <span class="cov0" title="0">{
+        b1 := []byte(`{"Name":"David", "Age": 26, "Sex": "Male"}`)
+        var m Person
+        json.Unmarshal(b1, &amp;m)
+        fmt.Printf("m: %v\n", m)
+}</span>
+
+// 结构体转换成字符串
+func Marshal() <span class="cov0" title="0">{
+        p := Person{
+                Name: "Lisa滤镜",
+                Age: 34,
+                Sex: "Male",
+        }
+        b,_ := json.Marshal(p)
+        fmt.Printf("b: %v\n", string(b))
+}</span>
+
+func main() <span class="cov0" title="0">{
+        Unmarshal()
+
+        Marshal()
+}</pre>
+		
+		<pre class="file" id="file20" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-17 12:00:05
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-17 12:10:23
+ * @FilePath: /MLC_GO/TestNotes/TestStandardLibs/TestLib/test_lib_main.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "fmt"
+        "os"
+)
+
+// 创建文件
+func createFile() <span class="cov0" title="0">{
+        f, err := os.Create("test02.txt")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("err: %v\n", err)
+        }</span> else<span class="cov0" title="0"> {
+                fmt.Printf("f: %v\n", f)
+        }</span>
+}
+
+// 重命名文件
+func renameFile() <span class="cov0" title="0">{
+        err := os.Rename("test.txt", "test01.txt")
+        if err != nil </span><span class="cov0" title="0">{
+                fmt.Printf("err: %v\n", err)
+        }</span>
+}
+
+// 写文件
+func writeFile() <span class="cov0" title="0">{
+        s := "hello wrold"
+        os.WriteFile("test03.txt", []byte(s), os.ModePerm)
+}</span>
+
+func main() <span class="cov0" title="0">{
+        createFile()
+        renameFile()
+        writeFile()
+}</span>
+</pre>
+		
+		<pre class="file" id="file21" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-17 13:30:39
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-17 13:34:43
+ * @FilePath: /MLC_GO/TestNotes/TestStandardLibs/TestLog/test_lib_log.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import(
+        "fmt"
+        "log"
+)
+
+func main() <span class="cov0" title="0">{
+        defer fmt.Println("发生了 panic 错误！")
+        log.Print("my log")
+        log.Printf("my log %d", 404)
+        
+        name := "David"
+        age := 26
+        log.Println(name, ":", age)
+        log.Panic("致命错误！")
+}</span>
+
+</pre>
+		
+		<pre class="file" id="file22" style="display: none">/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2025-01-26 10:14:40
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2025-01-26 10:39:07
+ * @FilePath: /MLC_GO/TestNotes/TestTemplateEngine/test_template_engine.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package main
+
+import (
+        "html/template"
+        "log"
+        "os"
+)
+
+type Detail struct {
+        Class string
+        Title string
+        Content string
+}
+
+func main() <span class="cov0" title="0">{
+        // 原生HTML模版测试
+        testOriginalHTMLTemplate()
+}</span>
+
+// 原生HTML模版测试
+func testOriginalHTMLTemplate() <span class="cov0" title="0">{
+        pwd, _ := os.Getwd()
+        t, err := template.ParseFiles(pwd + "/index0.html")
+        if err != nil </span><span class="cov0" title="0">{
+                log.Println(err)
+                return
+        }</span>
+
+        <span class="cov0" title="0">var detail Detail
+        detail = Detail{
+                Class: "test-class",
+                Title: "test-title",
+                Content: "test-content",
+        }
+
+        err = t.Execute(os.Stdout, &amp;detail)
+        if err != nil </span><span class="cov0" title="0">{
+                log.Println(err)
+                return
+        }</span>
+}</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
