@@ -26,7 +26,9 @@ require (
 	github.com/flosch/pongo2/v4 v4.0.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
+	// Gin 是一个用 Go 语言编写的高性能 Web 框架，专注于快速开发和高效运行。它被广泛用于构建 RESTful API、Web 应用和微服务。Gin 的设计目标是提供简洁的 API 和出色的性能，同时保持足够的灵活性。
 	github.com/gin-gonic/gin v1.10.0 // indirect
+	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
@@ -42,6 +44,9 @@ require (
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/iris-contrib/schema v0.0.6 // indirect
 	github.com/jawher/mow.cli v1.2.0 // indirect
+	// GORM 是 Go 语言中最流行的 ORM（Object Relational Mapping，对象关系映射） 库，用于操作数据库。它让开发者可以使用 Go 结构体 代替 SQL 语句 来增删改查数据库数据，提供更清晰、简洁的数据库操作方式。
+	github.com/jinzhu/gorm v1.9.16 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kataras/blocks v0.0.8 // indirect
@@ -70,6 +75,8 @@ require (
 	github.com/temoto/robotstxt v1.1.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
+	// com库由 Unknwon（Gogs 和 Gitea 的作者）开发的 Go 语言工具库。它提供了一些常用的工具函数和实用方法，旨在简化 Go 开发中的一些常见任务。
+	github.com/unknwon/com v1.0.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
@@ -85,4 +92,13 @@ require (
 	google.golang.org/protobuf v1.36.4 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+replace (
+	//PracticeGenExample下的替代本地文件
+	github.com/EDDYCJY/go-gin-example/conf => ./TestNotes/PracticeGenExample/pkg/conf
+	github.com/EDDYCJY/go-gin-example/middleware => ./TestNotes/PracticeGenExample/middleware
+	github.com/EDDYCJY/go-gin-example/models => ./TestNotes/PracticeGenExample/models
+	github.com/EDDYCJY/go-gin-example/pkg/setting => ./TestNotes/PracticeGenExample/pkg/setting
+	github.com/EDDYCJY/go-gin-example/routers => ./TestNotes/PracticeGenExample/routers
 )

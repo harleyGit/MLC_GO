@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-01-22 10:28:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-01-22 14:04:02
+ * @LastEditTime: 2025-02-23 16:31:45
  * @FilePath: /MLC_GO/TestNotes/TestMySQL/TestMySQLV1/test_mysql_v1.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -18,9 +18,9 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func main() {
+func main() {// 操作数据库前先启动数据库： sudo mysql.server start
 	// 数据库版本
-	//testMysqlV1_version()
+	testMysqlV1_version()
 
 	// 新建数据表
 	//TestMySQLV2_createTable()
@@ -35,7 +35,7 @@ func main() {
 	// testMySQLV2_update()
 
 	// 删除数据
-	testMySQLV2_delete()
+	// testMySQLV2_delete()
 }
 
 
