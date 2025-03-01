@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-23 20:50:34
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-02-25 20:26:38
+ * @LastEditTime: 2025-03-01 21:02:48
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/setting/setting.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -14,6 +14,67 @@ import (
 
 	"gopkg.in/ini.v1"
 )
+
+type App struct {
+	JwtSecret string	
+	PageSize  int
+
+	RuntimeRootPath string
+
+	ImageSavePath string
+	ImageMaxSize int
+	ImageAllowExts []string
+
+	ExportSavePath string
+	QrCodeSavePath string
+	FontSavePath string
+
+	LogSavePath string
+	LogSaveName string
+	LogFileExt string
+	TimeFormat string
+}
+/* 
+var AppSetting = &App{}:
+
+	这里的 AppSetting 仍然是一个全局变量，它是一个指向 App 结构体的指针。
+	&App{} 是创建了一个新的 App 类型的实例，并返回它的地址。
+	注意，App{} 是一个零值的 App 实例，也就是说：
+		Name 字段的零值是空字符串 ""。
+		Port 字段的零值是 0。
+
+*/
+var AppSetting = &App{}
+
+type Server struct{
+	RunMode string	//不区分大小写写法： `ini:"runmode"`，否则默认区分大小写
+	HTTPPort int
+	ReadTimeout time.Duration
+	WriteTimeout time.Duration
+}
+var ServerSetting = &Server{}
+
+
+type Database struct {
+	Type string
+	User string
+	Password string
+	Host string
+	Name string
+	TablePrefix string
+}
+var DatabaseSetting = &Database{}
+
+type Redis struct {
+	Host string
+	Password string
+	MaxIdle int
+	MaxActive int
+	IdleTimeout time.Duration
+}
+var RedisSetting = &Redis{}
+
+
 
 var (
 	/*
@@ -38,17 +99,44 @@ var (
 	JwtSecret string
 )
 
-func init() { //MLC_GO/TestNotes/PracticeGenExample/conf/app.ini
+
+func Setup() { //MLC_GO/TestNotes/PracticeGenExample/conf/app.ini
 	var err error
 	// 注意：单元测试地址是相对于setting.go的地址的 ./../../conf/app.ini, 在main.go运行时地址为：./TestNotes/PracticeGenExample/conf/app.ini
 	Cfg, err = ini.Load("./TestNotes/PracticeGenExample/conf/app.ini") 
 	if err != nil {
-		log.Fatalf("❌ Fail to parse 'conf/app.ini': %v", err)
+		log.Fatalf("❌ setting.Setup, fail to parse 'conf/app.ini': %v", err)
 	}
 
 	LoadBase()
 	LoadServer()
 	LoadApp()
+
+	/*mapTo("app", AppSetting)
+	mapTo("server", ServerSetting)
+	mapTo("database", DatabaseSetting)
+	mapTo("redis", RedisSetting)
+
+	AppSetting.ImageMaxSize = AppSetting.ImageMaxSize *1024 * 1024
+	ServerSetting.ReadTimeout = ServerSetting.ReadTimeout * time.Second
+	ServerSetting.WriteTimeout = ServerSetting.WriteTimeout * time.Second
+	RedisSetting.IdleTimeout = RedisSetting.IdleTimeout *time.Second
+	*/
+}
+
+/* 
+	v：是一个接口类型（interface{}），它允许传入任何类型的变量。通常这个参数会是一个结构体，用来接收从配置文件映射过来的数据。
+*/
+func mapTo(section string, v interface{}) {
+	/* 
+		Cfg.Section(section)：这是获取配置文件中的某个特定 section。Cfg 是某个配置管理对象，通常是从配置文件（如 INI、YAML 等）读取的配置。
+
+		.MapTo(v)：该方法将配置文件中该 section 的内容映射到 v 中。也就是说，它会根据 section 中的键值对填充 v 变量。如果 v 是一个结构体，MapTo 会将 section 中的配置值按字段名与结构体字段进行匹配，填充结构体字段的值
+	*/
+	err := Cfg.Section(section).MapTo(v)
+	if err != nil {
+		log.Fatalf("Cfg.MapTo %s err: %v", section, err)
+	}
 }
 
 func LoadBase() {
@@ -71,7 +159,7 @@ func LoadServer() {
 func LoadApp() {
 	sec, err := Cfg.GetSection("app")
 	if err != nil {
-		log.Fatalf("Fail to get section 'app': %v", err)
+		log.Fatalf("❌ Fail to get section 'app': %v", err)
 	}
 	JwtSecret = sec.Key("JWT_SECRET").MustString("!@)*#)!@U#@*!@!)")
 	PageSize = sec.Key("PAGE_SISE").MustInt(10)

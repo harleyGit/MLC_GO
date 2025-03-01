@@ -2,15 +2,18 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-02-25 20:51:46
+ * @LastEditTime: 2025-03-01 20:00:30
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package main
 
 import (
+	"MLC_GO/TestNotes/PracticeGenExample/models"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
+	"MLC_GO/TestNotes/PracticeGenExample/routers"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
+	"log"
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
 
@@ -19,7 +22,8 @@ import (
 
 
 func init() {
-
+	setting.Setup()
+	models.Setup()
 }
 
 func main() {
@@ -27,10 +31,42 @@ func main() {
  	// dlvTest2()
 	// dlvThread00()
 
-	ginTestFunction()
+	// ginTestFunction()
+
+	gin.SetMode(setting.RunMode)
+
+	routersInit := routers.InitRouter()
+	/*
+	readTimeout := setting.ServerSetting.ReadTimeout
+	writeTimeout := setting.ServerSetting.WriteTimeout
+	endPoint := fmt.Sprintf(":%d", setting.ServerSetting.HTTPPort)//fmt.Sprintf(":%d",8000)//
+	maxHeaderBytes := 1 << 20
+
+	server := &http.Server{
+		Addr: ":8000",
+		Handler: routersInit,
+		ReadTimeout: readTimeout,//60 * time.Second,//
+		WriteTimeout: writeTimeout,//60 * time.Second ,
+		MaxHeaderBytes: maxHeaderBytes,
+	}
+	*/
+	server := &http.Server{
+		Addr:           ":8000",//fmt.Sprintf(":%d", setting.HTTPPort), // 设置 HTTP 服务器的监听地址和端口
+		Handler:        routersInit, // 设置 HTTP 请求的处理器，这里使用 router（即 Gin 的 Engine）作为请求的处理器。Gin 会根据路由规则处理请求
+		ReadTimeout:    setting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
+		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
+		MaxHeaderBytes: 1 << 20,
+	}
+	log.Printf("🍎 [info] start http server listening %s", server.Addr)//, endPoint
+
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatalf("❌ server failed to start: %v", err)
+	}
 }
 
-// gin测试调用： curl localhost:8000/test
+
+
+// (PracticeGenExample项目测试)gin测试调用： curl localhost:8000/test
 func ginTestFunction() {
 	// 返回 Gin 的type Engine struct{...}，里面包含RouterGroup，相当于创建一个路由Handlers，可以后期绑定各类的路由规则和函数、中间件等
 	router := gin.Default()
@@ -66,8 +102,6 @@ func ginTestFunction() {
 	s.ListenAndServe()
 }
 
-
-
 // dlv线程调试
 func dlvThread00() {
 	for {
@@ -92,7 +126,6 @@ func dlvTest2() {
 func Add(v1 int, v2 int) int {
 	return  v1 + v2
 }
-
 
 // dlv测试函数
 func dlvTest(){
