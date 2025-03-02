@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-01 20:00:30
+ * @LastEditTime: 2025-03-02 20:13:40
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -10,10 +10,10 @@ package main
 
 import (
 	"MLC_GO/TestNotes/PracticeGenExample/models"
+	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
 	"MLC_GO/TestNotes/PracticeGenExample/routers"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
-	"log"
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
 
@@ -57,10 +57,10 @@ func main() {
 		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
 		MaxHeaderBytes: 1 << 20,
 	}
-	log.Printf("🍎 [info] start http server listening %s", server.Addr)//, endPoint
+	logging.Info("🍎 [info] start http server listening %s", server.Addr)//, endPoint
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("❌ server failed to start: %v", err)
+		logging.Error("❌ server failed to start: %v", err)
 	}
 }
 

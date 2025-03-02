@@ -11,9 +11,9 @@ package v1
 import (
 	"MLC_GO/TestNotes/PracticeGenExample/models"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/e"
+	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/util"
-	"log"
 	"net/http"
 
 	"github.com/astaxie/beego/validation"
@@ -39,7 +39,7 @@ func GetArticle(c *gin.Context) {
 		}
 	} else {
 		for _, err := range valid.Errors {
-			log.Printf("err.key: %s, err.message: %s", err.Key, err.Message)
+			logging.Info("err.key: %s, err.message: %s", err.Key, err.Message)
 		}
 	}
 
@@ -81,7 +81,7 @@ func GetArticles(c *gin.Context ){
 		data["total"] = models.GetArticleTotal(maps)
 	} else {
 		for  _, err := range valid.Errors {
-			log.Printf("err.key: %s, err.message: %s", err.Key, err.Message)
+			logging.Info("err.key: %s, err.message: %s", err.Key, err.Message)
 		}
 	}
 
@@ -133,7 +133,7 @@ c *gin.Context 是 Gin 框架提供的上下文对象，包含了请求、响应
 		}
 	}else {
 		for _, err := range valid.Errors {
-			log.Printf("err.key: %s, err.message: %s", err.Key, err.Message)
+			logging.Info("err.key: %s, err.message: %s", err.Key, err.Message)
 		}
 	}
 
@@ -198,7 +198,7 @@ func EditArticle(c *gin.Context) {
 		}
 	}else {
 		for _, err := range valid.Errors {
-            log.Printf("err.key: %s, err.message: %s", err.Key, err.Message)
+            logging.Debug("err.key: %s, err.message: %s", err.Key, err.Message)
         }
 	}
 
@@ -226,7 +226,7 @@ func DeleteArticle(c *gin.Context) {
 		}
 	}else {
 		for _, err := range valid.Errors {
-            log.Printf("err.key: %s, err.message: %s", err.Key, err.Message)
+            logging.Debug("err.key: %s, err.message: %s", err.Key, err.Message)
         }
 	}
 

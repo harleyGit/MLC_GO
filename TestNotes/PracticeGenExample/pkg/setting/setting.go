@@ -9,7 +9,7 @@
 package setting
 
 import (
-	"log"
+	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"time"
 
 	"gopkg.in/ini.v1"
@@ -105,7 +105,7 @@ func Setup() { //MLC_GO/TestNotes/PracticeGenExample/conf/app.ini
 	// 注意：单元测试地址是相对于setting.go的地址的 ./../../conf/app.ini, 在main.go运行时地址为：./TestNotes/PracticeGenExample/conf/app.ini
 	Cfg, err = ini.Load("./TestNotes/PracticeGenExample/conf/app.ini") 
 	if err != nil {
-		log.Fatalf("❌ setting.Setup, fail to parse 'conf/app.ini': %v", err)
+		logging.Fatal("❌ setting.Setup, fail to parse 'conf/app.ini': %v", err)
 	}
 
 	LoadBase()
@@ -135,7 +135,7 @@ func mapTo(section string, v interface{}) {
 	*/
 	err := Cfg.Section(section).MapTo(v)
 	if err != nil {
-		log.Fatalf("Cfg.MapTo %s err: %v", section, err)
+		logging.Fatal("Cfg.MapTo %s err: %v", section, err)
 	}
 }
 
@@ -147,7 +147,7 @@ func LoadServer() {
 	sec, err := Cfg.GetSection("server")
 
 	if err != nil {
-		log.Fatalf("Fail to get section 'server' : %v", err)
+		logging.Fatal("Fail to get section 'server' : %v", err)
 	}
 
 	//MustInt(8000) 是 Go 语言中 ini 配置库（通常是 github.com/go-ini/ini）的一个方法，用于读取 .ini 配置文件中的整数值，如果读取失败，则返回默认值 8000。
@@ -159,7 +159,7 @@ func LoadServer() {
 func LoadApp() {
 	sec, err := Cfg.GetSection("app")
 	if err != nil {
-		log.Fatalf("❌ Fail to get section 'app': %v", err)
+		logging.Fatal("❌ Fail to get section 'app': %v", err)
 	}
 	JwtSecret = sec.Key("JWT_SECRET").MustString("!@)*#)!@U#@*!@!)")
 	PageSize = sec.Key("PAGE_SISE").MustInt(10)
