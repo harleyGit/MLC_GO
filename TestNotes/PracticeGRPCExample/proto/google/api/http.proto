@@ -1,0 +1,104 @@
+// Copyright 2016 Google Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// 文件目的： http.proto 主要定义了 gRPC 方法与 HTTP API 之间的映射规则，核心是 HttpRule 这个消息（message），它允许我们把 gRPC 方法映射到 RESTful API，如 GET、POST、PUT 等 HTTP 方法。
+
+syntax = "proto3";
+
+package google.api;
+option go_package = "github.com/golang/protobuf/protoc-gen-go/descriptor;descriptor";
+// C++ 相关优化，启用 Arena Allocation 机制，提高对象的内存管理效率，减少内存分配和回收的开销
+option cc_enable_arenas = true;
+// 生成的 Java 代码会为 HttpRule、CustomHttpPattern 等每个 message 单独创建一个 .java 文件，而不是全部嵌套在 HttpProto 这个类里
+option java_multiple_files = true;
+// 设定 Java 代码的外部类名为 HttpProto（如果 java_multiple_files = false）
+option java_outer_classname = "HttpProto";
+// 生成的 Java 代码放在 com.google.api 这个 Java 包下
+option java_package = "com.google.api";
+
+
+// Defines the HTTP configuration for a service. It contains a list of
+// [HttpRule][google.api.HttpRule], each specifying the mapping of an RPC method
+// to one or more HTTP REST API methods.
+message Http {
+  // A list of HTTP rules for configuring the HTTP REST API methods.
+  repeated HttpRule rules = 1;
+}
+
+// Use CustomHttpPattern to specify any HTTP method that is not included in the
+// `pattern` field, such as HEAD, or "*" to leave the HTTP method unspecified for
+// a given URL path rule. The wild-card rule is useful for services that provide
+// content to Web (HTML) clients.
+// HttpRule 主要用于将 gRPC 方法映射到 HTTP 端点
+message HttpRule {
+  // Selects methods to which this rule applies.
+  //
+  // Refer to [selector][google.api.DocumentationRule.selector] for syntax details.
+  // selector 指定要应用 HTTP 规则的 gRPC 方法，其值是 package.service/method 形式
+  string selector = 1;
+
+  // Determines the URL pattern is matched by this rules. This pattern can be
+  // used with any of the {get|put|post|delete|patch} methods. A custom method
+  // can be defined using the 'custom' field.
+  // 这是 oneof 字段，即同一时间只能选其中一个。允许 gRPC 方法映射到标准 HTTP 方法
+  oneof pattern {
+    // Used for listing and getting information about resources.
+    string get = 2;
+
+    // Used for updating a resource.
+    string put = 3;
+
+    // Used for creating a resource.
+    string post = 4;
+
+    // Used for deleting a resource.
+    string delete = 5;
+
+    // Used for updating a resource.
+    string patch = 6;
+
+    // Custom pattern is used for defining custom verbs.
+    // 自定义 HTTP 方法（如 OPTIONS）
+    CustomHttpPattern custom = 8; 
+  }
+
+  // The name of the request field whose value is mapped to the HTTP body, or
+  // `*` for mapping all fields not captured by the path pattern to the HTTP
+  // body. NOTE: the referred field must not be a repeated field.
+  // 指定哪个请求字段映射到 HTTP body 中。
+  // 特殊值：
+  //  "*" → 全部字段 作为 body
+  //  ""（空字符串）→ 不映射 body，参数需通过 URL 查询参数传递。
+  string body = 7;
+
+  // Additional HTTP bindings for the selector. Nested bindings must
+  // not contain an `additional_bindings` field themselves (that is,
+  // the nesting may only be one level deep).
+  // additional_bindings (额外的 HTTP 规则)
+  // 允许一个 gRPC 方法有 多个 HTTP 绑定（比如既支持 GET 也支持 POST）。
+  //但不能嵌套多层（即 additional_bindings 不能再包含 additional_bindings）
+  repeated HttpRule additional_bindings = 11;
+}
+
+// A custom pattern is used for defining custom HTTP verb.
+// 允许使用自定义的 HTTP 方法（如 OPTIONS、HEAD）。
+//  kind：自定义 HTTP 方法的名称，如 OPTIONS。
+//  path：HTTP 端点。
+message CustomHttpPattern {
+  // The name of this custom HTTP verb.
+  string kind = 1;
+
+  // The path matched by this custom verb.
+  string path = 2;
+}

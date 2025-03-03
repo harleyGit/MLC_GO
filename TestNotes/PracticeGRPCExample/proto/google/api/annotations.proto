@@ -1,0 +1,44 @@
+// Copyright (c) 2015, Google Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// 文件代码目的：这段 Protobuf (annotations.proto) 代码定义了一个 protobuf 扩展 (extension)，用于给 gRPC 方法添加 HTTP 绑定，使得 gRPC 方法可以通过 RESTful API 进行访问。
+
+// 表示该文件使用的是 Protocol Buffers v3 (proto3) 语法，是目前 Google 推荐的版本。
+syntax = "proto3";
+
+// 这表示该 proto 文件属于 google.api 这个命名空间。
+// 避免不同 proto 文件的消息类型（message）和服务（service）冲突。
+package google.api;
+option go_package = "github.com/golang/protobuf/protoc-gen-go/descriptor;descriptor";
+// 该文件定义了 HttpRule，用于描述 gRPC 方法如何映射到 HTTP 路由（REST API）。
+// HttpRule 允许将 gRPC 方法绑定到 GET、POST 等 HTTP 方法，使得 gRPC 服务器可以作为 RESTful API 访问。
+import "google/api/http.proto";
+
+// 该文件定义了 protobuf 反射 (reflection) 和扩展机制，允许我们扩展 protobuf 自带的功能，例如：
+// 扩展 MethodOptions，给 RPC 方法增加额外的元信息（metadata）。
+import "google/protobuf/descriptor.proto";
+
+// 生成 Java 代码时，每个 message 和 service 都会生成独立的 Java 类，而不是全部嵌套在一个类中（提高Java代码可读和管理性）
+option java_multiple_files = true;
+// 如果 java_multiple_files = false，则所有定义的 message 和 service 会嵌套在 AnnotationsProto 这个外部类中。
+// 但这里 java_multiple_files = true，所以这个 option 影响不大
+option java_outer_classname = "AnnotationsProto";
+// 生成的 Java 代码会放在 com.google.api 这个 Java 包下。
+option java_package = "com.google.api";
+
+// 这一部分是 protobuf 的扩展 (extension) 机制，用于给 gRPC 方法的 MethodOptions 添加 http 选项，使得 gRPC 方法可以通过 HTTP 访问
+extend google.protobuf.MethodOptions {
+  // See `HttpRule`.
+  HttpRule http = 72295728;
+}
