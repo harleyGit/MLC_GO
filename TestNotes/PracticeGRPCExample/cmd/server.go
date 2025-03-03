@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 16:46:18
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-03 21:38:04
+ * @LastEditTime: 2025-03-03 23:13:51
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/cmd/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -41,7 +41,8 @@ func init() {
 	serverCmd.Flags().StringVarP(&server.ServerPort, "port", "p", "50052", "server port")
 	serverCmd.Flags().StringVarP(&server.CertPemPath, "cert-pem", "", "./certs/client_server.pem", "cert pem path")
 	serverCmd.Flags().StringVarP(&server.CertKeyPath, "cert-key", "", "./certs/client_server.key", "cert key path")
-	serverCmd.Flags().StringVarP(&server.CertName, "cert-name", "", "grpc server name", "server's hostname")
+	// 注意⚠️：当时困在这个地方许久，作者博客有问题，第4个参数不是 "grpc server name" 是 "dev"(或者 "localhost")
+	serverCmd.Flags().StringVarP(&server.CertName, "cert-name", "", "localhost", "server's hostname")
 	// AddCommand向这父命令（rootCmd）添加一个或多个命令
 	rootCmd.AddCommand(serverCmd)
 }

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 20:24:58
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-03 22:19:30
+ * @LastEditTime: 2025-03-03 23:15:02
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -25,7 +25,8 @@ import (
 //	go run client.go
 func main() {
 	// 1. 加载 TLS 证书
-	creds, err := credentials.NewClientTLSFromFile("../certs/client_server.pem", "dev")
+	// 作者博客有问题：可以是localhost 或者 dev
+	creds, err := credentials.NewClientTLSFromFile("../certs/client_server.pem", "localhost")
 	if err != nil {
 		logging.ErrInfo("Failed to create TLS credentials %v", err)
 	}
