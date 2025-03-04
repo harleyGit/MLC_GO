@@ -13,8 +13,9 @@ import (
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
 	"MLC_GO/TestNotes/PracticeGenExample/routers"
-	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
+	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,15 @@ func main() {
 	// dlvThread00()
 
 	// ginTestFunction()
+
+	// 获取当前工作目录
+	dir, err := os.Getwd()
+	if err != nil {
+		logging.ErrInfo("Error getting working directory:", err)
+		return
+	}
+	logging.DebugInfo("3--------在 Go 中使用 os.ReadFile(\"example.txt\") 读取文件时，相对路径是相对于程序的 当前工作目录，当前工作目录路径:", dir)
+
 
 	gin.SetMode(setting.RunMode)
 
