@@ -24,9 +24,6 @@ require (
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/ini.v1 v1.67.0
-)
-
-require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
@@ -108,6 +105,8 @@ require (
 	// rpc、grpc、protobuf 框架
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250227231956-55c901821b1e // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	// Swagger UI文件服务器（对外提供服务）,能够使用go-bindata所生成Swagger UI的Go代码，结合net/http对外提供服务
+	github.com/elazarl/go-bindata-assetfs v1.0.1 // indirect
 )
 
 // api文档编写swagger：go get -u github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger
@@ -117,6 +116,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
 
 replace (
 	//PracticeGenExample下的替代本地文件

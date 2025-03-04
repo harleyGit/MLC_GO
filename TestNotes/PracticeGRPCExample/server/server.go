@@ -2,22 +2,26 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 16:21:27
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-03 21:54:42
+ * @LastEditTime: 2025-03-04 18:09:56
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/server/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package server
 
 import (
+	"MLC_GO/TestNotes/PracticeGRPCExample/pkg/ui/data/swagger"
 	"MLC_GO/TestNotes/PracticeGRPCExample/pkg/util"
 	pb "MLC_GO/TestNotes/PracticeGRPCExample/proto/github.com/your-username/your-repo/grpc-hello-world/proto"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"crypto/tls"
 	"net"
 	"net/http"
+	"path"
+	"strings"
 
 	"golang.org/x/net/context"
 
+	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
 	"google.golang.org/grpc"
@@ -27,15 +31,22 @@ import (
 
 var (
 	ServerPort string
-	CertName string
+	CertServerName string
 	CertPemPath string
 	CertKeyPath string
+	SwaggerDir string
 	EndPoint string
+	CertName string
+
+	tlsConfig *tls.Config
 )
 
-func Serve() (err error) {
+func Run() (err error) {
 
 	EndPoint = ":" + ServerPort
+	// util.GetTLSConfig解析得到tls.Config，传达给http.Server服务的TLSConfig配置项使用
+	tlsConfig := util.GetTLSConfig(CertPemPath, CertKeyPath)
+
 	// 用于监听本地的网络地址通知，它的函数原型func Listen(network, address string) (Listener, error)
 	/* 
 	最后net.Listen会返回一个监听器的结构体，返回给接下来的动作，让其执行下一步的操作，它可以执行三类操作
@@ -47,9 +58,9 @@ func Serve() (err error) {
 	if err != nil {
 		logging.DebugInfo("TCP Listen err: %v", err)
 	}
-	// util.GetTLSConfig解析得到tls.Config，传达给http.Server服务的TLSConfig配置项使用
-	tlsConfig := util.GetTLSConfig(CertPemPath, CertKeyPath)
-	srv := createInternalServer(conn, tlsConfig)
+	
+	//srv := createInternalServer(conn, tlsConfig)
+	srv := newServer(conn)
 
 	logging.DebugInfo("gRPC and https listen on: ", ServerPort, "\nCertPemPath:", CertPemPath, "CertKeyPath:", CertKeyPath)
 
@@ -70,6 +81,85 @@ func Serve() (err error) {
 	return nil
 }
 
+func newServer(conn net.Listener) (*http.Server) {
+	grpcServer := newGrpc()
+	gwmux, err := newGateway()
+	if err != nil {
+		panic(err)
+	}
+	
+	mux := http.NewServeMux()
+	mux.Handle("/", gwmux)
+	mux.HandleFunc("/swagger/", serveSwaggerFile)
+	serveSwaggerUI(mux)
+
+	return &http.Server{
+		Addr: EndPoint,
+		Handler: util.GrpcHandleFunc(grpcServer, mux),
+		TLSConfig: tlsConfig,
+	}
+
+}
+
+func newGrpc() *grpc.Server {
+	creds, err := credentials.NewServerTLSFromFile(CertPemPath, CertKeyPath)
+	if err != nil {
+		panic(err)
+	}
+
+	opts := []grpc.ServerOption {
+		grpc.Creds(creds),
+	}
+	server := grpc.NewServer(opts...)
+
+	pb.RegisterHelloWorldServer(server, NewHelloService())
+
+	return server
+}
+
+func newGateway() (http.Handler, error) {
+	ctx := context.Background()
+	dcreds, err := credentials.NewClientTLSFromFile(CertPemPath, CertServerName)
+	if err != nil {
+		return nil, err
+	}
+	dopts := []grpc.DialOption{grpc.WithTransportCredentials(dcreds)}
+
+	gwmux := runtime.NewServeMux()
+	if err := pb.RegisterHelloWorldHandlerFromEndpoint(ctx, gwmux, EndPoint, dopts); err != nil {
+		return nil, err
+	}
+
+	return gwmux, nil
+}
+
+func serveSwaggerFile(w http.ResponseWriter, r *http.Request) {
+	logging.DebugInfo("✈️    r.URL.Path: ", r.URL.Path)
+	if ! strings.HasSuffix(r.URL.Path, "swagger.json") {
+		logging.DebugInfo("Not Found: ", r.URL.Path)
+		http.NotFound(w, r)
+		return
+	}
+
+	p := strings.TrimPrefix(r.URL.Path, "/swagger/")
+	p = path.Join(SwaggerDir, p)
+
+	logging.DebugInfo("Serving swagger-file: ", p)
+
+	http.ServeFile(w, r, p)
+}
+
+func serveSwaggerUI(mux *http.ServeMux) {
+	fileServer := http.FileServer(&assetfs.AssetFS {
+		Asset: swagger.Asset,
+		AssetDir: swagger.AssetDir,
+		Prefix: "third_party/swagger-ui",
+	})
+	prefix := "/swagger-ui"
+	mux.Handle(prefix, http.StripPrefix(prefix, fileServer))
+}
+
+// Deprecated: 使用func newServer(conn net.Listener) (*http.Server)，该方法不在使用了
 func createInternalServer(conn net.Listener, tlsCOnfig *tls.Config) (*http.Server) {
 	var opts []grpc.ServerOption
 

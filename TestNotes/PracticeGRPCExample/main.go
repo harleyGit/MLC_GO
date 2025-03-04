@@ -22,6 +22,11 @@ import (
 //	go run client.go
 //  curl -X POST -k https://localhost:50052/hello_world -d '{"referer": "restful_api"}'
 // 出现： {"message":"restful_api(‼️🍎 作者这个地方有问题，注意了)"}%  表示正确
+
+// 访问路径https://127.0.0.1:50052/swagger/hello.swagger.json，查看输出内容是否为hello.swagger.json的内容：
+// curl -k https://127.0.0.1:50052/swagger/hello.swagger.json
+
+// 
 func main() {
 	// 获取当前工作目录
 	dir, err := os.Getwd()
