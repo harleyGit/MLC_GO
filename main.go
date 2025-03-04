@@ -2,22 +2,27 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-02 20:13:40
+ * @LastEditTime: 2025-03-04 19:32:44
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package main
 
 import (
+	// "MLC_GO/TestNotes/PracticeGRPCExample/server"
 	"MLC_GO/TestNotes/PracticeGenExample/models"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
 	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
 	"MLC_GO/TestNotes/PracticeGenExample/routers"
+	"context"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,21 +32,113 @@ func init() {
 	models.Setup()
 }
 
+// 测试方法
+func practiceTestMethod() {
+	dlvTest()
+ 	dlvTest2()
+	dlvThread00()
+	ginTestFunction()
+	viewCurrentFilePath()
+	
+	parcticeGenExampleRunV1()
+	parcticeGenExampleRunV2()
+}
+
 func main() {
-	// dlvTest()
- 	// dlvTest2()
-	// dlvThread00()
+	// practiceTestMethod()
+	
+	parcticeGenExampleRunV3()
+}
 
-	// ginTestFunction()
+// endless 热更新是采取创建子进程后，将原进程退出的方式，这点不符合守护进程的要求
+// http.Server - Shutdown()
+// Deprecated: endless库测试
+func parcticeGenExampleRunV3() {
+	router := routers.InitRouter()
 
-	// 获取当前工作目录
-	dir, err := os.Getwd()
-	if err != nil {
-		logging.ErrInfo("Error getting working directory:", err)
-		return
+	s := &http.Server{
+		Addr: fmt.Sprintf(":%d", setting.HTTPPort),
+		Handler:        router, // 设置 HTTP 请求的处理器，这里使用 router（即 Gin 的 Engine）作为请求的处理器。Gin 会根据路由规则处理请求
+		ReadTimeout:    setting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
+		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
+		MaxHeaderBytes: 1 << 20,
 	}
-	logging.DebugInfo("3--------在 Go 中使用 os.ReadFile(\"example.txt\") 读取文件时，相对路径是相对于程序的 当前工作目录，当前工作目录路径:", dir)
 
+	// 匿名协程（goroutine）。它启动了一个并发执行的任务，用于监听 HTTP 请求
+	go func ()  {
+		if err := s.ListenAndServe(); err != nil {
+			logging.DebugInfo("Listen: ", err)
+		}
+	}()
+
+	// 创建一个用于接收操作系统信号的通道 quit
+	// os.Signal 是一个特殊类型，表示操作系统的信号（例如 os.Interrupt 和 syscall.SIGTERM）。
+	// 通过这个通道，我们可以监听操作系统的中断信号（例如 Ctrl+C 或关闭终端窗口）。
+	quit := make(chan os.Signal)
+	/* 
+	signal.Notify(quit, os.Interrupt): 通过 signal.Notify 函数，将 os.Interrupt 信号（通常是用户按下 Ctrl+C）与 quit 通道进行绑定。
+		这样，程序会在收到 os.Interrupt 信号时，将该信号发送到 quit 通道。
+		os.Interrupt 是一个操作系统信号，表示请求程序中止（通常来自键盘中断）
+	*/
+	signal.Notify(quit, os.Interrupt)
+	/* 
+	<- quit: 程序在这里阻塞，等待从 quit 通道接收到信号。
+		当用户按下 Ctrl+C 或程序接收到退出信号时，程序会从 quit 通道接收到信号，继续执行接下来的代码。
+	*/
+	<- quit
+
+	logging.DebugInfo("Shutdown server ...")
+
+	/* 
+	创建一个具有 5 秒钟的超时限制的 context.Context，用来控制优雅关闭过程的时间
+		context.Background() 创建一个根上下文（用于无父上下文的场景）。
+		context.WithTimeout 创建一个新的上下文，设置一个超时时间。当 5 秒钟到达时，ctx 会自动被取消。
+		cancel 是取消函数，调用它会取消上下文并释放相关资源
+	*/
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	defer cancel()
+	if  err := s.Shutdown(ctx); err != nil {
+		logging.ErrInfo("Sever Shutdown:", err)
+	}
+
+	logging.DebugInfo("Server exiting")
+}
+
+// Deprecated: endless库测试
+func parcticeGenExampleRunV2() {
+
+	endless.DefaultReadTimeOut = setting.ReadTimeout
+	endless.DefaultWriteTimeOut = setting.WriteTimeout
+	endless.DefaultMaxHeaderBytes = 1 << 20
+	endPoint := fmt.Sprintf(":%d", setting.HTTPPort)
+
+	/* 
+	endless.NewServer: 这是 endless 包的函数，它用于创建一个新的 HTTP 服务器。
+	与常规的 http.ListenAndServe 不同，endless 提供了对服务器优雅关闭的支持，使得服务器能够在收到停止信号时，等待处理完正在进行的请求后再关闭。
+		endPoint: 这是一个表示服务器地址的字符串。通常形式为 ":8080"，表示在本地机器的 8080 端口上监听。
+		routers.InitRouter(): 这是调用一个初始化的路由器函数（InitRouter），它返回一个配置好的 HTTP 路由（http.ServeMux 或 *gin.Engine 等），用于处理请求。
+	*/
+	// 返回一个初始化的 endlessServer 对象，在 BeforeBegin 时输出当前进程的 pid，调用 ListenAndServe 将实际“启动”服务
+	server := endless.NewServer(endPoint, routers.InitRouter())
+	/* 
+	它接收一个字符串参数 add，该参数是服务器绑定的地址（endPoint）。
+	在此回调函数中，日志记录了当前进程的 pid（进程ID）。
+		syscall.Getpid(): 这个函数返回当前进程的 ID，通常用于调试或日志记录，确认哪个进程正在运行此服务。
+	*/
+	server.BeforeBegin = func(add string) {
+		// 返回当前进程的 ID，通常用于调试或日志记录，确认哪个进程正在运行此服务
+		logging.DebugInfo("Actual pid is ", syscall.Getpid())
+	}
+
+	// 启动 HTTP 服务器并开始监听请求。
+	// ListenAndServe 会监听指定的地址和端口，并使用前面指定的路由器处理传入的请求
+	err := server.ListenAndServe()
+	if err != nil {
+		logging.ErrInfo("Server err: ", err)
+	}
+}
+// Deprecated: parcticeGenExample工程版本V1
+func parcticeGenExampleRunV1() {
 
 	gin.SetMode(setting.RunMode)
 
@@ -73,8 +170,6 @@ func main() {
 		logging.Error("❌ server failed to start: %v", err)
 	}
 }
-
-
 
 // (PracticeGenExample项目测试)gin测试调用： curl localhost:8000/test
 func ginTestFunction() {
@@ -110,6 +205,17 @@ func ginTestFunction() {
 	}
 	// ListenAndServe 是标准库 http.Server 的方法，它启动 HTTP 服务器并开始监听请求
 	s.ListenAndServe()
+}
+
+func viewCurrentFilePath() {
+	// 获取当前工作目录
+	dir, err := os.Getwd()
+	if err != nil {
+		logging.ErrInfo("Error getting working directory:", err)
+		return
+	}
+	logging.DebugInfo("3--------在 Go 中使用 os.ReadFile(\"example.txt\") 读取文件时，" + 
+	"相对路径是相对于程序的 当前工作目录，当前工作目录路径:", dir)
 }
 
 // dlv线程调试
