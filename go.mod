@@ -104,10 +104,18 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250227231956-55c901821b1e // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
 	// rpc、grpc、protobuf 框架
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250227231956-55c901821b1e // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+// api文档编写swagger：go get -u github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger
+require (
+	github.com/ghodss/yaml v1.0.0 // indirect
+	github.com/golang/glog v1.2.4 // indirect
+	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
 replace (
