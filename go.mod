@@ -20,26 +20,25 @@ require (
 	// go get -u github.com/astaxie/beego/validation:  Beego 框架 提供的 数据验证（validation）库，用于对结构体字段、表单数据等进行校验，类似于 validator 库。
 	github.com/astaxie/beego v1.12.3
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/bytedance/sonic v1.11.6 // indirect
-	github.com/bytedance/sonic/loader v0.1.1 // indirect
-	github.com/cloudwego/base64x v0.1.4 // indirect
-	github.com/cloudwego/iasm v0.2.0 // indirect
+	github.com/bytedance/sonic v1.12.10 // indirect
+	github.com/bytedance/sonic/loader v0.2.3 // indirect
+	github.com/cloudwego/base64x v0.1.5 // indirect
 	// ‌认证和授权JWT
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	// Swagger UI文件服务器（对外提供服务）,能够使用go-bindata所生成Swagger UI的Go代码，结合net/http对外提供服务
-	github.com/elazarl/go-bindata-assetfs v1.0.1 // indirect
+	github.com/elazarl/go-bindata-assetfs v1.0.1
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/flosch/pongo2/v4 v4.0.2 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
-	github.com/gin-contrib/sse v0.1.0 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
+	github.com/gin-contrib/sse v1.0.0 // indirect
 	// Gin 是一个用 Go 语言编写的高性能 Web 框架，专注于快速开发和高效运行。它被广泛用于构建 RESTful API、Web 应用和微服务。Gin 的设计目标是提供简洁的 API 和出色的性能，同时保持足够的灵活性。
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.20.0 // indirect
-	github.com/go-sql-driver/mysql v1.8.1
+	github.com/go-playground/validator/v10 v10.25.0 // indirect
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/goccy/go-json v0.10.2 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gocolly/colly v1.2.0
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -63,15 +62,15 @@ require (
 	github.com/kataras/tunnel v0.0.4 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailgun/raymond/v2 v2.0.48 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.26 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
@@ -92,8 +91,8 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yosssi/ace v0.0.5 // indirect
-	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/arch v0.14.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
 	golang.org/x/net v0.35.0
 	golang.org/x/sys v0.30.0 // indirect
@@ -110,14 +109,23 @@ require (
 )
 
 // api文档编写swagger：go get -u github.com/grpc-ecosystem/grpc-gateway/protoc-gen-swagger
+require github.com/fvbock/endless v0.0.0-20170109170031-447134032cb6
+
+// gin-swagger安装及其UI：go get -u github.com/swaggo/gin-swagger
+// go get -u github.com/swaggo/files
 require (
-	github.com/ghodss/yaml v1.0.0 // indirect
-	github.com/golang/glog v1.2.4 // indirect
-	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
+	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/go-openapi/jsonpointer v0.21.0 // indirect
+	github.com/go-openapi/jsonreference v0.21.0 // indirect
+	github.com/go-openapi/spec v0.21.0 // indirect
+	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/swaggo/files v1.0.1
+	github.com/swaggo/gin-swagger v1.6.0
+	github.com/swaggo/swag v1.16.4
+	golang.org/x/tools v0.30.0 // indirect
 )
 
-require github.com/fvbock/endless v0.0.0-20170109170031-447134032cb6 // indirect
+require github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
 
 replace (
 	//PracticeGenExample下的替代本地文件
