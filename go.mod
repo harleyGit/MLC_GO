@@ -10,7 +10,8 @@ require (
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/CloudyKit/jet/v6 v6.2.0 // indirect
 	github.com/Joker/jade v1.1.3 // indirect
-	github.com/PuerkitoBio/goquery v1.10.1 // indirect
+	// 爬虫网络
+	github.com/PuerkitoBio/goquery v1.10.2
 	github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
@@ -94,7 +95,7 @@ require (
 	golang.org/x/arch v0.14.0 // indirect
 	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
-	golang.org/x/net v0.35.0
+	golang.org/x/net v0.36.0
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
@@ -125,7 +126,11 @@ require (
 	golang.org/x/tools v0.30.0 // indirect
 )
 
-require github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
+require (
+	github.com/jinzhu/now v1.1.5 // indirect
+	gorm.io/driver/mysql v1.5.7 // indirect
+	gorm.io/gorm v1.25.12 // indirect
+)
 
 replace (
 	//PracticeGenExample下的替代本地文件
