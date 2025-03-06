@@ -134,9 +134,9 @@ require (
 
 replace (
 	//PracticeGenExample下的替代本地文件
-	github.com/EDDYCJY/go-gin-example/conf => ./TestNotes/PracticeGenExample/pkg/conf
-	github.com/EDDYCJY/go-gin-example/middleware => ./TestNotes/PracticeGenExample/middleware
-	github.com/EDDYCJY/go-gin-example/models => ./TestNotes/PracticeGenExample/models
-	github.com/EDDYCJY/go-gin-example/pkg/setting => ./TestNotes/PracticeGenExample/pkg/setting
-	github.com/EDDYCJY/go-gin-example/routers => ./TestNotes/PracticeGenExample/routers
+	github.com/EDDYCJY/go-gin-example/conf => ./TestNotes/GenPracticeExample/pkg/conf
+	github.com/EDDYCJY/go-gin-example/middleware => ./TestNotes/GenPracticeExample/middleware
+	github.com/EDDYCJY/go-gin-example/models => ./TestNotes/GenPracticeExample/models
+	github.com/EDDYCJY/go-gin-example/pkg/setting => ./TestNotes/GenPracticeExample/pkg/setting
+	github.com/EDDYCJY/go-gin-example/routers => ./TestNotes/GenPracticeExample/routers
 )

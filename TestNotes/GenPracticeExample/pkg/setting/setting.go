@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-23 20:50:34
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:01:20
+ * @LastEditTime: 2025-03-06 19:52:37
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/setting/setting.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -100,10 +100,10 @@ var (
 )
 
 
-func Setup() { //MLC_GO/TestNotes/PracticeGenExample/conf/app.ini
+func Setup() { //MLC_GO/TestNotes/GenPracticeGenExample/conf/app.ini
 	var err error
 	// 注意：单元测试地址是相对于setting.go的地址的 ./../../conf/app.ini, 在main.go运行时地址为：./TestNotes/PracticeGenExample/conf/app.ini
-	Cfg, err = ini.Load("./TestNotes/PracticeGenExample/conf/app.ini") 
+	Cfg, err = ini.Load("./TestNotes/GenPracticeExample/conf/app.ini") 
 	if err != nil {
 		logging.Fatal("❌ setting.Setup, fail to parse 'conf/app.ini': %v", err)
 	}

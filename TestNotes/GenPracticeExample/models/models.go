@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-24 18:00:35
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:01:14
+ * @LastEditTime: 2025-03-06 19:43:55
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/models.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -12,6 +12,7 @@ import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"fmt"
+	"io/ioutil"
 
 	_ "github.com/jinzhu/gorm/dialects/mysql" //注册 MySQL 驱动，让 gorm.Open("mysql", dsn) 识别 "mysql" 这个驱动
 
@@ -59,6 +60,19 @@ func Setup() {
 	if err != nil {
 		logging.Info(err)
 	}
+
+	// 读取 blog.sql 文件中的 SQL 语句
+	sqlContent, err := ioutil.ReadFile("MLC_GO/TestNotes/GenPracticeExample/docs/sql/blog.sql")
+	if err != nil {
+		logging.ErrInfo("failed to read sql file: ", err)
+	}
+	// 执行 SQL 创建表
+	sqlStr := string(sqlContent)
+	err = db.Exec(sqlStr).Error
+	if err != nil {
+		logging.ErrInfo("failed to execute SQL: ", err)
+	}
+
 
 	gorm.DefaultTableNameHandler = func(db *gorm.DB, defaultTableName string) string {
 		return tablePrefix + defaultTableName

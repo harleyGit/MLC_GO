@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-02 16:04:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-02 20:36:20
+ * @LastEditTime: 2025-03-06 20:19:47
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/logging/file.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -31,7 +31,7 @@ import (
  
  var (
 	// 日志路径
-	 LogSavePath = "./TestNotes/PracticeGenExample/runtime/logs/"
+	 LogSavePath = "./TestNotes/GenPracticeExample/runtime/logs/"
 	 LogSaveName = "log"
 	 LogFileExt = "log"
 	 TimeFormat = "20060102"
