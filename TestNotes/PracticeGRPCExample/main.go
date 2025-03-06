@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 16:52:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-04 12:57:29
+ * @LastEditTime: 2025-03-05 20:12:03
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -25,6 +25,7 @@ import (
 
 // 访问路径https://127.0.0.1:50052/swagger/hello.swagger.json，查看输出内容是否为hello.swagger.json的内容：
 // curl -k https://127.0.0.1:50052/swagger/hello.swagger.json
+// 或者浏览器： http://127.0.0.1:8000/swagger/index.html
 
 // 
 func main() {
