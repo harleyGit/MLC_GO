@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:01:57
+ * @LastEditTime: 2025-03-06 22:28:35
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -28,6 +28,7 @@ import (
 
 	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron"
 )
 
 
@@ -43,6 +44,7 @@ func practiceTestMethod() {
 	dlvThread00()
 	ginTestFunction()
 	viewCurrentFilePath()
+	cornPractice()
 	
 	parcticeGenExampleRunV1()
 	parcticeGenExampleRunV2()
@@ -50,6 +52,8 @@ func practiceTestMethod() {
 
 func main() {
 	// practiceTestMethod()
+	cornPractice()
+
 	
 	parcticeGenExampleRunV3()
 }
@@ -172,6 +176,34 @@ func parcticeGenExampleRunV1() {
 
 	if err := server.ListenAndServe(); err != nil {
 		logging.Error("❌ server failed to start: %v", err)
+	}
+}
+
+// corn库练习
+func cornPractice() {
+	logging.DebugInfo("Corn 开始了.......")
+
+	// 会根据本地时间创建一个新（空白）的 Cron job runner
+	c := cron.New()
+	// 向 Cron job runner 添加一个 func ，以按给定的时间表运行
+	c.AddFunc("* * * * * *", func() {
+		logging.DebugInfo("main.go-cornPractice 方法 AddFunc Run models.CleanAllTag...")
+		models.CleanAllTag()
+	})
+	c.AddFunc("* * * * * *", func() {
+		logging.DebugInfo("main.go-cornPractice 方法 Run models.CleanAllArticle...")
+		models.CleanAllArticle()
+	})
+
+	// 在当前执行的程序中启动 Cron 调度程序。其实这里的主体是 goroutine + for + select + timer 的调度控制哦
+	c.Start()
+
+	t1 := time.NewTimer(time.Second * 10)
+	for {
+		select {
+		case <-t1.C:
+			t1.Reset(time.Second * 10)
+		}
 	}
 }
 

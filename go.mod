@@ -127,10 +127,12 @@ require (
 )
 
 require (
-	github.com/jinzhu/now v1.1.5 // indirect
-	gorm.io/driver/mysql v1.5.7 // indirect
-	gorm.io/gorm v1.25.12 // indirect
+	github.com/robfig/cron v1.2.0
+	gorm.io/driver/mysql v1.5.7
+	gorm.io/gorm v1.25.12
 )
+
+require github.com/jinzhu/now v1.1.5 // indirect
 
 replace (
 	//PracticeGenExample下的替代本地文件

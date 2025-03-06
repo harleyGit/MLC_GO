@@ -176,3 +176,11 @@ func ( article*Article) BeforeUpdate(scope *gorm.Scope) error {
 
 	return nil
 }
+
+// 硬删除要使用 Unscoped()，这是 GORM 的约定
+// 硬删除所有文章
+func CleanAllArticle() bool {
+	db.Unscoped().Where("deleted_on != ? ", 0).Delete(&Article{})
+
+	return true
+}
