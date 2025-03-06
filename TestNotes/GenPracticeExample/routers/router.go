@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2025-02-27 12:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-04 21:37:53
+ * @LastEditTime: 2025-03-06 18:02:11
 
 * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/router.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -12,9 +12,9 @@
 package routers
 
 import (
-	"MLC_GO/TestNotes/PracticeGenExample/middleware/jwt"
-	"MLC_GO/TestNotes/PracticeGenExample/routers/api"
-	v1 "MLC_GO/TestNotes/PracticeGenExample/routers/api/v1"
+	"MLC_GO/TestNotes/GenPracticeExample/middleware/jwt"
+	"MLC_GO/TestNotes/GenPracticeExample/routers/api"
+	v1 "MLC_GO/TestNotes/GenPracticeExample/routers/api/v1"
 
 	_ "MLC_GO/docs" // 替换为你的项目模块路径(是 Swagger 生成的文档包，必须正确导入)
 

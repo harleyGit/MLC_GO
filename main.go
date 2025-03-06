@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-04 22:15:29
+ * @LastEditTime: 2025-03-06 18:01:57
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -14,10 +14,10 @@ package main
 
 import (
 	// "MLC_GO/TestNotes/PracticeGRPCExample/server"
-	"MLC_GO/TestNotes/PracticeGenExample/models"
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
-	"MLC_GO/TestNotes/PracticeGenExample/routers"
+	"MLC_GO/TestNotes/GenPracticeExample/models"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
+	"MLC_GO/TestNotes/GenPracticeExample/routers"
 	"context"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"os"
 
 	"github.com/spf13/cobra"

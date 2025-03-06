@@ -2,14 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-23 21:47:11
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-02-24 17:58:52
+ * @LastEditTime: 2025-03-06 18:01:35
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/util/pagination.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package util
 
 import (
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/setting"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/unknwon/com"

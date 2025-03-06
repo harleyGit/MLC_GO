@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 16:52:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-05 20:12:03
+ * @LastEditTime: 2025-03-06 18:01:00
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -10,7 +10,7 @@ package main
 
 import (
 	"MLC_GO/TestNotes/PracticeGRPCExample/cmd"
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/logging"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"os"
 )
 

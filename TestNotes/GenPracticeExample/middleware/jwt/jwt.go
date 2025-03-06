@@ -2,15 +2,15 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-01 21:37:55
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-02 12:33:31
+ * @LastEditTime: 2025-03-06 18:01:08
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/middleware/jwt/jwt.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package jwt
 
 import (
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/e"
-	"MLC_GO/TestNotes/PracticeGenExample/pkg/util"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/e"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/util"
 	"net/http"
 	"time"
 
