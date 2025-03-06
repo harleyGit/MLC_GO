@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-05 13:08:13
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:01:39
+ * @LastEditTime: 2025-03-06 22:06:30
  * @FilePath: /MLC_GO/TestNotes/CrawlerPracticeExample/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -10,6 +10,7 @@
 /**
 *  爬取豆瓣电影 TOP250: https://eddycjy.com/posts/go/crawler/2018-03-21-douban-top250/
 *  爬取汽车之家 二手车产品库: https://eddycjy.com/posts/go/crawler/2018-04-01-cars/
+*	了解一下Golang的市场行情 项目地址https://github.com/go-crawler/lagou_jobs
  */
 package main
 
