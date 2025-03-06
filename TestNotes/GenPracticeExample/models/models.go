@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-24 18:00:35
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 19:43:55
+ * @LastEditTime: 2025-03-06 21:00:01
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/models.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -12,7 +12,8 @@ import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"fmt"
-	"io/ioutil"
+	"os"
+	"strings"
 
 	_ "github.com/jinzhu/gorm/dialects/mysql" //注册 MySQL 驱动，让 gorm.Open("mysql", dsn) 识别 "mysql" 这个驱动
 
@@ -58,20 +59,21 @@ func Setup() {
 		dbName))
 
 	if err != nil {
-		logging.Info(err)
+		logging.ErrInfo("数据库连接失败：", err)
 	}
 
 	// 读取 blog.sql 文件中的 SQL 语句
-	sqlContent, err := ioutil.ReadFile("MLC_GO/TestNotes/GenPracticeExample/docs/sql/blog.sql")
+	sqlBytes, err := os.ReadFile("./TestNotes/GenPracticeExample/docs/sql/blog.sql")
 	if err != nil {
 		logging.ErrInfo("failed to read sql file: ", err)
 	}
-	// 执行 SQL 创建表
-	sqlStr := string(sqlContent)
-	err = db.Exec(sqlStr).Error
-	if err != nil {
-		logging.ErrInfo("failed to execute SQL: ", err)
+	//废弃：不需要清理，实际上是多行执行造成无法创建数据表
+	cleanSQL := cleanSQL(string(sqlBytes))
+	// 3. 分步执行 SQL
+	if err := executeSQL(db, cleanSQL); err != nil {
+		logging.ErrInfo("数据库初始化失败:", err)
 	}
+	logging.DebugInfo("数据库初始化成功！")
 
 
 	gorm.DefaultTableNameHandler = func(db *gorm.DB, defaultTableName string) string {
@@ -86,5 +88,35 @@ func Setup() {
 
 func CloseDB() {
 	defer db.Close()
+}
+
+func cleanSQL(raw string) string {
+	// 清理 Navicat 特殊格式
+	replacements := []string{
+		"/* Navicat Premium Data Transfer*/", "",
+		"-- ----------------------------", "",
+		"/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE */;", "",
+	}
+	replacer := strings.NewReplacer(replacements...)
+	return replacer.Replace(raw)
+}
+
+func executeSQL(db *gorm.DB, sql string) error {
+	statements := strings.Split(sql, ";")
+	
+	for i, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "/*") {
+			continue
+		}
+		
+		// 打印执行进度
+		fmt.Printf("执行语句 %d:\n%s\n\n", i+1, stmt)
+		// 执行 SQL 创建表
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("执行失败: %v\n语句: %s", err, stmt)
+		}
+	}
+	return nil
 }
 
