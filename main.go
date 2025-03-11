@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 22:30:44
+ * @LastEditTime: 2025-03-11 18:12:01
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -35,6 +35,7 @@ import (
 func init() {
 	setting.Setup()
 	models.Setup()
+	logging.Setup()
 }
 
 // 测试方法
@@ -64,10 +65,10 @@ func parcticeGenExampleRunV3() {
 	router := routers.InitRouter()
 
 	s := &http.Server{
-		Addr: fmt.Sprintf(":%d", setting.HTTPPort),
+		Addr: fmt.Sprintf(":%d", setting.ServerSetting.HttpPort),
 		Handler:        router, // 设置 HTTP 请求的处理器，这里使用 router（即 Gin 的 Engine）作为请求的处理器。Gin 会根据路由规则处理请求
-		ReadTimeout:    setting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
-		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
+		ReadTimeout:    setting.ServerSetting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
+		WriteTimeout:   setting.ServerSetting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
 		MaxHeaderBytes: 1 << 20,
 	}
 
@@ -114,10 +115,10 @@ func parcticeGenExampleRunV3() {
 // Deprecated: endless库测试
 func parcticeGenExampleRunV2() {
 
-	endless.DefaultReadTimeOut = setting.ReadTimeout
-	endless.DefaultWriteTimeOut = setting.WriteTimeout
+	endless.DefaultReadTimeOut = setting.ServerSetting.ReadTimeout
+	endless.DefaultWriteTimeOut = setting.ServerSetting.WriteTimeout
 	endless.DefaultMaxHeaderBytes = 1 << 20
-	endPoint := fmt.Sprintf(":%d", setting.HTTPPort)
+	endPoint := fmt.Sprintf(":%d", setting.ServerSetting.HttpPort)
 
 	/* 
 	endless.NewServer: 这是 endless 包的函数，它用于创建一个新的 HTTP 服务器。
@@ -147,7 +148,7 @@ func parcticeGenExampleRunV2() {
 // Deprecated: parcticeGenExample工程版本V1
 func parcticeGenExampleRunV1() {
 
-	gin.SetMode(setting.RunMode)
+	gin.SetMode(setting.ServerSetting.RunMode)
 
 	routersInit := routers.InitRouter()
 	/*
@@ -167,8 +168,8 @@ func parcticeGenExampleRunV1() {
 	server := &http.Server{
 		Addr:           ":8000",//fmt.Sprintf(":%d", setting.HTTPPort), // 设置 HTTP 服务器的监听地址和端口
 		Handler:        routersInit, // 设置 HTTP 请求的处理器，这里使用 router（即 Gin 的 Engine）作为请求的处理器。Gin 会根据路由规则处理请求
-		ReadTimeout:    setting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
-		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
+		ReadTimeout:    setting.ServerSetting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
+		WriteTimeout:   setting.ServerSetting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
 		MaxHeaderBytes: 1 << 20,
 	}
 	logging.Info("🍎 [info] start http server listening %s", server.Addr)//, endPoint
@@ -232,10 +233,10 @@ func ginTestFunction() {
 			ListenAndServe 等方法需要通过指针来调用，因为这些方法可能会改变 Server 结构体的字段，而不是简单地读取它
 	*/
 	s := &http.Server{
-		Addr:           fmt.Sprintf(":%d", setting.HTTPPort), // 设置 HTTP 服务器的监听地址和端口
+		Addr:           fmt.Sprintf(":%d", setting.ServerSetting.HttpPort), // 设置 HTTP 服务器的监听地址和端口
 		Handler:        router, // 设置 HTTP 请求的处理器，这里使用 router（即 Gin 的 Engine）作为请求的处理器。Gin 会根据路由规则处理请求
-		ReadTimeout:    setting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
-		WriteTimeout:   setting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
+		ReadTimeout:    setting.ServerSetting.ReadTimeout, // 设置读取请求的超时时间，超过这个时间，连接会被关闭。
+		WriteTimeout:   setting.ServerSetting.WriteTimeout, // 设置请求头的最大字节数，这里是 2^20（即 1MB）。如果请求头超过这个大小，会返回 400 Bad Request 错误
 		MaxHeaderBytes: 1 << 20,
 	}
 	// ListenAndServe 是标准库 http.Server 的方法，它启动 HTTP 服务器并开始监听请求

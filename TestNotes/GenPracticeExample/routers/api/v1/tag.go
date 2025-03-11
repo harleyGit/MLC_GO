@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-27 12:51:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:02:41
+ * @LastEditTime: 2025-03-11 18:07:55
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/api/v1/tag.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -62,7 +62,7 @@ func GetTags(c *gin.Context){
 	code := e.SUCCESS
 
 	// util.GetPage保证了各接口的page处理是一致的
-	data["lists"] = models.GetTags(util.GetPage(c), setting.PageSize, maps)
+	data["lists"] = models.GetTags(util.GetPage(c), setting.AppSetting.PageSize, maps)
 	data["total"] = models.GetTagTotal(maps)
 
 	c.JSON(http.StatusOK, gin.H{

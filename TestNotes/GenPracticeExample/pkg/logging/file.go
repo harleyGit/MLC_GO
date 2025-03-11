@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-02 16:04:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 20:19:47
+ * @LastEditTime: 2025-03-11 18:05:53
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/logging/file.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,7 @@
 package logging
 
 import (
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"fmt"
 	"log"
 	"os"
@@ -38,7 +39,7 @@ import (
  )
  
  func getLogFilePath() string {
-	 return fmt.Sprintf("%s", LogSavePath)
+	return fmt.Sprintf("%s%s", setting.AppSetting.RuntimeRootPath, setting.AppSetting.LogSavePath)
  }
  
  func getLogFileFullPath() string {

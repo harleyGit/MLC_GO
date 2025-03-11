@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-24 18:00:35
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 21:54:11
+ * @LastEditTime: 2025-03-11 16:05:55
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/models.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -36,6 +36,7 @@ type Model struct {
 }
 
 func Setup() {
+	/*代码优化： 配置使用setting内的配置
 	var (
 		err error
 		dbType, dbName, user, password, host, tablePrefix string
@@ -52,13 +53,14 @@ func Setup() {
 	password = sec.Key("PASSWORD").String()
 	host = sec.Key("HOST").String()
 	tablePrefix = sec.Key("TABLE_PREFIX").String()
-
+	*/
+	var err error
 	// 连接数据库，使用 GORM 作为 ORM（对象关系映射），并且使用 fmt.Sprintf() 生成 MySQL 连接字符串
-	db, err = gorm.Open(dbType, fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8&parseTime=True&loc=Local",
-		user,
-		password,
-		host,
-		dbName))
+	db, err = gorm.Open(setting.DatabaseSetting.Type, fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8&parseTime=True&loc=Local",
+		setting.DatabaseSetting.User,
+		setting.DatabaseSetting.Password,
+		setting.DatabaseSetting.Host,
+		setting.DatabaseSetting.Name))
 
 	if err != nil {
 		logging.ErrInfo("数据库连接失败：", err)
@@ -79,7 +81,7 @@ func Setup() {
 
 
 	gorm.DefaultTableNameHandler = func(db *gorm.DB, defaultTableName string) string {
-		return tablePrefix + defaultTableName
+		return setting.DatabaseSetting.TablePrefix + defaultTableName
 	}
 
 	db.SingularTable(true)
