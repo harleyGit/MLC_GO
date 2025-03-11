@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 22:28:35
+ * @LastEditTime: 2025-03-06 22:30:44
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -52,7 +52,6 @@ func practiceTestMethod() {
 
 func main() {
 	// practiceTestMethod()
-	cornPractice()
 
 	
 	parcticeGenExampleRunV3()
@@ -179,7 +178,7 @@ func parcticeGenExampleRunV1() {
 	}
 }
 
-// corn库练习
+// corn库练习(定时任务调度处理)
 func cornPractice() {
 	logging.DebugInfo("Corn 开始了.......")
 
