@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-02 16:04:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-03 21:11:52
+ * @LastEditTime: 2025-03-11 19:26:43
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/logging/log.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -39,8 +39,11 @@ const (
 
 func Setup() {
 	filePath := getLogFileFullPath()
-	F = openLogFile(filePath)
-
+	fileName := getLogFileName()
+	F, err := openLogFile(fileName, filePath)
+	if err != nil {
+		log.Fatalln(err)
+	}
 	// 创建一个新的日志记录器。out定义要写入日志数据的IO句柄。prefix定义每个生成的日志行的开头。flag定义了日志记录属性
 	logger = log.New(F, DefaultPrefix, log.LstdFlags)
 }

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-02 16:04:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-11 18:05:53
+ * @LastEditTime: 2025-03-11 19:25:52
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/logging/file.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,7 @@
 package logging
 
 import (
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/file"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"fmt"
 	"log"
@@ -41,7 +42,41 @@ import (
  func getLogFilePath() string {
 	return fmt.Sprintf("%s%s", setting.AppSetting.RuntimeRootPath, setting.AppSetting.LogSavePath)
  }
+
+
+func openLogFile(fileName, filePath string) (*os.File, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("os.Getwd err: %v", err)
+	}
+
+	src := dir + "/" + filePath
+	perm := file.CheckPermission(src)
+	if perm == true {
+		return nil, fmt.Errorf("file.CheckPermission Permission denied src: %s", src)
+	}
+
+	err = file.IsNotExistMkDir(src)
+	if err != nil {
+		return nil, fmt.Errorf("file.IsNotExistMkDir src: %s, err: %v", src, err)
+	}
+
+	f, err := file.Open(src + fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("Fail to OpenFile :%v", err)
+	}
+
+	return f, nil
+}
  
+ func getLogFileName() string {
+	return fmt.Sprintf("%s%s.%s",
+		setting.AppSetting.LogSaveName,
+		time.Now().Format(setting.AppSetting.TimeFormat),
+		setting.AppSetting.LogFileExt,
+	)
+}
+
  func getLogFileFullPath() string {
 	 prefixPath := getLogFilePath()
 	 suffixPath := fmt.Sprintf("%s%s.%s", LogSaveName, time.Now().Format(TimeFormat), LogFileExt)
@@ -56,7 +91,7 @@ import (
 	以追加模式打开文件（如果文件不存在则创建）
 	返回文件句柄 *os.File，用于后续日志写入
  */
- func openLogFile(filePath string) *os.File {
+ func openLogFileV1(filePath string) *os.File {
 	 // os.Stat ：返回文件信息结构描述文件。如果出现错误，会返回*PathError
 	 // os.Stat(filePath) 获取文件信息， 返回： 文件信息（os.FileInfo），错误信息（error）
 	 _, err := os.Stat(filePath)
