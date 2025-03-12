@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-28 20:11:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-01 20:24:26
+ * @LastEditTime: 2025-03-12 19:59:40
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/article.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -24,14 +24,30 @@ type Article struct {
 	Title string `json:"title"`
 	Desc string `json:"desc"`
 	Content string `json:"content"`
+	CoverImageUrl string `json:"cover_image_url"`
 	CreatedBy string `json:"created_by"`
 	ModifiedBy string `json:"modified_by"`
 	State int `json:"state"`
 }
 
 
+func ExistArticleByID(id int) (bool, error) {
+	var article Article
+
+	err := db.Select("id").Where("id = ? AND deleted_on = ?", id, 0).First(&article).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return false, err
+	}
+
+	if article.ID > 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
 // 检查数据库中是否存在某个 ID 的文章，如果存在则返回 true，否则返回 false
-func ExistArticleByID(id int) bool {
+// Deprecated: 该方法废弃了,不再使用,请用 func ExistArticleByIDV1(id int) (bool, error)
+func ExistArticleByIDV1(id int) bool {
 	var article Article
 	/*
 	.Where("id = ?", id)
@@ -111,18 +127,20 @@ func GetArticle(id int) (article Article) {
 }
 
 // data interface{}：包含要更新的字段和值的 map 或结构体。
-func EditArticle(id int, data interface {}) bool {
+func EditArticle(id int, data interface {}) error {
 	/*
 	db.Model(&Article{})：指定要更新的是 Article 表的数据。
 	.Where("id = ?", id)：筛选出 id 等于 id 的那一条记录。
 	.Updates(data)：将 data 传入的字段和值应用到筛选出的记录中。
 	*/
-	db.Model(&Article{}).Where("id = ?", id).Updates(data)
+	if err := db.Model(&Article{}).Where("id = ? AND deleted_on = ?", id, 0).Updates(data).Error; err != nil {
+		return err
+	}
 
-	return true
+	return nil
 }
 
-func AddArticle(data map[string]interface {}) bool {
+func AddArticle(data map[string]interface {}) error {
 	/*
 	db.Create(&Article{})
 		db：这是 GORM 的数据库连接对象，允许你执行数据库操作。Create() 方法用于在数据库中插入新纪录。
@@ -132,16 +150,20 @@ func AddArticle(data map[string]interface {}) bool {
 		data 是一个 map[string]interface{} 类型的变量，它包含了文章的各个字段及其值。
 		data["tag_id"].(int)：通过类型断言（.(int)）从 data 中获取 tag_id，并将其转换为 int 类型。
 	*/
-	db.Create(&Article {
+	article := Article {
 		TagID : data["tag_id"].(int),
 		Title: data["title"].(string),
 		Desc: data["desc"].(string),
 		Content: data["content"].(string),
 		CreatedBy: data["created_by"].(string),
 		State: data["state"].(int),
-	})
-
-	return true
+		CoverImageUrl: data["cover_image_url"].(string),
+	}
+	if err := db.Create(&article).Error; err != nil {
+		return err
+	}
+	
+	return nil
 }
 
 func DeleteArticle(id int) bool {

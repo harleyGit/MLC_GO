@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2025-02-27 12:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-11 20:03:18
+ * @LastEditTime: 2025-03-12 19:20:25
 
 * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/router.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -12,9 +12,11 @@
 package routers
 
 import (
-	"MLC_GO/TestNotes/GenPracticeExample/middleware/jwt"
+	// "MLC_GO/TestNotes/GenPracticeExample/middleware/jwt"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/upload"
 	"MLC_GO/TestNotes/GenPracticeExample/routers/api"
 	v1 "MLC_GO/TestNotes/GenPracticeExample/routers/api/v1"
+	"net/http"
 
 	_ "MLC_GO/docs" // 替换为你的项目模块路径(是 Swagger 生成的文档包，必须正确导入)
 
@@ -36,7 +38,8 @@ func InitRouter() *gin.Engine {
 	r.Use(gin.Recovery())
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
+	// 当访问 $HOST/upload/images 时，将会读取到 $GOPATH/src/MLC_GO/TestNotes/GenPracticeExample/runtime/upload/images 下的文件
+	r.StaticFS("/upload/images", http.Dir(upload.GetImageFullPath()))
 	r.GET("/auth", api.GetAuth)
 	// 定义了一个 API 路由组 apiv1，所有在这个组内的路由都会有 "/api/v1" 这个前缀。
 	apiv1 := r.Group("/api/v1")
@@ -49,7 +52,7 @@ func InitRouter() *gin.Engine {
 			若是执行终止后续处理：ctx.Abort() ，则下面的 apiv1.GET("/tags", v1.GetTags)等都不会执行了，否则继续执行。
 			若是ctx.Next() 让 apiv1.GET("/tags", v1.GetTags)继续执行
 	*/
-	apiv1.Use(jwt.JWT())
+	// apiv1.Use(jwt.JWT())
 	{
 		// 获取标签列表
 		// 定义了一个 GET 请求的路由，完整的 URL 访问路径为: GET /api/v1/tags

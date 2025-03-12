@@ -38,7 +38,7 @@ const (
 )
 
 func Setup() {
-	filePath := getLogFileFullPath()
+	filePath := getLogFilePath()
 	fileName := getLogFileName()
 	F, err := openLogFile(fileName, filePath)
 	if err != nil {
