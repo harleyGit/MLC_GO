@@ -19,7 +19,7 @@ require (
 	github.com/antchfx/xmlquery v1.4.3 // indirect
 	github.com/antchfx/xpath v1.3.3 // indirect
 	// go get -u github.com/astaxie/beego/validation:  Beego 框架 提供的 数据验证（validation）库，用于对结构体字段、表单数据等进行校验，类似于 validator 库。
-	github.com/astaxie/beego v1.12.3
+	github.com/astaxie/beego v1.10.1
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bytedance/sonic v1.12.10 // indirect
 	github.com/bytedance/sonic/loader v0.2.3 // indirect
@@ -76,7 +76,6 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/schollz/closestmatch v2.1.0+incompatible // indirect
-	github.com/shiena/ansicolor v0.0.0-20230509054315-a9deabde6e02 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	// cora 命令行界面工具
 	github.com/spf13/cobra v1.9.1
@@ -127,6 +126,7 @@ require (
 )
 
 require (
+	github.com/gomodule/redigo v1.9.2
 	github.com/robfig/cron v1.2.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
