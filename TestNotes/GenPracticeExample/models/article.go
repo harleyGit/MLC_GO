@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-28 20:11:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-12 19:59:40
+ * @LastEditTime: 2025-03-13 19:39:17
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/article.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -19,6 +19,7 @@ type Article struct {
 	// gorm:index，用于声明这个字段为索引，如果你使用了自动迁移功能则会有所影响，在不使用则无影响
 	TagID int `json:"tag_id" gorm:"index"`
 	// Tag字段，实际是一个嵌套的struct，它利用TagID与Tag模型相互关联，在执行查询的时候，能够达到Article、Tag关联查询的功能
+	// 关联 Tag 模型，通过 TagID 与 Tag.ID 关联
 	Tag Tag `json:"tag"`
 
 	Title string `json:"title"`
@@ -113,13 +114,39 @@ func GetArticles(pageNum int, pageSize int, maps interface {}) (articles []Artic
 }
 
 
+func GetArticle(id int) (*Article, error) {
+	var article Article
+	err := db.Where("id = ? AND deleted_on = ? ", id, 0).First(&article).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	// db.Model(&article)：这一步告诉 GORM 我们以 article 作为基础模型进行接下来的查询
+	
+	// Related(&article.Tag)：
+	// 作用：
+	// 使用 GORM 的 Related 方法查询 article 关联的 Tag 数据，并将结果存储到 article.Tag 字段中。
+	// 原理：
+	// GORM 会根据 Article 模型中定义的外键（这里是 TagID）自动推断如何关联到 Tag 模型。
+	// 默认情况下，GORM 会将 article.TagID 与 Tag 表中的主键（通常是 ID）进行匹配，从而查询出对应的 Tag 记录。
+	// 返回值：
+	// Related 方法返回一个 error 值，通过 .Error 属性获取执行结果。如果关联查询出错（例如连接数据库失败或者查询条件不匹配），会返回相应的错误。如果没有找到关联数据，通常会返回 gorm.ErrRecordNotFound，这时代码选择忽略此错误继续执行。
+	err = db.Model(&article).Related(&article.Tag).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	return &article, nil
+} 
+
 /*Article是如何关联到Tag？
 首先是gorm本身做了大量的约定俗成
 
 Article有一个结构体成员是TagID，就是外键。gorm会通过类名+ID 的方式去找到这两个类之间的关联关系
 Article有一个结构体成员是Tag，就是我们嵌套在Article里的Tag结构体，我们可以通过Related进行关联查询
 */
-func GetArticle(id int) (article Article) {
+// Deprecated:  func GetArticle_v1(id int) (article Article) 废弃了,请用 func GetArticle(id int) (*Article, error)
+func GetArticle_v1(id int) (article Article) {
 	db.Where("id = ?", id).First(&article)
 	db.Model(&article).Related(&article.Tag)
 

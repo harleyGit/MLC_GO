@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-28 20:10:02
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-12 20:30:15
+ * @LastEditTime: 2025-03-13 18:59:42
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/api/v1/article.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -26,6 +26,50 @@ import (
 
 // 获取单个文章
 func GetArticle(c *gin.Context) {
+	// 通过包装 c 到自定义的 app.Gin 对象中，可以在后续代码中通过 appG 来访问 gin.Context 以及可能扩展的其它方法和属性。
+	appG := app.Gin{c}
+	// 使用 c.Param("id") 从请求的 URL 中提取名为 "id" 的参数，返回的是字符串类型。
+	// com.StrTo(...) 是一个辅助函数，用于将字符串转换为其它数据类型。
+	// 调用 .MustInt() 将该字符串转换成整数，如果转换失败则会引发异常（或返回默认值，取决于具体实现）。
+	id := com.StrTo(c.Param("id")).MustInt()
+	// 创建一个 validation.Validation 实例，通常来自于 Beego Validation 或类似的验证库，用于对数据进行规则校验。
+	valid := validation.Validation{}
+	// 第一个参数 id：待验证的数值（从 URL 参数转换得到）。
+	// 第二个参数 1：验证条件，即 id 的最小值要求必须大于或等于 1。
+	// 第三个参数 "id"：标识符或字段名称，用于错误信息中区分验证失败的字段。
+	// 调用 .Message("ID必须大于0")：
+	// 为验证失败的情况设置一个自定义的错误提示信息，告诉用户或开发者 "ID必须大于0"。
+	valid.Min(id, 1, "id").Message("ID必须大于0")
+
+	if valid.HasErrors() {
+		app.MarkErrors(valid.Errors)
+		appG.Response(http.StatusOK, e.INVALID_PARAMS, nil)
+		return
+	}
+
+	articleService := article_service.Article{ID: id}
+	exists, err := articleService.ExistByID()
+	if err != nil {
+		appG.Response(http.StatusOK, e.ERROR_CHECK_EXIST_ARTICLE_FAIL, nil)
+		return
+	}
+	if !exists {
+		appG.Response(http.StatusOK, e.ERROR_NOT_EXIST_ARTICLE, nil)
+		return
+	}
+
+	article, err := articleService.Get()
+	if err != nil {
+		appG.Response(http.StatusOK, e.ERROR_GET_ARTICLE_FAIL, nil)
+		return
+	}
+
+	appG.Response(http.StatusOK, e.SUCCESS, article)
+}
+
+// 获取单个文章
+// Deprecated: func GetArticle_v1(c *gin.Context)废弃了,请用 func GetArticle(c *gin.Context)
+func GetArticle_v1(c *gin.Context) {
 	id := com.StrTo(c.Param("id")).MustInt()
 
     valid := validation.Validation{}
@@ -35,7 +79,7 @@ func GetArticle(c *gin.Context) {
 	var data interface{}
 	if ! valid.HasErrors() {
 		if isExistArticle, _ := models.ExistArticleByID(id); isExistArticle {
-			data = models.GetArticle(id)
+			data,_ = models.GetArticle(id)
 			code = e.SUCCESS
 		} else {
 			code = e.ERROR_NOT_EXIST_ARTICLE
