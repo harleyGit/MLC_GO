@@ -9,11 +9,12 @@
 package file
 
 import (
+	"fmt"
 	"io/ioutil"
 	// mime/multipart 包主要实现了 MIME 的 multipart 解析，主要适用于 HTTP 和常见浏览器生成的 multipart 主体
 	// multipart 是一种HTTP 请求/响应的编码格式，常用于文件上传或包含多部分数据的 HTTP 请求。它的典型使用场景是 multipart/form-data，用于在 POST 请求中上传文件或表单数据。
 	// RFC 2388 是 IETF（Internet Engineering Task Force）在 1998 年发布的标准文档，定义了 multipart/form-data 的格式和用法，主要用于 HTTP 文件上传和表单数据提交。
-	
+
 	/* multipart/form-data 是 Content-Type 之一，适用于 POST 请求，主要用于表单提交和文件上传
 	关键点
 		边界（boundary）
@@ -101,6 +102,31 @@ func Open(name string, flag int, perm os.FileMode) (*os.File, error) {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		return nil, err
+	}
+
+	return f, nil
+}
+
+func MustOpen(fileName, filePath string) (*os.File, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("os.Getwd err: %v", err)
+	}
+
+	src := dir + "/" + filePath
+	perm := CheckPermission(src)
+	if perm == true {
+		return nil, fmt.Errorf("file.CheckPermission Permission denied src: %s", src)
+	}
+
+	err = IsNotExistMkDir(src)
+	if err != nil {
+		return nil, fmt.Errorf("file.IsNotExistMkDir src: %s, err: %v", src, err)
+	}
+
+	f, err := Open(src+fileName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("Fail to OpenFile :%v", err)
 	}
 
 	return f, nil

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-02 16:04:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-12 15:34:18
+ * @LastEditTime: 2025-03-14 19:46:30
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/pkg/logging/file.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -30,7 +30,7 @@ import (
 	"os"
 	"time"
 )
- 
+
 /*
  var (
 	// 日志路径
@@ -39,7 +39,7 @@ import (
 	 LogFileExt = "log"
 	 TimeFormat = "20060102"
  )
- */
+*/
  func getLogFilePath() string {
 	return fmt.Sprintf("%s%s", setting.AppSetting.RuntimeRootPath, setting.AppSetting.LogSavePath)
  }

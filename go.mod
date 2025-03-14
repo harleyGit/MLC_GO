@@ -96,7 +96,7 @@ require (
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
 	golang.org/x/net v0.36.0
 	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
@@ -126,6 +126,8 @@ require (
 )
 
 require (
+	github.com/boombuler/barcode v1.0.2
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/gomodule/redigo v1.9.2
 	github.com/robfig/cron v1.2.0
 	github.com/tealeg/xlsx v1.0.5
@@ -133,7 +135,10 @@ require (
 	gorm.io/gorm v1.25.12
 )
 
-require github.com/jinzhu/now v1.1.5 // indirect
+require (
+	github.com/jinzhu/now v1.1.5 // indirect
+	golang.org/x/image v0.25.0 // indirect
+)
 
 replace (
 	//PracticeGenExample下的替代本地文件

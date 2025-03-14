@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2025-02-27 12:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-14 19:27:53
+ * @LastEditTime: 2025-03-14 20:20:35
 
 * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/router.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -74,6 +74,9 @@ func InitRouter() *gin.Engine {
 		apiv1.PUT("/tags/:id", v1.EditTag)
 		// 删除指定标签
 		apiv1.DELETE("/tags/:id", v1.DeleteTag)
+
+		// 生成海报二维码POST: http://127.0.0.1:8000/api/v1/articles/poster/generate
+		apiv1.POST("/articles/poster/generate", v1.GenerateArticlePoster)
 
 		// 获取文章列表
 		// 这是定义一个 GET 请求的路由。当客户端发起 GET 请求到 /articles 路径时，Gin 会将请求转发到处理函数 v1.GetArticles。

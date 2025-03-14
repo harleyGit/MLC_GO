@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-28 20:10:02
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-13 18:59:42
+ * @LastEditTime: 2025-03-14 19:48:57
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/api/v1/article.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,6 +13,7 @@ import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/app"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/e"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/qrcode"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/util"
 	"MLC_GO/TestNotes/GenPracticeExample/service/article_service"
@@ -20,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/astaxie/beego/validation"
+	"github.com/boombuler/barcode/qr"
 	"github.com/gin-gonic/gin"
 	"github.com/unknwon/com"
 )
@@ -425,4 +427,42 @@ func DeleteArticle(c *gin.Context) {
         "msg" : e.GetMsg(code),
         "data" : make(map[string]string),
     })
+}
+
+
+const (
+	QRCODE_URL = "https://github.com/harleyGit/StudyNotes/blob/master/Go/go语法.md"
+)
+
+func GenerateArticlePoster(c *gin.Context) {
+	appG := app.Gin{C: c}
+	article := &article_service.Article{}
+	qr := qrcode.NewQrCode(QRCODE_URL, 300, 300, qr.M, qr.Auto)
+	posterName := article_service.GetPosterFlag() + "-" + qrcode.GetQrCodeFileName(qr.URL) + qr.GetQrCodeExt()
+	articlePoster := article_service.NewArticlePoster(posterName, article, qr)
+	articlePosterBgService := article_service.NewArticlePosterBg(
+		"bg.jpg",
+		articlePoster,
+		&article_service.Rect{
+			X0: 0,
+			Y0: 0,
+			X1: 550,
+			Y1: 700,
+		},
+		&article_service.Pt{
+			X: 125,
+			Y: 298,
+		},
+	)
+
+	_, filePath, err := articlePosterBgService.Generate()
+	if err != nil {
+		appG.Response(http.StatusInternalServerError, e.ERROR_GEN_ARTICLE_POSTER_FAIL, nil)
+		return
+	}
+
+	appG.Response(http.StatusOK, e.SUCCESS, map[string]string{
+		"poster_url":      qrcode.GetQrCodeFullUrl(posterName),
+		"poster_save_url": filePath + posterName,
+	})
 }
