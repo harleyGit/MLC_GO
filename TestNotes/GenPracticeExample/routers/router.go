@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2025-02-27 12:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-12 19:20:25
+ * @LastEditTime: 2025-03-14 19:27:53
 
 * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/router.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -13,6 +13,7 @@ package routers
 
 import (
 	// "MLC_GO/TestNotes/GenPracticeExample/middleware/jwt"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/export"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/upload"
 	"MLC_GO/TestNotes/GenPracticeExample/routers/api"
 	v1 "MLC_GO/TestNotes/GenPracticeExample/routers/api/v1"
@@ -38,12 +39,21 @@ func InitRouter() *gin.Engine {
 	r.Use(gin.Recovery())
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	
 	// 当访问 $HOST/upload/images 时，将会读取到 $GOPATH/src/MLC_GO/TestNotes/GenPracticeExample/runtime/upload/images 下的文件
 	r.StaticFS("/upload/images", http.Dir(upload.GetImageFullPath()))
+
+	r.POST("/upload", api.UploadImage) // 上传图片
+
+	//导出Excel表: http://127.0.0.1:8000/tags/export
+	r.POST("/tags/export", v1.ExportTag)
+	// 下载文件: http://127.0.0.1:8000/export/tags-1741951317.xlsx
+	r.StaticFS("/export", http.Dir(export.GetExcelFullPath()))
+	
 	r.GET("/auth", api.GetAuth)
+	
 	// 定义了一个 API 路由组 apiv1，所有在这个组内的路由都会有 "/api/v1" 这个前缀。
 	apiv1 := r.Group("/api/v1")
-	r.POST("/upload", api.UploadImage) // 上传图片
 	/*
 		作用：
 			JWT() 返回一个 Gin 中间件（gin.HandlerFunc）。

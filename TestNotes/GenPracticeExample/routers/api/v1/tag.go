@@ -2,13 +2,13 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-27 12:51:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-11 18:07:55
+ * @LastEditTime: 2025-03-14 18:47:34
  * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/routers/api/v1/tag.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 
- /* 
- gin-swagger范例：
+/*
+	gin-swagger范例：
 
 // @Summary Add a new pet to the store
 // @Description get string by ID
@@ -19,14 +19,17 @@
 // @Failure 400 {object} web.APIError "We need ID!!"
 // @Failure 404 {object} web.APIError "Can not find ID"
 // @Router /testapi/get-string-by-int/{some_id} [get]
- */
+*/
 package v1
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/models"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/app"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/e"
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/export"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/util"
+	"MLC_GO/TestNotes/GenPracticeExample/service/tag_service"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -62,7 +65,7 @@ func GetTags(c *gin.Context){
 	code := e.SUCCESS
 
 	// util.GetPage保证了各接口的page处理是一致的
-	data["lists"] = models.GetTags(util.GetPage(c), setting.AppSetting.PageSize, maps)
+	data["lists"], _ = models.GetTags(util.GetPage(c), setting.AppSetting.PageSize, maps)
 	data["total"] = models.GetTagTotal(maps)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -71,8 +74,6 @@ func GetTags(c *gin.Context){
 		"data": data,
 	})
 }
-
-
 
 // 新增文章标签
 // @Summary 新增文章标签
@@ -104,4 +105,37 @@ func EditTag(c *gin.Context) {}
 // @Router /api/v1/tags/{id} [delete]
 func DeleteTag(c *gin.Context){
 
+}
+
+
+// @Summary Export article tag
+// @Produce  json
+// @Param name body string false "Name"
+// @Param state body int false "State"
+// @Success 200 {object} app.Response
+// @Failure 500 {object} app.Response
+// @Router /api/v1/tags/export [post]
+func ExportTag(c *gin.Context) {
+	appG := app.Gin{C: c}
+	name := c.PostForm("name")
+	state := -1
+	if arg := c.PostForm("state"); arg != "" {
+		state = com.StrTo(arg).MustInt()
+	}
+
+	tagService := tag_service.Tag{
+		Name:  name,
+		State: state,
+	}
+
+	filename, err := tagService.Export()
+	if err != nil {
+		appG.Response(http.StatusInternalServerError, e.ERROR_EXPORT_TAG_FAIL, nil)
+		return
+	}
+
+	appG.Response(http.StatusOK, e.SUCCESS, map[string]string{
+		"export_url":      export.GetExcelFullUrl(filename),
+		"export_save_url": export.GetExcelPath() + filename,
+	})
 }

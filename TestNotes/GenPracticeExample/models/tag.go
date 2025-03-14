@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2025-02-27 13:22:28
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-12 19:59:57
+ * @LastEditTime: 2025-03-14 18:06:20
 * @FilePath: /MLC_GO/TestNotes/PracticeGenExample/models/tag.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -22,13 +22,43 @@ type Tag struct {
 	State int `json:"state"`
 }
 
+func GetTags(pageNum int, pageSize int, maps interface{}) ([]Tag, error){
+	var (
+		tags []Tag
+		err  error
+	)
+
+	if pageSize > 0 && pageNum > 0 {
+		// db.Where(maps): 根据传入的 maps 参数设定查询条件。
+		// 		这里 maps 可以是一个条件的 map，例如 { "state": 1 }，用来过滤符合条件的记录。
+		// .Find(&tags)
+		// 		执行查询，并将结果存入 tags 这个切片中。此处的查询会根据前面设定的条件进行。
+		// .Offset(pageNum)
+		// 		设置查询结果的“偏移量”。也就是跳过前面 pageNum 个记录。
+		// 		通常在分页时，偏移量的计算方式为 (pageNum-1)*pageSize，不过这里直接使用 pageNum，可能在实际使用中需要注意计算方式是否符合预期。
+		// Limit(pageSize)
+		// 		限制返回的记录数为 pageSize 条。这样就实现了每页显示固定数量记录的效果。
+		err = db.Where(maps).Find(&tags).Offset(pageNum).Limit(pageSize).Error
+	} else {
+		// db.Where(maps).Find(&tags)
+		// 		同样根据 maps 条件查询数据，但这里没有设置分页相关的偏移量和记录限制，因此会查询所有符合条件的记录。
+		err = db.Where(maps).Find(&tags).Error
+	}
+
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	return tags, nil
+}
 /*
 	可能会有的初学者看到return，而后面没有跟着变量，会不理解；
 	其实你可以看到在函数末端，我们已经显示声明了返回值，这个变量在函数体内也可以直接使用，因为他在一开始就被声明了
 
 	有人会疑惑db是哪里来的；因为在同个models包下，因此db *gorm.DB是可以直接使用的
 */
-func GetTags(pageNum int, pageSize int, maps interface{}) (tags []Tag){
+//Deprecated: func GetTags_v1(pageNum int, pageSize int, maps interface{}) (tags []Tag) 废弃了,用 func GetTags(pageNum int, pageSize int, maps interface{}) ([]Tag, error)
+func GetTags_v1(pageNum int, pageSize int, maps interface{}) (tags []Tag){
 	db.Where(maps).Offset(pageNum).Limit(pageSize).Find(&tags)
 
 	return

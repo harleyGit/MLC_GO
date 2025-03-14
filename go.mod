@@ -128,6 +128,7 @@ require (
 require (
 	github.com/gomodule/redigo v1.9.2
 	github.com/robfig/cron v1.2.0
+	github.com/tealeg/xlsx v1.0.5
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 )
