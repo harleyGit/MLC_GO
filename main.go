@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-15 15:18:30
+ * @LastEditTime: 2025-03-15 19:19:43
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -20,7 +20,7 @@ import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/setting"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/util"
 	"MLC_GO/TestNotes/GenPracticeExample/routers"
-	performance_practice_package "MLC_GO/TestNotes/performance_practice"
+	// performance_practice_package "MLC_GO/TestNotes/performance_practice"
 	"context"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
@@ -54,7 +54,7 @@ func practiceTestMethod() {
 	
 	// parcticeGenExampleRunV1()
 	// parcticeGenExampleRunV2()
-	performance_practice_package.Performance_analysis_practice_v1_test()
+	// performance_practice_package.Performance_analysis_practice_v1_test()
 }
 
 func main() {

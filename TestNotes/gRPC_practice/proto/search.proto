@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+// 本文件代码完成后终端输入: protoc --go_out=. --go-grpc_out=. --proto_path=. *.proto
+//      --go_out=. → 生成 protobuf 相关的 .pb.go 代码
+//          –go_out=.：设置 Go 代码输出的目录
+//      --go-grpc_out=. → 生成 gRPC 相关的 *_grpc.pb.go 代码
+//      --proto_path=. → 指定 .proto 文件所在目录
+//      *.proto → 处理当前目录下所有 .proto 文件
+
+// 如果这处不涉及 RPC，命令可简化为：protoc --go_out=. *.proto
+
+// 生成到 `./` 当前目录，并使用 `pb` 作为包名
+option go_package = "./;pb";  
+
+package proto;
+
+service SearchService {
+    rpc Search (SearchRequest) returns (SearchResponse) {}
+}
+
+message SearchRequest {
+    string request = 1;
+}
+
+message SearchResponse {
+    string response = 1;
+}
