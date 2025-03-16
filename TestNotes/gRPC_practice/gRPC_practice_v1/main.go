@@ -2,15 +2,16 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-03 16:52:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-06 18:01:00
+ * @LastEditTime: 2025-03-16 11:42:37
  * @FilePath: /MLC_GO/TestNotes/PracticeGRPCExample/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package main
 
 import (
-	"MLC_GO/TestNotes/PracticeGRPCExample/cmd"
+	// "MLC_GO/TestNotes/PracticeGRPCExample/cmd"
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
+	"MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v1/cmd"
 	"os"
 )
 
@@ -27,7 +28,7 @@ import (
 // curl -k https://127.0.0.1:50052/swagger/hello.swagger.json
 // 或者浏览器： http://127.0.0.1:8000/swagger/index.html
 
-// 
+//
 func main() {
 	// 获取当前工作目录
 	dir, err := os.Getwd()

@@ -9,7 +9,7 @@
 package server
 
 import (
-	pb "MLC_GO/TestNotes/PracticeGRPCExample/proto/github.com/your-username/your-repo/grpc-hello-world/proto"
+	pb "MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v1/proto/github.com/your-username/your-repo/grpc-hello-world/proto"
 
 	"golang.org/x/net/context"
 )

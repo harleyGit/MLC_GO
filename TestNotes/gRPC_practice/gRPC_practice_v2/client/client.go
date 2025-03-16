@@ -2,16 +2,16 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 20:45:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-15 20:48:34
+ * @LastEditTime: 2025-03-16 11:39:56
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
- /// title: 客户端启动
+/// title: 客户端启动
 package main
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
-	pb "MLC_GO/TestNotes/gRPC_practice/proto"
+	pb "MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/proto"
 	"context"
 
 	"google.golang.org/grpc"
