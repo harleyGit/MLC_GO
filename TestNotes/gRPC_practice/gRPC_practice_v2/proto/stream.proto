@@ -1,18 +1,36 @@
 // title:IDL
 syntax = "proto3";
 
+// 本文件代码完成后终端输入: protoc --go_out=. --go-grpc_out=. --proto_path=. *.proto
+//    --proto_path=.  :告诉 protoc 在当前目录查找 .proto 文件。
+//    --go_out=.      :生成普通的 Protobuf 消息代码，生成文件名通常为 xxx.pb.go。
+//    --go-grpc_out=.   :生成 gRPC 相关代码（服务接口、注册函数等），生成文件名通常为 xxx_grpc.pb.go。
+
+// 生成后的文件中，主要有两个部分：
+//    xxx.pb.go：包含了 Protobuf 消息的定义和序列化、反序列化代码。
+//    xxx_grpc.pb.go：包含了 gRPC 服务接口、服务注册函数、客户端 Stub 接口等。
+//    例如，针对 StreamService，会生成接口 StreamServiceServer 和函数 RegisterStreamServiceServer(s grpc.ServiceRegistrar, srv StreamServiceServer)。
+//      同时，还会生成一个默认的结构体 UnimplementedStreamServiceServer，其中包含方法 mustEmbedUnimplementedStreamServiceServer()，目的是保证接口的兼容性和未来扩展
+
+// 指定了生成的 Go 代码的包信息。格式为: option go_package = "import_path;package_name";
+// 这里指定 import path 为 "./"（相对路径）和包名为 pb。
+//    这样生成的所有文件（stream.pb.go 和 stream_grpc.pb.go）都会属于包 pb，方便在 Go 项目中统一引用。
 option go_package = "./;pb";  
 
+// 这是 proto 文件内部的包名，与 Go 生成代码的包名无关，主要用于 proto 文件内部组织消息和服务
 package proto;
 
 service StreamService {
     // List：服务器端流式 RPC
+    // 接受一个 StreamRequest，返回一个流式的 StreamResponse。这是服务器端流模式，服务器会连续发送多个响应。
     rpc List(StreamRequest) returns (stream StreamResponse) {};
 
     // Record：客户端流式 RPC
+    // 客户端流模式，客户端连续发送多个请求，最后服务器返回一次响应（通过 SendAndClose）。
     rpc Record(stream StreamRequest) returns (StreamResponse) {};
 
     // Route：双向流式 RPC
+    // 双向流模式，客户端和服务器可以互相发送消息
     rpc Route(stream StreamRequest) returns (stream StreamResponse) {};
 }
 
