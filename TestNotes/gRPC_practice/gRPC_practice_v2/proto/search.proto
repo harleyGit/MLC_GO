@@ -7,7 +7,7 @@ syntax = "proto3";
 //      --proto_path=. → 指定 .proto 文件所在目录
 //      *.proto → 处理当前目录下所有 .proto 文件
 
-// 如果这处不涉及 RPC，命令可简化为：protoc --go_out=. *.proto
+// 如果这处不涉及 RPC，命令可简化为：protoc --go_out=. --proto_path=. *.proto
 
 // 生成到 `./` 当前目录，并使用 `pb` 作为包名
 option go_package = "./;pb";  
