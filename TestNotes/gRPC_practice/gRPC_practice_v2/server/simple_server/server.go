@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 19:14:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 16:41:01
+ * @LastEditTime: 2025-03-17 16:51:18
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -50,6 +50,7 @@ func main() {
 }
 
 //gRPC提供http接口的服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v5 方法对应)
+// 希望用Rpc作为内部API的通讯，同时也想对外提供Restful Api: https://segmentfault.com/a/1190000013339403
 // 使用的时候在PostMan调用接口: https://127.0.0.1:9001/eddycjy
 func gRPCServerPractice_v5() {
 	certFile := "../../conf/server/server.pem"
