@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 19:14:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 14:58:15
+ * @LastEditTime: 2025-03-17 15:47:40
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -16,8 +16,12 @@ import (
 	pb "MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/proto"
 	"context"
 	"net"
+	"runtime/debug"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"github.com/grpc-ecosystem/go-grpc-middleware"//拦截器中间件
 )
 
 type SearchService struct{
@@ -38,7 +42,55 @@ const (
 func main() {
 	// gRPCServerPractice_v1()
 	// gRPCServerPractice_v2()
-	gRPCServerPractice_v3()
+	// gRPCServerPractice_v3()
+	gRPCServerPractice_v4()
+}
+
+// 拦截器服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v3 方法对应)
+func gRPCServerPractice_v4() {
+	tlsServer := gtls.Server{
+		CaFile:   "../../conf/ca.pem",
+		CertFile: "../../conf/server/server.pem",
+		KeyFile:  "../../conf/server/server.key",
+	}
+	c, err := tlsServer.GetCredentialsByCA()
+	if err != nil {
+		logging.ErrInfo("拦截器服务端-GetTLSCredentialsByCA err: ", err)
+	}
+
+	opts := []grpc.ServerOption{
+		grpc.Creds(c),
+		grpc_middleware.WithUnaryServerChain(
+			RecoveryInterceptor,
+			LoggingInterceptor,
+		),
+	}
+
+	server := grpc.NewServer(opts...)
+	pb.RegisterSearchServiceServer(server, &SearchService{})
+
+	lis, err := net.Listen("tcp", ":"+PORT)
+	if err != nil {
+		logging.ErrInfo("拦截器服务端-net.Listen err: ", err)
+	}
+
+	server.Serve(lis)
+}
+func LoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	logging.DebugInfo("gRPC method: %s", info.FullMethod, "%v", req)
+	resp, err := handler(ctx, req)
+	logging.DebugInfo("gRPC method: %s", info.FullMethod, "%v", resp)
+	return resp, err
+}
+func RecoveryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+			err = status.Errorf(codes.Internal, "Panic err: %v", e)
+		}
+	}()
+
+	return handler(ctx, req)
 }
 
 // 基于CA的TLS证书认证的服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v3 方法对应)

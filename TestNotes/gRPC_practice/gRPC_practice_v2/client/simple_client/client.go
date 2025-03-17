@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-16 13:44:58
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 14:52:26
+ * @LastEditTime: 2025-03-17 15:47:28
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/client/simple_client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,7 @@ func main() {
 	// gRPCSimpleClient_test_v2()
 	gRPCSimpleClient_test_v3()
 }
+
 
 // 基于CA的TLS证书认证的客户端((和simple_server/server.go文件的 gRPCServerPractice_v3 方法对应))
 func gRPCSimpleClient_test_v3() {
@@ -45,7 +46,7 @@ func gRPCSimpleClient_test_v3() {
 
 	client := pb.NewSearchServiceClient(conn)
 	resp, err := client.Search(context.Background(), &pb.SearchRequest{
-		Request: "gRPC",
+		Request: "gRPC🍎🍎",
 	})
 	if err != nil {
 		logging.ErrInfo("基于CA的TLS证书认证的客户端client.Search err: ", err)
@@ -96,3 +97,5 @@ func gRPCSimpleClient_test_v2() {
 
 	logging.DebugInfo("客户端tls- resp: ", resp.GetResponse())
 }
+
+

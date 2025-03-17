@@ -129,6 +129,7 @@ require (
 	github.com/boombuler/barcode v1.0.2
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/gomodule/redigo v1.9.2
+	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/robfig/cron v1.2.0
 	github.com/tealeg/xlsx v1.0.5
 	gorm.io/driver/mysql v1.5.7
