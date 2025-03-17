@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 19:14:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 14:38:18
+ * @LastEditTime: 2025-03-17 14:58:15
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -37,12 +37,37 @@ const (
 
 func main() {
 	// gRPCServerPractice_v1()
-	gRPCServerPractice_v2()
+	// gRPCServerPractice_v2()
+	gRPCServerPractice_v3()
 }
 
+// 基于CA的TLS证书认证的服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v3 方法对应)
+func gRPCServerPractice_v3() {
+	certFile := "../../conf/server/server.pem"
+	keyFile := "../../conf/server/server.key"
+	tlsServer := gtls.Server{
+		CaFile:   "../../conf/ca.pem",
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}
 
+	c, err := tlsServer.GetCredentialsByCA()
+	if err != nil {
+		logging.ErrInfo("基于CA的TLS证书认证的服务端V3--credentials.NewServerTLSFromFile err: ", err)
+	}
 
-// 加入TLS证书认证的服务端
+	server := grpc.NewServer(grpc.Creds(c))
+	pb.RegisterSearchServiceServer(server, &SearchService{})
+
+	lis, err := net.Listen("tcp", ":"+PORT)
+	if err != nil {
+		logging.ErrInfo("基于CA的TLS证书认证的服务端V3net.Listen err: ", err)
+	}
+
+	server.Serve(lis)
+}
+
+// 加入TLS证书认证的服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v2 方法对应)
 func gRPCServerPractice_v2() {
 	certFile := "../../conf/server/server.pem"
 	keyFile := "../../conf/server/server.key"
@@ -70,8 +95,6 @@ func gRPCServerPractice_v2() {
 
 	server.Serve(lis)
 }
-
-
 	
 // gRPC简单服务端
 func gRPCServerPractice_v1() {

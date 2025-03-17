@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-16 13:44:58
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 14:38:44
+ * @LastEditTime: 2025-03-17 14:52:26
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/client/simple_client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -20,16 +20,46 @@ import (
 const PORT = "9001"
 
 func main() {
-	gRPCSimpleClient_test_v2()
+	// gRPCSimpleClient_test_v2()
+	gRPCSimpleClient_test_v3()
 }
 
-// 加入TLS证书认证的客户端
+// 基于CA的TLS证书认证的客户端((和simple_server/server.go文件的 gRPCServerPractice_v3 方法对应))
+func gRPCSimpleClient_test_v3() {
+	tlsClient := gtls.Client{
+		CaFile:     "../../conf/ca.pem",
+		CertFile:   "../../conf/client/client.pem",
+		KeyFile:    "../../conf/client/client.key",
+	}
+
+	c, err := tlsClient.GetCredentialsByCA()
+	if err != nil {
+		logging.ErrInfo("基于CA的TLS证书认证的客户端tls- GetTLSCredentialsByCA err: ", err)
+	}
+
+	conn, err := grpc.Dial(":"+PORT, grpc.WithTransportCredentials(c))
+	if err != nil {
+		logging.ErrInfo("基于CA的TLS证书认证的客户端grpc.Dial err: ", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewSearchServiceClient(conn)
+	resp, err := client.Search(context.Background(), &pb.SearchRequest{
+		Request: "gRPC",
+	})
+	if err != nil {
+		logging.ErrInfo("基于CA的TLS证书认证的客户端client.Search err: ", err)
+	}
+
+	logging.DebugInfo("基于CA的TLS证书认证的客户端resp: ", resp.GetResponse())
+}
+
+// 加入TLS证书认证的客户端((和simple_server/server.go文件的 gRPCServerPractice_v2 方法对应))
 func gRPCSimpleClient_test_v2() {
 	tlsClient := gtls.Client{
-		ServerName: "HuangGang.dev.use",//"gRPC_practice-gRPC_practice_v2",
+		ServerName: "HuangGang.dev.use",
 		CaFile:     "../../conf/ca.pem",
 		CertFile:   "../../conf/server/server.pem",
-		// KeyFile:    "../../conf/client/client.key",
 	}
 
 	c, err := tlsClient.GetTLSCredentials()
