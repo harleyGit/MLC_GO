@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-16 13:44:58
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 16:38:35
+ * @LastEditTime: 2025-03-17 17:54:34
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/client/simple_client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -22,10 +22,60 @@ const PORT = "9001"
 func main() {
 	// gRPCSimpleClient_test_v2()
 	// gRPCSimpleClient_test_v3()
-	gRPCSimpleClient_test_v5()
+	// gRPCSimpleClient_test_v5()
+	gRPCSimpleClient_test_v6()
 }
 
-// gRPC提供http接口的客户端((和simple_server/server.go文件的 gRPCServerPractice_v5 方法对应))
+// gRPC自定义认证客户端(和simple_server/server.go文件的 gRPCServerPractice_v6 方法对应))
+func gRPCSimpleClient_test_v6() {
+	tlsClient := gtls.Client{
+		ServerName: "HuangGang.dev.use", // 需要与 服务器证书的 CN（Common Name）匹配。
+		CertFile:   "../../conf/server/server.pem", // 使用服务器的 CA 证书 进行认证。
+	}
+	c, err := tlsClient.GetTLSCredentials()
+	if err != nil {
+		logging.ErrInfo("gRPC自定义认证客户端>>>tlsClient.GetTLSCredentials err: ", err)
+	}
+
+	auth := Auth{
+		AppKey:    "eddycjy",
+		AppSecret: "20181005",
+	}
+	// grpc.WithTransportCredentials(c) 开启 TLS 加密 连接
+	// grpc.WithPerRPCCredentials(&auth) 每次 gRPC 请求都携带 app_key 和 app_secret。
+	conn, err := grpc.Dial(":"+PORT, grpc.WithTransportCredentials(c), grpc.WithPerRPCCredentials(&auth))
+	if err != nil {
+		logging.ErrInfo("gRPC自定义认证客户端>>>grpc.Dial err: ", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewSearchServiceClient(conn)
+	// 调用 Search 方法，发送 gRPC 请求
+	resp, err := client.Search(context.Background(), &pb.SearchRequest{
+		Request: "gRPC",
+	})
+	if err != nil {
+		logging.ErrInfo("gRPC自定义认证客户端>>>>client.Search err: ", err)
+	}
+
+	logging.DebugInfo("gRPC自定义认证客户端>>>>resp: %s", resp.GetResponse())
+}
+func (a *Auth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	// 返回 app_key 和 app_secret，让 gRPC 自动添加到 metadata 请求头中
+	return map[string]string{"app_key": a.AppKey, "app_secret": a.AppSecret}, nil
+}
+// 强制使用 TLS
+func (a *Auth) RequireTransportSecurity() bool {
+	return true
+}
+type Auth struct {
+	AppKey    string
+	AppSecret string
+}
+
+// <<<<<<<分隔符1======================================
+
+// gRPC提供http接口的客户端(和simple_server/server.go文件的 gRPCServerPractice_v5 方法对应)
 func gRPCSimpleClient_test_v5() {
 	tlsClient := gtls.Client{
 		ServerName: "HuangGang.dev.use",
@@ -54,7 +104,7 @@ func gRPCSimpleClient_test_v5() {
 	logging.DebugInfo("gRPC提供http接口的客户端>>>resp: ", resp.GetResponse())
 }
 
-// 基于CA的TLS证书认证的客户端((和simple_server/server.go文件的 gRPCServerPractice_v3 方法对应))
+// 基于CA的TLS证书认证的客户端(和simple_server/server.go文件的 gRPCServerPractice_v3 方法对应)
 func gRPCSimpleClient_test_v3() {
 	tlsClient := gtls.Client{
 		CaFile:     "../../conf/ca.pem",
@@ -84,7 +134,7 @@ func gRPCSimpleClient_test_v3() {
 	logging.DebugInfo("基于CA的TLS证书认证的客户端resp: ", resp.GetResponse())
 }
 
-// 加入TLS证书认证的客户端((和simple_server/server.go文件的 gRPCServerPractice_v2 方法对应))
+// 加入TLS证书认证的客户端(和simple_server/server.go文件的 gRPCServerPractice_v2 方法对应)
 func gRPCSimpleClient_test_v2() {
 	tlsClient := gtls.Client{
 		ServerName: "HuangGang.dev.use",

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 19:14:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 16:51:18
+ * @LastEditTime: 2025-03-17 17:55:51
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/server.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware" //拦截器中间件
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -46,8 +47,78 @@ func main() {
 	// gRPCServerPractice_v2()
 	// gRPCServerPractice_v3()
 	// gRPCServerPractice_v4()
-	gRPCServerPractice_v5()
+	// gRPCServerPractice_v5()
+	gRPCServerPractice_v6()
 }
+
+//gRPC自定义认证服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v6 方法对应)
+func gRPCServerPractice_v6() {
+	certFile := "../../conf/server/server.pem"
+	keyFile := "../../conf/server/server.key"
+	tlsServer := gtls.Server{
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}
+
+	c, err := tlsServer.GetTLSCredentials()
+	if err != nil {
+		logging.ErrInfo("gRPC自定义认证服务端>>>>tlsServer.GetTLSCredentials err: ", err)
+	}
+
+	// 强制所有连接必须使用 TLS，不允许非加密连接。
+	server := grpc.NewServer(grpc.Creds(c))
+	// 将 SearchService 绑定到 gRPC 服务器
+	pb.RegisterSearchServiceServer(server, &SearchService{})
+
+	// 监听指定端口，等待客户端连接
+	lis, err := net.Listen("tcp", ":"+PORT)
+	if err != nil {
+		logging.ErrInfo("gRPC自定义认证服务端>>>>net.Listen err: ", err)
+	}
+
+	server.Serve(lis)
+}
+type Auth struct {
+	appKey    string
+	appSecret string
+}
+
+func (a *Auth) Check(ctx context.Context) error {
+	// 从请求上下文中提取 metadata（gRPC 请求头）。
+	// 如果没有 metadata，说明客户端 未提供身份信息，返回 Unauthenticated 错误。
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return status.Errorf(codes.Unauthenticated, "metadata.FromIncomingContext err")
+	}
+
+	var (
+		appKey    string
+		appSecret string
+	)
+	if value, ok := md["app_key"]; ok {
+		appKey = value[0]
+	}
+	if value, ok := md["app_secret"]; ok {
+		appSecret = value[0]
+	}
+
+	if appKey != a.GetAppKey() || appSecret != a.GetAppSecret() {
+		return status.Errorf(codes.Unauthenticated, "invalid token")
+	}
+
+	return nil
+}
+
+func (a *Auth) GetAppKey() string {
+	return "eddycjy"
+}
+
+func (a *Auth) GetAppSecret() string {
+	return "20181005"
+}
+
+
+// <<<<<<<分隔符2======================================
 
 //gRPC提供http接口的服务端(和simple_client/client.go文件的 gRPCSimpleClient_test_v5 方法对应)
 // 希望用Rpc作为内部API的通讯，同时也想对外提供Restful Api: https://segmentfault.com/a/1190000013339403
