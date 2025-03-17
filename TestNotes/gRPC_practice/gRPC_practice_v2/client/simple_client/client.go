@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-16 13:44:58
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-17 17:54:34
+ * @LastEditTime: 2025-03-17 18:18:06
  * @FilePath: /MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/client/simple_client/client.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,8 +13,11 @@ import (
 	"MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/pkg/gtls"
 	pb "MLC_GO/TestNotes/gRPC_practice/gRPC_practice_v2/proto"
 	"context"
+	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const PORT = "9001"
@@ -23,7 +26,50 @@ func main() {
 	// gRPCSimpleClient_test_v2()
 	// gRPCSimpleClient_test_v3()
 	// gRPCSimpleClient_test_v5()
-	gRPCSimpleClient_test_v6()
+	// gRPCSimpleClient_test_v6()
+	gRPCSimpleClient_test_v7()
+}
+
+// gRPC截止时间客户端(和simple_server/server.go文件的 gRPCServerPractice_v6 方法对应))
+func gRPCSimpleClient_test_v7() {
+	tlsClient := gtls.Client{
+		ServerName: "HuangGang.dev.use",
+		CaFile:     "../../conf/ca.pem",
+		CertFile:   "../../conf/client/client.pem",
+		KeyFile:    "../../conf/client/client.key",
+	}
+
+	c, err := tlsClient.GetCredentialsByCA()
+	if err != nil {
+		logging.ErrInfo("gRPC截止时间客户端>>>>GetTLSCredentialsByCA err: ", err)
+	}
+
+	conn, err := grpc.Dial(":"+PORT, grpc.WithTransportCredentials(c))
+	if err != nil {
+		logging.ErrInfo("gRPC截止时间客户端>>>>grpc.Dial err: ", err)
+	}
+	defer conn.Close()
+
+	// 会返回最终上下文截止时间。第一个形参为父上下文，第二个形参为调整的截止时间。若父级时间早于子级时间，则以父级时间为准，否则以子级时间为最终截止时间
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Duration(5*time.Second)))
+	defer cancel()
+
+	client := pb.NewSearchServiceClient(conn)
+	resp, err := client.Search(ctx, &pb.SearchRequest{
+		Request: "gRPC",
+	})
+	if err != nil {
+		statusErr, ok := status.FromError(err)
+		if ok {
+			if statusErr.Code() == codes.DeadlineExceeded {
+				logging.ErrInfo("gRPC截止时间客户端>>>>client.Search err: deadline")
+			}
+		}
+
+		logging.ErrInfo("gRPC截止时间客户端>>>>client.Search err: ", err)
+	}
+
+	logging.DebugInfo("gRPC截止时间客户端>>>>resp: ", resp.GetResponse())
 }
 
 // gRPC自定义认证客户端(和simple_server/server.go文件的 gRPCServerPractice_v6 方法对应))
