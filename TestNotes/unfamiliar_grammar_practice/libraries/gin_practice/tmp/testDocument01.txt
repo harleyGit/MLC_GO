@@ -1,0 +1,13 @@
+curl -X POST http://localhost:8080/users \
+     -H "Content-Type: application/json" \
+     -d '{"name": "Alice", "email": "alice@example.com", "age": 25}'
+
+结果:
+{
+    "message": "User created successfully",
+    "user": {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "age": 25
+    }
+}
