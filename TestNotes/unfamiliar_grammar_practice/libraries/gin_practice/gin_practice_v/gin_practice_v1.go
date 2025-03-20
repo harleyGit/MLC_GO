@@ -244,9 +244,18 @@ curl  -X POST http://localhost:8080/users \
 
 
 发送错误数据（缺少 email 字段）
+若是json数据可以用下面进行发送:
 curl -X POST http://localhost:8080/users \
      -H "Content-Type: application/json" \
      -d '{"name": "Alice", "age": 25}'
+
+但是若是通过表单格式接受数据需要这样:
+curl -X POST http://localhost:8080/users \
+     -d "name=Alice🔥" \
+     -d "age=17" \
+     -d "sex=9" \
+     -d "phone=17683837665"
+
 */	 
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 	router := gin.Default()

@@ -1,6 +1,7 @@
 package gorm_practice_v
 
 import (
+	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_config"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_models"
 	"MLC_GO/pkg/hglog"
 	"fmt"
@@ -13,6 +14,10 @@ import (
 )
 
 type GormPracticeV1 struct {}
+// 协议
+func (gormPracticeV1 *GormPracticeV1) ExecutePracticeNone() {
+	hglog.DebugInfo("协议 gorm库 GormPracticeV1 ExecutePracticeNone")
+}
 
 // gorm数据库的连接
 // Gorm 初始化数据库并产生数据库全局变量
@@ -27,7 +32,8 @@ func (gormPracticeV1 *GormPracticeV1) GormPracticeV1_connect() {
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, password, host, databaseName) 
 	// db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{}) 或者如下:
-	db, err := gorm.Open(mysql.New(mysql.Config{
+	var err error
+	gorm_practice_config.GormDB, err = gorm.Open(mysql.New(mysql.Config{
 		DSN: dsn,
 		DefaultStringSize: 256,  // string 类型字段的默认长度
 		DisableDatetimePrecision: true, // 禁用 datetime 精度，MySQL 5.6 之前的数据库不支持
@@ -47,9 +53,9 @@ func (gormPracticeV1 *GormPracticeV1) GormPracticeV1_connect() {
 		os.Exit(0)
 	}
 
-	gormPracticeV1.gormDBTables(db)
+	gormPracticeV1.gormDBTables(gorm_practice_config.GormDB)
 	// 从 GORM 的 *gorm.DB 对象中获取底层的标准库 *sql.DB 对象，以便直接操作连接池
-	sqlDB,_ := db.DB()
+	sqlDB,_ := gorm_practice_config.GormDB.DB()
 	// 设置连接池中保持的 最大空闲连接数。
 	// 	空闲连接可快速复用，避免每次请求新建连接。
 	// 	默认值通常为 2，适当调高可提升高频小请求的性能。
@@ -77,7 +83,3 @@ func (gormPracticeV1 *GormPracticeV1) gormDBTables(db *gorm.DB) {
 	hglog.DebugInfo("register table success")
 }
 
-// 协议
-func (gormPracticeV1 *GormPracticeV1) ExecutePracticeNone() {
-	hglog.DebugInfo("协议 gorm库 GormPracticeV1 ExecutePracticeNone")
-}

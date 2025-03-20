@@ -2,18 +2,24 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 21:53:55
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-19 22:11:31
+ * @LastEditTime: 2025-03-20 17:00:23
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_practice_router.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package gorm_practice_routers
 
 import (
+	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_router_api"
 	"MLC_GO/pkg/hg_uuid"
 	"MLC_GO/pkg/hglog"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+)
+var (
+	// log    = config.GVA_LOG
+	origin = "www.baidu.com"
 )
 
 // 路由设置
@@ -22,14 +28,27 @@ func SetupRouters() *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-	router.Use(testGlobalMiddleWare())
+	router.Use(globalMiddleWare())
+	router.Use(gormPracticeCORS())
+
+	// 给表单限制上传大小 (default is 32 MiB)
+	router.MaxMultipartMemory = 8 << 20 // 8 MiB
+	apiUser := router.Group("/api/user")
+	apiUser.Use()
+	{
+		// 新增用户
+		apiUser.POST("/addUser", gorm_router_api.AddUser)	
+		//根据uid查询用户信息
+		apiUser.GET("/getUserByUid", gorm_router_api.GetUserByUid)
+	}
+
 
 	return router
 }
 
 
 // 全局中间件示例
-func testGlobalMiddleWare() gin.HandlerFunc {
+func globalMiddleWare() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hglog.DebugInfo("MiddleWare: 中间件开始执行")
 
@@ -46,3 +65,24 @@ func testGlobalMiddleWare() gin.HandlerFunc {
 		hglog.DebugInfo("MiddleWare: 中间件执行结束, status: ", zap.Any("status", status))
 	}
 }
+//添加跨域支持
+func gormPracticeCORS() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		if origin != "" {
+			// 可将将* 替换为指定的域名
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+			c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+			c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Cache-Control, Content-Language, Content-Type")
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
+
+		if method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+		}
+
+		c.Next()
+	}
+}
+
