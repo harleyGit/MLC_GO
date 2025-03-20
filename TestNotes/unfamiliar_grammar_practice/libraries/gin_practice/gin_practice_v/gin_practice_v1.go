@@ -5,14 +5,12 @@
 * @LastEditTime: 2025-03-19 18:48:09
 * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/gin_practice_v/gin_practice_v1.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
-*
-* 参考资料:
-	Gin入门教程：从零开始学习Go语言Web框架: https://juejin.cn/post/7302618003886751770
-*/
+ */
 
 package gin_practice_v
 
 import (
+	"MLC_GO/pkg/hglog"
 	"errors"
 	"io"
 	"net/http"
@@ -32,6 +30,58 @@ type User struct {
 }
 
 type GinPracticeV1 struct {}
+
+// 协议
+func (ginPracticeV1 *GinPracticeV1) ExecutePracticeNone() {
+	hglog.DebugInfo("协议 gin库 GinPracticeV1 ExecutePracticeNone")
+}
+
+/*
+curl -X GET http://localhost:8080/hello -i
+	预期输出（响应头中应包含 CORS 相关信息）
+
+curl -X OPTIONS http://localhost:8080/hello -i \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: Content-Type"
+	预期输出（状态码 204，且包含 CORS 头）：
+
+测试携带自定义 Header 的请求
+curl -X GET http://localhost:8080/hello -i \
+  -H "Origin: https://www.youdao.com/" \
+  -H "X-CSRF-Token: testtoken"  
+	预期输出（服务器应返回 Access-Control-Allow-Origin: *）
+*/
+// 中间件解决跨域
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v9() {
+	r := gin.Default()
+
+	// 使用全局中间件处理跨域问题(局部中间件是加在路由组里面)
+	r.Use(corsMiddleware())
+
+	// 其他路由注册
+	r.GET("/hello", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "Hello, CORS is enabled!"})
+	})
+
+	// 启动 Gin 服务器
+	r.Run(":8080")
+}
+// corsMiddleware 中间件处理跨域问题
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
 
 // Gin 框架的日志功能:日志输出到指定文件夹
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v8() {
@@ -236,7 +286,9 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v2() {
 	r := gin.Default()
 
+	//Logger 中间件将日志写入 gin.DefaultWriter，即使配置了 GIN_MODE=release
     r.Use(gin.Logger())
+	// Recovery 中间件会 recover 任何 panic。如果有 panic 的话，会写入 500 响应码。
     r.Use(gin.Recovery())
 
     r.GET("/hello", func(c *gin.Context) {
@@ -256,5 +308,3 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v1() {
     r.Run(":8080")
 }
 
-// 协议
-func (ginPracticeV1 *GinPracticeV1) ExecutePracticeNone() {}
