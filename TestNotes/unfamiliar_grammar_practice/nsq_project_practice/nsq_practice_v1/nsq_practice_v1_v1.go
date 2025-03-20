@@ -20,10 +20,15 @@ type Options struct {
     HTTPAddress string `flag:"http-address"`            // 命令行参数名 --http-address
 }
 
+type NSQPracticeV1 struct {
 
-func NSQPracticeV1() {
+}
+
+
+func (nsqPracticeV1 *NSQPracticeV1) NSQPracticeV1() {
 	nsqPractice_V1_v1()
 }
+
 
 // 测试主机名的获取
 func nsqPractice_V1_v1(){
@@ -55,3 +60,6 @@ func nsqPractice_V1_v1(){
 
 	logging.DebugInfo("options 信息: ", options)
 }
+
+// 协议
+func (nsqPracticeV1 *NSQPracticeV1) ExecutePracticeNone() {}

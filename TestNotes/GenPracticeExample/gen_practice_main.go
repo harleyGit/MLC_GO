@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-23 17:05:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-19 13:42:18
+ * @LastEditTime: 2025-03-20 15:51:32
  * @FilePath: /MLC_GO/TestNotes/PracticeGen/practice_gen_test.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -32,8 +32,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type GenPracticeExample struct {}
+
 // 配置信息,必须优先调用
-func setup() {
+func (genPracticeEx *GenPracticeExample)setup() {
 	setting.Setup()
 	models.Setup()
 	logging.Setup()
@@ -43,23 +45,25 @@ func setup() {
 
 //  GenPracticeExample入口函数调试
 func GenPracticeMain() {
-	setup()
-	
-	// genPracticeMinor()
-	parcticeGenExampleRunV3()
+	genPractice := &GenPracticeExample{}
+	genPractice.ExecutePracticeNone()
+	// genPractice.setup()
+
+	// genPractice.genPracticeMinor()
+	// genPractice.parcticeGenExampleRunV3()
 }
 
 // 次要的练习测试
-func genPracticeMinor() {
-	practiceGenPing()
-	viewCurrentFilePath()
-	cornPractice()
-	practiceGenPing()
+func (genPracticeEx *GenPracticeExample) genPracticeMinor() {
+	genPracticeEx.practiceGenPing()
+	genPracticeEx.viewCurrentFilePath()
+	genPracticeEx.cornPractice()
+	genPracticeEx.practiceGenPing()
 }
 // endless 热更新是采取创建子进程后，将原进程退出的方式，这点不符合守护进程的要求
 // http.Server - Shutdown()
 // Deprecated: endless库测试
-func parcticeGenExampleRunV3() {
+func (genPracticeEx *GenPracticeExample) parcticeGenExampleRunV3() {
 	router := routers.InitRouter()
 
 	s := &http.Server{
@@ -111,7 +115,7 @@ func parcticeGenExampleRunV3() {
 }
 
 // Deprecated: endless库测试
-func parcticeGenExampleRunV2() {
+func (genPracticeEx *GenPracticeExample) parcticeGenExampleRunV2() {
 
 	endless.DefaultReadTimeOut = setting.ServerSetting.ReadTimeout
 	endless.DefaultWriteTimeOut = setting.ServerSetting.WriteTimeout
@@ -144,7 +148,7 @@ func parcticeGenExampleRunV2() {
 	}
 }
 // Deprecated: parcticeGenExample工程版本V1
-func parcticeGenExampleRunV1() {
+func (genPracticeEx *GenPracticeExample) parcticeGenExampleRunV1() {
 
 	gin.SetMode(setting.ServerSetting.RunMode)
 
@@ -178,7 +182,7 @@ func parcticeGenExampleRunV1() {
 }
 
 // (PracticeGenExample项目测试)gin测试调用： curl localhost:8000/test
-func ginTestFunction() {
+func (genPracticeEx *GenPracticeExample) ginTestFunction() {
 	// 返回 Gin 的type Engine struct{...}，里面包含RouterGroup，相当于创建一个路由Handlers，可以后期绑定各类的路由规则和函数、中间件等
 	router := gin.Default()
 	// 创建不同的 HTTP 方法绑定到Handlers中，也支持 POST、PUT、DELETE、PATCH、OPTIONS、HEAD 等常用的 Restful 方法
@@ -214,7 +218,7 @@ func ginTestFunction() {
 }
 
 // 当前工作目录打印
-func viewCurrentFilePath() {
+func (genPracticeEx *GenPracticeExample) viewCurrentFilePath() {
 	// 获取当前工作目录
 	dir, err := os.Getwd()
 	if err != nil {
@@ -226,7 +230,7 @@ func viewCurrentFilePath() {
 }
 
 // corn库练习(定时任务调度处理)
-func cornPractice() {
+func (genPracticeEx *GenPracticeExample) cornPractice() {
 	logging.DebugInfo("Corn 开始了.......")
 
 	// 会根据本地时间创建一个新（空白）的 Cron job runner
@@ -254,7 +258,7 @@ func cornPractice() {
 }
 
 // gen的ping测试
-func practiceGenPing() {//另起一个终端程序，命令： curl 127.0.0.1:8080/ping
+func (genPracticeEx *GenPracticeExample) practiceGenPing() {//另起一个终端程序，命令： curl 127.0.0.1:8080/ping
 	r := gin.Default()
 	r.GET("/ping", func(ctx *gin.Context) {
 		ctx.JSON(200, gin.H{
@@ -263,3 +267,7 @@ func practiceGenPing() {//另起一个终端程序，命令： curl 127.0.0.1:80
 	})
 	r.Run() // listen and serve on 0.0.0.0:8080
 }
+
+
+// 协议
+func (genPracticeExample *GenPracticeExample) ExecutePracticeNone() {}

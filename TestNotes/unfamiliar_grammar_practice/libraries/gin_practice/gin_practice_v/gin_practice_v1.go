@@ -31,8 +31,10 @@ type User struct {
 	Age   int    `json:"age" binding:"required"`
 }
 
+type GinPracticeV1 struct {}
+
 // Gin 框架的日志功能:日志输出到指定文件夹
-func GormPracticeV1_v8() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v8() {
 	path_1 := "./TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/tmp/gin.log"
 	
 	// 将日志输出到文件
@@ -52,7 +54,7 @@ func GormPracticeV1_v8() {
 // 自定义错误处理函数: curl http://localhost:8080/ping
 // 创建了一个全局中间件函数来检查处理过程中是否有错误发生，如果有错误则返回自定义的错误响应。
 // 	在路由处理函数中，我们通过 c.Error 方法模拟了一个处理过程中发生的错误。
-func GormPracticeV1_v7() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v7() {
 	router := gin.Default()
 
 	// 自定义全局中间件处理错误
@@ -85,7 +87,7 @@ func GormPracticeV1_v7() {
 // 从 ./assets/image.jpg 加载文件，并将其保存为 siShenNet00.jpeg: curl http://localhost:8080/static/siShen00.jpeg --output siShenNet00.jpeg
 //  curl http://localhost:8080/static2/testDocument01.txt --output document.txt
 // curl http://localhost:8080/favicon.ico --output favicon.ico
-func GormPracticeV1_v6() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v6() {
 
 	var (
 		path_1 string = "./TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/assets"
@@ -149,7 +151,7 @@ DELETE /api/v1/users/:id: curl -v -X DELETE "http://localhost:8080/api/v1/users/
 
 */
 // 参数化路由和路由组
-func GormPracticeV1_v4() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v4() {
 	router := gin.Default()
 
 	// 参数化路由
@@ -196,7 +198,7 @@ curl -X POST http://localhost:8080/users \
      -H "Content-Type: application/json" \
      -d '{"name": "Alice", "age": 25}'
 */	 
-func GormPracticeV1_v3() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 	router := gin.Default()
 
 	// GET 请求处理
@@ -231,7 +233,7 @@ func GormPracticeV1_v3() {
 
 // 加入中间件、参数解析、日志记录等: curl "http://localhost:8080/hello?name=😂俩百家阿拉斯加了嘎举例"
 // 加双引号是防止 Shell 解析特殊符号,用单引号也是可以的
-func GormPracticeV1_v2() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v2() {
 	r := gin.Default()
 
     r.Use(gin.Logger())
@@ -246,10 +248,13 @@ func GormPracticeV1_v2() {
 }
 
 // 测试: curl http://localhost:8080
-func GormPracticeV1_v1() {
+func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v1() {
 	r := gin.Default()
     r.GET("/", func(c *gin.Context) {
         c.String(200, "Hello, Gin!, 我在测试这个方法: GormPracticeV1_v1()")
     })
     r.Run(":8080")
 }
+
+// 协议
+func (ginPracticeV1 *GinPracticeV1) ExecutePracticeNone() {}

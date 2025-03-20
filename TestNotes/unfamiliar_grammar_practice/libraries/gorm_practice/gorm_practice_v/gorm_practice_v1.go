@@ -12,8 +12,11 @@ import (
 	"gorm.io/gorm/schema"
 )
 
+type GormPracticeV1 struct {}
+
 // gorm数据库的连接
-func GormPracticeV1_connect() {
+// Gorm 初始化数据库并产生数据库全局变量
+func (gormPracticeV1 *GormPracticeV1) GormPracticeV1_connect() {
 	var (
 		user string = "root"
 		password string = "hh109"
@@ -44,7 +47,7 @@ func GormPracticeV1_connect() {
 		os.Exit(0)
 	}
 
-	gormDBTables(db)
+	gormPracticeV1.gormDBTables(db)
 	// 从 GORM 的 *gorm.DB 对象中获取底层的标准库 *sql.DB 对象，以便直接操作连接池
 	sqlDB,_ := db.DB()
 	// 设置连接池中保持的 最大空闲连接数。
@@ -60,7 +63,7 @@ func GormPracticeV1_connect() {
 
 }
 // 注册数据库表GormUser专用
-func gormDBTables(db *gorm.DB) {
+func (gormPracticeV1 *GormPracticeV1) gormDBTables(db *gorm.DB) {
 	// 检查数据库中是否存在指定的表，若不存在则创建，并自动同步结构体与表的字段（仅添加缺失字段，不会删除/修改现有字段）。
 	err := db.AutoMigrate(
 		&gorm_practice_models.GormUser{},
@@ -72,4 +75,9 @@ func gormDBTables(db *gorm.DB) {
 		os.Exit(0)
 	}
 	hglog.DebugInfo("register table success")
+}
+
+// 协议
+func (gormPracticeV1 *GormPracticeV1) ExecutePracticeNone() {
+	hglog.DebugInfo("协议 gorm库 GormPracticeV1 ExecutePracticeNone")
 }
