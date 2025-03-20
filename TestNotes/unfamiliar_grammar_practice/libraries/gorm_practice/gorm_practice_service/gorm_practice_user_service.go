@@ -23,3 +23,8 @@ func AddNewUser(user gorm_practice_models.GormUser) (err error) {
 	return nil
 }
 
+//根据uid 查询用户
+func QueryUserByUid(uid int64) gorm_practice_models.GormUser {
+	return gorm_practice_models.QueryUserByUid(uid)
+}
+

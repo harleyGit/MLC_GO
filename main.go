@@ -17,6 +17,7 @@ import (
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/nsq_project_practice"
+	"MLC_GO/TestNotes/unfamiliar_grammar_practice/read_file_practice"
 
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
@@ -35,6 +36,10 @@ func main() {
 // 测试方法
 func practiceTestMethod() {
 
+	// 读取文件测试
+	read_file_practice.ReadFilePracticeMain()
+
+	return
 	// Gorm库语法测试
 	gorm_practice.GormPracticeMain()
 	

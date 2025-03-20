@@ -36,10 +36,15 @@ func SetupRouters() *gin.Engine {
 	apiUser := router.Group("/api/user")
 	apiUser.Use()
 	{
-		// 新增用户
-		apiUser.POST("/addUser", gorm_router_api.AddUser)	
+		// 新增用户表单请求
+		apiUser.POST("/addUser", gorm_router_api.AddUser)
+		// 新增用户json请求
+		apiUser.POST("/addUserUseJson", gorm_router_api.AddUserUseJson)
+
 		//根据uid查询用户信息
 		apiUser.GET("/getUserByUid", gorm_router_api.GetUserByUid)
+		//根据uid查询用户信息 - 参数在请求路径中
+		apiUser.GET("/getUserByUid/:uid", gorm_router_api.GetUserByUidUseRouteParam)
 	}
 
 

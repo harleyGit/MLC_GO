@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 21:54:23
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-20 20:09:13
+ * @LastEditTime: 2025-03-20 20:50:26
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_router_api/gorm_user_api.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -14,6 +14,7 @@ import (
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_service"
 	"MLC_GO/pkg/hg_response"
 	"MLC_GO/pkg/hglog"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,8 +23,30 @@ import (
 )
 
 //get请求，param 参数
-func GetUserByUid(c *gin.Context) {
+func GetUserByUid(gin *gin.Context) {
+	newGin := gorm_practice_pkg.GormGin{GGin: gin}
+	uid, err := strconv.ParseInt(newGin.GGin.Query("uid"), 10, 64)
+	if err != nil {
+		hglog.ErrInfo("gorm 查询 uid parse err", err)
+		newGin.Response(http.StatusBadRequest, hg_response.INVALID_PARAMS, nil)
+		return
+	}
+	user := gorm_practice_service.QueryUserByUid(uid)
+	newGin.Response(http.StatusOK, hg_response.SUCCESS, user)
+}
 
+//get请求 获取请求路径中的 参数
+func GetUserByUidUseRouteParam(gin *gin.Context) {
+	newGin := gorm_practice_pkg.GormGin{GGin: gin}
+
+	uid, err := strconv.ParseInt(newGin.GGin.Param("uid"), 10, 64)
+	if err != nil {
+		hglog.ErrInfo("gorm 查询 uid parse err", err)
+		newGin.Response(http.StatusBadRequest, hg_response.INVALID_PARAMS, nil)
+		return
+	}
+	user := gorm_practice_service.QueryUserByUid(uid)
+	newGin.Response(http.StatusOK, hg_response.SUCCESS, user)
 }
 
 /* 表单插入数据
@@ -67,5 +90,28 @@ func AddUser(gin *gin.Context) {
 	newGin.Response(http.StatusOK, hg_response.SUCCESS, userModel)
 }
 
+
+// post 请求， json 格式参数
+func AddUserUseJson(gin *gin.Context) {
+	newGin := gorm_practice_pkg.GormGin{GGin: gin}
+
+	//第一种方式是榜单一个结构体
+	var user gorm_practice_models.GormUser
+	newGin.GGin.BindJSON(&user)
+
+	//第二种方式可以绑定一个 map, 使用之前需要将第一次的注释掉，参数只能读取一次
+	var user1 map[string]interface{}
+	newGin.GGin.BindJSON(&user1)
+	bytes, _ := json.Marshal(user1)
+	json.Unmarshal(bytes, &user)
+
+	err := gorm_practice_service.AddNewUser(user)
+	if err != nil {
+		hglog.ErrInfo("gorm json格式增加用户AddUserUseJson err",  err)
+		newGin.Response(http.StatusBadRequest, hg_response.INVALID_PARAMS, nil)
+		return
+	}
+	newGin.Response(http.StatusOK, hg_response.SUCCESS, user)
+}
 
 

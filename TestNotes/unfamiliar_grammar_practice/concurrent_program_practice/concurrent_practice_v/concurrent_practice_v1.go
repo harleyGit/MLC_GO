@@ -6,7 +6,7 @@
  * @FilePath: /MLC_GO/TestNotes/UnfamiliarGrammarPractice/ConcurrentProgramPractice/ConcurrentPracticeV1.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
-package concurrent_program_practice
+package concurrent_program_practice_v
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"

@@ -19,6 +19,7 @@ import (
 
 func GormPracticeMain() {
 	gormPracticeV1 := gorm_practice_v.GormPracticeV1{}
+	return
 	gormPracticeV1.ExecutePracticeNone()
 
 	// Gorm 初始化数据库并产生数据库全局变量
