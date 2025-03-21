@@ -8,3 +8,10 @@ spring:
     port: 6379
     dataBase: 0
     timeout: 2000
+
+# 测试
+system:
+  env: "production"
+  addr: 8080
+  db-type: "mysql"
+

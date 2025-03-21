@@ -2,9 +2,11 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 13:14:02
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-20 16:54:06
+ * @LastEditTime: 2025-03-21 16:31:41
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ 
+ * 中文Gorm官方3文档: https://learnku.com/docs/gorm/v2/write_plugins/9750
  */
 package gorm_practice
 

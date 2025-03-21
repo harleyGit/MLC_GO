@@ -14,6 +14,7 @@ package main
 
 import (
 	gen_practice_example_package "MLC_GO/TestNotes/GenPracticeExample"
+	"MLC_GO/TestNotes/unfamiliar_grammar_practice/command_line_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/nsq_project_practice"
@@ -36,10 +37,13 @@ func main() {
 // 测试方法
 func practiceTestMethod() {
 
+	// 命令行加载配置文件
+	command_line_practice.CommandLinePracticeMain()
+	
+	return
 	// 读取文件测试
 	read_file_practice.ReadFilePracticeMain()
 
-	return
 	// Gorm库语法测试
 	gorm_practice.GormPracticeMain()
 	

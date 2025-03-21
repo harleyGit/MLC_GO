@@ -18,6 +18,7 @@ import (
 func ReadFilePracticeMain() {
 	readYMLFile := read_yml_file_practice_v.ReadYMLTFilePractice{}
 	readYMLFile.ExecutePracticeNone()
+	// 读取yaml文件
 	readYMLFile.ReadYMLFilePractice_v1()
 
 	return

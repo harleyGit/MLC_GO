@@ -2,14 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 18:46:51
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-20 18:58:46
+ * @LastEditTime: 2025-03-21 16:33:51
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/gin_practice_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
  
-// 资料:
-// Gin CORS 跨域请求资源共享与中间件:  https://juejin.cn/post/7322267997523427328#heading-20
-// Gin入门教程：从零开始学习Go语言Web框架: https://juejin.cn/post/7302618003886751770
+ * 中文Gin官方文档: https://learnku.com/docs/gin-gonic/1.7/deployment/11358
+ *	Gin CORS 跨域请求资源共享与中间件:  https://juejin.cn/post/7322267997523427328#heading-20
+ * Gin入门教程：从零开始学习Go语言Web框架: https://juejin.cn/post/7302618003886751770
+ */
 
 package gin_practice
 
