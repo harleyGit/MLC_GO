@@ -10,6 +10,7 @@
 package gin_practice_v
 
 import (
+	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"MLC_GO/pkg/hglog"
 	"errors"
 	"io"
@@ -17,6 +18,8 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 )
 
 // 定义 User 结构体
@@ -24,12 +27,13 @@ type User struct {
 	// binding:"required" 是 Gin 框架中用于 数据验证（Validation） 的标签（tag），
 	// 	它属于 github.com/go-playground/validator/v10 库，Gin 内部集成了这个库来自动验证请求参数
 	// 	如果字段值为空（未提供），Gin 会自动返回 400 状态码，并提示该字段是必填项。
-	Name  string `json:"name" binding:"required"`
+	// 要想检测 exists 方法必须注明,比如 GormPracticeV1_v3中注册了
+	Name  string `json:"name" binding:"exists,alphanumunicode,min=2,max=255"`
 	Email string `json:"email" binding:"required,email"`
 	Age   int    `json:"age" binding:"required"`
 }
 
-type GinPracticeV1 struct {}
+type GinPracticeV1 struct{}
 
 // 协议
 func (ginPracticeV1 *GinPracticeV1) ExecutePracticeNone() {
@@ -48,7 +52,7 @@ curl -X OPTIONS http://localhost:8080/hello -i \
 测试携带自定义 Header 的请求
 curl -X GET http://localhost:8080/hello -i \
   -H "Origin: https://www.youdao.com/" \
-  -H "X-CSRF-Token: testtoken"  
+  -H "X-CSRF-Token: testtoken"
 	预期输出（服务器应返回 Access-Control-Allow-Origin: *）
 */
 // 中间件解决跨域
@@ -66,6 +70,7 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v9() {
 	// 启动 Gin 服务器
 	r.Run(":8080")
 }
+
 // corsMiddleware 中间件处理跨域问题
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -86,7 +91,7 @@ func corsMiddleware() gin.HandlerFunc {
 // Gin 框架的日志功能:日志输出到指定文件夹
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v8() {
 	path_1 := "./TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/tmp/gin.log"
-	
+
 	// 将日志输出到文件
 	file12, _ := os.Create(path_1)
 	gin.DefaultWriter = io.MultiWriter(file12, os.Stdout)
@@ -103,7 +108,8 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v8() {
 // 添加中间件处理错误
 // 自定义错误处理函数: curl http://localhost:8080/ping
 // 创建了一个全局中间件函数来检查处理过程中是否有错误发生，如果有错误则返回自定义的错误响应。
-// 	在路由处理函数中，我们通过 c.Error 方法模拟了一个处理过程中发生的错误。
+//
+//	在路由处理函数中，我们通过 c.Error 方法模拟了一个处理过程中发生的错误。
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v7() {
 	router := gin.Default()
 
@@ -135,7 +141,9 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v7() {
 
 // 静态文件服务：展示了如何在 Gin 框架中提供静态文件服务，可以方便地将静态资源文件（如图片、样式表、脚本等）提供给客户端。
 // 从 ./assets/image.jpg 加载文件，并将其保存为 siShenNet00.jpeg: curl http://localhost:8080/static/siShen00.jpeg --output siShenNet00.jpeg
-//  curl http://localhost:8080/static2/testDocument01.txt --output document.txt
+//
+//	curl http://localhost:8080/static2/testDocument01.txt --output document.txt
+//
 // curl http://localhost:8080/favicon.ico --output favicon.ico
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v6() {
 
@@ -167,7 +175,9 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v6() {
 }
 
 // 使用 LoadHTMLGlob 方法加载了位于 "templates" 目录下的所有模板文件。
-// 	然后，在 "/hello" 路由处理函数中，我们使用 c.HTML 方法渲染了名为 "hello.tmpl" 的模板，并传递了一个包含标题信息的数据
+//
+//	然后，在 "/hello" 路由处理函数中，我们使用 c.HTML 方法渲染了名为 "hello.tmpl" 的模板，并传递了一个包含标题信息的数据
+//
 // curl -v http://localhost:8080/hello
 // 或者在浏览器: http://localhost:8080/hello
 func GormPracticeV1_v5() {
@@ -185,8 +195,6 @@ func GormPracticeV1_v5() {
 
 	router.Run(":8080")
 }
-
-
 
 /*
 GET /users/:id: curl -v GET "http://localhost:8080/users/123"
@@ -234,9 +242,9 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v4() {
 
 /* 接收 JSON 格式的请求体，并将其绑定到结构体中进行处理
 // 可以反馈错误信息: -v
-curl -v -X POST http://localhost:8080/users \
-     -H "Content-Type: application/json" \
-     -d '{"name": "Alice", "email": "alice@example.com", "age": 25}'
+ curl -X POST http://localhost:8080/users \ 
+        -H "Content-Type: application/json" \
+        -d '{"name": "陈平安", "email": "alice@gmail.com", "age": 15}'
 
 curl  -X POST http://localhost:8080/users \
 	-H "Content-Type: application/json" \
@@ -256,9 +264,19 @@ curl -X POST http://localhost:8080/users \
      -d "sex=9" \
      -d "phone=17683837665"
 
-*/	 
+*/
+// 引擎验证
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 	router := gin.Default()
+	// 获取 Gin 的验证引擎
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		logging.DebugInfo("Gin 验证引擎获取成功")
+
+		// 注册自定义验证规则
+		v.RegisterValidation("exists", existsValidator)
+	} else {
+		logging.ErrInfo("Gin 验证引擎获取失败")
+	}
 
 	// GET 请求处理
 	router.GET("/hello", func(c *gin.Context) {
@@ -271,7 +289,7 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 	router.POST("/users", func(c *gin.Context) {
 		var user User
 		if err := c.ShouldBindJSON(&user); err != nil {
-			c.JSON(400, gin.H{
+			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
 			return
@@ -280,15 +298,25 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v3() {
 		// 处理接收到的用户数据
 		// ...
 
+		// 验证用户数据
+		validate := validator.New()
+		if err := validate.Struct(user); err != nil {
+			// 如果验证失败，返回错误信息
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"message": "User created successfully",
-			"user": user,
+			"user":    user,
 		})
 	})
 
 	router.Run(":8080")
 }
-
+func existsValidator(fl validator.FieldLevel) bool {
+	return fl.Field().String() != ""
+}
 
 // 加入中间件、参数解析、日志记录等: curl "http://localhost:8080/hello?name=😂俩百家阿拉斯加了嘎举例"
 // 加双引号是防止 Shell 解析特殊符号,用单引号也是可以的
@@ -296,24 +324,23 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v2() {
 	r := gin.Default()
 
 	//Logger 中间件将日志写入 gin.DefaultWriter，即使配置了 GIN_MODE=release
-    r.Use(gin.Logger())
+	r.Use(gin.Logger())
 	// Recovery 中间件会 recover 任何 panic。如果有 panic 的话，会写入 500 响应码。
-    r.Use(gin.Recovery())
+	r.Use(gin.Recovery())
 
-    r.GET("/hello", func(c *gin.Context) {
-        name := c.Query("name")
-        c.JSON(http.StatusOK, gin.H{"message": "Hello, " + name})
-    })
+	r.GET("/hello", func(c *gin.Context) {
+		name := c.Query("name")
+		c.JSON(http.StatusOK, gin.H{"message": "Hello, " + name})
+	})
 
-    r.Run(":8080")
+	r.Run(":8080")
 }
 
 // 测试: curl http://localhost:8080
 func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v1() {
 	r := gin.Default()
-    r.GET("/", func(c *gin.Context) {
-        c.String(200, "Hello, Gin!, 我在测试这个方法: GormPracticeV1_v1()")
-    })
-    r.Run(":8080")
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, "Hello, Gin!, 我在测试这个方法: GormPracticeV1_v1()")
+	})
+	r.Run(":8080")
 }
-

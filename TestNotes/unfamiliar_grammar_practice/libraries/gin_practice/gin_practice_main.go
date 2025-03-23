@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 18:46:51
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-21 16:33:51
+ * @LastEditTime: 2025-03-23 09:13:01
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice/gin_practice_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  
@@ -40,7 +40,7 @@ func GinPracticeMain() {
 	// ginPracticeV1.GormPracticeV1_v4()
 
 	// 接收 JSON 格式的请求体，并将其绑定到结构体中进行处理
-	// ginPracticeV1.GormPracticeV1_v3()
+	ginPracticeV1.GormPracticeV1_v3()
 	
 	// 加入中间件、参数解析、日志记录等
 	// ginPracticeV1.GormPracticeV1_v2()

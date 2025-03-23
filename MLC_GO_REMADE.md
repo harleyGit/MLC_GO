@@ -6,12 +6,11 @@
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
-
-
 > <h5/>
 - [**文件结构介绍**](#文件结构介绍)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
 	- [推荐几个可以写到简历上的Go方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
+	- [golang-gin-realworld-example-app工程](#golang-gin-realworld-example-app工程)
 	-  [go-gin-api全栈项目 ](#go-gin-api全栈项目)
 	-  [gin-vue-admin全栈平台 ](#gin-vue-admin全栈平台 )
 	-  [ferry工单系统Gorm（ORM工具）](#ferry工单系统Gorm（ORM工具）) 
@@ -37,9 +36,19 @@
 	-  [go-restful库](#go-restful库) 
 	-  [Chi库](#Chi库)
 - **资料**
+	- [浅读 Go 优秀开源项目源码—Gin框架](https://blog.linganmin.cn/posts/d6715893/)
 	- [rickiyang博客Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
 		- [gorm库练习](https://www.cnblogs.com/rickiyang/p/11074162.html)
 	- [维斯Echo(博客仔细,不错)-掘金](https://juejin.cn/user/369885757844285/posts)
+	- [盘点 7 个优质开源的 Go 项目](https://juejin.cn/post/7092788846781267975)
+	- [标准的 Go 项目布局](https://juejin.cn/post/6944649692319842340)
+	- [awesome-go项目](https://github.com/avelino/awesome-go)
+		- [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
+		- [awesome-go中文介绍](https://github.com/jobbole/awesome-go-cn)
+		- [awesome-go中文介绍02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
+	- [超全golang面试题合集+golang学习指南+golang知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
+	- [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
+	- [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
   
 
 
@@ -85,23 +94,6 @@ MLC_GO/
 - pkg：第三方包
 - routers 路由逻辑处理
 - runtime：应用运行时数据
-- [浅读 Go 优秀开源项目源码—Gin框架](https://blog.linganmin.cn/posts/d6715893/)
-
-
-
-[golang-gin-realworld-example-app](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)
-
-- [盘点 7 个优质开源的 Go 项目](https://juejin.cn/post/7092788846781267975)
-- [标准的 Go 项目布局](https://juejin.cn/post/6944649692319842340)
-- [awesome-go项目](https://github.com/avelino/awesome-go)
-	- [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
-	- [awesome-go中文介绍](https://github.com/jobbole/awesome-go-cn)
-	- [awesome-go中文介绍02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
-- [超全golang面试题合集+golang学习指南+golang知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
-- [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
-- [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
-- []()
-- []()
 
 
 
@@ -111,6 +103,30 @@ MLC_GO/
 <br/>
 ># <h1 ID="Golang开源项目汇总列表"> [Golang 开源项目汇总列表](https://github.com/hackstoic/golang-open-source-projects)</h1>
 <br/>
+
+<br/><br/><br/>
+
+***
+<br/>
+
+># <h1 id="golang-gin-realworld-example-app工程">[golang-gin-realworld-example-app工程](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)</h1>
+
+**注册接口测试**
+
+```sh
+curl -X POST "http://localhost:8080/api/users/" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "user": {
+         "username": "李白",
+         "email": "libai@qq.com",
+         "password": "mypassword1236789",
+         "bio": "Software Developer Golang",
+         "image": "https://example.com/avatarPic.jpg"
+       }
+     }'
+```
+
 
 ># <h1 id="go-gin-api全栈项目">[go-gin-api全栈项目](https://github.com/xinliangnote/go-gin-api?tab=readme-ov-file)</h1>
 - **简介**：基于 Gin 的模块化 API 框架，封装了 JWT 鉴权、日志管理、数据库操作等常用功能。

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-20 15:51:53
+ * @LastEditTime: 2025-03-23 09:23:09
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -31,16 +31,16 @@ func main() {
 
 	practiceTestMethod()
 
-	
+	gin_practice.GinPracticeMain()
 }
 
 // 测试方法
 func practiceTestMethod() {
-
+	return
 	// 命令行加载配置文件
 	command_line_practice.CommandLinePracticeMain()
 	
-	return
+	
 	// 读取文件测试
 	read_file_practice.ReadFilePracticeMain()
 
