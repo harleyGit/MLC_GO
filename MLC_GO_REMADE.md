@@ -127,6 +127,24 @@ curl -X POST "http://localhost:8080/api/users/" \
      }'
 ```
 
+<br/>
+**登录**
+
+```
+curl -X POST "http://localhost:8080/api/users/login" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "user": {
+         "email": "libai@qq.com",
+         "password": "mypassword1236789"
+       }
+     }'
+     
+{"user":{"username":"李白","email":"libai@qq.com","bio":"Software Developer Golang","image":"https://example.com/avatarPic.jpg","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NDI3ODQyOTUsImlkIjozfQ.Rkywy09E-iVMmKqyMVIBcEXZtcm4W3x1xatXL6WrxyY"}}
+```
+
+
+
 
 ># <h1 id="go-gin-api全栈项目">[go-gin-api全栈项目](https://github.com/xinliangnote/go-gin-api?tab=readme-ov-file)</h1>
 - **简介**：基于 Gin 的模块化 API 框架，封装了 JWT 鉴权、日志管理、数据库操作等常用功能。
