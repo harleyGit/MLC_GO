@@ -1,8 +1,6 @@
 module MLC_GO
 
-go 1.23.0
-
-toolchain go1.23.5
+go 1.24.1
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -36,7 +34,7 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.25.0 // indirect
+	github.com/go-playground/validator/v10 v10.25.0
 	github.com/go-sql-driver/mysql v1.9.0
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
@@ -127,12 +125,10 @@ require (
 
 require (
 	github.com/boombuler/barcode v1.0.2
-	github.com/fsnotify/fsnotify v1.8.0
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/gomodule/redigo v1.9.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/robfig/cron v1.2.0
-	github.com/spf13/viper v1.20.0
 	github.com/tealeg/xlsx v1.0.5
 	go.uber.org/zap v1.18.1
 	gorm.io/driver/mysql v1.5.7
@@ -140,13 +136,7 @@ require (
 )
 
 require (
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/sagikazarmark/locafero v0.7.0 // indirect
-	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/spf13/afero v1.12.0 // indirect
-	github.com/spf13/cast v1.7.1 // indirect
-	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/image v0.25.0 // indirect
