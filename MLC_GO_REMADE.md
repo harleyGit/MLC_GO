@@ -6,8 +6,10 @@
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
-> <h5/>
+> <h5></h5>
 - [**文件结构介绍**](#文件结构介绍)
+- [**文件规则**](#文件规则)
+	- [协议规则](#协议规则)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
 	- [推荐几个可以写到简历上的Go方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
 	- [golang-gin-realworld-example-app工程](#golang-gin-realworld-example-app工程)
@@ -94,6 +96,30 @@ MLC_GO/
 - pkg：第三方包
 - routers 路由逻辑处理
 - runtime：应用运行时数据
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="文件规则">文件规则</h1>
+<br/>
+
+> <h2 id="协议规则">协议规则</h2>
+**比如：**
+
+协议的方法前要加入**`协议名_+方法名`**：
+
+```go
+
+type Writer interface {
+	Writer_read(text string) 
+}
+```
+
+
+
 
 
 
