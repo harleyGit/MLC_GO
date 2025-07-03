@@ -140,6 +140,7 @@ require (
 require (
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/judwhite/go-svc v1.2.1 // indirect 服务生命周期管理的轻量库
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect

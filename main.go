@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-23 09:23:09
+ * @LastEditTime: 2025-07-03 20:51:32
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -16,6 +16,7 @@ import (
 	gen_practice_example_package "MLC_GO/TestNotes/GenPracticeExample"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/command_line_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice"
+	go_svc_practice_main_package "MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/go-svc-practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/nsq_project_practice"
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/read_file_practice"
@@ -36,6 +37,8 @@ func main() {
 
 // 测试方法
 func practiceTestMethod() {
+
+	go_svc_practice_main_package.Go_SVC_Practice_Main()
 	return
 	// 命令行加载配置文件
 	command_line_practice.CommandLinePracticeMain()
