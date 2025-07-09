@@ -1,6 +1,6 @@
 module MLC_GO
 
-go 1.24.1
+go 1.23.5
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
