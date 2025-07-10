@@ -9,7 +9,7 @@
 package hg_setup_config
 
 import (
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 	"flag"
 	"fmt"
 	"os"
@@ -25,14 +25,17 @@ const (
 
 /*
 mapstructure:"xxx"
+
 	用于 viper 解析配置文件（YAML/JSON 等）到 Go 结构体时，进行字段匹配。
 	作用： 指定 viper.Unmarshal() 解析时，如何映射配置文件的键值。
 
 json:"xxx"
+
 	用于 JSON 序列化和反序列化（json.Marshal() 和 json.Unmarshal()）。
 	作用： 当 json.Marshal(config.GVA_CONFIG) 时，指定字段对应的 JSON key。
 
 yaml:"xxx"
+
 	用于 YAML 解析（yaml.Unmarshal() 和 yaml.Marshal()）。
 	作用： 指定结构体字段在 YAML 格式中的映射
 */
@@ -52,17 +55,18 @@ type HGSetupConfig struct{}
 
 var (
 	appConfigPath string = "./conf/mlc_app.json"
-	appConfig string
-	otherConfig *string
+	appConfig     string
+	otherConfig   *string
 
 	GVA_CONFIG Server
 )
+
 /// 使用命令行参数: ./app -c /etc/myconfig.yaml
 
 /// 使用环境变量: export CONFIG_PATH="/home/user/config.yaml"
 /// 		./app
 
-/// 默认使用本地文件: ./app
+// / 默认使用本地文件: ./app
 func (hgSetupConfig *HGSetupConfig) HGSetupConfig() {
 	/// 1. 处理命令行参数
 	// configCon 是存储配置文件路径的变量。
@@ -78,10 +82,10 @@ func (hgSetupConfig *HGSetupConfig) HGSetupConfig() {
 		if configEnv := os.Getenv(ConfigEnv); configEnv == "" {
 			// 如果环境变量为空 → 使用 ConfigFile（默认配置文件）
 			appConfig = ConfigFile
-			hglog.DebugInfo("使用本地配置文件,路径: ", ConfigFile)
+			logHG.DebugInfo("使用本地配置文件,路径: ", ConfigFile)
 		} else { // 如果环境变量不为空 → 使用环境变量指定的配置路径
 			appConfig = configEnv
-			hglog.DebugInfo("使用远程配置文件,路径: ", configEnv)
+			logHG.DebugInfo("使用远程配置文件,路径: ", configEnv)
 		}
 	}
 
@@ -91,7 +95,7 @@ func (hgSetupConfig *HGSetupConfig) HGSetupConfig() {
 	// 指定要读取的配置文件
 	v.SetConfigFile(appConfig)
 	// 读取文件内容
-	if err := v.ReadInConfig(); err != nil {// 如果 ReadInConfig() 失败（文件不存在或格式错误），就会触发 panic
+	if err := v.ReadInConfig(); err != nil { // 如果 ReadInConfig() 失败（文件不存在或格式错误），就会触发 panic
 		panic(fmt.Errorf("读取配置文件失败: %s \n", err))
 	}
 	// 让 viper 监听配置文件，如果文件内容变化，会自动更新 viper 读取的配置
@@ -99,21 +103,21 @@ func (hgSetupConfig *HGSetupConfig) HGSetupConfig() {
 
 	v.OnConfigChange(func(e fsnotify.Event) {
 		// 当配置文件发生变化时，打印 "配置文件已修改并更新"
-		hglog.DebugInfo("配置文件已修改并更新: ", e.Name)
-		if err := v.Unmarshal(&GVA_CONFIG); err != nil {// 重新解析配置，确保最新的内容被加载。
-			hglog.ErrInfo("配置文件解析失败: ", err)
+		logHG.DebugInfo("配置文件已修改并更新: ", e.Name)
+		if err := v.Unmarshal(&GVA_CONFIG); err != nil { // 重新解析配置，确保最新的内容被加载。
+			logHG.ErrInfo("配置文件解析失败: ", err)
 		}
 	})
 
 	/// 解析配置到结构体
 	// 将 viper 读取的 YAML/JSON 配置解析到 GVA_CONFIG 结构体中，方便程序访问
 	if err := v.Unmarshal(&GVA_CONFIG); err != nil {
-		hglog.ErrInfo("===配置文件解析失败: ", err)
+		logHG.ErrInfo("===配置文件解析失败: ", err)
 	}
 
-	hglog.DebugInfo("配置文件解析成功: ", v)
+	logHG.DebugInfo("配置文件解析成功: ", v)
 
 }
 func (hgSetupConfig *HGSetupConfig) ExecutePracticeNone() {
-	hglog.DebugInfo("初始化配置文件")
+	logHG.DebugInfo("初始化配置文件")
 }

@@ -11,18 +11,18 @@
 package read_txt_file_practice_v
 
 import (
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 	"bufio"
 	"io"
 	"os"
 	"strings"
 )
 
-type ReadTXTFilePractice struct {}
+type ReadTXTFilePractice struct{}
 
 // 协议
 func (readTextPractice *ReadTXTFilePractice) ExecutePracticeNone() {
-	hglog.DebugInfo("协议 读取Text文件配置 ReadJSONFilePractice ExecutePracticeNone")
+	logHG.DebugInfo("协议 读取Text文件配置 ReadJSONFilePractice ExecutePracticeNone")
 }
 
 func (readJSONPractice *ReadTXTFilePractice) ReadTextFilePractice_v1() {
@@ -30,11 +30,10 @@ func (readJSONPractice *ReadTXTFilePractice) ReadTextFilePractice_v1() {
 	ip := config["ip"]
 	port := config["port"]
 
-	hglog.DebugInfo("text文件读取内容: ip=",string(ip)," port=",string(port))
+	logHG.DebugInfo("text文件读取内容: ip=", string(ip), " port=", string(port))
 }
 
-
-//读取key=value类型的配置文件
+// 读取key=value类型的配置文件
 func InitConfig(path string) map[string]string {
 	///  1.创建一个 map
 	config := make(map[string]string)
@@ -73,7 +72,7 @@ func InitConfig(path string) map[string]string {
 		if index < 0 {
 			continue
 		}
-		
+
 		/// 6.提取 key=value
 		// 获取 key：
 		// 		s[:index] 提取 等号左边的部分（即 key）。
@@ -95,4 +94,3 @@ func InitConfig(path string) map[string]string {
 	}
 	return config
 }
-

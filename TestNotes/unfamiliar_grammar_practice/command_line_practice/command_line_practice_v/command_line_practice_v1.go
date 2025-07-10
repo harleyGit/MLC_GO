@@ -10,14 +10,14 @@ package command_line_practice_v
 
 import (
 	"MLC_GO/pkg/hg_setup_config"
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 )
 
-type CommandLinePracticeV1 struct {}
+type CommandLinePracticeV1 struct{}
 
 // 协议
 func (commandLinePracticeV1 *CommandLinePracticeV1) ExecutePracticeNone() {
-	hglog.DebugInfo("V1命令加载项目配置文件CommandLinePracticeV1  ExecutePracticeNone")
+	logHG.DebugInfo("V1命令加载项目配置文件CommandLinePracticeV1  ExecutePracticeNone")
 }
 
 /*
@@ -30,7 +30,7 @@ func (commandLinePracticeV1 *CommandLinePracticeV1) ExecutePracticeNone() {
 
 第二种: 直接通过Go代码运行
 	1. go run main.go -c config.yaml
-	或者: go run main.go -c ./conf/mlc_app.yml 
+	或者: go run main.go -c ./conf/mlc_app.yml
 */
 /// 加载测试的yaml文件
 func (commandLinePracticeV1 *CommandLinePracticeV1) CommandLinePracticeV1_v1() {

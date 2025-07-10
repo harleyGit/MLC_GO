@@ -11,7 +11,7 @@ package gin_practice_v
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 	"errors"
 	"io"
 	"net/http"
@@ -37,7 +37,7 @@ type GinPracticeV1 struct{}
 
 // 协议
 func (ginPracticeV1 *GinPracticeV1) ExecutePracticeNone() {
-	hglog.DebugInfo("协议 gin库 GinPracticeV1 ExecutePracticeNone")
+	logHG.DebugInfo("协议 gin库 GinPracticeV1 ExecutePracticeNone")
 }
 
 /*
@@ -242,7 +242,7 @@ func (ginPracticeV1 *GinPracticeV1) GormPracticeV1_v4() {
 
 /* 接收 JSON 格式的请求体，并将其绑定到结构体中进行处理
 // 可以反馈错误信息: -v
- curl -X POST http://localhost:8080/users \ 
+ curl -X POST http://localhost:8080/users \
         -H "Content-Type: application/json" \
         -d '{"name": "陈平安", "email": "alice@gmail.com", "age": 15}'
 

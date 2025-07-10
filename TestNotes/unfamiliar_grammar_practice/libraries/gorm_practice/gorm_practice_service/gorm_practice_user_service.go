@@ -10,7 +10,7 @@ package gorm_practice_service
 
 import (
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_models"
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 )
 
 // 插入一条用户数据
@@ -19,12 +19,11 @@ func AddNewUser(user gorm_practice_models.GormUser) (err error) {
 	if err != nil {
 		return err
 	}
-	hglog.DebugInfo("gorm 新增用户Id", id)
+	logHG.DebugInfo("gorm 新增用户Id", id)
 	return nil
 }
 
-//根据uid 查询用户
+// 根据uid 查询用户
 func QueryUserByUid(uid int64) gorm_practice_models.GormUser {
 	return gorm_practice_models.QueryUserByUid(uid)
 }
-

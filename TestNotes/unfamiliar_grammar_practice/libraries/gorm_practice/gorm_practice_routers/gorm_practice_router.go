@@ -11,12 +11,13 @@ package gorm_practice_routers
 import (
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_router_api"
 	"MLC_GO/pkg/hg_uuid"
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
 var (
 	// log    = config.GVA_LOG
 	origin = "www.baidu.com"
@@ -47,15 +48,13 @@ func SetupRouters() *gin.Engine {
 		apiUser.GET("/getUserByUid/:uid", gorm_router_api.GetUserByUidUseRouteParam)
 	}
 
-
 	return router
 }
-
 
 // 全局中间件示例
 func globalMiddleWare() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		hglog.DebugInfo("MiddleWare: 中间件开始执行")
+		logHG.DebugInfo("MiddleWare: 中间件开始执行")
 
 		// 在gin.Context中设置一个值 演示中间件的能力
 		traceId, _ := hg_uuid.GenerateUUID()
@@ -67,10 +66,11 @@ func globalMiddleWare() gin.HandlerFunc {
 		c.Next()
 
 		status := c.Writer.Status()
-		hglog.DebugInfo("MiddleWare: 中间件执行结束, status: ", zap.Any("status", status))
+		logHG.DebugInfo("MiddleWare: 中间件执行结束, status: ", zap.Any("status", status))
 	}
 }
-//添加跨域支持
+
+// 添加跨域支持
 func gormPracticeCORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
@@ -90,4 +90,3 @@ func gormPracticeCORS() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

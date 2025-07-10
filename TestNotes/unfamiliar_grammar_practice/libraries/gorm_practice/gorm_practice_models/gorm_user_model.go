@@ -10,19 +10,19 @@ package gorm_practice_models
 
 import (
 	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_config"
-	"MLC_GO/pkg/hglog"
+	"MLC_GO/pkg/logHG"
 	"time"
 
 	"gorm.io/gorm/clause"
 )
 
 type GormUser struct {
-	Id int64 `json:"id" gorm:"primary_key"`
-	Name string `json:"name"`
-	Age int32 `json:"age"`
-	Sex int8 `json:"sex"`
-	Phone string `json:"phone`
-	Birthday time.Time `gorm:"column:day_of_the_beast"` // 将列名设为 `day_of_the_beast`
+	Id        int64     `json:"id" gorm:"primary_key"`
+	Name      string    `json:"name"`
+	Age       int32     `json:"age"`
+	Sex       int8      `json:"sex"`
+	Phone     string    `json:"phone`
+	Birthday  time.Time `gorm:"column:day_of_the_beast"` // 将列名设为 `day_of_the_beast`
 	CreatedAt time.Time // 在创建时，如果该字段值为零值，则使用当前时间填充
 	UpdatedAt int       // 在创建时该字段值为零值或者在更新时，使用当前时间戳秒数填充
 }
@@ -31,20 +31,20 @@ type GormUser struct {
 func InsertOneUser(user GormUser) (id int64, err error) {
 	err = gorm_practice_config.GormDB.Create(&user).Error
 	if err != nil {
-		hglog.ErrInfo("gorm 插入用户数据失败!!")
+		logHG.ErrInfo("gorm 插入用户数据失败!!")
 		return 0, err
 	}
 	return user.Id, err
 }
 
 // 批量插入用户数据, 参数是引用类型
-func BatchInsertUsers(users []GormUser) (ids []int64, err error){
+func BatchInsertUsers(users []GormUser) (ids []int64, err error) {
 	tx := gorm_practice_config.GormDB.CreateInBatches(users, len(users))
 	if tx.Error != nil {
-		hglog.ErrInfo("gorm 批量插入用户数据失败!!")
+		logHG.ErrInfo("gorm 批量插入用户数据失败!!")
 		return []int64{}, tx.Error
 	}
-	
+
 	ids = []int64{}
 	for idx, user := range users {
 		ids[idx] = user.Id
@@ -57,13 +57,13 @@ func UpsertOp(user GormUser) {
 	// 第一种处理情况: 在冲突时，什么都不做(如果冲突，则忽略)
 	// 效果: 如果 id 已存在，则不插入数据，不报错。
 	gorm_practice_config.GormDB.Clauses(clause.OnConflict{DoNothing: true}).Create(&user)
-	
+
 	// 在`id`冲突时，将列更新为默认值(如果冲突，则更新指定字段)
 	// 效果:	如果 id 不存在，则正常插入。
 	// 		   如果 id 已存在，则 更新 name, age, sex, phone 的值。
-	gorm_practice_config.GormDB.Clauses(clause.OnConflict{ 
-		Columns: []clause.Column{{Name: "id"}},
-		DoUpdates: clause.Assignments(map[string] interface{}{"name": "", "age":0, "sex": 1}),
+	gorm_practice_config.GormDB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{"name": "", "age": 0, "sex": 1}),
 	}).Create(&user)
 
 	// 在`id`冲突时，将列更新为新值(如果冲突，则更新所有非主键字段
@@ -76,7 +76,7 @@ func UpsertOp(user GormUser) {
 	}).Create(&user)
 
 	// 在冲突时，更新除主键以外的所有列到新值
-	gorm_practice_config.GormDB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&user)	
+	gorm_practice_config.GormDB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&user)
 }
 
 // 根据ID删除
@@ -87,13 +87,13 @@ func DeleteUserByUid(id int64) (err error) {
 	err = gorm_practice_config.GormDB.Delete(&user).Error
 	// 根据条件删除: constants.GVA_DB.Where("sex = ?", 0).Delete(GormUser{})
 	if err != nil {
-		hglog.ErrInfo("gorm 删除用户数据失败!!")
+		logHG.ErrInfo("gorm 删除用户数据失败!!")
 		return err
 	}
 	return nil
 }
 
-//根据 id 批量删除数据
+// 根据 id 批量删除数据
 func BatchDeleteUserByIds(ids []int64) (err error) {
 	if ids == nil || len(ids) == 0 {
 		return
@@ -101,7 +101,7 @@ func BatchDeleteUserByIds(ids []int64) (err error) {
 	//删除方式1
 	err = gorm_practice_config.GormDB.Where("id in ?", ids).Delete(GormUser{}).Error
 	if err != nil {
-		hglog.ErrInfo("gorm 批量删除数据 DeleteUserById err: ", err)
+		logHG.ErrInfo("gorm 批量删除数据 DeleteUserById err: ", err)
 		return err
 	}
 	//删除方式 2
@@ -110,33 +110,32 @@ func BatchDeleteUserByIds(ids []int64) (err error) {
 	return nil
 }
 
-//根据id更新数据，全量字段更新，即使字段是0值
+// 根据id更新数据，全量字段更新，即使字段是0值
 func UpdateUserById(user GormUser) (err error) {
 	err = gorm_practice_config.GormDB.Save(&user).Error
 	if err != nil {
-		hglog.ErrInfo("gorm 更新数据 UpdateUserById err: ", err)
+		logHG.ErrInfo("gorm 更新数据 UpdateUserById err: ", err)
 		return err
 	}
 	return nil
 }
 
-//更新指定列
-//update user set `columnName` = v where id = id;
+// 更新指定列
+// update user set `columnName` = v where id = id;
 func UpdateSpecialColumn(id int64, columnName string, v interface{}) (err error) {
 	err = gorm_practice_config.GormDB.Model(&GormUser{Id: id}).Update(columnName, v).Error
 	if err != nil {
-		hglog.ErrInfo("gorm 更新指定列UpdateSpecialColumn err: ", err)
+		logHG.ErrInfo("gorm 更新指定列UpdateSpecialColumn err: ", err)
 		return err
 	}
 	return nil
 }
 
-
-//更新- 根据 `struct` 更新属性，只会更新非零值的字段
-//update user set `columnName` = v where id = id;
-//当通过 struct 更新时，GORM 只会更新非零字段。 如果您想确保指定字段被更新，你应该使用 Select 更新选定字段，或使用 map 来完成更新操作
+// 更新- 根据 `struct` 更新属性，只会更新非零值的字段
+// update user set `columnName` = v where id = id;
+// 当通过 struct 更新时，GORM 只会更新非零字段。 如果您想确保指定字段被更新，你应该使用 Select 更新选定字段，或使用 map 来完成更新操作
 func UpdateSelective(user GormUser) (effected int64, err error) {
-	
+
 	// 更新非0值的字段：
 	tx := gorm_practice_config.GormDB.Model(&user).Updates(&GormUser{
 		Id:    user.Id,
@@ -147,74 +146,73 @@ func UpdateSelective(user GormUser) (effected int64, err error) {
 	})
 
 	/*
-	// 如果你想更新0值的字段，那么可以使用 Select 函数先选择指定的列名，或者使用 map 来完成：
-	//map 方式会更新0值字段
-	tx1 = gorm_practice_config.GormDB.Model(&user).Updates(map[string]interface{}{
-		"Id":    user.Id,
-		"Name":  user.Name,
-		"Age":   user.Age,
-		"Sex":   user.Sex,
-		"Phone": user.Phone,
-  	})
+			// 如果你想更新0值的字段，那么可以使用 Select 函数先选择指定的列名，或者使用 map 来完成：
+			//map 方式会更新0值字段
+			tx1 = gorm_practice_config.GormDB.Model(&user).Updates(map[string]interface{}{
+				"Id":    user.Id,
+				"Name":  user.Name,
+				"Age":   user.Age,
+				"Sex":   user.Sex,
+				"Phone": user.Phone,
+		  	})
 
-	// Select 方式指定列名：
-	//Select 方式指定列名
-	tx2 = gorm_practice_config.GormDB.Model(&user).Select("Name", "Age", "Phone").Updates(&GormUser{
-		Id:    user.Id,
-		Name:  user.Name,
-		Age:   user.Age,
-		Sex:   user.Sex,
-		Phone: user.Phone,
-	})
+			// Select 方式指定列名：
+			//Select 方式指定列名
+			tx2 = gorm_practice_config.GormDB.Model(&user).Select("Name", "Age", "Phone").Updates(&GormUser{
+				Id:    user.Id,
+				Name:  user.Name,
+				Age:   user.Age,
+				Sex:   user.Sex,
+				Phone: user.Phone,
+			})
 
-	// Select 选定所有列名：
-	// Select 所有字段（查询包括零值字段的所有字段）
-	tx3 = gorm_practice_config.GormDB.Model(&user).Select("*").Updates(&GormUser{
-		Id:    user.Id,
-		Name:  user.Name,
-		Age:   user.Age,
-		Sex:   user.Sex,
-		Phone: user.Phone,
-	})
+			// Select 选定所有列名：
+			// Select 所有字段（查询包括零值字段的所有字段）
+			tx3 = gorm_practice_config.GormDB.Model(&user).Select("*").Updates(&GormUser{
+				Id:    user.Id,
+				Name:  user.Name,
+				Age:   user.Age,
+				Sex:   user.Sex,
+				Phone: user.Phone,
+			})
 
-	// Select 排除指定列名：
-	// Select 除 Phone 外的所有字段（包括零值字段的所有字段）
-	tx4 = gorm_practice_config.GormDB.Model(&user).Select("*").Omit("Phone").Updates(&GormUser{
-		Id:    user.Id,
-		Name:  user.Name,
-		Age:   user.Age,
-		Sex:   user.Sex,
-		Phone: user.Phone,
-	})
+			// Select 排除指定列名：
+			// Select 除 Phone 外的所有字段（包括零值字段的所有字段）
+			tx4 = gorm_practice_config.GormDB.Model(&user).Select("*").Omit("Phone").Updates(&GormUser{
+				Id:    user.Id,
+				Name:  user.Name,
+				Age:   user.Age,
+				Sex:   user.Sex,
+				Phone: user.Phone,
+			})
 	*/
-	
+
 	if tx.Error != nil {
 		return 0, tx.Error
 	}
 	return tx.RowsAffected, nil
 }
 
-//根据 条件 批量更新
+// 根据 条件 批量更新
 func BatchUpdateByIds(ids []int64, user GormUser) (effected int64, err error) {
 	if ids == nil || len(ids) == 0 {
-	  return
+		return
 	}
 	tx := gorm_practice_config.GormDB.Model(GormUser{}).Where("id in ?", ids).Updates(&user)
 	if tx.Error != nil {
-	  return 0, tx.Error
+		return 0, tx.Error
 	}
 	return tx.RowsAffected, nil
-  }
+}
 
-
-//查询用户信息根据uid
+// 查询用户信息根据uid
 func QueryUserByUid(uid int64) (u GormUser) {
 	var user GormUser
 	gorm_practice_config.GormDB.Where("id = ?", uid).First(&user)
 	return user
 }
 
-//查询操作
+// 查询操作
 func queryOp(user GormUser) {
 
 	// 获取第一条记录（主键升序）
@@ -338,7 +336,7 @@ func queryOp(user GormUser) {
 
 }
 
-//事务测试
+// 事务测试
 func TestGormTx(user GormUser) (err error) {
 	tx := gorm_practice_config.GormDB.Begin()
 	// 注意，一旦你在一个事务中，使用tx作为数据库句柄
