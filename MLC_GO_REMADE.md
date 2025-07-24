@@ -1215,6 +1215,14 @@ Producer --> nsqd --> (Lookupd) --> Consumer
 6. nsqlookupd 的注册发现流程：`nsqlookupd/server.go`
 7. nsqd 和 lookupd 交互流程：`lookup.go`
 
+<br/>
+
+- **`nsqd` 的启动流程（main.go）** 文件查找：
+ - apps/nsqd/main.go 是启动 nsqd 的标准入口，里面会调用 nsqd 包里的核心逻辑（比如 nsqd.New() 等）
+ - 它是程序真正的 main 包所在位置：
+  - apps/nsqd/main.go：启动程序入口，负责命令行参数、配置初始化、日志初始化等
+  - nsqd/ 目录：包含 nsqd 的核心业务代码（消息处理、网络协议、存储等）
+
 ---
 
 ### ✅ Step 4：使用调试 + 打日志的方式阅读源码
