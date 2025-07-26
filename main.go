@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-09 20:05:12
+ * @LastEditTime: 2025-07-24 17:55:18
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -68,14 +68,14 @@ func practiceKnowledge() {
 
 	modules := getPracticeModules()
 	for true {
-		fmt.Println("=====================👏欢迎练习测试陌生知识点==========================")
+		fmt.Println("\n\n=====================👏欢迎练习测试陌生知识点==========================")
 		for _, module := range modules {
 			fmt.Printf("\t\t\t 🍎 %s\n", module)
 		}
 		fmt.Printf("请输入序号进入对应功能：\n\n")
 
 		var functionModule int
-		fmt.Scanf("%d\n", &functionModule)
+		fmt.Scanf("%d\n\n", &functionModule)
 
 		switch functionModule {
 		case 1:
