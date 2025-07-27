@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 16:18:09
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-10 20:00:11
+ * @LastEditTime: 2025-07-27 13:43:11
  * @FilePath: /MLC_GO/pkg/hglog/hglog.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -49,7 +49,20 @@ func DebugInfo(v ...interface{}) {
 	// setPrefix(DEBUG)
 	log.Println("🔥",v)
 }
+
+// 比如： DebugFInfo("This is value: %v, and another: %d", "test", 42)
+func DebugFInfo(format string, v ...interface{}) {
+	// setPrefix(DEBUG)
+	log.Printf("🔥 " + format, v...)
+}
+
+
 func ErrInfo(v ...interface{}) {
 	// setPrefix(ERROR)
 	log.Println("❌",v)
+}
+
+func ErrFInfo(format string, v ...interface{}) {
+	// setPrefix(ERROR)
+	log.Printf("❌" + format, v...)
 }
