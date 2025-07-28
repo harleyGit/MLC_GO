@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-18 16:55:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-25 11:50:41
+ * @LastEditTime: 2025-07-28 21:09:37
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/nsq_project_practice/nsq_practice_v1/nsq_practice_v1_v1.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,12 +11,15 @@ package nsq_practice_v1
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
 	"MLC_GO/pkg/logHG"
+	"context"
 	"crypto/md5"
 	"flag"
 	"hash/crc32"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"time"
 )
 
 type Options struct {
@@ -31,9 +34,62 @@ type Options struct {
 
 type NSQPracticeV1 struct {
 }
+// 协议
+func (nsqPracticeV1 *NSQPracticeV1) ExecutePracticeNone() {}
 
 func (nsqPracticeV1 *NSQPracticeV1) NSQPracticeV1() {
 	nsqPractice_V1_v1()
+}
+
+/* 上下文取消 */
+func (this *NSQPracticeV1) NSQCancelContext() {
+
+	// 创建可取消的 context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// 启动一个 goroutine 监听这个context
+	go func ()  {
+		select {
+		case <- ctx.Done():
+			logHG.DebugFInfo("✅ 收到取消信号:", ctx.Err())
+		}
+	}()
+
+	// 主程序等待 2 秒再取消
+	time.Sleep(2 * time.Second)
+	logHG.DebugInfo("⛔ 手动取消任务")
+	cancel()
+
+	//给 goroutine 一点时间打印
+	time.Sleep(1 *time.Second)
+
+}
+
+func (this *NSQPracticeV1) NSQCustomLog() {
+	// 创建一个带前缀和微秒时间戳的 Logger
+	logger := log.New(os.Stderr, "[MyApp] ", log.Ldate|log.Ltime|log.Lmicroseconds)
+
+	// 打印几条日志看看效果
+	logger.Println("启动服务中...")
+	logger.Println("连接数据库成功")
+	logger.Println("监听端口 8080")
+
+	f, _ := os.Create("/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/app.log")
+	logger01 := log.New(f, "[MyApp] ", log.Ldate|log.Ltime|log.Lmicroseconds)
+	logger01.Println("写入日志文件---------实打实的发送哈")
+}
+
+// 路径拼接
+func (this *NSQPracticeV1) NSQFilePathPT() {
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		logHG.DebugInfo("获取路径错误")
+		return
+	}
+	configPath := filepath.Join(cwd, "TestNotes/unfamiliar_grammar_practice/nsq_project_practice", "NSQ_README.md")
+	logHG.DebugFInfo("路径为：%+v", configPath)
+
 }
 
 /* 命令行参数解析 */
@@ -53,8 +109,8 @@ func (this *NSQPracticeV1) NSQPraCMDParse() {
 	flagSet.Parse(os.Args[1:])
 
 	// 使用参数值
-	if *version {//因为在lauch.json设置为false，所以不打印
-		logHG.DebugInfo("版本显示：",*version,"MLC_GO version V1.0.0.0")
+	if *version { //因为在lauch.json设置为false，所以不打印
+		logHG.DebugInfo("版本显示：", *version, "MLC_GO version V1.0.0.0")
 		//os.Exit(0)
 	}
 
@@ -94,5 +150,4 @@ func nsqPractice_V1_v1() {
 		"defaultID", defaultID, "options 信息: ", options)
 }
 
-// 协议
-func (nsqPracticeV1 *NSQPracticeV1) ExecutePracticeNone() {}
+
