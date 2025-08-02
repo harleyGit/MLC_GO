@@ -2,11 +2,11 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-14 16:35:11
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-14 17:18:24
+ * @LastEditTime: 2025-08-02 21:42:52
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/concurrent_program_practice/concurrent_practice_v0.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
-package concurrent_program_practice_v
+package concurrent_pt00
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"

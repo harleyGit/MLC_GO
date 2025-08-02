@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-24 17:55:18
+ * @LastEditTime: 2025-08-02 21:40:57
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -14,15 +14,17 @@ package main
 
 import (
 	gen_practice_example_package "MLC_GO/TestNotes/GenPracticeExample"
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/command_line_practice"
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gin_practice"
-	go_svc_practice_main_package "MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/go-svc-practice"
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice"
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/nsq_project_practice"
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/read_file_practice"
+	"MLC_GO/TestNotes/ungrammar_pt/command_line_practice"
+	"MLC_GO/TestNotes/ungrammar_pt/concurrent_pt"
+	"MLC_GO/TestNotes/ungrammar_pt/libraries/gin_practice"
+	go_svc_practice_main_package "MLC_GO/TestNotes/ungrammar_pt/libraries/go-svc-practice"
+	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice"
+	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
+	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,6 +43,7 @@ const (
 	Module_dlvFunctionTest    ModuleType = "8: dlv测试函数"
 	Module_simpleFunction     ModuleType = "9: dlv简单测试"
 	Module_threadPractice     ModuleType = "10: 线程测试"
+	Module_concurrent ModuleType = "11: 并发测试"
 )
 
 func getPracticeModules() []ModuleType {
@@ -56,6 +59,7 @@ func getPracticeModules() []ModuleType {
 		Module_dlvFunctionTest,
 		Module_simpleFunction,
 		Module_threadPractice,
+		Module_concurrent,
 	}
 }
 
@@ -104,6 +108,8 @@ func practiceKnowledge() {
 			dlvTest2()
 		case 10:
 			dlvThread00()
+		case 11: 
+		concurrent_pt.ConcurrentPTMain()
 		}
 	}
 }

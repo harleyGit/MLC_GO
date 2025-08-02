@@ -2,14 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 21:53:55
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-03-20 17:00:23
+ * @LastEditTime: 2025-08-02 17:38:20
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_practice_router.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package gorm_practice_routers
 
 import (
-	"MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/gorm_practice/gorm_practice_routers/gorm_router_api"
+	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice/gorm_practice_routers/gorm_router_api"
 	"MLC_GO/pkg/hg_uuid"
 	"MLC_GO/pkg/logHG"
 	"net/http"
