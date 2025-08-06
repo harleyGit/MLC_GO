@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-14 15:55:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-02 21:41:45
+ * @LastEditTime: 2025-08-06 20:58:17
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/concurrent_entrance_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -15,7 +15,17 @@ import (
 )
 
 func ConcurrentPTMain() {
-	BaseConcurrentProgram_v2_test()
+	
+	//BaseConcurrentProgram_v2_test()
+	
+	// select 语法练习
+	concurrent_pt00.ConcurrentSelect_PT()
+
+	// 并发读和写
+	concurrent_pt00.ConcurrentOnlyReadOrWrite()
+
+	// 判读8000个数字的素数
+	// concurrent_pt00.Concurrent_ShuShuo_PT()
 
 }
 
