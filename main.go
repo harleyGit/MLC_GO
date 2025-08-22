@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-02 21:40:57
+ * @LastEditTime: 2025-08-22 11:45:45
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -19,6 +19,7 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/libraries/gin_practice"
 	go_svc_practice_main_package "MLC_GO/TestNotes/ungrammar_pt/libraries/go-svc-practice"
 	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice"
+	logpt "MLC_GO/TestNotes/ungrammar_pt/log_pt"
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
@@ -33,6 +34,7 @@ type ModuleType string
 
 /* 练习模块值 */
 const (
+	Module_LOG                ModuleType = "12: 日志错误测试"
 	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
 	Module_commandLoadConfig  ModuleType = "2: 命令行加载配置文件"
 	Module_readFile           ModuleType = "3: 读取文件测试"
@@ -43,12 +45,13 @@ const (
 	Module_dlvFunctionTest    ModuleType = "8: dlv测试函数"
 	Module_simpleFunction     ModuleType = "9: dlv简单测试"
 	Module_threadPractice     ModuleType = "10: 线程测试"
-	Module_concurrent ModuleType = "11: 并发测试"
+	Module_concurrent         ModuleType = "11: 并发测试"
 )
 
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
+		Module_LOG,
 		Module_go_svc,
 		Module_commandLoadConfig,
 		Module_readFile,
@@ -82,6 +85,8 @@ func practiceKnowledge() {
 		fmt.Scanf("%d\n\n", &functionModule)
 
 		switch functionModule {
+		case 12:
+			logpt.LogMainPT()
 		case 1:
 			go_svc_practice_main_package.Go_SVC_Practice_Main()
 		case 2:
@@ -108,8 +113,8 @@ func practiceKnowledge() {
 			dlvTest2()
 		case 10:
 			dlvThread00()
-		case 11: 
-		concurrent_pt.ConcurrentPTMain()
+		case 11:
+			concurrent_pt.ConcurrentPTMain()
 		}
 	}
 }
