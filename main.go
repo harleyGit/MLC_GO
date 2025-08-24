@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-22 11:45:45
+ * @LastEditTime: 2025-08-24 10:03:05
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -22,6 +22,7 @@ import (
 	logpt "MLC_GO/TestNotes/ungrammar_pt/log_pt"
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
+	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
@@ -34,6 +35,9 @@ type ModuleType string
 
 /* 练习模块值 */
 const (
+	Security_00_certs ModuleType = "13.00: 生成证书"
+	Security_00_server ModuleType = "13.01: 启动服务端"
+	Security_00_client ModuleType = "13.02: 启动客户端"
 	Module_LOG                ModuleType = "12: 日志错误测试"
 	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
 	Module_commandLoadConfig  ModuleType = "2: 命令行加载配置文件"
@@ -51,6 +55,9 @@ const (
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
+		Security_00_certs,
+		Security_00_server,
+		Security_00_client,
 		Module_LOG,
 		Module_go_svc,
 		Module_commandLoadConfig,
@@ -81,11 +88,17 @@ func practiceKnowledge() {
 		}
 		fmt.Printf("请输入序号进入对应功能：\n\n")
 
-		var functionModule int
-		fmt.Scanf("%d\n\n", &functionModule)
+		var functionModule float64
+		fmt.Scanf("%f\n\n", &functionModule)
 
 		switch functionModule {
-		case 12:
+		case 13.00: // 支持小数匹配（带容差，避免浮点精度误差）case math.Abs(functionModule-13.01) < 1e-6
+			securitypt.SecurityV00_generate_certs()
+		case 13.01:
+			securitypt.SecurityV00_activate_Server()
+		case 13.02:
+			securitypt.SecurityV00_activate_Client()
+		case 12: // 支持整数匹配 int(functionModule) == 12
 			logpt.LogMainPT()
 		case 1:
 			go_svc_practice_main_package.Go_SVC_Practice_Main()
