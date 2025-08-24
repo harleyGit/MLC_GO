@@ -125,7 +125,7 @@ require (
 
 require (
 	github.com/boombuler/barcode v1.0.2
-	github.com/fsnotify/fsnotify v1.8.0
+	github.com/fsnotify/fsnotify v1.9.0 // 用于文件变更监听
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/gomodule/redigo v1.9.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0

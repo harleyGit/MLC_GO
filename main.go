@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-24 10:03:05
+ * @LastEditTime: 2025-08-24 13:43:59
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -35,6 +35,7 @@ type ModuleType string
 
 /* 练习模块值 */
 const (
+	Security_01 ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
 	Security_00_certs ModuleType = "13.00: 生成证书"
 	Security_00_server ModuleType = "13.01: 启动服务端"
 	Security_00_client ModuleType = "13.02: 启动客户端"
@@ -55,6 +56,7 @@ const (
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
+		Security_01,
 		Security_00_certs,
 		Security_00_server,
 		Security_00_client,
@@ -92,6 +94,8 @@ func practiceKnowledge() {
 		fmt.Scanf("%f\n\n", &functionModule)
 
 		switch functionModule {
+		case 14:
+			securitypt.SecurityV01_mtls_tool()
 		case 13.00: // 支持小数匹配（带容差，避免浮点精度误差）case math.Abs(functionModule-13.01) < 1e-6
 			securitypt.SecurityV00_generate_certs()
 		case 13.01:
