@@ -2,21 +2,22 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-08-24 08:09:13
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-24 13:40:20
+ * @LastEditTime: 2025-09-16 10:25:48
  * @FilePath: /MLC_GO/TestNotes/ungrammar_pt/security_pt/security_main_pt.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package securitypt
 
 import (
+	HGSafeV0Pkg "MLC_GO/pkg/hg_safe"
 	securityv00 "MLC_GO/pkg/security/security_v00"
 	securityV01 "MLC_GO/pkg/security/security_v01"
 )
 
 
 func SecurityPTMain() {
-	
-
+	// 椭圆曲线-共享密钥
+	HGSafeV0Pkg.SafeMainPT()
 }
 
 /* 升级加密 */
