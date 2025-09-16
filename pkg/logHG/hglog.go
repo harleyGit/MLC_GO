@@ -14,13 +14,14 @@ import (
 )
 
 type Level int
+
 var (
 	F *os.File
 
-	DefaultPrefix = ""
+	DefaultPrefix      = ""
 	DefaultCallerDepth = 2
 
-	logger *log.Logger
+	logger    *log.Logger
 	logPrefix = ""
 	// 日志切片等级
 	levelFlags = []string{"🔥DEBUG", "🍒INFO", "‼️WARN", "❌ERROR", "🚫FATAL"}
@@ -47,22 +48,28 @@ func Setup() {
 
 func DebugInfo(v ...interface{}) {
 	// setPrefix(DEBUG)
-	log.Println("🔥",v)
+	log.Println("🔥", v)
 }
 
 // 比如： DebugFInfo("This is value: %v, and another: %d", "test", 42)
 func DebugFInfo(format string, v ...interface{}) {
 	// setPrefix(DEBUG)
-	log.Printf("🔥 " + format, v...)
+	log.Printf("🔥 "+format, v...)
 }
-
 
 func ErrInfo(v ...interface{}) {
 	// setPrefix(ERROR)
-	log.Println("❌",v)
+	log.Println("❌", v)
 }
 
 func ErrFInfo(format string, v ...interface{}) {
 	// setPrefix(ERROR)
-	log.Printf("❌" + format, v...)
+	log.Printf("❌"+format, v...)
+	// os.Exit(1)
+}
+
+func FatalFInfo(format string, v ...interface{}) {
+	// setPrefix(ERROR)
+	log.Printf("💣"+format, v...)
+	os.Exit(1)
 }

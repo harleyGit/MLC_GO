@@ -151,6 +151,8 @@ require (
 	golang.org/x/image v0.25.0 // indirect
 )
 
+require github.com/julienschmidt/httprouter v1.3.0
+
 replace (
 	//PracticeGenExample下的替代本地文件
 	github.com/EDDYCJY/go-gin-example/conf => ./TestNotes/GenPracticeExample/pkg/conf

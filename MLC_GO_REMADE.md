@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-22 10:04:22
+ * @LastEditTime: 2025-09-11 16:30:44
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -98,6 +98,14 @@ MLC_GO/
 - pkg：第三方包
 - routers 路由逻辑处理
 - runtime：应用运行时数据
+
+<br/>
+
+安装所有没有安装的库，使用命令：
+
+```bash
+go get
+```
 
 
 <br/><br/><br/>
