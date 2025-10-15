@@ -1152,10 +1152,11 @@ curl -X POST "http://localhost:8080/api/users/login" \
 * **系统设计理念**（模块解耦、配置热更新、服务注册等）
 
 ---
+<br/>
 
-## 二、学习前准备（0基础也能入门）
+** 二、学习前准备（0基础也能入门）**
 
-### 1. 基础技能
+**1. 基础技能**
 
 先具备以下基础（可以边学 NSQ 边查）：
 
@@ -1169,10 +1170,11 @@ curl -X POST "http://localhost:8080/api/users/login" \
 * 实战 Go： [https://github.com/unknwon/go-fundamental-programming](https://github.com/unknwon/go-fundamental-programming)
 
 ---
+<br/>
 
-## 三、具体学习步骤（建议打印或收藏）
+**三、具体学习步骤（建议打印或收藏）**
 
-### ✅ Step 1：克隆 NSQ 项目并能运行
+**✅ Step 1：克隆 NSQ 项目并能运行**
 
 ```bash
 git clone https://github.com/nsqio/nsq.git
@@ -1194,25 +1196,86 @@ make
 curl -d 'hello world' 'http://127.0.0.1:4151/pub?topic=test'
 ```
 
----
+<br/>
 
-### ✅ Step 2：了解整个系统架构（宏观理解）
+**顶层目录结构概览：**
+
+```sh
+nsq/
+├── apps/           ← CLI 命令入口（nsqd、nsqlookupd、nsqadmin）
+├── nsqd/           ← 核心服务：接收、处理、转发消息
+├── nsqlookupd/     ← 服务发现：记录哪些 topic 存在哪些 nsqd 上
+├── nsqadmin/       ← UI 控制台：查看 topic、channel 等
+├── protocol/       ← 客户端通信协议（TCP/HTTP）
+├── internal/       ← 通用模块（版本号、日志、sync utils）
+└── queue/          ← 消息队列底层存储实现（内存/磁盘）
+```
+
+
+---
+<br/>
+
+**✅ Step 2：了解整个系统架构（宏观理解）**
 
 > 找到图示：NSQ 架构图：[https://nsq.io/components/](https://nsq.io/components/)
 
-关键组件：
+<br/>
+
+**阅读源码建议路线（从易到难）**
+
+**建议顺序：**
+
+- 1.nsqd 的启动流程（main.go）
+
+- 2.Topic 的创建与消息发布：nsqd/internal/topic.go
+
+- 3.channel 的调度逻辑：channel.go
+
+- 4.消息持久化逻辑：diskqueue.go
+
+- 5.客户端连接和协议处理：protocol_v2.go
+
+- 6.nsqlookupd 的注册发现流程：nsqlookupd/server.go
+
+- 7.nsqd 和 lookupd 交互流程：lookup.go
+
+<br/>
+
+**关键组件：**
 
 * `nsqd`：核心组件，负责接收、存储、转发消息
 * `nsqlookupd`：服务发现中心，维护 topic 和 channel 映射
 * `nsqadmin`：Web UI 管理后台
 
+| 组件             | 作用                                |
+| -------------- | --------------------------------- |
+| **nsqd**       | 消息服务的核心：接受生产者消息，投递给消费者            |
+| **nsqlookupd** | 服务发现：让消费者找到哪些 `nsqd` 有订阅的 topic   |
+| **nsqadmin**   | Web UI 控制面板：可监控 topic、channel、消息等 |
+
+
 重点理解流程：
 
-```
+```sh
 Producer --> nsqd --> (Lookupd) --> Consumer
 ```
 
+<br/>
+
+**消息流转过程:**
+
+```sh
+Producer
+  ↓（发布消息）
+ nsqd (核心服务)
+  ↓（将消息按 topic 投递到 channel）
+ Consumer
+```
+如果有多个 nsqd，则消费者通过 nsqlookupd 来发现可连接的节点。
+
 ---
+<br/>
+
 
 ### ✅ Step 3：阅读源码建议路线（从易到难）
 
