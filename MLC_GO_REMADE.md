@@ -132,9 +132,6 @@ type Writer interface {
 ```
 
 
-
-
-
 <br/><br/><br/>
 
 ***
@@ -1258,6 +1255,20 @@ nsq/
 
 ```sh
 Producer --> nsqd --> (Lookupd) --> Consumer
+```
+
+<br/>
+
+**运行时调用关系（简化）**
+
+```
+Producer → Topic.PutMessageDeferred
+        → Channel.PutMessageDeferred
+            ├─ atomic.AddUint64   // 计数
+            └─ StartDeferredTimeout
+                   └─ 放入 delayQueue
+                       └─ delayQueue 到期后 → PutMessage → messagePump → Client
+
 ```
 
 <br/>
