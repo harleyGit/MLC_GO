@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 13:15:01
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-02 17:38:27
+ * @LastEditTime: 2026-01-13 11:13:14
  * @FilePath: /MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice/gorm_practice_v/gorm_practice_v1.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,7 +11,7 @@ package gorm_practice_v
 import (
 	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice/gorm_practice_config"
 	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice/gorm_practice_models"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"fmt"
 	"os"
 

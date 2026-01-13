@@ -11,7 +11,7 @@ package gin_practice_v
 
 import (
 	"MLC_GO/TestNotes/GenPracticeExample/pkg/logging"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"errors"
 	"io"
 	"net/http"

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-07-13 16:20:37
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-18 10:31:37
+ * @LastEditTime: 2026-01-13 11:05:54
  * @FilePath: /MLC_GO/TestNotes/SocketPractice/Server/process/userProcess.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -12,7 +12,7 @@ import (
 	"MLC_GO/TestNotes/SocketPractice/Server/model"
 	"MLC_GO/TestNotes/SocketPractice/Server/utils"
 	"MLC_GO/TestNotes/SocketPractice/common/message"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"encoding/json"
 	"net"
 )

@@ -2,13 +2,13 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-08-06 20:22:53
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-06 20:54:55
+ * @LastEditTime: 2026-01-13 11:07:55
  * @FilePath: /MLC_GO/TestNotes/ungrammar_pt/concurrent_pt/concurrent_pt00/concurrent_pt03.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package concurrent_pt00
 
-import "MLC_GO/pkg/logHG"
+import "MLC_GO/internal/pkg/logHG"
 
 /* 并发只读或者只写 */
 func ConcurrentOnlyReadOrWrite() {

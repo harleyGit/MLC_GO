@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-07-22 17:58:49
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-23 11:32:17
+ * @LastEditTime: 2026-01-13 11:02:57
  * @FilePath: /MLC_GO/TestNotes/SocketPractice/common/message/process/smsProcess.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,7 +11,7 @@ package process
 import (
 	"MLC_GO/TestNotes/SocketPractice/Client/utils"
 	"MLC_GO/TestNotes/SocketPractice/common/message"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"encoding/json"
 )
 

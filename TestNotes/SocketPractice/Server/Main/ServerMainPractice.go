@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-07-09 21:27:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-18 10:34:11
+ * @LastEditTime: 2026-01-13 11:04:42
  * @FilePath: /MLC_GO/TestNotes/SocketPractice/Server/ServerMainPractice.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  * 尚硅谷TCP服务资料Code： https://gitee.com/gtxy27/go/blob/main/chatroom/server/main/redis.go
@@ -11,7 +11,7 @@ package server
 
 import (
 	"MLC_GO/TestNotes/SocketPractice/Server/model"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 
 	// "fmt"
 	"net"

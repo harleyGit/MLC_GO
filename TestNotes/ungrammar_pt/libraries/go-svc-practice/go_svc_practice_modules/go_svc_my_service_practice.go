@@ -2,14 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-07-03 20:29:44
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-03 20:55:43
+ * @LastEditTime: 2026-01-13 11:09:12
  * @FilePath: /MLC_GO/TestNotes/unfamiliar_grammar_practice/libraries/go-svc-practice/go_svc_practice_modules/go_svc_my_service_practice.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package go_svc_practice_modules_package
 
 import (
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"time"
 
 	"github.com/judwhite/go-svc"

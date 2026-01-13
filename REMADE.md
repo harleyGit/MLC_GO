@@ -8,6 +8,7 @@
 -->
 > <h5></h5>
 - [**文件结构介绍**](#文件结构介绍)
+	- [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
 	- [协议规则](#协议规则)
 - [TCP通信自己实现](#TCP通信自己实现)
@@ -127,6 +128,199 @@ go mod tidy
 | 预发布 | `pre` / `staging` | 上线前验证 |
 | 正式  | `prod`            | 线上环境  |
 
+
+***
+<br/><br/><br/>
+> <h2 id="功能模块文件分布">功能模块文件分布</h2>
+
+```sh
+myapp/
+├── cmd/
+│   └── server/
+│       └── main.go
+├── internal/
+│   ├── config/                   # 配置（不变）
+│   ├── database/                 # DB 初始化（不变）
+│   ├── cache/                    # Redis 封装（不变）
+│   │
+│   ├── models/                   # 所有数据模型（按功能拆分子目录更佳）
+│   │   ├── user.go
+│   │   └── post.go               # 👈 新增：朋友圈/动态模型
+│   │
+│   ├── modules/                  # 👈 核心变化：按业务域划分模块（推荐！）
+│   │   │
+│   │   ├── user/                 # 用户模块（原 auth 相关移入）
+│   │   │   ├── repository/
+│   │   │   │   └── user_repository.go
+│   │   │   ├── service/
+│   │   │   │   └── user_service.go
+│   │   │   └── handler/
+│   │   │       └── user_handler.go
+│   │   │
+│   │   └── post/                 # 👈 新增：朋友圈模块
+│   │       ├── repository/
+│   │       │   └── post_repository.go
+│   │       ├── service/
+│   │       │   └── post_service.go
+│   │       └── handler/
+│   │           └── post_handler.go
+│   │
+│   └── pkg/                      # 公共工具（如 jwt、hash、middleware 等）
+│       ├── middleware/
+│       │   └── auth.go          # 认证中间件（验证 token）
+│       └── utils/
+│           └── password.go
+│
+├── migrations/                   # 数据库迁移（可按模块分文件）
+│   ├── 000001_create_users.up.sql
+│   └── 000002_create_posts.up.sql
+│
+├── .env
+├── go.mod
+└── README.md
+```
+
+> **说明：**
+> `internal/`:Go的约定，该目录下的代码只能**被本项目引用**，防止被外部项目import；
+> 分层架构：**`Handler → Service → Repository → Model + DB/Cache`**，职责分离，便于测试和维护
+
+<br/><br/>
+
+**设计说明：**
+
+- **1.按业务域（Domain）组织代码 → modules/**
+	- 每个核心业务（user, post, comment, message...）是一个独立子模块。
+	- 每个模块内部包含自己的 handler → service → repository → model（如果 model 复杂也可放 module 内）。
+	- 优点：
+	  - 高内聚：朋友圈的所有逻辑集中在一起，不污染用户模块。
+	  - 低耦合：修改朋友圈不影响用户注册逻辑。
+	  - 易于团队协作：不同人负责不同模块。
+
+>📌 替代方案：有些人用 features/ 或 domains/，但 modules/ 更通用。
+
+<br/>
+
+- **2.Model 是否放在 modules/xxx/model/？**
+	- 如果模型简单且被多个模块共享（如 User 被 Post 引用），建议仍放在顶层 internal/models/。
+	- 如果模型高度专属某个模块（如 PostLike 只在 post 模块用），可放入 modules/post/model/。
+
+✅ 推荐初期统一放 internal/models/，后期再按需拆分。
+
+<br/>
+
+- 3.**公共能力下沉到 pkg/**
+	- 认证中间件（解析 JWT、查 Redis 验证登录态）
+	- 密码哈希工具
+	- 分页工具、错误封装等
+
+示例：`pkg/middleware/auth.go`
+
+```go
+func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		// 用 cache.RDB 查 token 是否有效
+		// 若无效，返回 401
+		// 若有效，将 userID 注入 context
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+```
+
+在 post_handler.go 中使用：
+
+```go
+http.HandleFunc("/posts", middleware.AuthMiddleware(postHandler.CreatePost))
+```
+
+<br/>
+
+- **4.据库迁移（Migrations）按功能拆分**
+	- 每个新功能对应一个或多个 migration 文件。
+	- 工具推荐：golang-migrate
+
+```sql
+-- migrations/000002_create_posts.up.sql
+CREATE TABLE posts (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+<br/>
+
+**朋友圈功能关键代码示意**
+
+`models/post.go`
+
+```go
+type Post struct {
+	ID        uint      gorm:"primaryKey"
+	UserID    uint      // 关联用户
+	Content   string    gorm:"not null"
+	CreatedAt time.Time
+}
+```
+
+<br/>
+
+**`modules/post/repository/post_repository.go `**
+
+```go
+func (r *PostRepository) Create(post *models.Post) error {
+	return database.DB.Create(post).Error
+}
+
+func (r *PostRepository) GetFeedByUserID(userID uint, limit, offset int) ([]models.Post, error) {
+	var posts []models.Post
+	err := database.DB.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Limit(limit).Offset(offset).Find(&posts).Error
+	return posts, err
+}
+```
+
+<br/>
+
+` modules/post/service/post_service.go `
+
+```go
+func (s *PostService) CreatePost(userID uint, content string) error {
+	if len(content) == 0 {
+		return errors.New("content cannot be empty")
+	}
+	post := &models.Post{UserID: userID, Content: content}
+	return s.repo.Create(post)
+}
+```
+
+<br/>
+
+`modules/post/handler/post_handler.go `
+
+
+```go
+func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("userID").(uint) // 从 auth middleware 注入
+	var req struct{ Content string }
+	json.NewDecoder(r.Body).Decode(&req)
+
+	err := h.service.CreatePost(userID, req.Content)
+	// ...
+}
+```
+
+<br/>
+
+**✅ 总结：如何应对未来更多功能？**
+| 新功能       | 如何扩展目录                          |
+|------------|----------------------------------|
+| 评论        | 新增 `modules/comment/`            |
+| 点赞        | 在 `post` 模块内加 `LikeService`，或新建 `modules/like/` |
+| 私信        | 新增 `modules/message/`            |
+| 文件上传     | 新增 `modules/storage/` + `pkg/upload/` |
 
 
 

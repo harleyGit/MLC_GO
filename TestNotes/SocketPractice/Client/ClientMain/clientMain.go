@@ -2,14 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-07-21 14:53:07
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-21 15:21:32
+ * @LastEditTime: 2026-01-13 11:01:54
  * @FilePath: /MLC_GO/TestNotes/SocketPractice/Client/ClientMain/clientMain.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package clientmain
 
 import (
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"fmt"
 	"os"
 )

@@ -3,7 +3,7 @@ package process
 import (
 	"MLC_GO/TestNotes/SocketPractice/Server/utils"
 	"MLC_GO/TestNotes/SocketPractice/common/message"
-	"MLC_GO/pkg/logHG"
+	"MLC_GO/internal/pkg/logHG"
 	"encoding/binary"
 	"encoding/json"
 	"net"
