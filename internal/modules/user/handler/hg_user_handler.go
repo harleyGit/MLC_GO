@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 10:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-13 20:35:40
+ * @LastEditTime: 2026-01-13 21:22:41
  * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -52,7 +52,12 @@ func writeJSON(w http.ResponseWriter, v any)  {
 	json.NewEncoder(w).Encode(v)
 }
 
-/* 处理发送验证码的逻辑 */
+/* 处理发送验证码的逻辑
+   测试： 
+   curl -X POST http://localhost:8080/user/send_verify_code \ 
+	-H "Content-Type: application/json" \
+	-d '{"account":"test@example.com"}'
+*/
 func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 	
 	var req verifyCodeReqModel
@@ -71,7 +76,12 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 
-/* 注册 */
+/* 注册 
+   测试： 
+   curl -X POST http://localhost:8080/user/register \
+	-H "Content-Type: application/json" \
+	-d '{"account":"test@example.com","code":"338122","password":"123456"}'
+*/
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)	
@@ -112,7 +122,12 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"message": "注册成功", "id": user.UserID})
 }
 
-/* 登录 */
+/* 登录 
+	测试：
+	curl -X POST http://localhost:8080/user/login \
+	-H "Content-Type: application/json" \
+	-d '{"account":"test@example.com","password":"123456"}' 
+*/
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var req loginReqModel
 	json.NewDecoder(r.Body).Decode(&req)
@@ -131,7 +146,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"message": "登录成功", "id": user.UserID})
 }
 
-
+/* 路由注册 */
 func RegisterUserRoutes() {
 	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandler)
 	http.HandleFunc("/user/register", registerHandler)
