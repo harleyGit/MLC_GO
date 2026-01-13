@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-13 11:15:47
+ * @LastEditTime: 2026-01-13 21:11:58
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -24,8 +24,10 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
 	"MLC_GO/internal/config"
+	UserhandlerPackage "MLC_GO/internal/modules/user/handler"
 	"MLC_GO/internal/pkg/logHG"
-	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
+	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
+	"log"
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
 
@@ -87,6 +89,16 @@ func main() {
 }
 
 func mlc_main() {
+logHG.DebugInfo("MLC_GO项目启动中...")
+	UserhandlerPackage.RegisterUserRoutes()
+	srv := http.Server{
+		Addr: ":8080",
+		ReadTimeout: 5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	logHG.DebugInfo("Starting server on :8080")
+	log.Fatal(srv.ListenAndServe()) 
 
 	env := config.GetEnv()
 	if err := config.LoadConfig(string(env)); err != nil {
