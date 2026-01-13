@@ -2,6 +2,8 @@ module MLC_GO
 
 go 1.23.5
 
+// 这里是项目所依赖的第三方包列表： go get -u 更新依赖包【github.com/spf13/viper】
+
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/BurntSushi/toml v1.3.2 // indirect
@@ -130,7 +132,7 @@ require (
 	github.com/gomodule/redigo v1.9.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/robfig/cron v1.2.0
-	github.com/spf13/viper v1.20.0
+	github.com/spf13/viper v1.20.0 // 读取配置文件的库
 	github.com/tealeg/xlsx v1.0.5
 	go.uber.org/zap v1.18.1
 	gorm.io/driver/mysql v1.5.7

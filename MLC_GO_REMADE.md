@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-09-16 11:42:17
+ * @LastEditTime: 2025-12-22 17:10:58
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -28,7 +28,7 @@
 	-  [fiber-restful-api](#fiber-restful-api) 
 	-  [gin-gorm-jwt-restful-api](#gin-gorm-jwt-restful-api)
 - [**框架**](#框架)
-	- [NSQ源码阅读](#NSQ源码阅读)
+	-  [NSQ源码阅读](#NSQ源码阅读)
 	-  [Gin框架](#Gin框架)  
 	-  [Echo框架](#Echo框架)
 	-  [GorillaMux路由库](#GorillaMux路由库) 
@@ -39,6 +39,7 @@
 	-  [Fiber库](#Fiber库) 
 	-  [go-restful库](#go-restful库) 
 	-  [Chi库](#Chi库)
+	-  [Viper配置管理库](#Viper配置管理库)
 - **资料**
 	- [浅读 Go 优秀开源项目源码—Gin框架](https://blog.linganmin.cn/posts/d6715893/)
 	- [rickiyang博客Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
@@ -109,6 +110,25 @@ go get
 # 或者
 go mod tidy
 ```
+
+<br/><br/>
+
+**环境配置文件：**
+
+```sh
+├── config/
+│   ├── config.debug.yaml
+│   ├── config.pre.yaml
+│   └── config.prod.yaml
+```
+| 环境  | 常用标识              | 用途    |
+| --- | ----------------- | ----- |
+| 开发  | `debug` / `dev`   | 本地开发  |
+| 预发布 | `pre` / `staging` | 上线前验证 |
+| 正式  | `prod`            | 线上环境  |
+
+
+
 
 
 <br/><br/><br/>
@@ -1493,4 +1513,132 @@ fmt.Println("PutMessage:", msg.ID)
 > <h1 id="Chi库">Chi库</h1>
 **Chi**  一个轻量级且富有表现力的路由库，注重代码的可组合性与可读性，非常适合构建简单或中型 RESTful API。  
    GitHub 地址：[github.com/go-chi/chi](https://github.com/go-chi/chi) citeturn0search0
+
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="Viper配置管理库">Viper配置管理库</h1>
+
+Viper 是 Go 语言中一个非常流行的配置管理库，用于处理应用程序的配置信息。它支持多种配置来源（如 JSON、YAML、TOML、环境变量、命令行参数、远程配置系统等），并能自动将它们合并成统一的配置视图。
+
+---
+<br/>
+
+
+**Viper 的主要功能**
+
+- 支持多种格式：JSON、TOML、YAML、HCL、envfile、Java properties。
+- 可从文件、环境变量、命令行参数、远程配置（如 etcd、Consul）读取配置。
+- 自动监听和重载配置文件（可选）。
+- 支持默认值、别名、类型安全读取。
+- 灵活的配置优先级（例如：命令行 > 环境变量 > 配置文件 > 默认值）。
+
+<br/>
+
+**安装 Viper**
+
+使用 `go get` 安装：
+
+```bash
+go get github.com/spf13/viper
+```
+
+> 注意：如果你使用的是 Go Modules（Go 1.11+），会自动在 `go.mod` 中添加依赖。
+
+<br/>
+
+**基本使用示例**
+
+- **1.创建配置文件（比如 config.yaml）**
+
+```yaml
+app:
+  name: my-app
+  port: 8080
+database:
+  host: localhost
+  port: 5432
+```
+
+- **2.在 Go 代码中加载并使用**
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/spf13/viper"
+)
+
+func main() {
+	// 设置配置文件名（不带扩展名）和路径
+	viper.SetConfigName("config")     // 配置文件名（不带后缀）
+	viper.SetConfigType("yaml")       // 配置类型
+	viper.AddConfigPath(".")          // 配置文件搜索路径（当前目录）
+
+	// 读取配置文件
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatalf("Error reading config file: %v", err)
+	}
+
+	// 读取配置项
+	appName := viper.GetString("app.name")
+	port := viper.GetInt("app.port")
+	dbHost := viper.GetString("database.host")
+
+	fmt.Printf("App Name: %s\n", appName)
+	fmt.Printf("App Port: %d\n", port)
+	fmt.Printf("DB Host: %s\n", dbHost)
+}
+```
+
+<br/>
+
+
+**其他常用方法**
+
+| 方法 | 说明 |
+|------|------|
+| `viper.SetDefault("key", value)` | 设置默认值 |
+| `viper.BindEnv("key")` | 绑定环境变量 |
+| `viper.GetBool/GetString/GetInt...` | 类型安全地获取值 |
+| `viper.Unmarshal(&struct)` | 将配置反序列化到结构体 |
+| `viper.WatchConfig()` | 监听配置文件变化 |
+
+**绑定环境变量**
+
+```go
+viper.BindEnv("app.port", "APP_PORT")
+// 如果设置了环境变量 APP_PORT=9000，则会覆盖配置文件中的值
+```
+
+**反序列化到结构体**
+
+```go
+type Config struct {
+	App      AppConfig      `mapstructure:"app"`
+	Database DatabaseConfig `mapstructure:"database"`
+}
+
+type AppConfig struct {
+	Name string `mapstructure:"name"`
+	Port int    `mapstructure:"port"`
+}
+
+type DatabaseConfig struct {
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+}
+
+var config Config
+if err := viper.Unmarshal(&config); err != nil {
+	log.Fatalf("Unable to decode config: %v", err)
+}
+```
 

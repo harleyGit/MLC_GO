@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-08-24 13:43:59
+ * @LastEditTime: 2026-01-12 21:27:58
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,8 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
+	"MLC_GO/internal/config"
+	"MLC_GO/pkg/logHG"
 	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
@@ -35,6 +37,8 @@ type ModuleType string
 
 /* 练习模块值 */
 const (
+	MLC_Project ModuleType = "100.00: MLC_GO工程运行"
+
 	Security_01 ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
 	Security_00_certs ModuleType = "13.00: 生成证书"
 	Security_00_server ModuleType = "13.01: 启动服务端"
@@ -56,6 +60,8 @@ const (
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
+		MLC_Project,
+
 		Security_01,
 		Security_00_certs,
 		Security_00_server,
@@ -80,6 +86,16 @@ func main() {
 	practiceKnowledge()
 }
 
+func mlc_main() {
+
+	env := config.GetEnv()
+	if err := config.LoadConfig(string(env)); err != nil {
+		logHG.FatalFInfo("加载配置文件失败: %v\n", err)
+		return		
+	}
+	logHG.DebugInfo("当前环境: %s\n", env)
+}
+
 func practiceKnowledge() {
 
 	modules := getPracticeModules()
@@ -94,6 +110,8 @@ func practiceKnowledge() {
 		fmt.Scanf("%f\n\n", &functionModule)
 
 		switch functionModule {
+			case 100.00:
+			mlc_main()
 		case 14:
 			securitypt.SecurityV01_mtls_tool()
 		case 13.00: // 支持小数匹配（带容差，避免浮点精度误差）case math.Abs(functionModule-13.01) < 1e-6
@@ -135,6 +153,7 @@ func practiceKnowledge() {
 		}
 	}
 }
+
 
 // dlv线程调试
 func dlvThread00() {
