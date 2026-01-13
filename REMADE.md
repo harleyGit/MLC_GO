@@ -137,11 +137,11 @@ go mod tidy
 myapp/
 ├── cmd/
 │   └── server/
-│       └── main.go
+│       └── main.go               # 程序入口
 ├── internal/
-│   ├── config/                   # 配置（不变）
-│   ├── database/                 # DB 初始化（不变）
-│   ├── cache/                    # Redis 封装（不变）
+│   ├── config/                   # 配置加载（环境变量、YAML等）
+│   ├── database/                 # DB 数据库连接与初始化
+│   ├── cache/                    # Redis 封装（缓存）
 │   │
 │   ├── models/                   # 所有数据模型（按功能拆分子目录更佳）
 │   │   ├── user.go
@@ -150,11 +150,11 @@ myapp/
 │   ├── modules/                  # 👈 核心变化：按业务域划分模块（推荐！）
 │   │   │
 │   │   ├── user/                 # 用户模块（原 auth 相关移入）
-│   │   │   ├── repository/
+│   │   │   ├── repository/      #  数据访问层（DAO）
 │   │   │   │   └── user_repository.go
-│   │   │   ├── service/
+│   │   │   ├── service/         # 业务逻辑层
 │   │   │   │   └── user_service.go
-│   │   │   └── handler/
+│   │   │   └── handler/         # HTTP 请求处理（Controller）
 │   │   │       └── user_handler.go
 │   │   │
 │   │   └── post/                 # 👈 新增：朋友圈模块
@@ -165,17 +165,17 @@ myapp/
 │   │       └── handler/
 │   │           └── post_handler.go
 │   │
-│   └── pkg/                      # 公共工具（如 jwt、hash、middleware 等）
+│   └── pkg/                      # 公共工具，可复用的公共包（非本项目独有才放入这里，如 jwt、hash、middleware 等）
 │       ├── middleware/
 │       │   └── auth.go          # 认证中间件（验证 token）
 │       └── utils/
 │           └── password.go
 │
-├── migrations/                   # 数据库迁移（可按模块分文件）
+├── migrations/                   # 数据库迁移脚本（可选，配合 golang-migrate 或 goose，可按模块分文件）
 │   ├── 000001_create_users.up.sql
 │   └── 000002_create_posts.up.sql
 │
-├── .env
+├── .env                         # 环境变量文件（不要提交到git）
 ├── go.mod
 └── README.md
 ```
