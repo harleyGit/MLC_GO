@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-14 17:43:38
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-14 20:04:40
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -16,7 +16,7 @@
 package UserHandlerPackage
 
 import (
-	cachePackage "MLC_GO/internal/cache"
+	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
 	usermodelsPackage "MLC_GO/internal/models/user_models"
 	"MLC_GO/internal/pkg/logHG"
@@ -74,7 +74,7 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 	}
 	code := utilsPackage.GenerateRandomNum(6)
 	key := "verify:"+req.Account
-	cachePackage.SetToRedis(key, code, 5 * time.Minute) // 5分钟过期
+	PersistenceRedisPackage.SetToRedis(key, code, 5 * time.Minute) // 5分钟过期
 
 	logHG.DebugInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", req.Account, code)
 
@@ -111,7 +111,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)	
 
 	key := "verify:"+req.Account
-	code, err := cachePackage.GetFromRedis(key)
+	code, err := PersistenceRedisPackage.GetFromRedis(key)
 	if err != nil || code != req.Code {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "验证码错误 or 已过期"})
 		return
@@ -141,7 +141,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 
 	users[req.Account] = user
 	userAutoID++
-	cachePackage.DeleteFromRedis(key) // rdb中删除验证码
+	PersistenceRedisPackage.DeleteFromRedis(key) // rdb中删除验证码
 
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "注册成功", "id": user.UserID})
 }
@@ -210,7 +210,7 @@ func loginHandlerV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := utilsPackage.GenerateRandomNum(32)
-	cachePackage.SetToRedis("token:"+token, user.UserID, 7*24 * time.Hour) // 24小时过期
+	PersistenceRedisPackage.SetToRedis("token:"+token, user.UserID, 7*24 * time.Hour) // 24小时过期
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "登录成功", "id": user.UserID, "token": token})	
 }
 /* 登录版本V1，用缓存【弃用】 */
@@ -248,7 +248,7 @@ func RegisterUserRoutes() {
 
 /* 路由注册 */
 func RegisterUserRoutesV2() {
-	cachePackage.NewRedisService() // 初始化Redis连接
+	PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
 	
 	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandlerV2)
 	http.HandleFunc("/user/register", registerHandlerV2)

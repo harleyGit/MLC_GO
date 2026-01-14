@@ -11,6 +11,8 @@
 	- [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
 	- [协议规则](#协议规则)
+- [SQL](#SQL)
+	- [xx.sql问件加注释](#xx.sql问件加注释)
 - [TCP通信自己实现](#TCP通信自己实现)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
 	- [推荐几个可以写到简历上的Go方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
@@ -349,6 +351,69 @@ type Writer interface {
 }
 ```
 
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="SQL">SQL</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="xx.sql问件加注释">xx.sql问件加注释</h2>
+
+- **✅ SQL 中的注释语法：**
+- **1.单行注释（两种方式）：**
+
+```sql
+-- 这是一个单行注释（推荐，可移植性好）
+```
+
+或者：
+
+```sql
+# 这也是一个单行注释（MySQL 特有）
+```
+   
+<br/>
+
+**2.多行注释：**
+
+```sql
+/* 
+  这是
+  多行注释
+*/
+```
+ 
+ <br/>     
+
+
+```sql
+CREATE DATABASE HG_MLC_DB DEFAULT CHARACTER SET utf8mb4;
+USE HG_MLC_DB;
+```
+
+**第一行：**
+
+`CREATE DATABASE HG_MLC_DB DEFAULT CHARACTER SET utf8mb4;`
+
+- 作用：创建一个名为 HG_MLC_DB 的数据库。
+- DEFAULT CHARACTER SET utf8mb4：指定该数据库默认使用 utf8mb4 字符集。
+  - utf8mb4 是 MySQL 中真正完整的 UTF-8 实现（支持 4 字节字符，比如 emoji 表情 🎉），比旧的 utf8（实际是 utf8mb3）更全面。
+
+<br/>
+
+**第二行：**
+
+`USE HG_MLC_D;`
+
+- 作用：切换当前会话使用的数据库为 HG_MLC_D。
+- ⚠️ 注意：这里疑似有笔误！前面创建的是 HG_MLC_DB，但这里却用了 HG_MLC_D（少了个 _DB）。
+  - 如果 HG_MLC_D 数据库不存在，这条语句会报错。
+  - 很可能是打字错误，应为：
+        USE HG_MLC_DB;
+
 
 <br/><br/><br/>
 
@@ -361,9 +426,9 @@ type Writer interface {
 
 ---
 
-### ✅ 使用 Swift + Network 框架实现 TCP 客户端通信（iOS）
+**✅ 使用 Swift + Network 框架实现 TCP 客户端通信（iOS）**
 
-#### 示例代码（iOS 客户端）：
+**iOS 客户端Demo：**
 
 ```swift
 import Foundation
