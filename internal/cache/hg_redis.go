@@ -1,0 +1,182 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-01-13 21:28:04
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-14 17:03:46
+ * @FilePath: /MLC_GO/internal/cache/hg_redis.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
+package cachePackage
+
+import (
+	"context"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type RedisService struct {
+	client *redis.Client
+	defaultCtx context.Context
+}
+type options struct {
+	ctx context.Context
+	timeout time.Duration
+	maxRetries int
+}
+type RedisOption func(*options)
+
+func WithContext(ctx context.Context) RedisOption {
+	return func(o *options) {
+		o.ctx = ctx
+	}
+}
+
+var (
+	ctx = context.Background() 
+	RDB *redis.Client
+)
+
+func WithTimeout(timeout time.Duration) RedisOption {
+	return func(o *options) {
+		o.timeout = timeout
+	}
+}
+
+func defaultRedisOptions() *options {
+	return &options{
+		ctx: context.Background(),
+		timeout: 5 * time.Second,
+		maxRetries: 3,
+	}
+}
+/* NewRedisServiceV2使用范例
+	// 使用默认值
+	client1 := NewRedisServiceV2()
+	
+	// 传入自定义Context
+	customCtx := context.WithValue(context.Background(), "trace-id", "abc123")
+	client2 := NewRedisServiceV2(WithContext(customCtx))
+	
+	// 传入多个配置
+	client3 := NewRedisServiceV2(
+		WithContext(customCtx),
+		WithTimeout(10*time.Second),
+	)
+*/
+func NewRedisServiceV2(opts ...RedisOption) *RedisService {
+	
+	// 设置默认值
+	options := defaultRedisOptions()
+	// 应用传入选项
+	for _, opt := range opts {
+		opt(options)
+	}
+	// 使用opt构建RedisService
+	// TODO: 若是初始化用 context.Background(), 则后续调用比如用Get传入的是http的 
+	// TODO: r *http.Request; r.Context()， 这样会不会冲突？
+	return &RedisService{
+		client: redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			// Password: "", // no password set
+			// DB:       0,  // use default DB
+		}),
+		defaultCtx: options.ctx,
+	}
+}
+/* NewRedisService 使用范例：
+	// 创建service时指定默认Context
+    svc1 := NewRedisService()  // 默认使用Background
+    
+    customCtx := context.WithValue(context.Background(), "app", "myapp")
+    svc2 := NewRedisService(customCtx)  // 使用自定义默认Context
+    
+    // 调用方法
+    svc1.Get("key1")  // 使用默认Background
+    
+    // 临时使用不同的Context
+    reqCtx := context.WithValue(context.Background(), "request", "123")
+    svc2.Get("key2", reqCtx)  // 使用传入的Context
+*/
+func NewRedisService(ctx ...context.Context) *RedisService {
+	var defaultCtx context.Context
+	
+	// 如果有传入Context,使用传入的； 否则使用Backgournd
+	if len(ctx) > 0 && ctx[0] != nil {
+		defaultCtx = ctx[0]
+	} else {
+		defaultCtx = context.Background()
+	}
+	redisServer := &RedisService{
+		client: redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			// Password: "", // no password set
+			// DB:       0,  // use default DB
+		}),
+		defaultCtx: defaultCtx,
+	}
+
+	RDB = redisServer.client // 全局变量赋值
+	return redisServer
+}	
+
+func newRedis(addr string, password string, db int) {
+	RDB = redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password, // no password set
+		DB:       db,  // use default DB
+	})
+}
+
+func (redisService *RedisService) SetToRedisV2(key string, value interface{}, ttl int64, ctx ...context.Context) error {
+	var defaultContext context.Context
+	if len(ctx) > 0 && ctx[0] != nil {
+		defaultContext = ctx[0]
+	} else {
+		defaultContext = redisService.defaultCtx
+	}
+	return redisService.client.Set(defaultContext, key, value, time.Duration(ttl) * time.Second).Err()	
+}
+func SetToRedis(key string, value interface{}, ttl time.Duration, opts ...RedisOption) error {
+	// 默认配置
+	opt := defaultRedisOptions()
+	// 应用所有传入的选项
+	for _, option := range opts {
+		option(opt)
+	}
+
+	return RDB.Set(opt.ctx, key, value, ttl).Err()	
+}
+
+
+func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Context) (string, error) {
+	var defaultContext context.Context
+	if len(ctx) > 0 && ctx[0] != nil {
+		defaultContext = ctx[0]
+	} else {
+		defaultContext = redisService.defaultCtx
+	}
+	return redisService.client.Get(defaultContext, key).Result()
+}
+
+func GetFromRedis(key string, opts ...RedisOption) (string, error) {
+	// 默认配置
+	opt := defaultRedisOptions()
+	// 应用所有传入的选项
+	for _, option := range opts {
+		option(opt)
+	}
+	return RDB.Get(opt.ctx, key).Result()
+}
+
+func DeleteFromRedis(key string, opts ...RedisOption) error {
+	// 默认配置
+	opt := defaultRedisOptions()
+	// 应用所有传入的选项
+	for _, option := range opts {
+		option(opt)
+	}
+	return RDB.Del(opt.ctx, key).Err()
+}
+
+

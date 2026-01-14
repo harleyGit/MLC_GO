@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-13 21:11:58
+ * @LastEditTime: 2026-01-14 16:43:56
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -89,8 +89,8 @@ func main() {
 }
 
 func mlc_main() {
-logHG.DebugInfo("MLC_GO项目启动中...")
-	UserhandlerPackage.RegisterUserRoutes()
+	logHG.DebugInfo("MLC_GO项目启动中...")
+	UserhandlerPackage.RegisterUserRoutesV2()
 	srv := http.Server{
 		Addr: ":8080",
 		ReadTimeout: 5 * time.Second,
