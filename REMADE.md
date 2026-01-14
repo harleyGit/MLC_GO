@@ -57,6 +57,7 @@
 	- [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
 - [功能模块](#功能模块)
 	- [登录注册](#登录注册) 
+	- [redis缓存-登录注册](#redis缓存-登录注册)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
@@ -1852,7 +1853,7 @@ if err := viper.Unmarshal(&config); err != nil {
 > <h2 id="登录注册">登录注册</h2>
 
 <br/><br/>
-> <h3 id="简单缓存版本">简单缓存版本</h3>
+> <h3 id="简单缓存版本">简单缓存版本 </h3>
 
 **调用代码：**
 
@@ -1902,6 +1903,42 @@ curl -X POST http://localhost:8080/user/login \
         
 {"id":1,"message":"登录成功"}
 ```
+
+<br/><br/>
+> <h3 id="redis缓存-登录注册">redis缓存-登录注册</h3>
+**不要在VSCode中启动Redis的服务，若是杀掉了话可能redis就关了，最好在系统的终端：**
+
+```sh
+redis-server
+```
+
+<br/>
+
+**工程中路由代码：**
+
+```go
+/* 路由注册 */
+func RegisterUserRoutesV2() {
+	cachePackage.NewRedisService() // 初始化Redis连接
+	
+	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandlerV2)
+	http.HandleFunc("/user/register", registerHandlerV2)
+	http.HandleFunc("/user/login", loginHandlerV2)
+	http.HandleFunc("/user/profile", PkgMiddlewarePackage.TokenAuthMiddleware(profile)) // 受保护接口
+}
+```
+**验证码、注册、登录的`curl`指令**还是用[简单缓存版本](#简单缓存版本)中的指令。
+
+**4.访问受保护接口：**
+
+```sh
+// 传入 登录使用的token码
+ curl -X GET http://localhost:8080/user/profile \
+-H "Authorization: 96051413223373232403545874607770"
+
+{"message":"已通过认证"}
+```
+
 
 
 <br/><br/><br/>

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 21:28:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-14 17:03:46
+ * @LastEditTime: 2026-01-14 18:02:47
  * @FilePath: /MLC_GO/internal/cache/hg_redis.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -16,6 +16,12 @@ import (
 )
 
 type RedisService struct {
+	// Redis的Set(ctx, key, value, ttl)/Get(ctx, key)时的ctx作用
+	// 1.控制请求生命周期
+	// 2.超时/取消/链路追踪
+	// 3. 不参与 Redis TCP连接池管理
+	// 4. 不参与连接池的敷用
+	// 6. Redis的连接池由redis.Client管理，与context是否创建无关。
 	client *redis.Client
 	defaultCtx context.Context
 }
