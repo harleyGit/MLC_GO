@@ -13,8 +13,8 @@
 set -e
 
 ### ==== 基础配置（后期可以改为环境变量）=====
-MYSQL_USE="root"
-MYSQL_PASSWORD="hh109"
+MYSQL_USER="root"
+MYSQL_PASSWORD="" #"hh109" #Intel电脑sql没有密码，M2Pro密码是hh109
 MYSQL_HOST="127.0.0.1"
 MYSQL_PORT="3306"
 MYSQL_DB="HG_MLC_DB"
@@ -23,17 +23,36 @@ MYSQL_DB="HG_MLC_DB"
 ### ==== 公共方法 ====
 mysql_cmd() {
     mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" \
-    -u"$MYSQL_USE" -p"$MYSQL_PASSWORD" 
+    -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" 
     #-D "$DATABASE_NAME" -e "$1"
 }
 ### =================
 
 ### ==== 1. 检查MySQL服务 ====
 check_mysql() {
+    local MYSQLADMIN_ARGS=(
+        -h"$MYSQL_HOST"
+        -P"$MYSQL_PORT"
+        -u"$MYSQL_USER"
+    )
+
+    # 仅当密码非空时才添加 -p 参数
+    if [ -n "$MYSQL_PASSWORD" ]; then
+        MYSQLADMIN_ARGS+=(-p"$MYSQL_PASSWORD")
+    fi
+
+    if ! mysqladmin ping "${MYSQLADMIN_ARGS[@]}" --silent; then
+        echo "[INFO] MySQL 未启动，启动中...."
+        brew services start mysql
+        sleep 5
+    fi
+}
+
+check_mysql00() {
     if ! mysqladmin ping \
     -h"$MYSQL_HOST" \
     -P"$MYSQL_PORT" \
-    -u"$MYSQL_USE" \
+    -u"$MYSQL_USER" \
     -p"$MYSQL_PASSWORD" \
     --silent; then
 
@@ -48,7 +67,15 @@ check_mysql() {
 }
 ### ======================
 
-### ==== 2. 初始化数据库 ====
+
+### ===== 2. 初始化数据库 =====
+init_db() {
+    echo "[INFO] 初始化数据库"
+    mysql_cmd < ../migrations/init.sql
+}
+### ======================
+
+### ==== 3. 执行指定 SQL 文件  ====
 run_sql() {
     SQL_FILE=$1
 
