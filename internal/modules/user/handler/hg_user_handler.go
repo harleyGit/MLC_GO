@@ -1,12 +1,11 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-14 20:04:40
-
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-15 10:48:30
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
-
+* 功能：HTTP层
 * 注册 / 登录流程，强烈建议使用 Redis原因：
 *	1.验证码是短期数据（TTL）
 *	2.登录态 / Token 是短期数据
@@ -16,9 +15,11 @@
 package UserHandlerPackage
 
 import (
+	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
 	usermodelsPackage "MLC_GO/internal/models/user_models"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/pkg/logHG"
 	PkgMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	utilsPackage "MLC_GO/internal/pkg/utils"
@@ -81,6 +82,7 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "验证码已发送"})
 }
 /* 发送验证码V1，用了缓存【弃用】 */
+// Deprecated: 使用 sendVerifyCodeHandlerV2 替代
 func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 	
 	var req verifyCodeReqModel
@@ -105,7 +107,18 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 	-H "Content-Type: application/json" \
 	-d '{"account":"test@example.com","code":"338122","password":"123456"}'
 */
+func registerHandlerV3(w http.ResponseWriter, r *http.Request) {
+	var req registerReqModel
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if err := UserServicePackage.RegisterService(req.Account, req.Code, req.Password); err != nil {
+		http.Error(w, "注册失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Write([]byte("注册成功"))
+}
 /* 注册V2版本，使用了Redis存储验证码 */
+// Deprecated: 使用 registerHandlerV3 替代
 func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)	
@@ -146,6 +159,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "注册成功", "id": user.UserID})
 }
 /* 注册V1版本，弃用【只是用到了缓存】 */
+// Deprecated: 使用 registerHandlerV2 替代
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)	
@@ -193,7 +207,18 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	-H "Content-Type: application/json" \
 	-d '{"account":"test@example.com","password":"123456"}' 
 */
+func loginHandlerV3(w http.ResponseWriter, r *http.Request) {
+	var req loginReqModel
+	json.NewDecoder(r.Body).Decode(&req)
 
+	token, err := UserServicePackage.LoginService(req.Account, req.Password)
+	if err != nil {
+		http.Error(w, "登录失败: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+	PresentersPackage.WriteJSON(w, map[string]any{"message": "登录成功", "token": token})
+}
+// Deprecated: 使用 loginHandlerV3 替代
 func loginHandlerV2(w http.ResponseWriter, r *http.Request) {
 	var req loginReqModel
 	json.NewDecoder(r.Body).Decode(&req)
@@ -214,6 +239,7 @@ func loginHandlerV2(w http.ResponseWriter, r *http.Request) {
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "登录成功", "id": user.UserID, "token": token})	
 }
 /* 登录版本V1，用缓存【弃用】 */
+// Deprecated: 使用 loginHandlerV2 替代
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var req loginReqModel
 	json.NewDecoder(r.Body).Decode(&req)
@@ -237,21 +263,35 @@ func profile(w http.ResponseWriter, r *http.Request){
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "已通过认证"})
 }
 
-/* 路由注册 */
-// TODO: 弃用，用的是缓存
-func RegisterUserRoutes() {
-	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandler)
-	http.HandleFunc("/user/register", registerHandler)
-	http.HandleFunc("/user/login", loginHandler)
+
+// Deprecated: 使用 RegisterUserRoutesV3 替代
+func RegisterUserRoutesV3() {
+	PersistenceSQLPackage.NewSQLDB()   // 初始化MySQL连接
+	PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
+	
+	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandlerV2)
+	http.HandleFunc("/user/register", registerHandlerV2)
+	http.HandleFunc("/user/login", loginHandlerV2)
 	http.HandleFunc("/user/profile", PkgMiddlewarePackage.TokenAuthMiddleware(profile)) // 受保护接口
 }
 
 /* 路由注册 */
+// Deprecated: 使用 RegisterUserRoutesV3 替代
 func RegisterUserRoutesV2() {
 	PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
 	
 	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandlerV2)
 	http.HandleFunc("/user/register", registerHandlerV2)
 	http.HandleFunc("/user/login", loginHandlerV2)
+	http.HandleFunc("/user/profile", PkgMiddlewarePackage.TokenAuthMiddleware(profile)) // 受保护接口
+}
+
+/* 路由注册 */
+// TODO: 弃用，用的是缓存
+// Deprecated: 使用 RegisterUserRoutesV2 替代
+func RegisterUserRoutes() {
+	http.HandleFunc("/user/send_verify_code", sendVerifyCodeHandler)
+	http.HandleFunc("/user/register", registerHandler)
+	http.HandleFunc("/user/login", loginHandler)
 	http.HandleFunc("/user/profile", PkgMiddlewarePackage.TokenAuthMiddleware(profile)) // 受保护接口
 }
