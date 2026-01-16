@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS users(
     password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希值',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     UNIQUE KEY unique_email (email),
-    UNIQUE KEY unique_phone (phone
+    UNIQUE KEY unique_phone (phone)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表';
