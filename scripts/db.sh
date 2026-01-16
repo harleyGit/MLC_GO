@@ -7,6 +7,10 @@
  # @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  #
  # 功能：核心脚本，用于初始化数据库和运行迁移脚本，支持【任意路径SQL + 交互执行】统一脚本
+ #
+ # 脚本注意‼️⚠️：
+ #      如果一行以 \ 结尾，Bash 认为“下一行必须是同一条命令的继续内容”，
+ #      这时——下一行不能是注释，也不能是空行，只能是命令内容本身。
 ### 
 
 # 这是“shebang”行，告诉系统这个脚本要用 /bin/bash（Bash 解释器）来运行
@@ -28,11 +32,23 @@ MYSQL_DB="HG_MLC_DB"
 ### ==== 公共方法 ====
 # 作用： 定义一个函数（叫 mysql_cmd），它会拼接出连接 MySQL 的完整命令
 mysql_cmd() {
+    local DB_NAME="$1"  # 接收第一个参数作为数据库名
     # mysql 是 MySQL 客户端命令
     # -h 后面跟主机（host）
     mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" \
-    -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" 
-    #-D "$DATABASE_NAME" -e "$1"
+    -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" \
+    ${DB_NAME:+-D"$DB_NAME"}
+    # 含义是：
+    #   如果 DB_NAME 非空 → 展开为 -D HG_MLC_DB
+    #   如果 DB_NAME 为空 → 什么都不加
+    
+
+    # -e "$1", 执行一条 SQL 语句
+    # -e = execute
+    # "$1" 是脚本的第一个参数（比如 "SELECT * FROM users;"）
+    # ./your_script.sh "SELECT email FROM users LIMIT 1;", $1 就是 "SELECT email FROM users LIMIT 1;"，整条命令就变成：
+    # mysql -hlocalhost -P3306 -uroot -p123456 -D app_db -e "SELECT email FROM users LIMIT 1;"
+    # -D "$MYSQL_DB" -e "$1"
 }
 ### =================
 
@@ -115,7 +131,7 @@ run_sql() {
     # 这里和 init_db 类似，但多了个数据库名：mysql_cmd "$MYSQL_DB"。
     # 实际展开后相当于：mysql -h127.0.0.1 -P3306 -uroot -p123456 app_db < your_file.sql
     # 意思是：连接到 app_db 数据库，并执行该 SQL 文件。
-    mysql_cmd "$MYSQL_DB"< "$SQL_FILE"
+    mysql_cmd "$MYSQL_DB" < "$SQL_FILE"
 }
 ### ======================
 
