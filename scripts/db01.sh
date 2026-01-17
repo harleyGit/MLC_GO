@@ -87,8 +87,8 @@ run_sql() {
 case "$1" in
     init)
         check_mysql
-        run_sql "../migrations/init.sql"
-        run_sql "../migrations/user_sql/hg_crate_user.sql"
+        run_sql "../migrations/000init.sql"
+        run_sql "../migrations/user_sql/000hg_crate_user.sql"
         ;;
     run_sql)
         check_mysql
@@ -107,7 +107,7 @@ case "$1" in
         echo "  run_sql   运行指定的 SQL 文件"
         echo "示例: $0 init"
         echo "示例: $0 shell"
-        echo "示例: $0 run_sql ../migrations/init.sql"
+        echo "示例: $0 run_sql ../migrations/000init.sql"
         exit 1
         ;;
 esac    

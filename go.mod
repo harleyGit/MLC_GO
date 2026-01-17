@@ -155,6 +155,8 @@ require (
 
 require github.com/julienschmidt/httprouter v1.3.0
 
+require github.com/joho/godotenv v1.5.1 // indirect //读取.env 文件中的环境变量值
+
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect

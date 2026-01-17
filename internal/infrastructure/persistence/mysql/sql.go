@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-15 10:55:52
+ * @LastEditTime: 2026-01-17 21:13:16
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,22 +13,85 @@ import (
 	UserModelsPackage "MLC_GO/internal/models/user_models"
 	"MLC_GO/internal/pkg/logHG"
 	"database/sql"
+	"fmt"
+	"os"
+
+	"github.com/joho/godotenv"
 )
 
 var (
-	db *sql.DB)
+	db *sql.DB
+)
 
-func NewSQLDB() {
+func LoadSQLEnvValue() {
+	// 仅在本地开发时加载 .env 文件
+    // 如果是生产环境，.env 文件不存在，这步会失败，但没关系
+	if os.Getenv("APP_ENV") != "production" {
+		err := godotenv.Load()
+		if err != nil {
+			logHG.ErrInfo("警告： No .env 文件没有找到")
+		}
+	}
+	logHG.DebugInfo("加载sql环境变量")
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return  value
+	}
+	return  fallback
+}
+
+func getSQLDSN() string {
+	host := getEnv("MYSQL_HOST", "localhost")
+	port := getEnv("MYQL_PORT", "3306")
+	user := getEnv("MYSQL_USER", "root")
+	password := getEnv("MYSQL_PASSWORD", "hh109")
+	dbName := getEnv("MYSQL_DB", "HG_MLC_DB")
+	macType := getEnv("MAC_TYPE", "M2Pro")
+	var sqlDSN = getSQLDSN()//SQLQueriesPackage.DB_DSN
+
+	if macType == "M2Pro" {
+		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC", 
+		user, password, host, port, dbName)
+	}
+
+	return  sqlDSN
+}
+
+func NewSQLDB()(*sql.DB, error) {
 	var err error
-	dsn := SQLQueriesPackage.DB_DSN
+	dsn := getSQLDSN()//SQLQueriesPackage.DB_DSN
 	db, err = sql.Open("mysql", dsn)
 	if err != nil {
-		logHG.FatalFInfo("连接MySQL数据库失败: %v", err)
+		logHG.ErrFInfo("连接MySQL数据库失败: %v", err)
+		return nil, err
 	}
 	if err = db.Ping(); err != nil {
-		logHG.FatalFInfo("Ping MySQL数据库失败: %v", err)
+		logHG.ErrFInfo("Ping MySQL数据库失败: %v", err)
+		return nil, err
 	}
+	// Go 程序启动时校验数据库（不建表）
+	if _, err := checkoutSQLTable();  err != nil {
+		return  nil, err
+	}
+
+	return db, nil
 }
+
+/* 启动即校验 schema,建立表时进行校验 */
+func checkoutSQLTable() (*sql.DB, error) {
+	// 启动即校验 schema
+	if _, err := db.Exec("SELECT 1 FROM users LIMIT 1"); err != nil {
+		// 表不存在 → 程序直接失败
+		// 这是“部署错误”，不是“运行时错误”
+		return nil, fmt.Errorf("database schema not ready: %w", err)
+	}
+	
+	return  db, nil
+}
+
+
 
 /* 创建用户 */
 func CreateUser(u *UserModelsPackage.HGUserModel) error {

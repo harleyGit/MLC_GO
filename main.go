@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-14 16:43:56
+ * @LastEditTime: 2026-01-17 20:28:45
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -24,6 +24,7 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
 	"MLC_GO/internal/config"
+	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	UserhandlerPackage "MLC_GO/internal/modules/user/handler"
 	"MLC_GO/internal/pkg/logHG"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
@@ -59,6 +60,9 @@ const (
 	Module_concurrent         ModuleType = "11: 并发测试"
 )
 
+func init() {
+	PersistenceSQLPackage.LoadSQLEnvValue()
+}
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
