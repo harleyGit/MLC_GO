@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-17 20:28:45
+ * @LastEditTime: 2026-01-17 22:28:24
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,7 +23,7 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
-	"MLC_GO/internal/config"
+	ConfigPackage "MLC_GO/internal/config"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	UserhandlerPackage "MLC_GO/internal/modules/user/handler"
 	"MLC_GO/internal/pkg/logHG"
@@ -94,6 +94,19 @@ func main() {
 
 func mlc_main() {
 	logHG.DebugInfo("MLC_GO项目启动中...")
+
+	_, err := PersistenceSQLPackage.NewSQLDB()//db, err :=
+	if err != nil {
+		logHG.FatalFInfo("数据库初化失败，error：", err)
+	}
+
+	// 2 = 当前代码最低依赖的数据库版本
+	// 不满足 → 直接拒绝启动， 这是 企业级“防错机制”
+	// 检查迁移版本
+	// if err := DatabasePackage.ChekckMigrateVersion(db, 2); err != nil {
+	// 	logHG.FatalFInfo("数据库最新迁移失败，error：", err)
+	// }
+	
 	UserhandlerPackage.RegisterUserRoutesV2()
 	srv := http.Server{
 		Addr: ":8080",
@@ -104,8 +117,8 @@ func mlc_main() {
 	logHG.DebugInfo("Starting server on :8080")
 	log.Fatal(srv.ListenAndServe()) 
 
-	env := config.GetEnv()
-	if err := config.LoadConfig(string(env)); err != nil {
+	env := ConfigPackage.GetEnv()
+	if err := ConfigPackage.LoadConfig(string(env)); err != nil {
 		logHG.FatalFInfo("加载配置文件失败: %v\n", err)
 		return		
 	}
