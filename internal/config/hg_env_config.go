@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-17 23:32:44
+ * @LastEditTime: 2026-01-18 09:03:20
  * @FilePath: /MLC_GO/internal/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -19,9 +19,9 @@ const (
 	// 正式环境路径
 	PROD_ENV_PATH = "./config/env_configs/hg_prod.env"
 	// 开发环境路径
-	DEV_ENV_PATH = "./config/env_configs/hg_dev.env"
+	DEV_ENV_PATH = "./config/env_configs/hg_debug.env"
 	// 测试环境路径
-	TEST_ENV_PATH = "./config/env_configs/hg_test.env"
+	TEST_ENV_PATH = "./config/env_configs/hg_pre.env"
 
 	// 开发电脑芯片版本【有m2Pro 和 Intel】
 	DEV_COMPUTER = "M2Pro"
