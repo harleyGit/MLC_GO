@@ -156,11 +156,11 @@ myapp/
 │   ├── modules/                  # 👈 核心变化：按业务域划分模块（推荐！）
 │   │   │
 │   │   ├── user/                 # 用户模块（原 auth 相关移入）
-│   │   │   ├── repository/      #  数据访问层（DAO）
+│   │   │   ├── repository/      #  数据访问层（DAO）,数据库MySQL操作（Insert / Update / Get）
 │   │   │   │   └── user_repository.go
-│   │   │   ├── service/         # 业务逻辑层
+│   │   │   ├── service/         # 业务逻辑层（业务逻辑）
 │   │   │   │   └── user_service.go
-│   │   │   └── handler/         # HTTP 请求处理（Controller）
+│   │   │   └── handler/         # HTTP 请求处理（Controller）（HTTP 接口）
 │   │   │       └── user_handler.go
 │   │   │
 │   │   └── post/                 # 👈 新增：朋友圈模块
