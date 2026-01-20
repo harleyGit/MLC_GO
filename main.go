@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-17 22:28:24
+ * @LastEditTime: 2026-01-20 09:37:42
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -128,7 +128,7 @@ func mlc_main() {
 func practiceKnowledge() {
 
 	modules := getPracticeModules()
-	for true {
+	// for true {
 		fmt.Println("\n\n=====================👏欢迎练习测试陌生知识点==========================")
 		for _, module := range modules {
 			fmt.Printf("\t\t\t 🍎 %s\n", module)
@@ -180,7 +180,7 @@ func practiceKnowledge() {
 		case 11:
 			concurrent_pt.ConcurrentPTMain()
 		}
-	}
+	// }
 }
 
 

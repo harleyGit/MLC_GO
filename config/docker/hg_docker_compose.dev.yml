@@ -1,0 +1,46 @@
+# 执行：
+# 清理容器：  docker-compose -f config/docker/hg_docker_compose.dev.yml down
+# 重新构建并启动：  docker-compose -f config/docker/hg_docker_compose.dev.yml up --build
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: hh109
+      MYSQL_DATABASE: HG_MLC_DB
+    ports:
+      - "3307:3306" # 不能是："3307:3306"，会出现 端口占用问题，TODO：后面可以研究下
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-phh109"]
+      interval: 5s
+      # timeout: 30s
+      retries: 5
+      # start_period: 30s
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ../../migrations:/migrations
+    command:
+      [
+        "-path",
+        "/migrations",
+        "-database",
+        "mysql://root:hh109@tcp(mysql:3306)/HG_MLC_DB",
+        "up",
+      ]
+  app:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - ./../env_configs/hg_debug.env
+    ports:
+      - "8080:8080"
