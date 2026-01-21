@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 14:52:42
+ * @LastEditTime: 2026-01-21 18:03:29
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 * 功能：HTTP层
@@ -18,7 +18,8 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
-	usermodelsPackage "MLC_GO/internal/models/user_models"
+	UserDtoPackage "MLC_GO/internal/modules/user/dto"
+	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/pkg/logHG"
 	PkgMiddlewarePackage "MLC_GO/internal/pkg/middleware"
@@ -54,7 +55,7 @@ type UserHandler struct {
 }
 
 var (
-	users             = make(map[string]*usermodelsPackage.HGUserModel) // 存储用户账号与密码的映射关系
+	users             = make(map[string]*UserModelsPackage.HGUserModel) // 存储用户账号与密码的映射关系
 	verifyCodes       = make(map[string]string)                         // 存储账号与验证码的映射关系【弃用】
 	userAutoID  int64 = 1                                               // 模拟自增用户ID
 )
@@ -64,7 +65,7 @@ func NewUserHandler(svc *UserServicePackage.UserService) *UserHandler {
 }
 
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var d usermodelsPackage.HGUserModel
+	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -81,7 +82,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
 
-	var d usermodelsPackage.HGUserModel
+	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -179,18 +180,18 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	salt := utilsPackage.GenerateRandomSalt()
 	hash := utilsPackage.HashPassword(req.Password, salt)
 
-	user := &usermodelsPackage.HGUserModel{
-		UserID:       userAutoID,
-		Username:     req.Account,
-		PasswordHash: hash,
-		Salt:         salt,
+	user := &UserModelsPackage.HGUserModel {
+		ID:       userAutoID,
+		Username:     utilsPackage.StrPtrToNullStr(&req.Account),
+		PasswordHash: utilsPackage.StrPtrToNullStr(&hash),
+		Salt:         utilsPackage.StrPtrToNullStr(&salt),
 	}
 
 	// 检查字符串 req.Acount 中是否包含字符 "@"
 	if strings.Contains(req.Account, "@") {
-		user.Email = req.Account
+		user.Email = utilsPackage.StrPtrToNullStr(&req.Account)
 	} else {
-		user.Phone = req.Account
+		user.Phone = utilsPackage.StrPtrToNullStr(&req.Account)
 	}
 
 	users[req.Account] = user
@@ -219,18 +220,18 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	salt := utilsPackage.GenerateRandomSalt()
 	hash := utilsPackage.HashPassword(req.Password, salt)
 
-	user := &usermodelsPackage.HGUserModel{
-		UserID:       userAutoID,
-		Username:     req.Account,
-		PasswordHash: hash,
-		Salt:         salt,
+	user := &UserModelsPackage.HGUserModel{
+		ID:       userAutoID,
+		Username:     utilsPackage.StrPtrToNullStr(&req.Account),
+		PasswordHash: utilsPackage.StrPtrToNullStr(&hash),
+		Salt:         utilsPackage.StrPtrToNullStr(&salt),
 	}
 
 	// 检查字符串 req.Acount 中是否包含字符 "@"
 	if strings.Contains(req.Account, "@") {
-		user.Email = req.Account
+		user.Email = utilsPackage.StrPtrToNullStr(&req.Account)
 	} else {
-		user.Phone = req.Account
+		user.Phone = utilsPackage.StrPtrToNullStr(&req.Account)
 	}
 
 	users[req.Account] = user
@@ -272,8 +273,8 @@ func loginHandlerV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash := utilsPackage.HashPassword(req.Password, user.Salt)
-	if hash != user.PasswordHash {
+	hash := utilsPackage.HashPassword(req.Password, user.Salt.String)
+	if hash != user.PasswordHash.String {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "密码错误"})
 		return
 	}
@@ -294,8 +295,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash := utilsPackage.HashPassword(req.Password, user.Salt)
-	if hash != user.PasswordHash {
+	hash := utilsPackage.HashPassword(req.Password, user.Salt.String)
+	if hash != user.PasswordHash.String {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "密码错误"})
 		return
 	}
