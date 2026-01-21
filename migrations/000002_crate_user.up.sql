@@ -1,3 +1,4 @@
+-- 还需要加的字段：昵称、用户ID号、头像、性别、地址
 CREATE TABLE IF NOT EXISTS users(
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     email VARCHAR(128) NOT NULL UNIQUE COMMENT '邮箱',
