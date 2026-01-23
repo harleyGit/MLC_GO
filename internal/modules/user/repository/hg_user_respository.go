@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 20:45:02
+ * @LastEditTime: 2026-01-23 10:09:00
  * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_respository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -40,6 +40,9 @@ func (r *UserRepo) Insert(ctx context.Context, u *UserModelsPackage.HGUserModel)
 	)
 	// TODO：可能失败，失败比如不支持数据库特性【这个特性值的是什么】？需要解决下
 	if err != nil {
+		// TODO: 若是失败需要回滚，比如：tx， err ：= r。db。GeginTx（ctx， nil）；
+		// TODO：res， err ：= tx.ExecContext（ctx， sql语句） tx.Rollback()
+		// TODO:可以保持事务一致性
 		return err
 	}
 	u.ID, _ = res.LastInsertId()

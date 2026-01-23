@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:21:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-22 21:27:41
+ * @LastEditTime: 2026-01-23 10:42:30
 
 * @FilePath: /MLC_GO/internal/modules/sms/hg_sender.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -12,7 +12,6 @@
 package HGSMSPackage
 
 import (
-	HGSMSPackage "MLC_GO/internal/modules/sms"
 	"MLC_GO/internal/pkg/logHG"
 )
 
@@ -23,7 +22,7 @@ type HGSender interface {
 // TODO: 阿里云 / 腾讯云 替换 
 type HGPhoneSMSSender struct {}
 
-var smsSender HGSMSPackage.HGSender
+var smsSender HGSender
 
 func (s *HGPhoneSMSSender) Send(phone, code string) error {
 	logHG.DebugFInfo("【手机短信】 phone=%s code=%s \n", phone, code)

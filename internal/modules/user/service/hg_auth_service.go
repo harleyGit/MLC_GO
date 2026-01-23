@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 20:23:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-22 20:36:15
+ * @LastEditTime: 2026-01-23 11:57:24
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_auth_service.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -40,12 +40,14 @@ type HGAuthService struct {
 var (
 	AccessTTL  = 15 * time.Minute
 	RefreshTTL = 7 * 24 * time.Hour
-	Secret     = []byte("change-me")
+	Secret     = []byte("change-me")//todo：jwt用来签名和验签的对称密钥，token不被修改，通常放在配置中心或者环境变量中，长度 >= 32字节
 )
 
 type HGClaims struct {
 	UserID int64  `json:"uid"`
+	Device string `json:"device"`
 	JTI    string `json:"jti"`
+	TokenTp string `json"tp"`
 	jwt.RegisteredClaims
 }
 
@@ -169,7 +171,7 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 
 	user, _ := s.users.GetByPhone(ctx, phone)
 	if user == nil {
-		user = createUser(phone)//createUser 这个方法不知道在哪定义的
+		user = &UserModelsPackage.HGUserModel{Phone: UtilsPackage.StrPtrToNullStr(&phone)}
 		s.users.Insert(ctx, user)
 	}
 

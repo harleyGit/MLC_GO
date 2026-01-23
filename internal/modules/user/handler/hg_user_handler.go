@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 18:03:29
+ * @LastEditTime: 2026-01-23 13:39:42
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 * 功能：HTTP层
@@ -18,6 +18,7 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
+	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
@@ -29,6 +30,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 // 验证码响应结构体
@@ -51,7 +55,9 @@ type loginReqModel struct {
 }
 
 type UserHandler struct {
-	svc *UserServicePackage.UserService
+	rdb       *redis.Client
+	svc       *UserServicePackage.UserService
+	smsSender HGSMSPackage.HGSender
 }
 
 var (
@@ -60,8 +66,11 @@ var (
 	userAutoID  int64 = 1                                               // 模拟自增用户ID
 )
 
-func NewUserHandler(svc *UserServicePackage.UserService) *UserHandler {
-	return &UserHandler{svc: svc}
+func NewUserHandler(rdb *redis.Client,
+	svc *UserServicePackage.UserService,
+	smsSender HGSMSPackage.HGSender,
+) *UserHandler {
+	return &UserHandler{rdb: rdb, svc: svc, smsSender: smsSender}
 }
 
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +105,42 @@ func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(user)
 }
+
+func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	phone := r.FormValue("phone")
+	if phone == "" {
+		http.Error(w, "phone required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	code := "123456" // TODO：生产中随机生成
+
+	key := "verify:code:" + phone
+
+	// Redis：存验证码（5 分钟）
+	err := h.rdb.Set(ctx, key, code, 5*time.Minute).Err()
+	if err != nil {
+		http.Error(w, "redis error", 500)
+		return
+	}
+
+	// 发送短信（Mock / 真实）
+	if err := h.smsSender.Send(phone, code); err != nil {
+		http.Error(w, "send sms failed", 500)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+}
+
+
 
 /* 处理发送验证码的逻辑
    测试：
@@ -180,8 +225,8 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	salt := utilsPackage.GenerateRandomSalt()
 	hash := utilsPackage.HashPassword(req.Password, salt)
 
-	user := &UserModelsPackage.HGUserModel {
-		ID:       userAutoID,
+	user := &UserModelsPackage.HGUserModel{
+		ID:           userAutoID,
 		Username:     utilsPackage.StrPtrToNullStr(&req.Account),
 		PasswordHash: utilsPackage.StrPtrToNullStr(&hash),
 		Salt:         utilsPackage.StrPtrToNullStr(&salt),
@@ -221,7 +266,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	hash := utilsPackage.HashPassword(req.Password, salt)
 
 	user := &UserModelsPackage.HGUserModel{
-		ID:       userAutoID,
+		ID:           userAutoID,
 		Username:     utilsPackage.StrPtrToNullStr(&req.Account),
 		PasswordHash: utilsPackage.StrPtrToNullStr(&hash),
 		Salt:         utilsPackage.StrPtrToNullStr(&salt),
@@ -242,6 +287,58 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "注册成功", "id": user.UserID})
 }
+
+/* Login 方法（验证码 + JWT） */
+func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	phone := r.FormValue("phone")
+	code := r.FormValue("code")
+
+	if phone == "" || code == "" {
+		http.Error(w, "phone/code required", 400)
+		return
+	}
+
+	ctx := r.Context()
+	key := "verify:code:" + phone
+
+	// 校验验证码
+	val, err := h.rdb.Get(ctx, key).Result()
+	if err != nil || val != code {
+		http.Error(w, "invalid code", http.StatusUnauthorized)
+		return
+	}
+
+	// 删除验证码（一次性）
+	h.rdb.Del(ctx, key)
+
+	claims := &UserServicePackage.HGClaims{
+		UserID:  1,
+		Device:  r.UserAgent(),
+		JTI:     "uuid-------",//TODO:看看怎么产生的
+		TokenTp: "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(UserServicePackage.Secret)) 
+
+	resp := map[string]string{
+		"access_token": signed,
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
 
 /*
 	 登录
@@ -302,6 +399,23 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "登录成功", "id": user.UserID})
 }
+
+/* Profile 方法（需要中间件） */
+func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*UserServicePackage.HGClaims)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	resp := map[string]any{
+		"user_id": claims.UserID,
+		"device":  claims.Device,
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
 
 /* 受保护接口 */
 func profile(w http.ResponseWriter, r *http.Request) {
