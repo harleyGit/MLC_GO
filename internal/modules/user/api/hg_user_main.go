@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-22 21:16:00
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-23 13:45:33
+ * @LastEditTime: 2026-01-23 14:44:29
  * @FilePath: /MLC_GO/internal/modules/user/api/hg_user_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -41,6 +41,7 @@ func UserMain() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/send_code", userHandler.SendCode)
 	mux.HandleFunc("/auth/login", userHandler.Login)
+	// 这里调用 AuthMiddleware，鉴权调用 会每次调用的时候都调用的
 	mux.Handle("/profile", UserJWTMiddlewarePackage.AuthMiddleware(http.HandlerFunc(userHandler.Profile)))
 
 	// --- server ---------

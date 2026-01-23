@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 20:23:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-23 11:57:24
+ * @LastEditTime: 2026-01-23 14:22:30
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_auth_service.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -33,20 +33,20 @@ type HGAuthService struct {
 	codes   *UserCachePackage.HGCodeCache
 	limiter *HGSMSCachePackage.HGSMSRateLimiter
 	sms     *HGSMSPackage.HGPhoneSMSSender
-	rdb *redis.Client
+	rdb     *redis.Client
 }
 
 // Token 结构定义
 var (
 	AccessTTL  = 15 * time.Minute
 	RefreshTTL = 7 * 24 * time.Hour
-	Secret     = []byte("change-me")//todo：jwt用来签名和验签的对称密钥，token不被修改，通常放在配置中心或者环境变量中，长度 >= 32字节
+	Secret     = []byte("change-me") //todo：jwt用来签名和验签的对称密钥，token不被修改，通常放在配置中心或者环境变量中，长度 >= 32字节
 )
 
 type HGClaims struct {
-	UserID int64  `json:"uid"`
-	Device string `json:"device"`
-	JTI    string `json:"jti"`
+	UserID  int64  `json:"uid"`
+	Device  string `json:"device"`
+	JTI     string `json:"jti"`
 	TokenTp string `json"tp"`
 	jwt.RegisteredClaims
 }
@@ -209,4 +209,22 @@ func (s *HGAuthService) Login(ctx context.Context, d *UserDtoPackage.LoginDTO) (
 		UserID: user.ID,
 		Token:  "虚拟token......", //TODO：问问ai如何生辰token
 	}, nil
+}
+
+/* Token黑名单+ 多端登录控制 */
+func (s *HGAuthService) Store(ctx context.Context, uid int64,
+	deice, jti string, ttl time.Duration) {
+	s.rdb.Set(ctx,
+		fmt.Sprintf("token:%d:%s", uid, deice),
+		jti,
+		ttl,
+	)
+}
+func (s *HGAuthService) Valid(ctx context.Context, uid int64,
+	deice, jti string) bool {
+	v := s.rdb.Get(ctx,
+		fmt.Sprintf("token:%d:%s", uid, deice),
+	).Val()
+	// 是否踢下线
+	return v == jti
 }

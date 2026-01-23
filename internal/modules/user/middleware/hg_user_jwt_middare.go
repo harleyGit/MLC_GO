@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-22 16:44:22
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-22 17:25:08
+ * @LastEditTime: 2026-01-23 14:43:06
  * @FilePath: /MLC_GO/internal/modules/user/middleware/hg_user_jwt_middare.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -22,7 +22,7 @@ type ctxKey string
 const UserIDKey ctxKey = "uid"
 
 /* JWT中间件鉴权 */
-func AuthMiddleware(next http.Handler) http.Handler {
+func AuthMiddleware(next http.Handler) http.Handler {// 可以从这里传入
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -37,6 +37,17 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			t, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (any, error) {
 				return UserServicePackage.Secret, nil
 			})
+
+			// TODO: 🌟🌟🌟多设备登录校验
+			// if !repo.Valid(
+			// 	r.Context(),
+			// 	claims.UserID,
+			// 	claims.Device,
+			// 	claims.JTI,
+			// ) {
+			// 	http.Error(w, "token revoked", http.StatusUnauthorized)
+			// 	return
+			// }
 
 			if err != nil || !t.Valid {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
