@@ -2,11 +2,16 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-22 14:32:43
+ * @LastEditTime: 2026-01-24 23:13:36
 * @FilePath: /MLC_GO/internal/infrastructure/persistence/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
 package PersistenceRedisPackage
+
+import (
+	"fmt"
+	"strings"
+)
 
 /*
 验证码：
@@ -21,11 +26,22 @@ auth:token:{userId}:{jti}        → string，TTL = access token TTL
 auth:refresh:{userId}:{jti}      → string，TTL = refresh token TTL
 */
 
+type HGCacheKey string //TODO: https://www.qianwen.com/chat/2178247bfccf4511b6957cb4c7ca9227
+// 为该类型定义字符串常量（这就是“自定义字符串枚举”）
+const (
+	StatusPending HGCacheKey = "pending"
+	StatusActive  HGCacheKey = "active"
+	StatusClosed  HGCacheKey = "closed"
+)
+
 const (
 	AuthCodePhoneLimitKey = "auth:code:limit:phone:"
 	AuthCodeIPLimitKey    = "auth:code:limit:phone:"
 	AuthTokenKey          = "auth:token:"
 	AuthRefreshKey        = "auth:refresh:"
+
+	LoginCodeKey      = "login:code:"
+	LoginMultiportKey = "token:" //token+多端登录控制key
 )
 
 /* lua脚本 */
@@ -40,3 +56,40 @@ const (
 	return current
 	`
 )
+
+// 可选：实现 String() 方法（其实可以直接用 string(s)）
+func (key HGCacheKey) String() string {
+	return string(key)
+}
+func GetRedisKey(value string) string {
+	return fmt.Sprintf("%s%s", AuthCodePhoneLimitKey, value)
+}
+func GetCacheKey(prefix string, value string) string {
+	return fmt.Sprintf("%s%s", prefix, value)
+}
+func GetMultiportKey(uid int64, device string) string {
+	key := fmt.Sprintf("%s%d:%s", LoginMultiportKey, uid, device)
+	return key
+}
+
+// 自定义方法：接收任意数量的字符串参数，拼接成一个字符串
+// 使用 Go 的变长参数（variadic parameters）: strs ...string
+func (key HGCacheKey) WithSuffixes(strs ...string) string {
+	base := key.String()
+	if len(strs) == 0 {
+		return base
+	}
+	// 将所有传入的字符串用 "-" 连接（你也可以用空格、逗号等）
+	suffix := strings.Join(strs, "-")
+	return base + "_" + suffix
+}
+
+// 可选：验证是否是合法值
+func (key HGCacheKey) CacheKey() bool {
+	switch key {
+	case StatusPending, StatusActive, StatusClosed:
+		return true
+	default:
+		return false
+	}
+}

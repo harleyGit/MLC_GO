@@ -1,3 +1,5 @@
+USE HG_MLC_DB;
+
 -- 还需要加的字段：昵称、用户ID号、头像、性别、地址
 -- UNSIGEND： 表示该字段只允许非负数
 -- COMMENT: 给字段添加注释
@@ -5,7 +7,9 @@
 -- ON UPDATE CURRENT_TIMESTAMP：每当该行被更新（UPDATE）时，自动将 updated_at 更新为当前时间。
 CREATE TABLE IF NOT EXISTS `users`(
     `id` BIGINT UNSIGNED PRIMARY KEY NOT NULL AUTO_INCREMENT,
-    `emai`l VARCHAR(255) NULL UNIQUE COMMENT '邮箱',
+    `user_id` VARCHAR(255) NULL UNIQUE COMMENT '用户ID',
+    `user_name` VARCHAR(255) NULL UNIQUE COMMENT '用户名',
+    `email` VARCHAR(255) NULL UNIQUE COMMENT '邮箱',
     `phone` VARCHAR(32) NULL UNIQUE COMMENT '手机号',
     `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希值',
     `salt` VARCHAR(64) NOT NULL COMMENT '密码盐',

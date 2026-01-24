@@ -105,7 +105,7 @@ init_db() {
     # 下面一行代码的作用相当于：用 mysql 连接数据库，并执行 init.sql 里的所有 SQL 语句
     # mysql_cmd 是前面定义的函数，返回一个连接命令
     # < migrations/init.sql：这是“输入重定向”，意思是“把 init.sql 文件的内容当作输入，喂给 mysql 命令”
-    mysql_cmd < ../migrations/000init.sql
+    mysql_cmd < ../migrations/000001_init.up.sql
 }
 ### ======================
 
@@ -176,6 +176,7 @@ case "$1" in
         echo "  ./scripts/db.sh init_db                # 初始化数据库"
         echo "  ./scripts/db.sh run path/to/xxx.sql<sql_file>         # 运行指定的 SQL 文件"
         echo "  ./scripts/db.sh shell                   # 进入 MySQL 交互模式【也就是终端】"
+        echo " show databases # 查看数据库\n show tables # 查看所有表\n desc users # 展示表所有字段"
         exit 1
         ;;
 esac

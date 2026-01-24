@@ -2,13 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 21:28:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-14 20:04:02
+ * @LastEditTime: 2026-01-24 17:58:07
  * @FilePath: /MLC_GO/internal/cache/hg_redis.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package PersistenceRedisPackage
 
 import (
+	"MLC_GO/internal/pkg/logHG"
 	"context"
 	"time"
 
@@ -22,26 +23,25 @@ type RedisService struct {
 	// 3. 不参与 Redis TCP连接池管理
 	// 4. 不参与连接池的敷用
 	// 6. Redis的连接池由redis.Client管理，与context是否创建无关。
-	client *redis.Client
+	client     *redis.Client
 	defaultCtx context.Context
 }
 type options struct {
-	ctx context.Context
-	timeout time.Duration
+	ctx        context.Context
+	timeout    time.Duration
 	maxRetries int
 }
 type RedisOption func(*options)
 
+var (
+	ctx = context.Background()
+	RDB *redis.Client
+)
 func WithContext(ctx context.Context) RedisOption {
 	return func(o *options) {
 		o.ctx = ctx
 	}
 }
-
-var (
-	ctx = context.Background() 
-	RDB *redis.Client
-)
 
 func WithTimeout(timeout time.Duration) RedisOption {
 	return func(o *options) {
@@ -51,27 +51,29 @@ func WithTimeout(timeout time.Duration) RedisOption {
 
 func defaultRedisOptions() *options {
 	return &options{
-		ctx: context.Background(),
-		timeout: 5 * time.Second,
+		ctx:        context.Background(),
+		timeout:    5 * time.Second,
 		maxRetries: 3,
 	}
 }
-/* NewRedisServiceV2使用范例
-	// 使用默认值
-	client1 := NewRedisServiceV2()
-	
-	// 传入自定义Context
-	customCtx := context.WithValue(context.Background(), "trace-id", "abc123")
-	client2 := NewRedisServiceV2(WithContext(customCtx))
-	
-	// 传入多个配置
-	client3 := NewRedisServiceV2(
-		WithContext(customCtx),
-		WithTimeout(10*time.Second),
-	)
+
+/*
+	 NewRedisServiceV2使用范例
+		// 使用默认值
+		client1 := NewRedisServiceV2()
+
+		// 传入自定义Context
+		customCtx := context.WithValue(context.Background(), "trace-id", "abc123")
+		client2 := NewRedisServiceV2(WithContext(customCtx))
+
+		// 传入多个配置
+		client3 := NewRedisServiceV2(
+			WithContext(customCtx),
+			WithTimeout(10*time.Second),
+		)
 */
 func NewRedisServiceV2(opts ...RedisOption) *RedisService {
-	
+
 	// 设置默认值
 	options := defaultRedisOptions()
 	// 应用传入选项
@@ -79,34 +81,36 @@ func NewRedisServiceV2(opts ...RedisOption) *RedisService {
 		opt(options)
 	}
 	// 使用opt构建RedisService
-	// TODO: 若是初始化用 context.Background(), 则后续调用比如用Get传入的是http的 
+	// TODO: 若是初始化用 context.Background(), 则后续调用比如用Get传入的是http的
 	// TODO: r *http.Request; r.Context()， 这样会不会冲突？
 	return &RedisService{
 		client: redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
+			Addr: "localhost:6379",
 			// Password: "", // no password set
 			// DB:       0,  // use default DB
 		}),
 		defaultCtx: options.ctx,
 	}
 }
-/* NewRedisService 使用范例：
-	// 创建service时指定默认Context
-    svc1 := NewRedisService()  // 默认使用Background
-    
-    customCtx := context.WithValue(context.Background(), "app", "myapp")
-    svc2 := NewRedisService(customCtx)  // 使用自定义默认Context
-    
-    // 调用方法
-    svc1.Get("key1")  // 使用默认Background
-    
-    // 临时使用不同的Context
-    reqCtx := context.WithValue(context.Background(), "request", "123")
-    svc2.Get("key2", reqCtx)  // 使用传入的Context
+
+/*
+	 NewRedisService 使用范例：
+		// 创建service时指定默认Context
+	    svc1 := NewRedisService()  // 默认使用Background
+
+	    customCtx := context.WithValue(context.Background(), "app", "myapp")
+	    svc2 := NewRedisService(customCtx)  // 使用自定义默认Context
+
+	    // 调用方法
+	    svc1.Get("key1")  // 使用默认Background
+
+	    // 临时使用不同的Context
+	    reqCtx := context.WithValue(context.Background(), "request", "123")
+	    svc2.Get("key2", reqCtx)  // 使用传入的Context
 */
 func NewRedisService(ctx ...context.Context) *RedisService {
 	var defaultCtx context.Context
-	
+
 	// 如果有传入Context,使用传入的； 否则使用Backgournd
 	if len(ctx) > 0 && ctx[0] != nil {
 		defaultCtx = ctx[0]
@@ -115,22 +119,27 @@ func NewRedisService(ctx ...context.Context) *RedisService {
 	}
 	redisServer := &RedisService{
 		client: redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
+			Addr: "localhost:6379",
 			// Password: "", // no password set
 			// DB:       0,  // use default DB
 		}),
 		defaultCtx: defaultCtx,
 	}
 
+	if err := redisServer.client.Ping(context.Background()).Err(); err != nil {
+		logHG.FatalFInfo("redis 连接失败:", err)
+		return nil
+	}
+
 	RDB = redisServer.client // 全局变量赋值
 	return redisServer
-}	
+}
 
 func newRedis(addr string, password string, db int) {
 	RDB = redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: password, // no password set
-		DB:       db,  // use default DB
+		DB:       db,       // use default DB
 	})
 }
 
@@ -141,7 +150,7 @@ func (redisService *RedisService) SetToRedisV2(key string, value interface{}, tt
 	} else {
 		defaultContext = redisService.defaultCtx
 	}
-	return redisService.client.Set(defaultContext, key, value, time.Duration(ttl) * time.Second).Err()	
+	return redisService.client.Set(defaultContext, key, value, time.Duration(ttl)*time.Second).Err()
 }
 func SetToRedis(key string, value interface{}, ttl time.Duration, opts ...RedisOption) error {
 	// 默认配置
@@ -151,9 +160,8 @@ func SetToRedis(key string, value interface{}, ttl time.Duration, opts ...RedisO
 		option(opt)
 	}
 
-	return RDB.Set(opt.ctx, key, value, ttl).Err()	
+	return RDB.Set(opt.ctx, key, value, ttl).Err()
 }
-
 
 func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Context) (string, error) {
 	var defaultContext context.Context
@@ -163,6 +171,10 @@ func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Cont
 		defaultContext = redisService.defaultCtx
 	}
 	return redisService.client.Get(defaultContext, key).Result()
+}
+
+func (redisService *RedisService) DeleteFromRedis(key string, ctx context.Context) error {
+	return DeleteFromRedis(key, WithContext(ctx))
 }
 
 func GetFromRedis(key string, opts ...RedisOption) (string, error) {
@@ -184,5 +196,3 @@ func DeleteFromRedis(key string, opts ...RedisOption) error {
 	}
 	return RDB.Del(opt.ctx, key).Err()
 }
-
-

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 20:00:19
+ * @LastEditTime: 2026-01-24 21:35:38
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,10 @@ import (
 var (
 	db *sql.DB
 )
+
+type HGSQLManager struct {
+	db *sql.DB
+}
 
 func LoadSQLEnvValue() {
 	// 仅在本地开发时加载 .env 文件
@@ -80,6 +84,16 @@ func getSQLDSN() string {
 	return  sqlDSN
 }
 
+func NewSQLManager() (*HGSQLManager, error) {
+	// db1, err : = NewSQLDB()
+	db, err := NewSQLDB()
+	if err != nil {
+		return nil, err
+	}
+	sqlManager := &HGSQLManager{db: db}
+	return sqlManager, nil
+}
+
 func NewSQLDB()(*sql.DB, error) {
 	var err error
 	// dsn := getSQLDSN()//SQLQueriesPackage.DB_DSN
@@ -99,6 +113,10 @@ func NewSQLDB()(*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func (sqlManger *HGSQLManager) GetSQLDB() (*sql.DB){
+	return sqlManger.db
 }
 
 /* 启动即校验 schema,建立表时进行校验 */

@@ -1,10 +1,12 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-23 14:34:46
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-24 22:55:03
+
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
 * 功能：HTTP层
 * 注册 / 登录流程，强烈建议使用 Redis原因：
 *	1.验证码是短期数据（TTL）
@@ -19,8 +21,10 @@ import (
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
+	UserCachePackage "MLC_GO/internal/modules/user/cache"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
+	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	"MLC_GO/internal/pkg/logHG"
@@ -34,7 +38,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 // 验证码响应结构体
@@ -57,10 +60,10 @@ type loginReqModel struct {
 }
 
 type UserHandler struct {
-	rdb       *redis.Client
-	svc       *UserServicePackage.UserService
-	tokenRepo *UserServicePackage.HGAuthService
-	smsSender HGSMSPackage.HGSender
+	redisService *PersistenceRedisPackage.RedisService
+	svc          *UserServicePackage.UserService
+	tokenService *UserServicePackage.HGAuthService
+	smsSender    HGSMSPackage.HGSender
 }
 
 var (
@@ -69,11 +72,18 @@ var (
 	userAutoID  int64 = 1                                               // 模拟自增用户ID
 )
 
-func NewUserHandler(rdb *redis.Client,
-	svc *UserServicePackage.UserService,
+func NewUserHandler(redisService *PersistenceRedisPackage.RedisService,
+	sqlManager *PersistenceSQLPackage.HGSQLManager,
 	smsSender HGSMSPackage.HGSender,
 ) *UserHandler {
-	return &UserHandler{rdb: rdb, svc: svc, smsSender: smsSender}
+	db := sqlManager.GetSQLDB()
+	redisClient := UserCachePackage.NewCodeCache(redisService)
+	userRepo := UserRepositoryPackage.NewUserRepo(db)
+	svc := UserServicePackage.NewUserService(userRepo)
+	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
+
+	return &UserHandler{redisService: redisService, svc: svc,
+		tokenService: tokenService, smsSender: smsSender}
 }
 
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -122,12 +132,13 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	code := "123456" // TODO：生产中随机生成
-
-	key := "verify:code:" + phone
+	code := utilsPackage.GenerateRandomNum(6)
+	key := PersistenceRedisPackage.GetRedisKey(phone)
 
 	// Redis：存验证码（5 分钟）
-	err := h.rdb.Set(ctx, key, code, 5*time.Minute).Err()
+	err := h.redisService.SetToRedisV2(key, code, 300, ctx)
+	// 废弃
+	// err := h.rdb.Set(ctx, key, code, 5*time.Minute).Err()
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return
@@ -138,9 +149,10 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "send sms failed", 500)
 		return
 	}
+	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", phone, code)
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	w.Write([]byte("ok, 验证码"))
 }
 
 /* 处理发送验证码的逻辑
@@ -242,7 +254,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 
 	users[req.Account] = user
 	userAutoID++
-	PersistenceRedisPackage.DeleteFromRedis(key) // rdb中删除验证码
+	PersistenceRedisPackage.DeleteFromRedis(key, PersistenceRedisPackage.WithContext(r.Context())) // rdb中删除验证码
 
 	PresentersPackage.WriteJSON(w, map[string]any{"message": "注册成功", "id": user.UserID})
 }
@@ -307,22 +319,23 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	key := "verify:code:" + phone
+	key := PersistenceRedisPackage.GetRedisKey(phone)
 
 	// 校验验证码
-	val, err := h.rdb.Get(ctx, key).Result()
+	val, err := h.redisService.GetFromRedisV2(key, ctx)
 	if err != nil || val != code {
 		http.Error(w, "invalid code", http.StatusUnauthorized)
 		return
 	}
 
 	// 删除验证码（一次性）
-	h.rdb.Del(ctx, key)
+	// h.rdb.Del(ctx, key)
+	h.redisService.DeleteFromRedis(key, ctx)
 
 	claims := &UserServicePackage.HGClaims{
 		UserID:  uid,
-		Device:  device, //r.UserAgent(),
-		JTI:     jti,    //TODO:看看怎么产生的 比如：
+		Device:  device,
+		JTI:     jti,
 		TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
@@ -340,7 +353,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 🌟🌟🌟 关键点：写入 Redis 多端设备登录控制
-	h.tokenRepo.Store(ctx,
+	h.tokenService.Store(ctx,
 		uid,
 		device,
 		jti,

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-20 09:37:42
+ * @LastEditTime: 2026-01-24 22:10:48
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -25,10 +25,9 @@ import (
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
 	ConfigPackage "MLC_GO/internal/config"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	UserhandlerPackage "MLC_GO/internal/modules/user/handler"
+	UserAPIPackage "MLC_GO/internal/modules/user/api"
 	"MLC_GO/internal/pkg/logHG"
-	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
-	"log"
+	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"time"
 
@@ -42,10 +41,10 @@ type ModuleType string
 const (
 	MLC_Project ModuleType = "100.00: MLC_GO工程运行"
 
-	Security_01 ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
-	Security_00_certs ModuleType = "13.00: 生成证书"
-	Security_00_server ModuleType = "13.01: 启动服务端"
-	Security_00_client ModuleType = "13.02: 启动客户端"
+	Security_01               ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
+	Security_00_certs         ModuleType = "13.00: 生成证书"
+	Security_00_server        ModuleType = "13.01: 启动服务端"
+	Security_00_client        ModuleType = "13.02: 启动客户端"
 	Module_LOG                ModuleType = "12: 日志错误测试"
 	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
 	Module_commandLoadConfig  ModuleType = "2: 命令行加载配置文件"
@@ -95,32 +94,12 @@ func main() {
 func mlc_main() {
 	logHG.DebugInfo("MLC_GO项目启动中...")
 
-	_, err := PersistenceSQLPackage.NewSQLDB()//db, err :=
-	if err != nil {
-		logHG.FatalFInfo("数据库初化失败，error：", err)
-	}
-
-	// 2 = 当前代码最低依赖的数据库版本
-	// 不满足 → 直接拒绝启动， 这是 企业级“防错机制”
-	// 检查迁移版本
-	// if err := DatabasePackage.ChekckMigrateVersion(db, 2); err != nil {
-	// 	logHG.FatalFInfo("数据库最新迁移失败，error：", err)
-	// }
-	
-	UserhandlerPackage.RegisterUserRoutesV2()
-	srv := http.Server{
-		Addr: ":8080",
-		ReadTimeout: 5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
-	logHG.DebugInfo("Starting server on :8080")
-	log.Fatal(srv.ListenAndServe()) 
+	UserAPIPackage.UserMainV3()
 
 	env := ConfigPackage.GetEnv()
 	if err := ConfigPackage.LoadConfig(string(env)); err != nil {
 		logHG.FatalFInfo("加载配置文件失败: %v\n", err)
-		return		
+		return
 	}
 	logHG.DebugInfo("当前环境: %s\n", env)
 }
@@ -128,7 +107,7 @@ func mlc_main() {
 func practiceKnowledge() {
 
 	modules := getPracticeModules()
-	// for true {
+	for true {
 		fmt.Println("\n\n=====================👏欢迎练习测试陌生知识点==========================")
 		for _, module := range modules {
 			fmt.Printf("\t\t\t 🍎 %s\n", module)
@@ -139,7 +118,7 @@ func practiceKnowledge() {
 		fmt.Scanf("%f\n\n", &functionModule)
 
 		switch functionModule {
-			case 100.00:
+		case 100.00:
 			mlc_main()
 		case 14:
 			securitypt.SecurityV01_mtls_tool()
@@ -180,9 +159,8 @@ func practiceKnowledge() {
 		case 11:
 			concurrent_pt.ConcurrentPTMain()
 		}
-	// }
+	}
 }
-
 
 // dlv线程调试
 func dlvThread00() {

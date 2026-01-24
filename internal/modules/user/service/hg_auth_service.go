@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 20:23:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-23 14:22:30
+ * @LastEditTime: 2026-01-24 23:26:34
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_auth_service.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -16,6 +16,7 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"crypto/rand"
@@ -213,18 +214,22 @@ func (s *HGAuthService) Login(ctx context.Context, d *UserDtoPackage.LoginDTO) (
 
 /* Token黑名单+ 多端登录控制 */
 func (s *HGAuthService) Store(ctx context.Context, uid int64,
-	deice, jti string, ttl time.Duration) {
-	s.rdb.Set(ctx,
-		fmt.Sprintf("token:%d:%s", uid, deice),
-		jti,
-		ttl,
-	)
+	device, jti string, ttl time.Duration) {
+
+	s.codes.SaveMultiportConcrolCache(ctx, uid, device, jti, ttl)
 }
 func (s *HGAuthService) Valid(ctx context.Context, uid int64,
 	deice, jti string) bool {
-	v := s.rdb.Get(ctx,
-		fmt.Sprintf("token:%d:%s", uid, deice),
-	).Val()
+	v, err := s.codes.GetMultiportConcrolCache(ctx, uid, deice)
+	if err != nil {
+		logHG.ErrInfo("Token黑名单+ 多端登录控制 cache 获取失败")
+		return false
+	}
+	// 废弃
+	// v := s.rdb.Get(ctx,
+	// 	fmt.Sprintf("token:%d:%s", uid, deice),
+	// ).Val()
+	
 	// 是否踢下线
 	return v == jti
 }
