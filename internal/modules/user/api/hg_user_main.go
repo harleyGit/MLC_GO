@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-22 21:16:00
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 17:49:10
+ * @LastEditTime: 2026-01-26 00:31:40
  * @FilePath: /MLC_GO/internal/modules/user/api/hg_user_main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,6 +11,7 @@ package UserAPIPackage
 import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
@@ -47,7 +48,7 @@ func UserMainV3() {
 	// --- server ---------
 	srv := &http.Server{
 		Addr:         ":8080",
-		Handler:      mux,
+		Handler:      HGMiddlewarePackage.HGCORSMiddleware(mux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

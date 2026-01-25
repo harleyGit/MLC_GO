@@ -2,11 +2,12 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 14:30:29
+ * @LastEditTime: 2026-01-25 19:32:03
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
 > <h5></h5>
+> [token解析](https://www.jwt.io)
 - [**文件结构介绍**](#文件结构介绍)
 	- [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)

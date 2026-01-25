@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-25 19:22:45
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-26 01:12:21
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -314,21 +314,28 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var cacheKey string
 
+	var req UserDtoPackage.HGCreateUserDTO
+	bodyV := r.Body
+	jsonV := json.NewDecoder(bodyV)
+	if err := jsonV.Decode(&req); err != nil {
+		http.Error(w, "JSON 解析失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	ctx := r.Context()
 	device := PkGDevicePackage.Fingerprint(r)
 	jti := uuid.NewString()
-	phone := r.FormValue("phone")
-	email := r.FormValue("email")
-	code := r.FormValue("code")
-	password := r.FormValue("password")
+	// phone := r.FormValue("phone")
+	// email := r.FormValue("email")
+	// code := r.FormValue("code")
+	// password := r.FormValue("password")
 
-	if !UtilsPackage.IsEmpty(phone) {
+	if !UtilsPackage.IsEmpty(req.Phone) {
 		// TODO: key最好放入某个文件中，太分散了
-		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, phone)
-		userModel, err = PersistenceSQLPackage.GetUserByEmail(phone)
-	} else if !UtilsPackage.IsEmpty(email) {
-		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, email)
-		userModel, err = PersistenceSQLPackage.GetUserByEmail(email)
+		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, *req.Phone)
+		userModel, err = PersistenceSQLPackage.GetUserByEmail(*req.Phone)
+	} else if !UtilsPackage.IsEmpty(*req.Email) {
+		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, *req.Email)
+		userModel, err = PersistenceSQLPackage.GetUserByEmail(*req.Email)
 	} else {
 		http.Error(w, "phone/code required", http.StatusBadRequest)
 		return
@@ -339,8 +346,8 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if UtilsPackage.IsEmpty(code) { // 使用密码
-		hashedPassword := utilsPackage.HashPassword(password, userModel.Salt.String)
+	if UtilsPackage.IsEmpty(req.Code) { // 使用密码
+		hashedPassword := utilsPackage.HashPassword(req.Passowrd, userModel.Salt.String)
 		if hashedPassword != userModel.PasswordHash.String {
 			http.Error(w, "密码不正确", http.StatusBadRequest)
 			return
@@ -348,7 +355,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	} else { // 若是使用验证码
 		// 校验验证码
 		val, err := h.redisService.GetFromRedisV2(cacheKey, ctx)
-		if err != nil || val != code {
+		if err != nil || val != *req.Code {
 			http.Error(w, "invalid code", http.StatusUnauthorized)
 			return
 		}
