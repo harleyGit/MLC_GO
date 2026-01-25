@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 17:46:46
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-25 19:11:06
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -25,6 +25,7 @@ import (
 	UserCachePackage "MLC_GO/internal/modules/user/cache"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
+	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
@@ -355,15 +356,16 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.redisService.DeleteFromRedis(cacheKey, ctx)
 	}
 
+	now := time.Now().UTC()
 	claims := &UserServicePackage.HGClaims{
 		UserID:  uid,
 		Device:  device,
 		JTI:     jti,
 		TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "mlc-go",
 			Subject:   "user-token",
 		},
@@ -484,7 +486,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 /* Profile 方法（需要中间件） */
 func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value("claims").(*UserServicePackage.HGClaims)
+	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
