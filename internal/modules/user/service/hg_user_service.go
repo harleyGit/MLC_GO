@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 11:50:58
+ * @LastEditTime: 2026-01-25 17:27:10
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -66,7 +66,7 @@ func RegisterService(account, code, password string) error {
 	if err != nil || v != code {
 		return err
 	}
-
+	// TODO: 密码判空处理
 	salt := utilsPackage.GenerateRandomNum(8)
 	hashStr := utilsPackage.HashPassword(password, salt)
 	userID := UtilsPackage.GenerateUserID()
@@ -88,6 +88,7 @@ func RegisterService(account, code, password string) error {
 
 	err = PersistenceSQLPackage.CreateUser(u)
 	if err == nil {
+		// 删除注册时发送的验证码
 		PersistenceRedisPackage.DeleteFromRedis(key)
 	}
 	return err

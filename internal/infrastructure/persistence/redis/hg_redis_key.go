@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 00:16:45
+ * @LastEditTime: 2026-01-25 14:44:31
 * @FilePath: /MLC_GO/internal/infrastructure/persistence/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -35,7 +35,8 @@ const (
 )
 
 const (
-	AuthCodePhoneLimitKey = "auth:code:limit:phone:"
+	AuthCodePhoneLimitKey = "auth:code:limit:phone:" // TODO：要改为注册发送的验证码Key
+	AuthLoginVerifyCodekKey = "auth:login:verify:code:"	// 登录验证码Key：手机、邮箱
 	AuthCodeIPLimitKey    = "auth:code:limit:phone:"
 	AuthTokenKey          = "auth:token:"
 	AuthRefreshKey        = "auth:refresh:"
@@ -62,6 +63,7 @@ func (key HGCacheKey) String() string {
 	return string(key)
 }
 func GetRedisVerifyCodeKey(value string) string {
+	// TODO: 这个需要改进下，因为该验证码用于注册，不是登录后面修改下
 	return fmt.Sprintf("%s%s", AuthCodePhoneLimitKey, value)
 }
 func GetCacheKey(prefix string, value string) string {

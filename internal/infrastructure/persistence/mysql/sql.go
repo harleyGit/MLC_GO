@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-24 21:35:38
+ * @LastEditTime: 2026-01-25 17:41:59
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -30,7 +30,7 @@ type HGSQLManager struct {
 
 func LoadSQLEnvValue() {
 	// 仅在本地开发时加载 .env 文件
-    // 如果是生产环境，.env 文件不存在，这步会失败，但没关系
+	// 如果是生产环境，.env 文件不存在，这步会失败，但没关系
 	if os.Getenv("APP_ENV") != ConfigPackage.PROD {
 		// 默认尝试加载当前工作目录下的 .env 文件。
 		// err := godotenv.Load()
@@ -45,26 +45,27 @@ func LoadSQLEnvValue() {
 
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
-		return  value
+		return value
 	}
-	return  fallback
+	return fallback
 }
 
 // 分环境加载环境变量
 func getSQLDSNV2() string {
 	cfg := ConfigPackage.Load()
 	var sqlDSN = SQLQueriesPackage.DB_DSN
-	logHG.DebugFInfo("++++ cfg.MAC_TYPE: %v",cfg.MAC_TYPE)
+	logHG.DebugFInfo("++++ cfg.MAC_TYPE: %v", cfg.MAC_TYPE)
 
 	if cfg.MAC_TYPE == ConfigPackage.DEV_COMPUTER {
-		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC", 
-		cfg.MySQLUser, cfg.MySQLPass, cfg.MySQLHost, cfg.MySQLPort, cfg.MySQLDB)
+		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC",
+			cfg.MySQLUser, cfg.MySQLPass, cfg.MySQLHost, cfg.MySQLPort, cfg.MySQLDB)
 		fmt.Printf("🍎 Raw DSN: %s\n", sqlDSN)
 	}
-	logHG.DebugFInfo("SQLDSN: %v",sqlDSN)
+	logHG.DebugFInfo("SQLDSN: %v", sqlDSN)
 
-	return  sqlDSN
+	return sqlDSN
 }
+
 // Deprecated: 使用 getSQLDSNV2 方法，因为这个方法需要使用默认 .env 文件内容
 func getSQLDSN() string {
 	host := getEnv("MYSQL_HOST", "localhost")
@@ -76,12 +77,12 @@ func getSQLDSN() string {
 	var sqlDSN = SQLQueriesPackage.DB_DSN
 
 	if macType == ConfigPackage.DEV_COMPUTER {
-		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC", 
-		user, password, host, port, dbName)
+		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC",
+			user, password, host, port, dbName)
 	}
-	logHG.DebugFInfo("SQLDSN: %v",sqlDSN)
-	
-	return  sqlDSN
+	logHG.DebugFInfo("SQLDSN: %v", sqlDSN)
+
+	return sqlDSN
 }
 
 func NewSQLManager() (*HGSQLManager, error) {
@@ -94,7 +95,7 @@ func NewSQLManager() (*HGSQLManager, error) {
 	return sqlManager, nil
 }
 
-func NewSQLDB()(*sql.DB, error) {
+func NewSQLDB() (*sql.DB, error) {
 	var err error
 	// dsn := getSQLDSN()//SQLQueriesPackage.DB_DSN
 	dsn := getSQLDSNV2()
@@ -108,14 +109,14 @@ func NewSQLDB()(*sql.DB, error) {
 		return nil, err
 	}
 	// Go 程序启动时校验数据库（不建表）
-	if _, err := checkoutSQLTable();  err != nil {
-		return  nil, err
+	if _, err := checkoutSQLTable(); err != nil {
+		return nil, err
 	}
 
 	return db, nil
 }
 
-func (sqlManger *HGSQLManager) GetSQLDB() (*sql.DB){
+func (sqlManger *HGSQLManager) GetSQLDB() *sql.DB {
 	return sqlManger.db
 }
 
@@ -127,28 +128,31 @@ func checkoutSQLTable() (*sql.DB, error) {
 		// 这是“部署错误”，不是“运行时错误”
 		return nil, fmt.Errorf("database schema not ready: %w", err)
 	}
-	
-	return  db, nil
+
+	return db, nil
 }
-
-
 
 /* 创建用户 */
 func CreateUser(u *UserModelsPackage.HGUserModel) error {
-	stmt, err := db.Exec(SQLQueriesPackage.InsertUserSQL, 
-		u.Email, u.Phone, u.PasswordHash, u.Salt)
+	stmt, err := db.Exec(SQLQueriesPackage.InsertUserSQL,
+		u.UserID, u.Username,
+		u.Email, u.Phone,
+		u.PasswordHash, u.Salt)
 	if err != nil {
+		logHG.ErrFInfo("创建用户失败：", err)
 		return err
 	}
 	_, err = stmt.LastInsertId()
 	return err
 }
+
 /* 获取用户信息 */
 func GetUserByEmail(account string) (*UserModelsPackage.HGUserModel, error) {
 	row := db.QueryRow(SQLQueriesPackage.GetUserByEmailOrPhoneSQL, account, account)
 
 	u := &UserModelsPackage.HGUserModel{}
-	err := row.Scan(&u.UserID, &u.Email, &u.Phone, &u.PasswordHash, &u.Salt)
+	err := row.Scan(&u.UserID, &u.Username, &u.Email, &u.Phone,
+		&u.PasswordHash, &u.Salt)
 	if err != nil {
 		return nil, err
 	}

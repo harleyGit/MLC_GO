@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 11:01:44
+ * @LastEditTime: 2026-01-25 17:46:46
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -20,15 +20,18 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
+	BaseModelsPackage "MLC_GO/internal/models"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserCachePackage "MLC_GO/internal/modules/user/cache"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
+	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	"MLC_GO/internal/pkg/logHG"
 	PkgMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"encoding/json"
 	"net/http"
@@ -207,7 +210,7 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)
-
+	// TODO：防止多次重复注册，注意下
 	if err := UserServicePackage.RegisterService(req.Account, req.Code, req.Password); err != nil {
 		http.Error(w, "注册失败: "+err.Error(), http.StatusBadRequest)
 		return
@@ -306,29 +309,51 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var uid int64 = 1
+	var userModel *UserModelsPackage.HGUserModel
+	var err error
+	var cacheKey string
+
+	ctx := r.Context()
 	device := PkGDevicePackage.Fingerprint(r)
 	jti := uuid.NewString()
 	phone := r.FormValue("phone")
+	email := r.FormValue("email")
 	code := r.FormValue("code")
+	password := r.FormValue("password")
 
-	if phone == "" || code == "" {
-		http.Error(w, "phone/code required", 400)
+	if !UtilsPackage.IsEmpty(phone) {
+		// TODO: key最好放入某个文件中，太分散了
+		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, phone)
+		userModel, err = PersistenceSQLPackage.GetUserByEmail(phone)
+	} else if !UtilsPackage.IsEmpty(email) {
+		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, email)
+		userModel, err = PersistenceSQLPackage.GetUserByEmail(email)
+	} else {
+		http.Error(w, "phone/code required", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		// TODO: 这些错误可以常量化，用标准字符串表示
+		http.Error(w, "用户不存在", http.StatusBadRequest)
 		return
 	}
 
-	ctx := r.Context()
-	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
-
-	// 校验验证码
-	val, err := h.redisService.GetFromRedisV2(key, ctx)
-	if err != nil || val != code {
-		http.Error(w, "invalid code", http.StatusUnauthorized)
-		return
+	if UtilsPackage.IsEmpty(code) { // 使用密码
+		hashedPassword := utilsPackage.HashPassword(password, userModel.Salt.String)
+		if hashedPassword != userModel.PasswordHash.String {
+			http.Error(w, "密码不正确", http.StatusBadRequest)
+			return
+		}
+	} else { // 若是使用验证码
+		// 校验验证码
+		val, err := h.redisService.GetFromRedisV2(cacheKey, ctx)
+		if err != nil || val != code {
+			http.Error(w, "invalid code", http.StatusUnauthorized)
+			return
+		}
+		// 删除验证码（一次性）
+		h.redisService.DeleteFromRedis(cacheKey, ctx)
 	}
-
-	// 删除验证码（一次性）
-	// h.rdb.Del(ctx, key)
-	h.redisService.DeleteFromRedis(key, ctx)
 
 	claims := &UserServicePackage.HGClaims{
 		UserID:  uid,
@@ -346,11 +371,11 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(UserServicePackage.Secret))
 
-	resp := map[string]string{
-		"access_token": signed,
-	}
+	userDto := UserMapperPackage.UserModelToDTO(userModel)
+	userMap := BaseModelsPackage.ModelToMap(userDto)
+	userMap["access_token"] = signed
 
-	// 🌟🌟🌟 关键点：写入 Redis 多端设备登录控制
+	// 🌟🌟🌟 关键点：写入 Redis 多端设备登录控制 // TODO: 简化下，不要这个地方太多套了过多层调用
 	h.tokenService.Store(ctx,
 		uid,
 		device,
@@ -393,7 +418,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		    }
 	*/
 
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(userMap)
 }
 
 /*
@@ -478,7 +503,6 @@ func profile(w http.ResponseWriter, r *http.Request) {
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "已通过认证"})
 }
 
-// Deprecated: 使用 RegisterUserRoutesV3 替代
 func RegisterUserRoutesV3() {
 	PersistenceSQLPackage.NewSQLDB()          // 初始化MySQL连接
 	PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
