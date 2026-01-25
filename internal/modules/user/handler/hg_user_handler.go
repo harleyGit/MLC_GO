@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 10:57:02
+ * @LastEditTime: 2026-01-25 11:01:44
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -133,7 +133,7 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	code := utilsPackage.GenerateRandomNum(6)
-	
+
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
 	// Redis：存验证码（5 分钟）
 	err := h.redisService.SetToRedisV2(key, code, 300, ctx)
@@ -170,7 +170,7 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := utilsPackage.GenerateRandomNum(6)
-	key := "verify:" + req.Account
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
 	PersistenceRedisPackage.SetToRedis(key, code, 5*time.Minute) // 5分钟过期
 
 	logHG.DebugInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", req.Account, code)
@@ -221,7 +221,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 
-	key := "verify:" + req.Account
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
 	code, err := PersistenceRedisPackage.GetFromRedis(key)
 	if err != nil || code != req.Code {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "验证码错误 or 已过期"})

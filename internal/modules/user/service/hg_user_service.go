@@ -1,12 +1,12 @@
 /*
- * @Author: GangHuang harleysor@qq.com
- * @Date: 2026-01-13 10:54:52
+* @Author: GangHuang harleysor@qq.com
+* @Date: 2026-01-13 10:54:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 20:22:39
- * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- 
- * 功能：业务逻辑层
+ * @LastEditTime: 2026-01-25 11:50:58
+* @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
+* @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
+* 功能：业务逻辑层
  */
 package UserServicePackage
 
@@ -17,6 +17,7 @@ import (
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"strings"
@@ -60,7 +61,7 @@ func (s *UserService) PathUser(
 }
 
 func RegisterService(account, code, password string) error {
-	key := "verify:" + account
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(account)
 	v, err := PersistenceRedisPackage.GetFromRedis(key)
 	if err != nil || v != code {
 		return err
@@ -68,7 +69,11 @@ func RegisterService(account, code, password string) error {
 
 	salt := utilsPackage.GenerateRandomNum(8)
 	hashStr := utilsPackage.HashPassword(password, salt)
+	userID := UtilsPackage.GenerateUserID()
+	userName := UtilsPackage.GenerateMultilingualName()
 	u := &UserModelsPackage.HGUserModel{
+		UserID: utilsPackage.StrPtrToNullStr(&userID),
+		Username: utilsPackage.StrPtrToNullStr(&userName),
 		PasswordHash: utilsPackage.StrPtrToNullStr(&hashStr),
 		Salt:         utilsPackage.StrPtrToNullStr(&salt),
 	}
