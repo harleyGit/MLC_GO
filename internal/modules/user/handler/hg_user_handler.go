@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-24 22:55:03
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-25 10:57:02
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -133,12 +133,10 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	code := utilsPackage.GenerateRandomNum(6)
-	key := PersistenceRedisPackage.GetRedisKey(phone)
-
+	
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
 	// Redis：存验证码（5 分钟）
 	err := h.redisService.SetToRedisV2(key, code, 300, ctx)
-	// 废弃
-	// err := h.rdb.Set(ctx, key, code, 5*time.Minute).Err()
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return
@@ -206,7 +204,7 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 		-H "Content-Type: application/json" \
 		-d '{"account":"test@example.com","code":"338122","password":"123456"}'
 */
-func registerHandlerV3(w http.ResponseWriter, r *http.Request) {
+func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -218,7 +216,7 @@ func registerHandlerV3(w http.ResponseWriter, r *http.Request) {
 }
 
 /* 注册V2版本，使用了Redis存储验证码 */
-// Deprecated: 使用 registerHandlerV3 替代
+// Deprecated: 使用  替代
 func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)
@@ -319,7 +317,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	key := PersistenceRedisPackage.GetRedisKey(phone)
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
 
 	// 校验验证码
 	val, err := h.redisService.GetFromRedisV2(key, ctx)
