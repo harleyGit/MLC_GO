@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 20:23:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-24 23:26:34
+ * @LastEditTime: 2026-01-25 19:25:40
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_auth_service.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -45,7 +45,7 @@ var (
 )
 
 type HGClaims struct {
-	UserID  int64  `json:"uid"`
+	UserID  string  `json:"uid"`
 	Device  string `json:"device"`
 	JTI     string `json:"jti"`
 	TokenTp string `json"tp"`
@@ -75,7 +75,7 @@ func randJTI() string {
 func GenerateTokens(
 	ctx context.Context,
 	rdb *redis.Client,
-	userID int64,
+	userID string,
 ) (access, refresh string, err error) {
 	jti := randJTI()
 	now := time.Now()
@@ -176,7 +176,7 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 		s.users.Insert(ctx, user)
 	}
 
-	at, rt, _ := GenerateTokens(ctx, s.rdb, user.ID)
+	at, rt, _ := GenerateTokens(ctx, s.rdb, *UtilsPackage.NullStrToPtr(user.UserID))
 	s.codes.DeleteCode(ctx, phone)
 
 	return &UserDtoPackage.LoginResultDTO{
