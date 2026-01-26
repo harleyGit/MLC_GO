@@ -2,10 +2,19 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 19:32:03
+ * @LastEditTime: 2026-01-26 11:26:38
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
+
+```sh
+# redis 启动
+redis-server
+
+# sql 启动
+sudo mysql.server start
+```
+
 > <h5></h5>
 > [token解析](https://www.jwt.io)
 - [**文件结构介绍**](#文件结构介绍)

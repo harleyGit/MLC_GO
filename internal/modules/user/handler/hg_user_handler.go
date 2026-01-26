@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-26 01:29:48
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-26 11:47:08
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -371,7 +371,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JTI:     jti,
 		TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * 60 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "mlc-go",
@@ -427,16 +427,17 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	*/
 
 	// 设置 Content-Type
-    w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-    // 使用 json.MarshalIndent 生成格式化 JSON
-    jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
-    if err != nil {
-        http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
-        return
-    }
+	// 使用 json.MarshalIndent 生成格式化 JSON
+	userDto.Token = &signed
+	jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
+	if err != nil {
+		http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
+		return
+	}
 
-    w.Write(jsonBytes)
+	w.Write(jsonBytes)
 
 	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 }

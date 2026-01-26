@@ -12,8 +12,6 @@
 
 package UserDtoPackage
 
-
-
 // 创建用户（POST）
 type HGCreateUserDTO struct {
 	ID           int64
@@ -21,9 +19,9 @@ type HGCreateUserDTO struct {
 	Username     *string `json:"userName"`
 	Email        *string `json:"emial"`
 	Phone        *string `json:"phone"`
-	Code        *string `json:"code"`
+	Code         *string `json:"code"`
 	Passowrd     string  `json:"password"`
 	PasswordHash *string `json:"passwordHash"`
 	Salt         *string `json:"salt"`
+	Token        *string `json:"token"`
 }
-
