@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-26 20:45:31
+  - @LastEditors: Harley harelysoa@qq.com
+  - @LastEditTime: 2026-01-26 23:06:00
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -19,6 +19,7 @@ package UserHandlerPackage
 import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
 	BaseModelsPackage "MLC_GO/internal/models"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
@@ -34,6 +35,7 @@ import (
 	PkgMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
+	HGResponsePakcage "MLC_GO/internal/response"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -426,18 +428,25 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		    }
 	*/
 
-	// 设置 Content-Type
+	// 设置 Content-Type 废弃
 	// w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	tid := HGMiddlewarePackage.GetTID(ctx)
 
 	// 使用 json.MarshalIndent 生成格式化 JSON
 	userDto.Token = &signed
-	jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
-	if err != nil {
-		http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
-		return
-	}
+	// 废弃
+	// jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
+	// if err != nil {
+	// 	http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
+	// 	return
+	// }
 
-	w.Write(jsonBytes)
+	// w.Write(jsonBytes)
+
+
+HGResponsePakcage.WriteJSON(w, tid, userDto)
+
 
 	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 }

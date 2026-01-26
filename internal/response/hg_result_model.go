@@ -46,7 +46,7 @@ func WriteJSON(
 		resp.Message = r.ResponseMessage()
 	}
 
-	jsonBytes, err  := json.MarshalIndent(resp, "", " ")
+	jsonBytes, err  := json.MarshalIndent(resp, "", " ") // "" = 前缀，"  " = 每级缩进两个空格
 	if err != nil {
 		http.Error(w, "JSON encode failed ❌", http.StatusInternalServerError)
 		return
