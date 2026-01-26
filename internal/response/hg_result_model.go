@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:01:35
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-26 21:27:14
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-01-26 23:12:58
  * @FilePath: /MLC_GO/internal/interfaces/response/hg_result_model.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -36,7 +36,7 @@ func WriteJSON(
 		Code:0,
 		Message: "success💯",
 		Result: result,
-		TID: tid,
+		TID: tid,//TODO: tid直接写这里，就不用写tid中间件了
 		Timestamp: time.Now().UnixMilli(),
 	}
 
