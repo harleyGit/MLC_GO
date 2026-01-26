@@ -21,6 +21,7 @@ import (
 	"time"
 )
 
+// 废弃
 func UserMainV3() {
 
 	// --- Redis ----
