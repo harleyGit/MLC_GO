@@ -2,17 +2,26 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-25 17:04:01
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 17:05:13
+ * @LastEditTime: 2026-01-26 21:17:04
  * @FilePath: /MLC_GO/internal/models/hg_base_model.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
-package BaseModelsPackage
+package HGBaseModelPackage
 
 import (
 	"fmt"
 	"reflect"
 	"strings"
 )
+
+/* 基础响应结构【HTTP JSON容器】 */
+type HGBaseResponseModel struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+	Result interface{} `json:"result"`
+	TID string `json:"tid"`
+	Timestamp int64 `json:"timestamp"`
+}
 
 // TODO: 将其写入到一个基类model中，最好这个类是一个协议，其他继承这个类。然后共用这个反射映射
 // 使用反射（通用但性能稍差）
