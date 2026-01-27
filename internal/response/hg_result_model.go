@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:01:35
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-01-26 23:12:58
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-27 11:52:16
  * @FilePath: /MLC_GO/internal/interfaces/response/hg_result_model.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -46,6 +46,7 @@ func WriteJSON(
 		resp.Message = r.ResponseMessage()
 	}
 
+	// json.MarshlIndent会在每个字段之间自动换行，并缩进2格
 	jsonBytes, err  := json.MarshalIndent(resp, "", " ") // "" = 前缀，"  " = 每级缩进两个空格
 	if err != nil {
 		http.Error(w, "JSON encode failed ❌", http.StatusInternalServerError)

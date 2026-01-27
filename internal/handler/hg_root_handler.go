@@ -2,13 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-27 10:12:11
+ * @LastEditTime: 2026-01-27 20:27:57
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package HGHandlerPackage
 
 import (
+	HGPracticeTestHandlerPackage "MLC_GO/TestNotes/handler_practice"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
@@ -26,6 +27,7 @@ func RootHander(redisService *PersistenceRedisPackage.RedisService,
 	userHandler := UserHandlerPackage.NewUserHandler(redisService, sqlManager, smsSender)
 	publicHandler := HGMiddlewareGroupPackage.AuthMiddlewareGoup(userHandler)
 	userHandlerWithAuth := HGMiddlewareGroupPackage.UserMiddlewareGoup(userHandler)
+	testHandler := HGPracticeTestHandlerPackage.PracticeTestHandler()
 
 	// public【前缀】
 	rootMux.Handle("/auth/", http.StripPrefix("/auth", publicHandler))
@@ -36,6 +38,9 @@ func RootHander(redisService *PersistenceRedisPackage.RedisService,
 
 	// order
 	// rootMux.Handle("/order/", orderHandleWithAuth)
+
+	// 测试
+	rootMux.Handle("/test/", http.StripPrefix("/test", testHandler))
 
 	return rootMux
 }

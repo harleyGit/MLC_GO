@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: Harley harelysoa@qq.com
-  - @LastEditTime: 2026-01-26 23:06:00
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-27 11:46:16
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -444,9 +444,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// w.Write(jsonBytes)
 
-
-HGResponsePakcage.WriteJSON(w, tid, userDto)
-
+	HGResponsePakcage.WriteJSON(w, tid, userDto)
 
 	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 }
