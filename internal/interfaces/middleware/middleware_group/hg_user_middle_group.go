@@ -21,7 +21,7 @@ import (
 func UserMiddlewareGoup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 
 	userMux := http.NewServeMux()
-	userMux.HandleFunc("/profile", userHandler.Profile)
+	userMux.HandleFunc("/", userHandler.Profile)
 	// userMux.HandleFunc("/user/logout", userHandler.Logout)//登出
 
 	// 统一： JOSN + TID + Auth
