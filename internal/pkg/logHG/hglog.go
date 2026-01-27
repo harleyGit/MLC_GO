@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-19 16:18:09
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2025-07-27 13:43:11
+ * @LastEditTime: 2026-01-27 21:00:57
  * @FilePath: /MLC_GO/pkg/hglog/hglog.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
