@@ -11,8 +11,11 @@
 # redis 启动
 redis-server
 
-# sql 启动
+# M2Pro sql 启动
 sudo mysql.server start
+
+# Intel sql启动 密码：回车即可
+mysql -u root -p
 ```
 
 > <h5></h5>
