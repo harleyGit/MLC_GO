@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:28:25
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-28 19:53:39
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-01-28 22:26:59
  * @FilePath: /MLC_GO/internal/handler/response/hg_err_result.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -23,6 +23,13 @@ type HGErrorResult struct {
 	Code    HGErrorCode `json:"-"`
 	Message string    `json:"-"`
 }
+
+var (
+  OK = HGErrorResult{OKCode, "success"}
+  Unauthorized = HGErrorResult{UnauthorizedCode, "unauthorized"} 
+  InvalidParam = HGErrorResult{InvalidParamCode, "invalid param"}
+  InternalError = HGErrorResult{InternalErrorCode, "internal server error"}
+)
 
 func NewErrResult(code HGErrorCode, msg string) *HGErrorResult {
   return  &HGErrorResult{Code: code, Message: msg}
