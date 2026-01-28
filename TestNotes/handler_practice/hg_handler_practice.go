@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-27 18:18:26
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-27 20:51:19
+ * @LastEditTime: 2026-01-28 20:45:14
  * @FilePath: /MLC_GO/TestNotes/handler_practice/hg_handler_test.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,6 +11,7 @@ package HGPracticeHandlerPackage
 import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	"MLC_GO/internal/pkg/logHG"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
 )
@@ -55,13 +56,13 @@ func PracticeTestHandler() http.Handler {
 */
 func (th *HGPracticeHandler) OkTestHandler(w http.ResponseWriter, r *http.Request) {
 
-	tid := HGMiddlewarePackage.GetTID(r.Context())
+	tid := UtilsPackage.GetTID(r.Context())
 
 	logHG.DebugFInfo("[TID=%s] 测试 业务逻辑开始", tid)
 
-	resultModel := HGResultPracticeModel{User: "Master💎", Age: 25}
+	resultModel := &HGResultPracticeModel{User: "Master1💎", Age: 25}
 
-	HGResponsePakcage.WriteJSON(w, tid, resultModel)
+	HGResponsePakcage.WriteJSON(w, r, resultModel)
 }
 
 /*
@@ -78,7 +79,7 @@ func (th *HGPracticeHandler) OkTestHandler(w http.ResponseWriter, r *http.Reques
 */
 func (th *HGPracticeHandler) ErrTestHandler(w http.ResponseWriter, r *http.Request) {
 
-	tid := HGMiddlewarePackage.GetTID(r.Context())
+	tid := UtilsPackage.GetTID(r.Context())
 	logHG.DebugFInfo("[TID=%s] 测试 业务逻辑开始", tid)
 
 	// 模拟业务错误
