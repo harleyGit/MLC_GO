@@ -13,7 +13,7 @@ type HGLog struct {
 	Msg  string `json:"msg"`
 	TID  string `json:"tid"`
 }
-
+//TODO： 日志文件如何切割
 func LogInfo(ctx context.Context, msg string) {
 	if ctx == nil {
 		return

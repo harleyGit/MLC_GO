@@ -23,22 +23,21 @@ if logDir == "" {
 启动时：LOG_DIR=/var/log/mlc-go go run cmd/server/main.go
 */
 
+/*
+	方式3️⃣：✅ 方式 3：实时 grep（非常实用）：
 
-/* 方式3️⃣：✅ 方式 3：实时 grep（非常实用）：
 tail -f server.log | grep 1769383162123456000-193812
 - 	一边请求接口
 -	一边实时看某个 tid 的行为
 
-
 方式1️⃣：查看日志通过tid：grep tid值 logs/server.log
-比如：grep "e9504165c7068391e535b08403ac2df2" logs/server.log 
-
+比如：grep "e9504165c7068391e535b08403ac2df2" logs/server.log
 
 方式2️⃣若是运行在服务器：journalctl -u your-service【Linux系统服务器名】 | grep tid值
 比如：journalctl -u your-service | grep TID=050a9089e268470e2d324f4070424e84
 -	Linux
 -	systemd 管理的服务
--	例如你部署在服务器上：	
+-	例如你部署在服务器上：
 */
 func Init() {
 	// 确保 logs 目录存在, 这个路径是相对路径，它相对于【🍎你启动程序时的工作目录】
@@ -59,9 +58,7 @@ func Init() {
 	if err != nil {
 		log.Fatalf("❌ERROR open log failed: %v", err)
 	}
-
-	log.SetOutput(file)//代码输出到文件中
+	defer file.Close()
+	log.SetOutput(file) //代码输出到文件中
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
 }
-
-
