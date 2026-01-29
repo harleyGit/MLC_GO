@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-28 20:05:36
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-28 20:56:39
+ * @LastEditTime: 2026-01-29 19:39:54
  * @FilePath: /MLC_GO/internal/response/hg_api_response.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,15 +11,18 @@ package HGResponsePakcage
 import "net/http"
 
 /* 基础响应结构【HTTP JSON容器】 */
-type HGAPIResponseModel struct {
+type HGAPIResponseModel[T any] struct {
 	Code      HGErrorCode `json:"code"`
 	Message   string      `json:"message"`
-	Result    interface{} `json:"result"`
+	Result    interface{} `json:"result"`         //TODO:这个不用了
+	Data      T           `json:"data,omitempty"` //使用泛型结构数据，用泛型结构体
 	TID       string      `json:"tid"`
 	Timestamp int64       `json:"timestamp"`
 }
 
-func Success(w http.ResponseWriter, r *http.Request, result HGResultModel) {
+
+
+func Success(w http.ResponseWriter, r *http.Request, result HGResultProtocol) {
 	WriteJSON(w, r, result)
 }
 

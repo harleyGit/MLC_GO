@@ -1,22 +1,32 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:28:25
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-01-28 22:26:59
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-29 17:54:21
  * @FilePath: /MLC_GO/internal/handler/response/hg_err_result.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package HGResponsePakcage
 
+//TODO: 名字改为HGResultCode
 type HGErrorCode int
 
 const (
 	OKCode            HGErrorCode = 200
-	UnauthorizedCode  HGErrorCode = 401001
-	InvalidParamCode  HGErrorCode = 400001
-	InternalErrorCode HGErrorCode = 500001
+
+  // 通用错误
+	UnauthorizedCode  HGErrorCode = 101001
+	InvalidParamCode  HGErrorCode = 100002
+  ForbiddenCode HGErrorCode = 10003
+  NotFoundCode HGErrorCode = 10004
+  
+  // 业务错误
 	UserNotFoundCode  HGErrorCode = 404001
 	OrderNotFoundCode HGErrorCode = 404002
+
+  // 系统错误
+  InternalErrorCode HGErrorCode = 500001
+
 )
 
 type HGErrorResult struct {
@@ -33,6 +43,10 @@ var (
 
 func NewErrResult(code HGErrorCode, msg string) *HGErrorResult {
   return  &HGErrorResult{Code: code, Message: msg}
+}
+
+func (e *HGErrorResult) ErrMSG() string {
+  return  e.Message
 }
 
 func (e HGErrorResult) ResponseCode() HGErrorCode {
