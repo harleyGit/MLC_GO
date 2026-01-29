@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-28 20:16:41
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-01-28 23:16:32
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-29 17:42:52
  * @FilePath: /MLC_GO/internal/pkg/utils/hg_tid_util.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -64,6 +64,9 @@ func GetTID(ctx context.Context) string {
 }
 
 func InjectTID(ctx context.Context, tid string) context.Context {
+	// 放到 context 里供 handler 使用，不要字符串类型 "tid" 做key，应该用 tidContextKey
+	// 原因是 字符串容易被其他的覆盖掉， string 无法表达“只属于这个包”；
+	// type tidContextKeyType struct{} 1.只存在于这个 package；2.外部包 无法构造同类型的 key
 	return context.WithValue(ctx, tidContextKey, tid)
 }
 

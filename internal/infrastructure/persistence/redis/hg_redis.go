@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 21:28:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-24 17:58:07
+ * @LastEditTime: 2026-01-29 17:39:01
  * @FilePath: /MLC_GO/internal/cache/hg_redis.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -38,6 +38,7 @@ var (
 	ctx = context.Background()
 	RDB *redis.Client
 )
+
 func WithContext(ctx context.Context) RedisOption {
 	return func(o *options) {
 		o.ctx = ctx
@@ -178,8 +179,8 @@ func (redisService *RedisService) DeleteFromRedis(key string, ctx context.Contex
 	return DeleteFromRedis(key, WithContext(ctx))
 }
 
-func GetFromRedis(ctx context.Context,key string, opts ...RedisOption) (string, error) {
-	HGLoggerPackage.LogInfo(ctx, key)
+func GetFromRedis(ctx context.Context, key string, opts ...RedisOption) (string, error) {
+	HGLoggerPackage.LogInfo(ctx, "Redis Get:"+key)
 	// 默认配置
 	opt := defaultRedisOptions()
 	// 应用所有传入的选项
