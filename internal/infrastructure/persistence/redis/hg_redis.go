@@ -10,6 +10,7 @@ package PersistenceRedisPackage
 
 import (
 	"MLC_GO/internal/pkg/logHG"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"context"
 	"time"
 
@@ -177,7 +178,8 @@ func (redisService *RedisService) DeleteFromRedis(key string, ctx context.Contex
 	return DeleteFromRedis(key, WithContext(ctx))
 }
 
-func GetFromRedis(key string, opts ...RedisOption) (string, error) {
+func GetFromRedis(ctx context.Context,key string, opts ...RedisOption) (string, error) {
+	HGLoggerPackage.LogInfo(ctx, key)
 	// 默认配置
 	opt := defaultRedisOptions()
 	// 应用所有传入的选项

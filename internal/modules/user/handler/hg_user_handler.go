@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-29 17:22:47
+  - @LastEditTime: 2026-01-29 17:37:01
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -213,7 +213,7 @@ func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Req
 	var req registerReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 	// TODO：防止多次重复注册，注意下
-	if err := UserServicePackage.RegisterService(req.Account, req.Code, req.Password); err != nil {
+	if err := UserServicePackage.RegisterService(r.Context(), req.Account, req.Code, req.Password); err != nil {
 		http.Error(w, "注册失败: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -227,7 +227,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
-	code, err := PersistenceRedisPackage.GetFromRedis(key)
+	code, err := PersistenceRedisPackage.GetFromRedis(r.Context(), key)
 	if err != nil || code != req.Code {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "验证码错误 or 已过期"})
 		return
