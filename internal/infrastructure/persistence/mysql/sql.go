@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 17:41:59
+ * @LastEditTime: 2026-01-29 17:30:27
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,6 +13,8 @@ import (
 	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	"MLC_GO/internal/pkg/logHG"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -147,7 +149,7 @@ func CreateUser(u *UserModelsPackage.HGUserModel) error {
 }
 
 /* 获取用户信息 */
-func GetUserByEmail(account string) (*UserModelsPackage.HGUserModel, error) {
+func GetUserByEmail(ctx context.Context, account string) (*UserModelsPackage.HGUserModel, error) {
 	row := db.QueryRow(SQLQueriesPackage.GetUserByEmailOrPhoneSQL, account, account)
 
 	u := &UserModelsPackage.HGUserModel{}
@@ -156,5 +158,7 @@ func GetUserByEmail(account string) (*UserModelsPackage.HGUserModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	HGLoggerPackage.LogInfo(ctx, "登录mysql查询 account："+account+" 用户名："+u.Username.String)
+
 	return u, nil
 }

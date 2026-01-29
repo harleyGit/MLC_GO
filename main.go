@@ -1,27 +1,28 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-01-27 23:07:31
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-29 17:25:26
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 
- /*
- 推荐放置顺序（标准工程做法）
-func main() {
-	// ① 初始化日志（最早）
-	initLogger()
+/*
+	推荐放置顺序（标准工程做法）
 
-	// ② 初始化依赖（DB / Redis / Config）
-	initDeps()
+	func main() {
+		// ① 初始化日志（最早）
+		initLogger()
 
-	// ③ 构建 router / middleware
-	router := buildRouter()
+		// ② 初始化依赖（DB / Redis / Config）
+		initDeps()
 
-	// ④ 启动 HTTP Server
-	startServer(router)
-}
+		// ③ 构建 router / middleware
+		router := buildRouter()
+
+		// ④ 启动 HTTP Server
+		startServer(router)
+	}
 
 swagger api文档测试： http://127.0.0.1:8000/swagger/index.html
 */
@@ -45,7 +46,6 @@ import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	"MLC_GO/internal/pkg/logHG"
-	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"log"
 	"net/http" //提供了 HTTP 客户端和服务端的实现
@@ -114,7 +114,9 @@ func main() {
 func mlc_main() {
 	logHG.DebugInfo("MLC_GO项目启动中...")
 
-	HGLoggerPackage.Init()
+	// TODO：日志最好能分时间比如一天
+	// tid日志写入文件中
+	// HGLoggerPackage.Init()
 	// UserAPIPackage.UserMainV3()
 
 	// --- Redis ----

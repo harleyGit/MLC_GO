@@ -1,0 +1,29 @@
+package HGLoggerPackage
+
+import (
+	"MLC_GO/internal/pkg/logHG"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
+	"context"
+	"encoding/json"
+	"time"
+)
+
+type HGLog struct {
+	Time string `json:"time"`
+	Msg  string `json:"msg"`
+	TID  string `json:"tid"`
+}
+
+func LogInfo(ctx context.Context, msg string) {
+	if ctx == nil {
+		return
+	}
+	l := HGLog{
+		Time: time.Now().Format(time.RFC3339),
+		Msg:  msg,
+		TID:  UtilsPackage.From(ctx),
+	}
+
+	b, _ := json.Marshal(l)
+	logHG.DebugFInfo("【日志】：%s", string(b))
+}
