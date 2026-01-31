@@ -10,11 +10,12 @@ import (
 
 type HGLog struct {
 	Time string `json:"time"`
-	Msg  string `json:"msg"`
+	Msg  any `json:"msg"`
 	TID  string `json:"tid"`
 }
-//TODO： 日志文件如何切割
-func LogInfo(ctx context.Context, msg string) {
+
+// TODO： 日志文件如何切割
+func LogInfo(ctx context.Context, msg any) {
 	if ctx == nil {
 		return
 	}
@@ -23,7 +24,12 @@ func LogInfo(ctx context.Context, msg string) {
 		Msg:  msg,
 		TID:  UtilsPackage.From(ctx),
 	}
-
-	b, _ := json.Marshal(l)
+	b, err := json.MarshalIndent(l, "", "  ")
+	if err != nil {
+		logHG.ErrFInfo("json marshal error: %v", err)
+		return
+	}
 	logHG.DebugFInfo("【日志】：%s", string(b))
 }
+
+ 
