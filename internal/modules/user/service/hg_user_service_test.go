@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 15:28:45
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-21 18:17:57
+ * @LastEditTime: 2026-01-31 21:43:55
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service_test.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -35,7 +35,7 @@ func TestCreateUser_NullEmail(t *testing.T) {
 	d := &UserDtoPackage.HGCreateUserDTO{
 		Email:    nil, // 未传
 		Phone:    &phone,
-		Passowrd: "123456",
+		Password: "123456",
 	}
 
 	err := svc.CreateUser(context.Background(), d)

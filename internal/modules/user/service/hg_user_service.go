@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-29 17:36:31
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-31 21:44:03
 
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -34,7 +34,7 @@ func NewUserService(repo *UserRepositoryPackage.UserRepo) *UserService {
 
 func (s *UserService) CreateUser(ctx context.Context, d *UserDtoPackage.HGCreateUserDTO) error {
 	salt := utilsPackage.GenerateRandomNum(8)
-	hash := utilsPackage.HashPassword(d.Passowrd, salt)
+	hash := utilsPackage.HashPassword(d.Password, salt)
 	d.Salt = &salt
 	d.PasswordHash = &hash
 

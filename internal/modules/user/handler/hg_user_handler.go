@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-29 20:23:34
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-31 21:48:23
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -130,32 +130,34 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phone := r.FormValue("phone")
-	if phone == "" {
-		http.Error(w, "phone required", http.StatusBadRequest)
+	// TODO:取出获取验证码的phone字段
+	var req UserDtoPackage.HGCreateUserDTO
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "JSON 解析失败: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	code := utilsPackage.GenerateRandomNum(6)
 
-	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(*req.Phone)
 	// Redis：存验证码（5 分钟）
-	err := h.redisService.SetToRedisV2(key, code, 300, ctx)
+	err = h.redisService.SetToRedisV2(key, code, 10, ctx)
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return
 	}
 
 	// 发送短信（Mock / 真实）
-	if err := h.smsSender.Send(phone, code); err != nil {
+	if err := h.smsSender.Send(*req.Phone, code); err != nil {
 		http.Error(w, "send sms failed", 500)
 		return
 	}
-	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", phone, code)
+	req.Code = &code
+	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", *req.Phone, code)
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok, 验证码"))
+	HGResponsePakcage.SuccessResult(w, r, req)
 }
 
 /* 处理发送验证码的逻辑
@@ -348,7 +350,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if UtilsPackage.IsEmpty(req.Code) { // 使用密码
-		hashedPassword := utilsPackage.HashPassword(req.Passowrd, userModel.Salt.String)
+		hashedPassword := utilsPackage.HashPassword(req.Password, userModel.Salt.String)
 		if hashedPassword != userModel.PasswordHash.String {
 			http.Error(w, "密码不正确", http.StatusBadRequest)
 			return
@@ -442,7 +444,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// w.Write(jsonBytes)
 
 	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
-	HGResponsePakcage.SuccessResult(w,r,userDto)
+	HGResponsePakcage.SuccessResult(w, r, userDto)
 
 	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 }
