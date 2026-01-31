@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-31 22:44:15
+  - @LastEditTime: 2026-01-31 23:41:39
 
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -21,7 +21,6 @@ import (
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
-	"strings"
 )
 
 type UserService struct {
@@ -81,14 +80,7 @@ func RegisterService(ctx context.Context, reigisterModel UserDtoPackage.Register
 		PasswordHash: utilsPackage.StrPtrToNullStr(&hashStr),
 		Salt:         utilsPackage.StrPtrToNullStr(&salt),
 		Phone:        UtilsPackage.StrPtrToNullStr(&reigisterModel.Phone),
-	}
-
-	if strings.Contains(reigisterModel.Email, "@") {
-		u.Email = utilsPackage.StrPtrToNullStr(&reigisterModel.Account)
-		// u.Email.Valid = true
-	} else {
-		u.Phone = utilsPackage.StrPtrToNullStr(&reigisterModel.Account)
-		// u.Phone.Valid = true
+		Email:        UtilsPackage.StrPtrToNullStr(&reigisterModel.Email),
 	}
 
 	err = PersistenceSQLPackage.CreateUser(u)

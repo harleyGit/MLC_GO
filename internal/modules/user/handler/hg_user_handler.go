@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-31 23:24:40
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-31 23:24:40
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -209,8 +209,7 @@ func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Req
 	json.NewDecoder(r.Body).Decode(&req)
 	// TODO：防止多次重复注册，注意下
 	if err := UserServicePackage.RegisterService(r.Context(), req); err != nil {
-		http.Error(w, "注册失败: "+err.Error(), http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, "注册失败: "+err.Error())
 		return
 	}
 	HGResponsePakcage.SuccessResult(w, r, req)
