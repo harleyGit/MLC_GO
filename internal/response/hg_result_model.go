@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:01:35
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-29 21:02:28
+ * @LastEditTime: 2026-01-31 22:47:47
  * @FilePath: /MLC_GO/internal/interfaces/response/hg_result_model.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -25,7 +25,7 @@ type HGResultProtocol interface {
 type HGResultModel[T any] struct {
 	Code      HGErrorCode `json:"code"`
 	Message   string      `json:"message"`
-	Result      T           `json:"result,omitempty"` //使用泛型结构数据，用泛型结构体
+	Result    T           `json:"result,omitempty"` //使用泛型结构数据，用泛型结构体
 	TID       string      `json:"tid"`
 	Timestamp int64       `json:"timestamp"`
 }
@@ -35,7 +35,7 @@ func SuccessResult[T any](w http.ResponseWriter, r *http.Request, data T) {
 	result := HGResultModel[T]{
 		Code:      OKCode,
 		Message:   "success💯",
-		Result:      data,
+		Result:    data,
 		TID:       UtilsPackage.GetTID(r.Context()),
 		Timestamp: time.Now().UnixMilli(),
 	}
@@ -48,7 +48,7 @@ func FailResult[T any](w http.ResponseWriter, r *http.Request, code HGErrorCode,
 	var zero T
 	resp := HGResultModel[T]{Code: code,
 		Message:   msg,
-		Result:      zero,
+		Result:    zero,
 		TID:       UtilsPackage.GetTID(r.Context()),
 		Timestamp: time.Now().UnixMilli(),
 	}
@@ -90,6 +90,8 @@ func WriteJSON(
 }
 
 func writeResult(resp interface{}, w http.ResponseWriter) {
+	
+	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 	// json.MarshlIndent会在每个字段之间自动换行，并缩进2格
 	jsonBytes, err := json.MarshalIndent(resp, "", " ") // "" = 前缀，"  " = 每级缩进两个空格
 	if err != nil {

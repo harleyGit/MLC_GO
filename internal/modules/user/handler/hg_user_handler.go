@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-31 21:48:23
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-01-31 23:24:40
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -48,13 +48,6 @@ import (
 // 验证码响应结构体
 type verifyCodeReqModel struct {
 	Account string `json:"account"` // email or phone
-}
-
-/* 注册响应结构体 */
-type registerReqModel struct {
-	Account  string `json: "account"` // email or phone
-	Code     string `json:"code"`
-	Password string `json:"password"`
 }
 
 /* 登录响应结构体 */
@@ -143,7 +136,7 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(*req.Phone)
 	// Redis：存验证码（5 分钟）
-	err = h.redisService.SetToRedisV2(key, code, 10, ctx)
+	err = h.redisService.SetToRedisV2(key, code, 70, ctx)
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return
@@ -212,20 +205,21 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 		-d '{"account":"test@example.com","code":"338122","password":"123456"}'
 */
 func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
-	var req registerReqModel
+	var req UserDtoPackage.RegisterReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 	// TODO：防止多次重复注册，注意下
-	if err := UserServicePackage.RegisterService(r.Context(), req.Account, req.Code, req.Password); err != nil {
+	if err := UserServicePackage.RegisterService(r.Context(), req); err != nil {
 		http.Error(w, "注册失败: "+err.Error(), http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, err.Error())
 		return
 	}
-	w.Write([]byte("注册成功"))
+	HGResponsePakcage.SuccessResult(w, r, req)
 }
 
 /* 注册V2版本，使用了Redis存储验证码 */
 // Deprecated: 使用  替代
 func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
-	var req registerReqModel
+	var req UserDtoPackage.RegisterReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
@@ -267,7 +261,7 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 /* 注册V1版本，弃用【只是用到了缓存】 */
 // Deprecated: 使用 registerHandlerV2 替代
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-	var req registerReqModel
+	var req UserDtoPackage.RegisterReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 
 	if verifyCodes[req.Account] != req.Code {
@@ -441,12 +435,8 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 	return
 	// }
 
-	// w.Write(jsonBytes)
-
 	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
 	HGResponsePakcage.SuccessResult(w, r, userDto)
-
-	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
 }
 
 /*
