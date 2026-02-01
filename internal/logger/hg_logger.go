@@ -1,11 +1,15 @@
 /*
- * @Author: GangHuang harleysor@qq.com
- * @Date: 2026-01-27 21:02:12
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-27 21:28:52
- * @FilePath: /MLC_GO/TestNotes/GenPracticeExample/pkg/logs/hg_logger.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
+* @Author: GangHuang harleysor@qq.com
+* @Date: 2026-01-27 21:02:12
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-02-01 10:58:32
+
+* @FilePath: /MLC_GO/TestNotes/GenPracticeExample/pkg/logs/hg_logger.go
+* @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
+* // 日志优化进阶：https://chatgpt.com/s/t_697eb834d3b481919281a7e65ea3d970
+* // 日志进阶2: https://chatgpt.com/s/t_697ec14ec62081918ff9797326dd8528
+*/
 package HGLoggerPackage
 
 import (
@@ -13,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 )
+
+var writer *HGRollingFileWriter
 
 /* 🔥更专业：通过环境变量控制-上线 / Docker / K8s 都用这一套
 logDir := os.Getenv("LOG_DIR")
@@ -40,13 +46,19 @@ tail -f server.log | grep 1769383162123456000-193812
 -	例如你部署在服务器上：
 */
 func Init() {
-	// 确保 logs 目录存在, 这个路径是相对路径，它相对于【🍎你启动程序时的工作目录】
-	// 比如： cd MLC_GO
-	// go run cmd/server/main.go
-	// 那么 MLC_GO/logs/server.go
-	logDir := "logs"
-	root, _ := os.Getwd() // 使用相对路径，仍然和启动目录有关，只是更显示
-	logPath := filepath.Join(root, logDir)
+
+	logPath := getLogPath()
+
+	w, err := NewRollintFileWriter(
+		logPath,
+		100*1024*1024, //100MB
+		5,             // 保留5个
+	)
+	if err != nil {
+		panic(err)
+	}
+	writer = w
+
 	_ = os.Mkdir(logPath, 0755)
 
 	logFile := filepath.Join(logPath, "server.log")
@@ -61,4 +73,22 @@ func Init() {
 	defer file.Close()
 	log.SetOutput(file) //代码输出到文件中
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
+}
+
+func getLogPath() string {
+
+	// 确保 logs 目录存在, 这个路径是相对路径，它相对于【🍎你启动程序时的工作目录】
+	// 比如： cd MLC_GO
+	// go run cmd/server/main.go
+	// 那么 MLC_GO/logs/server.go
+	logDir := "logs"
+	root, _ := os.Getwd() // 使用相对路径，仍然和启动目录有关，只是更显示
+	logPath := filepath.Join(root, logDir)
+
+	return logPath
+}
+
+func GetLogWriter() *HGRollingFileWriter {
+
+	return writer
 }

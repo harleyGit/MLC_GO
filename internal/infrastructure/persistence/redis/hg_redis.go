@@ -2,15 +2,15 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 21:28:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-29 17:39:01
+ * @LastEditTime: 2026-02-01 10:21:57
  * @FilePath: /MLC_GO/internal/cache/hg_redis.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package PersistenceRedisPackage
 
 import (
+	HGLoggerPackage "MLC_GO/internal/logger"
 	"MLC_GO/internal/pkg/logHG"
-	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"context"
 	"time"
 
