@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 12:27:27
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 16:08:40
+ * @LastEditTime: 2026-02-01 16:44:33
  * @FilePath: /MLC_GO/server/hg_router.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,49 +13,65 @@ import (
 	"net/http"
 )
 
-func UserMethodRules() []HGMiddlewarePackage.HGMethodRule {
-	return []HGMiddlewarePackage.HGMethodRule{
+func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	return []HGMiddlewarePackage.HGAPIRule{
 		{
-			Path: "/update",
+			Path:    "/update",
+			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPut: true,
 			},
+			NeedAuth: false,
+			Permissions: []string{
+				"user:update",
+			},
 		},
 		{
-			Path: "/info",
+			Path:    "/info",
+			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodGet: true,
 			},
-		},
-	}
-}
-
-func PublicMethodRules() []HGMiddlewarePackage.HGMethodRule {
-	return []HGMiddlewarePackage.HGMethodRule{
-		{
-			Path: "/send_code",
-			Methods: map[string]bool{
-				http.MethodPost: true,
-			},
-		},
-		{
-			Path: "/register",
-			Methods: map[string]bool{
-				http.MethodPost: true,
-			},
-		},
-		{
-			Path: "/login",
-			Methods: map[string]bool{
-				http.MethodPost: true,
+			NeedAuth: false,
+			Permissions: []string{
+				"user:view",
 			},
 		},
 	}
 }
 
-func MethdRules() []HGMiddlewarePackage.HGMethodRule {
+func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
+	return []HGMiddlewarePackage.HGAPIRule{
+		{
+			Path:    "/send_code",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
+		{
+			Path:    "/register",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
+		{
+			Path:    "/login",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
+	}
+}
 
-	return []HGMiddlewarePackage.HGMethodRule{
+func MethdRules() []HGMiddlewarePackage.HGAPIRule {
+
+	return []HGMiddlewarePackage.HGAPIRule{
 		{
 			Path: "/v1/user/update",
 			Methods: map[string]bool{

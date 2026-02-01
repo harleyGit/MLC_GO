@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:28:25
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 13:28:48
+ * @LastEditTime: 2026-02-01 16:25:33
  * @FilePath: /MLC_GO/internal/handler/response/hg_err_result.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -15,10 +15,11 @@ const (
 	OKCode HGErrorCode = 200
 
 	// 通用错误
-	UnauthorizedCode HGErrorCode = 101001
-	InvalidParamCode HGErrorCode = 100002
-	ForbiddenCode    HGErrorCode = 100003
-	NotFoundCode     HGErrorCode = 100004
+	UnauthorizedCode   HGErrorCode = 101001
+	InvalidParamCode   HGErrorCode = 100002
+	ForbiddenCode      HGErrorCode = 100003
+	NotFoundCode       HGErrorCode = 100004
+	MethodNotAllowCode HGErrorCode = 100005
 
 	MethodNotFoundCode HGErrorCode = 100000405
 
