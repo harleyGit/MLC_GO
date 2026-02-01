@@ -2,17 +2,18 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-27 21:02:12
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-02-01 10:58:32
-
+  - @LastEditTime: 2026-02-01 11:43:11
 * @FilePath: /MLC_GO/TestNotes/GenPracticeExample/pkg/logs/hg_logger.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
 * // 日志优化进阶：https://chatgpt.com/s/t_697eb834d3b481919281a7e65ea3d970
 * // 日志进阶2: https://chatgpt.com/s/t_697ec14ec62081918ff9797326dd8528
+* // 日志进阶3: https://chatgpt.com/s/t_697ecbc41ccc8191a7078cf99a0799fd
 */
 package HGLoggerPackage
 
 import (
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -48,9 +49,10 @@ tail -f server.log | grep 1769383162123456000-193812
 func Init() {
 
 	logPath := getLogPath()
+	logFile := filepath.Join(logPath, "server.log")
 
 	w, err := NewRollintFileWriter(
-		logPath,
+		logFile,
 		100*1024*1024, //100MB
 		5,             // 保留5个
 	)
@@ -59,19 +61,14 @@ func Init() {
 	}
 	writer = w
 
-	_ = os.Mkdir(logPath, 0755)
+	// 	mw 的效果是：
+	// 	 写一次
+	// 	 同时写到：
+	// 		终端
+	// 		server.log（自动切割）
+	mw := io.MultiWriter(os.Stdout, w)
 
-	logFile := filepath.Join(logPath, "server.log")
-	file, err := os.OpenFile(
-		logFile,
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-		0644,
-	)
-	if err != nil {
-		log.Fatalf("❌ERROR open log failed: %v", err)
-	}
-	defer file.Close()
-	log.SetOutput(file) //代码输出到文件中
+	log.SetOutput(mw) //代码输出到文件中,标准 log 写文件
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
 }
 
@@ -91,4 +88,10 @@ func getLogPath() string {
 func GetLogWriter() *HGRollingFileWriter {
 
 	return writer
+}
+
+// 程序退出前
+func CloseLogger() {
+
+	writer.file.Close()
 }

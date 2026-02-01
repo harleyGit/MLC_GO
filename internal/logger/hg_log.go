@@ -37,8 +37,8 @@ func LogInfo(ctx context.Context, msg any) {
 		return
 	}
 	// 控制台
-	logHG.DebugFInfo("【日志】：%s", string(b))
+	logHG.DebugFInfo("【日志】：%s\n", string(b))
 
-	// 文件（自动切割
-	GetLogWriter().WriteLog(append(b, '\n'))
+	// // 文件（自动切割
+	// GetLogWriter().Write(append(b, '\n'))
 }

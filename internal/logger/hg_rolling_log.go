@@ -2,13 +2,14 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 10:27:20
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 10:56:41
+ * @LastEditTime: 2026-02-01 11:42:06
  * @FilePath: /MLC_GO/internal/logger/hg_rolling_log.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package HGLoggerPackage
 
 import (
+	"MLC_GO/internal/pkg/logHG"
 	"os"
 	"path/filepath"
 	"sync"
@@ -29,15 +30,29 @@ func NewRollintFileWriter(fileName string,
 	dir := filepath.Dir(fileName)
 	os.MkdirAll(dir, 0755)
 
-	f, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
+		logHG.FatalFInfo("❌ERROR open log failed: %v", err)
 		return nil, err
 	}
+	/** HGRollingFileWriter 成员变量 file 会被：
+	a. HTTP handler
+	b. middleware
+	c. goroutine
+	d. 全局 logger
+	e. 长期使用
+	f. 生命周期 = 整个进程
 
-	info, _ := f.Stat()
+	g. defer file.Close(),若是写在这个函数中，这个函数执行完后会被立刻执行，
+		g.1 文件描述符被关闭
+		g.2 后续日志写入 → panic / silent fail / EBADF,无法被写入
+		g.3 defer Close() 只适用于“短生命周期资源”
+		g.4 日志文件是“进程级资源”，不要 defer 关闭
+	*/
+	info, _ := file.Stat()
 
 	return &HGRollingFileWriter{
-		file:     f,
+		file:     file,
 		fileName: fileName,
 		maxSize:  maxSize,
 		maxBack:  maxBack,
@@ -45,7 +60,7 @@ func NewRollintFileWriter(fileName string,
 	}, nil
 }
 
-func (w *HGRollingFileWriter) WriteLog(p []byte) (int, error) {
+func (w *HGRollingFileWriter) Write(p []byte) (int, error) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

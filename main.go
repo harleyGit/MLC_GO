@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-29 17:49:27
+ * @LastEditTime: 2026-02-01 11:41:24
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -44,7 +44,9 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	HGLoggerPackage "MLC_GO/internal/logger"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
+	UserAPIPackage "MLC_GO/internal/modules/user/api"
 	"MLC_GO/internal/pkg/logHG"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"log"
@@ -114,11 +116,9 @@ func main() {
 func mlc_main() {
 	logHG.DebugInfo("MLC_GO项目启动中...")
 
-	// TODO：日志最好能分时间比如一天
-	// tid日志写入文件中
-	// HGLoggerPackage.Init()
-	
-	// UserAPIPackage.UserMainV3()
+	// 日志写入文件中
+	HGLoggerPackage.Init()
+	defer HGLoggerPackage.CloseLogger() // 程序退出前
 
 	// --- Redis ----
 	redisService := PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
