@@ -1,19 +1,21 @@
 /*
- * @Author: GangHuang harleysor@qq.com
- * @Date: 2026-01-26 19:48:25
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-26 19:58:44
- * @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_user_middle_group.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- 
- * 需要用户登录的接口
- */
+* @Author: GangHuang harleysor@qq.com
+* @Date: 2026-01-26 19:48:25
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-02-01 15:51:58
+
+* @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_user_middle_group.go
+* @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
+* 需要用户登录的接口
+*/
 package HGMiddlewareGroupPackage
 
 import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	HGServerPackage "MLC_GO/server"
 	"net/http"
 )
 
@@ -24,6 +26,9 @@ func UserMiddlewareGoup(userHandler *UserHandlerPackage.UserHandler) http.Handle
 	userMux.HandleFunc("/", userHandler.Profile)
 	// userMux.HandleFunc("/user/logout", userHandler.Logout)//登出
 
+	methodGuard := HGMiddlewarePackage.MethodGuardMiddlewareV2(
+		HGServerPackage.UserMethodRules(),
+	)
 	// 统一： JOSN + TID + Auth
 	userHandlerWithAuth := HGMiddlewarePackage.JSONHeaderMiddleware(
 		HGMiddlewarePackage.TIDMiddleware(
@@ -31,5 +36,5 @@ func UserMiddlewareGoup(userHandler *UserHandlerPackage.UserHandler) http.Handle
 		),
 	)
 
-	return userHandlerWithAuth
+	return methodGuard(userHandlerWithAuth)
 }

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 11:41:24
+ * @LastEditTime: 2026-02-01 12:13:58
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -46,7 +46,6 @@ import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	HGLoggerPackage "MLC_GO/internal/logger"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
-	UserAPIPackage "MLC_GO/internal/modules/user/api"
 	"MLC_GO/internal/pkg/logHG"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"log"
