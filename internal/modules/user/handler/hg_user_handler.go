@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-01-31 23:24:40
+  - @LastEditTime: 2026-02-01 17:43:57
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -118,17 +118,15 @@ func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
+	// 从 URL 查询参数中获取 phone
+	phone := r.URL.Query().Get("phone")
+	if phone == "" {
+		http.Error(w, "缺少 phone 参数", http.StatusBadRequest)
 		return
 	}
-
-	// TODO:取出获取验证码的phone字段
-	var req UserDtoPackage.HGCreateUserDTO
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, "JSON 解析失败: "+err.Error(), http.StatusBadRequest)
-		return
+	req := UserDtoPackage.HGCreateUserDTO{
+		Phone: &phone, // 假设结构体中有 Phone 字段
 	}
 
 	ctx := r.Context()
@@ -136,7 +134,7 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(*req.Phone)
 	// Redis：存验证码（5 分钟）
-	err = h.redisService.SetToRedisV2(key, code, 70, ctx)
+	err := h.redisService.SetToRedisV2(key, code, 70, ctx)
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return
