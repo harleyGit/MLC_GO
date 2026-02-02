@@ -72,7 +72,8 @@ check_mysql() {
     if ! mysqladmin ping "${MYSQLADMIN_ARGS[@]}" --silent; then
         echo "[INFO] MySQL 未启动，启动中...."
         # 用 Homebrew 启动 MySQL 服务（仅限 macOS 用户；Linux 用户可能是 systemctl start mysql）
-        brew services start mysql
+        # brew services start mysql
+        sudo mysql.server start
         # 暂停 5 秒，等 MySQL 完全启动好再继续
         sleep 5
     fi
@@ -88,7 +89,8 @@ check_mysql00() {
 
 
         echo "[INFO] MySQL 未启动，启动中...."
-        brew services start mysql
+        # brew services start mysql
+        sudo mysql.server start
         sleep 5
         #echo "MySQL服务未运行或无法连接，请检查配置。"
         #exit 1
