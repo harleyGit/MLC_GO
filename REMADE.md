@@ -1,8 +1,8 @@
 <!--
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-26 11:26:38
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-02-05 23:00:16
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -76,6 +76,39 @@ mysql -u root -p
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
+
+**Intel电脑：**
+hg_debug.env文件：
+
+```sh
+MYSQL_PASSWORD=
+```
+
+M2Pro
+
+hg_debug.env文件：
+
+```sh
+MYSQL_PASSWORD=hh109
+```
+
+启动redis：
+
+```sh
+redis-server
+```
+
+启动mysql
+
+```sh
+sudo mysql.server start
+
+cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
+./db.sh shell
+```
+
+
+localhost:8080/auth/send_code?phone=17681317668
 
 <br/><br/><br/>
 
