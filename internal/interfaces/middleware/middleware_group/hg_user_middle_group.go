@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-26 19:48:25
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 17:07:03
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-03-01 18:56:38
 
 * @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_user_middle_group.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -24,6 +24,8 @@ func UserMiddlewareGoup(userHandler *UserHandlerPackage.UserHandler) http.Handle
 
 	userMux := http.NewServeMux()
 	userMux.HandleFunc("/info", userHandler.Profile)
+	userMux.HandleFunc("/list", userHandler.GetUserList)
+
 	// userMux.HandleFunc("/user/logout", userHandler.Logout)//登出
 
 	guard := HGMiddlewarePackage.NewAPIGuard(
@@ -31,7 +33,7 @@ func UserMiddlewareGoup(userHandler *UserHandlerPackage.UserHandler) http.Handle
 	)
 	// 统一： JOSN + TID + Auth
 	authHandler := UserJWTMiddlewarePackage.AuthMiddleware(userMux)
-	tidHandler :=  HGMiddlewarePackage.TIDMiddleware(authHandler)
+	tidHandler := HGMiddlewarePackage.TIDMiddleware(authHandler)
 	jsonHandler := HGMiddlewarePackage.JSONHeaderMiddleware(tidHandler)
 
 	return guard.MethodGuardMiddlewareV3(jsonHandler)

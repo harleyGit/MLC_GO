@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 11:43:39
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 11:47:19
+ * @LastEditTime: 2026-02-07 21:35:44
  * @FilePath: /MLC_GO/internal/pkg/utils/hg_random_num.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,10 +11,21 @@ package UtilsPackage
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math/big"
-    "fmt"
 	mathRand "math/rand"
+	"time"
 )
+
+// generateSeid 生成一个类似 Bilibili 的 seid（19~20 位数字字符串）
+// 格式：时间戳(10位) + 随机6位 + 微秒后3位（可选）
+func GenerateSeid() string {
+	now := time.Now().Unix()
+	// 生成 6 位随机数 [100000, 999999]
+	randNum, _ := rand.Int(rand.Reader, big.NewInt(900000))
+	seid := fmt.Sprintf("%d%06d", now, randNum.Int64()+100000)
+	return seid
+}
 
 // Crockford Base32 字母表（避免 0/O, I/L 混淆）
 const base32Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

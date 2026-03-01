@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-23 10:09:00
+ * @LastEditTime: 2026-02-25 21:05:17
  * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_respository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -93,4 +93,57 @@ func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel)
 		u.UserID,
 	)
 	return error
+}
+
+
+func (r *UserRepo) FindPage(
+	ctx context.Context,
+	page, size int,
+) ([]UserModelsPackage.HGUserModel, int, error) {
+
+	offset := (page - 1) * size
+
+	// 查询总数
+	var total int
+	err := r.QueryRow(
+		ctx,
+		SQLQueriesPackage.UserTotalNumSQL,
+	).Scan(
+		&total,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 查询分页数据
+	rows, err := r.QueryContext(
+		ctx,
+		SQLQueriesPackage.QueryUserPageSQL,
+		size,
+		offset,
+	)
+	if err != nil {
+		return  nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []UserModelsPackage.HGUserModel
+	for rows.Next() {
+		var u UserModelsPackage.HGUserModel
+		err := rows.Scan(
+			&u.UserID,
+			&u.Username,
+			&u.Email,
+			&u.Phone,
+			&u.PasswordHash,
+			&u.Salt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		users = append(users, u)
+	}
+
+	return users, total, nil
+
 }

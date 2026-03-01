@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 12:27:27
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 17:14:23
+ * @LastEditTime: 2026-03-01 19:21:19
  * @FilePath: /MLC_GO/server/hg_router.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -15,6 +15,17 @@ import (
 
 func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
+		{
+			Path:    "/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: false,
+			// Permissions: []string{
+			// 	"user:list",
+			// },
+		},
 		{
 			Path:    "/update",
 			Version: "v1",

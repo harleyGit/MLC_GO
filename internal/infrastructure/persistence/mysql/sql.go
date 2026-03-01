@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 10:22:12
+ * @LastEditTime: 2026-02-25 20:27:09
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -106,6 +106,11 @@ func NewSQLDB() (*sql.DB, error) {
 		logHG.ErrFInfo("连接MySQL数据库失败: %v", err)
 		return nil, err
 	}
+	// 设置连接池参数
+	db.SetMaxOpenConns(25)				 // 最大打开连接数
+	db.SetMaxIdleConns(25)                 // 最大空闲连接数
+	db.SetConnMaxLifetime(5 * 60 * 1000) // 连接最大生命周期，单位毫秒
+	
 	if err = db.Ping(); err != nil {
 		logHG.ErrFInfo("Ping MySQL数据库失败: %v", err)
 		return nil, err

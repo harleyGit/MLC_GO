@@ -19,7 +19,11 @@ mysql -u root -p
 ```
 
 > <h5></h5>
-> [token解析](https://www.jwt.io)
+- [**代码调用举例**](#代码调用举例)
+	- [分页model调用](#分页model调用)
+- [**高级语法**](#高级语法)
+	- [函数签名闭包](#函数签名闭包)
+- [**token解析**](#token解析)
 - [**文件结构介绍**](#文件结构介绍)
 	- [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
@@ -109,6 +113,243 @@ cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
 
 
 localhost:8080/auth/send_code?phone=17681317668
+
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="代码调用举例">代码调用举例</h1>
+
+
+***
+<br/><br/><br/>
+> <h2 id="分页model调用">分页model调用</h2>
+
+```go
+items := []VideoItem{ /* ... */ }
+
+// 最简用法（全用默认值）
+pageResp := NewPageResponse(items)
+
+// 带自定义参数
+pageResp := NewPageResponse(
+    items,
+    WithPage(2),
+    WithPagesize(42),
+    WithTotal(1000),
+    WithRqtType("search"),
+    // Seid 会自动生成，无需手动传
+)
+```
+
+
+**输出：**
+
+```json
+PageResponse[VideoItem]{
+    Seid: "1738901234567890", // 自动生成的唯一ID
+    Page: 2,
+    Pagesize: 42,
+    NumResults: 1000,
+    NumPages: 24,
+    RqtType: "search",
+    Result: items,
+}
+```
+
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="高级语法">高级语法</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="函数签名闭包">函数签名闭包</h2>
+
+你问得非常好！我们来详细解释 **`opts ...PageOption` 是怎么传入的**，以及为什么 `NewPageResponse(items)` 这样写是合法的。
+
+---
+
+### 🔹 1. 函数签名回顾
+
+```go
+func NewPageResponse[T any](items []T, opts ...PageOption) PageResponse[T]
+```
+
+- `items []T`：必须传，是你的真实数据列表（比如视频、用户等）。
+- `opts ...PageOption`：**可变参数（variadic parameter）**，表示“0个或多个 `PageOption` 类型的参数”。
+
+> ✅ 所以你可以：
+> - **不传任何 opts** → 使用默认值
+> - **传 1 个、2 个、或多个 opts** → 覆盖默认值
+
+---
+
+### 🔹 2. `opts` 到底是什么？
+
+`PageOption` 是一个**函数类型**：
+
+```go
+type PageOption func(*PageResponseConfig)
+```
+
+而像 `WithPage(2)`、`WithPagesize(42)` 这些函数，**返回的正是 `PageOption` 类型**：
+
+```go
+func WithPage(page int) PageOption {
+    return func(c *PageResponseConfig) { // ← 这就是一个 PageOption
+        if page > 0 {
+            c.Page = page
+        }
+    }
+}
+```
+
+所以当你写：
+
+```go
+WithPage(2)
+```
+
+它的值是一个 **函数（闭包）**，类型是 `PageOption`。
+
+---
+
+### 🔹 3. 如何传 `opts`？三种典型用法
+
+#### ✅ 用法 1：不传 opts（全用默认值）
+
+```go
+pageResp := NewPageResponse(items)
+```
+
+- `opts` 接收到的是一个 **空的 slice**（`[]PageOption{}`）
+- 内部循环 `for _, opt := range opts` 不会执行
+- 所有字段使用 `defaultPageConfig()` 的默认值
+- `Seid` 自动生成，`Page=1`, `Pagesize=20` 等
+
+✅ 完全合法！
+
+---
+
+#### ✅ 用法 2：传 1 个 option
+
+```go
+pageResp := NewPageResponse(items, WithPage(3))
+```
+
+- `opts` 是 `[WithPage(3)]`
+- 内部会调用 `WithPage(3)(config)` → 把 `config.Page` 设为 3
+
+---
+
+#### ✅ 用法 3：传多个 options（推荐写法）
+
+```go
+pageResp := NewPageResponse(
+    items,
+    WithPage(2),
+    WithPagesize(42),
+    WithTotal(1000),
+    WithRqtType("search"),
+)
+```
+
+Go 会自动把逗号分隔的 `PageOption` 值打包成 `[]PageOption` 传给 `opts`。
+
+> 💡 这就是 Go 中模拟“命名参数 + 默认值”的标准做法！
+
+---
+
+### 🔹 4. 错误写法（常见误区）
+
+❌ 不能这样写（把选项放进 slice 手动传）：
+```go
+// ❌ 不需要！Go 会自动打包
+opts := []PageOption{WithPage(2), WithPagesize(42)}
+pageResp := NewPageResponse(items, opts) // 编译错误！
+```
+
+✅ 正确做法是用 **展开语法**（但通常没必要）：
+```go
+opts := []PageOption{WithPage(2), WithPagesize(42)}
+pageResp := NewPageResponse(items, opts...) // 注意 ... 
+```
+
+但在绝大多数场景下，**直接写 `WithXXX(...)` 更简洁清晰**。
+
+---
+
+### 🔹 5. 实际代码演示
+
+```go
+package main
+
+import "fmt"
+
+type VideoItem struct {
+	Title string
+}
+
+func main() {
+	items := []VideoItem{
+		{Title: "WebRTC 教程"},
+		{Title: "FFmpeg 入门"},
+	}
+
+	// ✅ 最简调用：无 opts
+	resp1 := NewPageResponse(items)
+	fmt.Println("默认 Seid:", resp1.Seid)
+	fmt.Println("默认 Page:", resp1.Page) // 输出 1
+
+	// ✅ 带 opts
+	resp2 := NewPageResponse(
+		items,
+		WithPage(2),
+		WithPagesize(50),
+		WithTotal(123),
+	)
+	fmt.Println("自定义 Page:", resp2.Page)   // 输出 2
+	fmt.Println("总页数:", resp2.NumPages)     // 输出 3 (123/50 向上取整)
+}
+```
+
+---
+
+### ✅ 总结
+
+| 调用方式 | 是否合法 | 说明 |
+|--------|--------|------|
+| `NewPageResponse(items)` | ✅ | 使用全部默认值，`opts` 为空 |
+| `NewPageResponse(items, WithPage(2))` | ✅ | 覆盖 page |
+| `NewPageResponse(items, WithPage(2), WithPagesize(30))` | ✅ | 覆盖多个字段 |
+| `NewPageResponse(items, []PageOption{...})` | ❌ | 缺少 `...` 展开符 |
+| `NewPageResponse(items, []PageOption{...}...)` | ✅ | 合法但冗余 |
+
+所以你写的：
+```go
+pageResp := NewPageResponse(items)
+```
+**完全正确！** 它会生成一个带自动生成 `Seid`、默认分页参数的 `PageResponse` 实例。
+
+如有需要，后续再叠加 `WithXXX` 即可灵活定制。
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+># <h1 id="token解析">[token解析](https://www.jwt.io)</h1>
+
+
 
 <br/><br/><br/>
 

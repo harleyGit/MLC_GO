@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-25 14:44:31
+ * @LastEditTime: 2026-02-26 10:58:11
 * @FilePath: /MLC_GO/internal/infrastructure/persistence/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -35,11 +35,13 @@ const (
 )
 
 const (
-	AuthCodePhoneLimitKey = "auth:code:limit:phone:" // TODO：要改为注册发送的验证码Key
-	AuthLoginVerifyCodekKey = "auth:login:verify:code:"	// 登录验证码Key：手机、邮箱
-	AuthCodeIPLimitKey    = "auth:code:limit:phone:"
-	AuthTokenKey          = "auth:token:"
-	AuthRefreshKey        = "auth:refresh:"
+	AuthCodePhoneLimitKey   = "auth:code:limit:phone:"  // TODO：要改为注册发送的验证码Key
+	AuthLoginVerifyCodekKey = "auth:login:verify:code:" // 登录验证码Key：手机、邮箱
+	AuthCodeIPLimitKey      = "auth:code:limit:phone:"
+	AuthTokenKey            = "auth:token:"
+	AuthRefreshKey          = "auth:refresh:"
+
+	UserListKey = "user:list:page:%d:size:%d" // user:list:{page}:{size} 获取注册用户列表的Key
 
 	LoginCodeKey      = "login:code:"
 	LoginMultiportKey = "token:" //token+多端登录控制key

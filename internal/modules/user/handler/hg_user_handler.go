@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-02-01 17:43:57
+  - @LastEditTime: 2026-02-25 21:24:17
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -76,8 +76,10 @@ func NewUserHandler(redisService *PersistenceRedisPackage.RedisService,
 ) *UserHandler {
 	db := sqlManager.GetSQLDB()
 	redisClient := UserCachePackage.NewCodeCache(redisService)
+	userCahce := UserCachePackage.NewUserCache(redisService)
+
 	userRepo := UserRepositoryPackage.NewUserRepo(db)
-	svc := UserServicePackage.NewUserService(userRepo)
+	svc := UserServicePackage.NewUserService(userRepo, userCahce)
 	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
 
 	return &UserHandler{redisService: redisService, svc: svc,
@@ -97,6 +99,29 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *UserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("pageNum"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 || size > 1000 {
+		size = 20
+	}
+
+	resp, err := h.svc.GetUserList(r.Context(), page, size)
+	if err != nil {
+		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.UserListFailCode, err.Error())
+		return
+	}
+
+	//按理说写成HGResponsePakcage.SuccessResult[HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]](w, r, resp)
+	// 但是看到第三个参数推断出T就是resp类型，也就是 HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO] 类型了
+	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
 func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +159,7 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(*req.Phone)
 	// Redis：存验证码（5 分钟）
-	err := h.redisService.SetToRedisV2(key, code, 70, ctx)
+	err := h.redisService.SetToRedisV2(key, code, 1*time.Minute, ctx)
 	if err != nil {
 		http.Error(w, "redis error", 500)
 		return

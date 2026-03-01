@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 21:28:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 10:21:57
+ * @LastEditTime: 2026-03-01 20:43:28
  * @FilePath: /MLC_GO/internal/cache/hg_redis.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -12,6 +12,7 @@ import (
 	HGLoggerPackage "MLC_GO/internal/logger"
 	"MLC_GO/internal/pkg/logHG"
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -145,14 +146,18 @@ func newRedis(addr string, password string, db int) {
 	})
 }
 
-func (redisService *RedisService) SetToRedisV2(key string, value interface{}, ttl int64, ctx ...context.Context) error {
+func (redisService *RedisService) SetToRedisV2(key string, value interface{}, ttl time.Duration, ctx ...context.Context) error {
 	var defaultContext context.Context
 	if len(ctx) > 0 && ctx[0] != nil {
 		defaultContext = ctx[0]
 	} else {
 		defaultContext = redisService.defaultCtx
 	}
-	return redisService.client.Set(defaultContext, key, value, time.Duration(ttl)*time.Second).Err()
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return redisService.client.Set(defaultContext, key, bytes, ttl).Err()
 }
 func SetToRedis(key string, value interface{}, ttl time.Duration, opts ...RedisOption) error {
 	// 默认配置
@@ -161,8 +166,11 @@ func SetToRedis(key string, value interface{}, ttl time.Duration, opts ...RedisO
 	for _, option := range opts {
 		option(opt)
 	}
-
-	return RDB.Set(opt.ctx, key, value, ttl).Err()
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return RDB.Set(opt.ctx, key, bytes, ttl).Err()
 }
 
 func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Context) (string, error) {
@@ -172,7 +180,12 @@ func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Cont
 	} else {
 		defaultContext = redisService.defaultCtx
 	}
-	return redisService.client.Get(defaultContext, key).Result()
+
+	val, err := redisService.client.Get(defaultContext, key).Result()
+	if err == redis.Nil {
+		return val, nil // key不存在，返回空字符串和nil错误
+	}
+	return val, err
 }
 
 func (redisService *RedisService) DeleteFromRedis(key string, ctx context.Context) error {
