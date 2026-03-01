@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-25 21:05:17
+ * @LastEditTime: 2026-03-01 22:29:27
  * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_respository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -95,7 +95,6 @@ func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel)
 	return error
 }
 
-
 func (r *UserRepo) FindPage(
 	ctx context.Context,
 	page, size int,
@@ -123,7 +122,7 @@ func (r *UserRepo) FindPage(
 		offset,
 	)
 	if err != nil {
-		return  nil, 0, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -137,6 +136,8 @@ func (r *UserRepo) FindPage(
 			&u.Phone,
 			&u.PasswordHash,
 			&u.Salt,
+			&u.CreatedAt,
+			&u.UpdatedAt,
 		)
 		if err != nil {
 			return nil, 0, err

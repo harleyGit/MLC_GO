@@ -27,6 +27,8 @@ type HGCreateUserDTO struct { // 让 JSON 响应“只包含有意义的数据�
 	PasswordHash *string `json:"passwordHash,omitempty"`
 	Salt         *string `json:"salt,omitempty"`
 	Token        *string `json:"token,omitempty"`
+	Created_at   *string `json:"created_at,omitempty"`
+	Updated_at   *string `json:"updated_at,omitempty"`
 }
 
 /* 实现协议可选 */

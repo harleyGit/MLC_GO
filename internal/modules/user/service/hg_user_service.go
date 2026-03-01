@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-03-01 20:46:27
+ * @LastEditTime: 2026-03-01 22:28:01
 
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -24,7 +24,7 @@ import (
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
-	"encoding/json"
+	// "encoding/json"
 )
 
 type UserService struct {
@@ -118,21 +118,21 @@ func LoginService(account, password string) (string, error) {
 func (s *UserService) GetUserList(ctx context.Context, page, size int) (HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], error) {
 
 	// ===== 1. Redis =====
-	if !UtilsPackage.IsEmpty(s.userCache) {
-		cacheValue, err := s.userCache.GetUserListCache(ctx, page, size)
-		if err != nil {
-			logHG.DebugFInfo("GetUserListCache err: %v", err)
-			return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
-		}
+	// if !UtilsPackage.IsEmpty(s.userCache) {
+	// 	cacheValue, err := s.userCache.GetUserListCache(ctx, page, size)
+	// 	if err != nil {
+	// 		logHG.DebugFInfo("GetUserListCache err: %v", err)
+	// 		return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
+	// 	}
 
-		if !UtilsPackage.IsEmpty(cacheValue) {
-			var userList HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]
-			if err := json.Unmarshal([]byte(cacheValue), &userList); err != nil {
-				return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
-			}
-			return userList, nil
-		}
-	}
+	// 	if !UtilsPackage.IsEmpty(cacheValue) {
+	// 		var userList HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]
+	// 		if err := json.Unmarshal([]byte(cacheValue), &userList); err != nil {
+	// 			return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
+	// 		}
+	// 		return userList, nil
+	// 	}
+	// }
 
 	users, total, err := s.repo.FindPage(ctx, page, size)
 	if err != nil {
