@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:54:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-03-01 20:02:22
+ * @LastEditTime: 2026-03-01 22:21:23
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/queries/hg_sql_queries.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -30,10 +30,10 @@ const (
 	SelectUserInfoByPhoneSQL = `SELECT id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
 	// 用户分页查询【在十万级别数据还可以，百万以上不行】
-	QueryUserPageSQL = `SELECT user_id, user_name, email, phone, password_hash, salt
+	QueryUserPageSQL = `SELECT user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ? OFFSET ?`
 	// 用户分页查询，使用有标查询优化， 比如：LIMIT 21
-	QueryUserPageV2SQL = `SELECT user_id, user_name, email, phone, password_hash, salt
+	QueryUserPageV2SQL = `SELECT user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users WHERE id < ? ORDER BY id DESC LIMIT ?`
 
 	GetUserByUsernameSQL  = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE username = ?"

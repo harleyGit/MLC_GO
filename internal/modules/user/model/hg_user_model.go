@@ -23,4 +23,6 @@ type HGUserModel struct {
 	Password     sql.NullString
 	PasswordHash sql.NullString
 	Salt         sql.NullString
+	CreatedAt    sql.NullString
+	UpdatedAt    sql.NullString
 }
