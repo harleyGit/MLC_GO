@@ -1,0 +1,6 @@
+server:
+  port: 8080
+log:
+  level: info
+db:
+  dsn: root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB

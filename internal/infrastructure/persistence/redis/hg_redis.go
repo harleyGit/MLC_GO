@@ -13,6 +13,7 @@ import (
 	"MLC_GO/internal/pkg/logHG"
 	"context"
 	"encoding/json"
+	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -39,6 +40,20 @@ var (
 	ctx = context.Background()
 	RDB *redis.Client
 )
+
+func getRedisAddr() string {
+	redisHost := os.Getenv("REDIS_HOST")
+	if redisHost == "" {
+		redisHost = "localhost"
+	}
+
+	redisPort := os.Getenv("REDIS_PORT")
+	if redisPort == "" {
+		redisPort = "6379"
+	}
+
+	return redisHost + ":" + redisPort
+}
 
 func WithContext(ctx context.Context) RedisOption {
 	return func(o *options) {
@@ -88,7 +103,7 @@ func NewRedisServiceV2(opts ...RedisOption) *RedisService {
 	// TODO: r *http.Request; r.Context()， 这样会不会冲突？
 	return &RedisService{
 		client: redis.NewClient(&redis.Options{
-			Addr: "localhost:6379",
+			Addr: getRedisAddr(),
 			// Password: "", // no password set
 			// DB:       0,  // use default DB
 		}),
@@ -122,7 +137,7 @@ func NewRedisService(ctx ...context.Context) *RedisService {
 	}
 	redisServer := &RedisService{
 		client: redis.NewClient(&redis.Options{
-			Addr: "localhost:6379",
+			Addr: getRedisAddr(),
 			// Password: "", // no password set
 			// DB:       0,  // use default DB
 		}),

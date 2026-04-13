@@ -1,0 +1,27 @@
+# 本地模拟 pre 环境用：
+# 启动：docker compose -f config/docker/hg_docker_compose.pre.yml up -d
+# 停止：docker compose -f config/docker/hg_docker_compose.pre.yml down
+
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: hh109
+      MYSQL_DATABASE: HG_MLC_PRE_DB
+    ports:
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-phh109"]
+      interval: 5s
+      retries: 8
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 8

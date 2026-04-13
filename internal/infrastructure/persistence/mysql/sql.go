@@ -31,15 +31,24 @@ type HGSQLManager struct {
 }
 
 func LoadSQLEnvValue() {
-	// 仅在本地开发时加载 .env 文件
-	// 如果是生产环境，.env 文件不存在，这步会失败，但没关系
-	if os.Getenv("APP_ENV") != ConfigPackage.PROD {
-		// 默认尝试加载当前工作目录下的 .env 文件。
-		// err := godotenv.Load()
-		err := godotenv.Load(ConfigPackage.DEV_ENV_PATH)
-		if err != nil {
-			logHG.ErrInfo("警告： No .env 文件没有找到")
-		}
+	// 按 SERVER_ENV 选择当前要加载的环境文件。
+	// 这样在 VS Code 中切换 debug / pre / prod 时，
+	// MySQL 配置会跟着环境一起切换，而不是永远读取 debug 配置。
+	env := ConfigPackage.GetEnv()
+
+	var envFilePath string
+	switch env {
+	case ConfigPackage.EnvPre:
+		envFilePath = ConfigPackage.TEST_ENV_PATH
+	case ConfigPackage.EnvProd:
+		envFilePath = ConfigPackage.PROD_ENV_PATH
+	default:
+		envFilePath = ConfigPackage.DEV_ENV_PATH
+	}
+
+	err := godotenv.Load(envFilePath)
+	if err != nil {
+		logHG.ErrFInfo("警告：加载环境文件失败: %s, err: %v", envFilePath, err)
 	}
 	wd, _ := os.Getwd()
 	logHG.DebugInfo("加载sql环境变量,当前工作目录：%v", wd)
@@ -107,10 +116,10 @@ func NewSQLDB() (*sql.DB, error) {
 		return nil, err
 	}
 	// 设置连接池参数
-	db.SetMaxOpenConns(25)				 // 最大打开连接数
-	db.SetMaxIdleConns(25)                 // 最大空闲连接数
+	db.SetMaxOpenConns(25)               // 最大打开连接数
+	db.SetMaxIdleConns(25)               // 最大空闲连接数
 	db.SetConnMaxLifetime(5 * 60 * 1000) // 连接最大生命周期，单位毫秒
-	
+
 	if err = db.Ping(); err != nil {
 		logHG.ErrFInfo("Ping MySQL数据库失败: %v", err)
 		return nil, err
@@ -156,7 +165,7 @@ func CreateUser(u *UserModelsPackage.HGUserModel) error {
 /* 获取用户信息 */
 func GetUserByEmail(ctx context.Context, account string) (*UserModelsPackage.HGUserModel, error) {
 	HGLoggerPackage.LogInfo(ctx, map[string]any{
-		"Tag": HGLoggerPackage.LoginLogBeforeDesc,
+		"Tag":     HGLoggerPackage.LoginLogBeforeDesc,
 		"account": account,
 	})
 	row := db.QueryRow(SQLQueriesPackage.GetUserByEmailOrPhoneSQL, account, account)
@@ -168,7 +177,7 @@ func GetUserByEmail(ctx context.Context, account string) (*UserModelsPackage.HGU
 		return nil, err
 	}
 	HGLoggerPackage.LogInfo(ctx, map[string]any{
-		"Tag": HGLoggerPackage.LoginLogAfterDesc,
+		"Tag":       HGLoggerPackage.LoginLogAfterDesc,
 		"user_info": u,
 	})
 	return u, nil
