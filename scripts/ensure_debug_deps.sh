@@ -275,6 +275,10 @@ ensure_mysql_ready() {
         return 0
     fi
 
+    # 如果 MySQL 没启动，先在终端给出手动连接提示，
+    # 方便排查账号权限、密码或本机服务异常问题。
+    log_info "检测到 MySQL 未启动，可先手动执行：mysql -uroot"
+
     # 如果启动失败，就输出错误并返回失败。
     if ! start_mysql; then
         log_error "MySQL 启动失败，请先手动启动后再调试"
