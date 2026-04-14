@@ -47,9 +47,12 @@ import (
 	HGLoggerPackage "MLC_GO/internal/logger"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	"MLC_GO/internal/pkg/logHG"
+	"bufio"
 	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"log"
 	"net/http" //提供了 HTTP 客户端和服务端的实现
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -152,61 +155,84 @@ func mlc_main() {
 }
 
 func practiceKnowledge() {
-
 	modules := getPracticeModules()
-	for true {
+	// 按行读取用户输入，避免 Scanf 在换行匹配时产生额外阻塞。
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
 		fmt.Println("\n\n=====================👏欢迎练习测试陌生知识点==========================")
 		for _, module := range modules {
 			fmt.Printf("\t\t\t 🍎 %s\n", module)
 		}
-		fmt.Printf("请输入序号进入对应功能：\n\n")
+		fmt.Printf("请输入序号进入对应功能（输入 q 退出）：\n> ")
 
-		var functionModule float64
-		fmt.Scanf("%f\n\n", &functionModule)
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				fmt.Printf("读取输入失败: %v\n", err)
+			}
+			return
+		}
 
-		switch functionModule {
-		case 100.00:
-			mlc_main()
-		case 14:
-			securitypt.SecurityV01_mtls_tool()
-		case 13.00: // 支持小数匹配（带容差，避免浮点精度误差）case math.Abs(functionModule-13.01) < 1e-6
-			securitypt.SecurityV00_generate_certs()
-		case 13.01:
-			securitypt.SecurityV00_activate_Server()
-		case 13.02:
-			securitypt.SecurityV00_activate_Client()
-		case 12: // 支持整数匹配 int(functionModule) == 12
-			logpt.LogMainPT()
-		case 1:
-			go_svc_practice_main_package.Go_SVC_Practice_Main()
-		case 2:
-			// 命令行加载配置文件
-			command_line_practice.CommandLinePracticeMain()
-		case 3:
-			// 读取文件测试
-			read_file_practice.ReadFilePracticeMain()
-		case 4:
-			// Gorm库语法测试
-			gorm_practice.GormPracticeMain()
-		case 5:
-			// Gin库语法测试
-			gin_practice.GinPracticeMain()
-		case 6:
-			// nsq工程中的陌生语法调试
-			nsq_project_practice.NSQProjectPracticeMain()
-		case 7:
-			//GenPracticeExample测试
-			gen_practice_example_package.GenPracticeMain()
-		case 8:
-			dlvTest()
-		case 9:
-			dlvTest2()
-		case 10:
-			dlvThread00()
-		case 11:
-			concurrent_pt.ConcurrentPTMain()
+		functionModule := strings.TrimSpace(scanner.Text())
+		if functionModule == "q" || functionModule == "quit" || functionModule == "exit" {
+			fmt.Println("已退出练习菜单")
+			return
+		}
+
+		if !runPracticeModule(functionModule) {
+			fmt.Printf("无效序号：%s，请重新输入。\n", functionModule)
 		}
 	}
+}
+
+// runPracticeModule 负责把菜单输入映射到对应模块执行，返回 false 表示输入未命中任何功能。
+func runPracticeModule(functionModule string) bool {
+	switch functionModule {
+	case "100", "100.00":
+		mlc_main()
+	case "14", "14.00":
+		securitypt.SecurityV01_mtls_tool()
+	case "13", "13.00":
+		securitypt.SecurityV00_generate_certs()
+	case "13.01":
+		securitypt.SecurityV00_activate_Server()
+	case "13.02":
+		securitypt.SecurityV00_activate_Client()
+	case "12", "12.00":
+		logpt.LogMainPT()
+	case "1", "1.00":
+		go_svc_practice_main_package.Go_SVC_Practice_Main()
+	case "2", "2.00":
+		// 命令行加载配置文件
+		command_line_practice.CommandLinePracticeMain()
+	case "3", "3.00":
+		// 读取文件测试
+		read_file_practice.ReadFilePracticeMain()
+	case "4", "4.00":
+		// Gorm库语法测试
+		gorm_practice.GormPracticeMain()
+	case "5", "5.00":
+		// Gin库语法测试
+		gin_practice.GinPracticeMain()
+	case "6", "6.00":
+		// nsq工程中的陌生语法调试
+		nsq_project_practice.NSQProjectPracticeMain()
+	case "7", "7.00":
+		// GenPracticeExample测试
+		gen_practice_example_package.GenPracticeMain()
+	case "8", "8.00":
+		dlvTest()
+	case "9", "9.00":
+		dlvTest2()
+	case "10", "10.00":
+		dlvThread00()
+	case "11", "11.00":
+		concurrent_pt.ConcurrentPTMain()
+	default:
+		return false
+	}
+
+	return true
 }
 
 // dlv线程调试
