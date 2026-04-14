@@ -66,21 +66,21 @@ const (
 	MLC_Project ModuleType = "100.00: MLC_GO工程运行"
 
 	Security_01               ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
-	Security_00_certs         ModuleType = "13.00: 生成证书"
-	Security_00_server        ModuleType = "13.01: 启动服务端"
 	Security_00_client        ModuleType = "13.02: 启动客户端"
+	Security_00_server        ModuleType = "13.01: 启动服务端"
+	Security_00_certs         ModuleType = "13.00: 生成证书"
 	Module_LOG                ModuleType = "12: 日志错误测试"
-	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
-	Module_commandLoadConfig  ModuleType = "2: 命令行加载配置文件"
-	Module_readFile           ModuleType = "3: 读取文件测试"
-	Module_gorm00             ModuleType = "4: Gorm库语法测试"
-	Module_gin00              ModuleType = "5: Gin库语法测试"
-	Module_nsqProject         ModuleType = "6: nsq工程中的陌生语法调试"
-	Module_genPracticeExample ModuleType = "7: GenPracticeExample测试"
-	Module_dlvFunctionTest    ModuleType = "8: dlv测试函数"
-	Module_simpleFunction     ModuleType = "9: dlv简单测试"
-	Module_threadPractice     ModuleType = "10: 线程测试"
 	Module_concurrent         ModuleType = "11: 并发测试"
+	Module_threadPractice     ModuleType = "10: 线程测试"
+	Module_simpleFunction     ModuleType = "9: dlv简单测试"
+	Module_dlvFunctionTest    ModuleType = "8: dlv测试函数"
+	Module_genPracticeExample ModuleType = "7: GenPracticeExample测试"
+	Module_nsqProject         ModuleType = "6: nsq工程中的陌生语法调试"
+	Module_gin00              ModuleType = "5: Gin库语法测试"
+	Module_gorm00             ModuleType = "4: Gorm库语法测试"
+	Module_readFile           ModuleType = "3: 读取文件测试"
+	Module_commandLoadConfig  ModuleType = "2: 命令行加载配置文件"
+	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
 )
 
 func init() {
@@ -92,21 +92,21 @@ func getPracticeModules() []ModuleType {
 		MLC_Project,
 
 		Security_01,
-		Security_00_certs,
-		Security_00_server,
 		Security_00_client,
+		Security_00_server,
+		Security_00_certs,
 		Module_LOG,
-		Module_go_svc,
-		Module_commandLoadConfig,
-		Module_readFile,
-		Module_gorm00,
-		Module_gin00,
-		Module_nsqProject,
-		Module_genPracticeExample,
-		Module_dlvFunctionTest,
-		Module_simpleFunction,
-		Module_threadPractice,
 		Module_concurrent,
+		Module_threadPractice,
+		Module_simpleFunction,
+		Module_dlvFunctionTest,
+		Module_genPracticeExample,
+		Module_nsqProject,
+		Module_gin00,
+		Module_gorm00,
+		Module_readFile,
+		Module_commandLoadConfig,
+		Module_go_svc,
 	}
 }
 
@@ -192,42 +192,42 @@ func runPracticeModule(functionModule string) bool {
 		mlc_main()
 	case "14", "14.00":
 		securitypt.SecurityV01_mtls_tool()
-	case "13", "13.00":
-		securitypt.SecurityV00_generate_certs()
-	case "13.01":
-		securitypt.SecurityV00_activate_Server()
 	case "13.02":
 		securitypt.SecurityV00_activate_Client()
+	case "13.01":
+		securitypt.SecurityV00_activate_Server()
+	case "13", "13.00":
+		securitypt.SecurityV00_generate_certs()
 	case "12", "12.00":
 		logpt.LogMainPT()
-	case "1", "1.00":
-		go_svc_practice_main_package.Go_SVC_Practice_Main()
-	case "2", "2.00":
-		// 命令行加载配置文件
-		command_line_practice.CommandLinePracticeMain()
-	case "3", "3.00":
-		// 读取文件测试
-		read_file_practice.ReadFilePracticeMain()
-	case "4", "4.00":
-		// Gorm库语法测试
-		gorm_practice.GormPracticeMain()
-	case "5", "5.00":
-		// Gin库语法测试
-		gin_practice.GinPracticeMain()
-	case "6", "6.00":
-		// nsq工程中的陌生语法调试
-		nsq_project_practice.NSQProjectPracticeMain()
+	case "11", "11.00":
+		concurrent_pt.ConcurrentPTMain()
+	case "10", "10.00":
+		dlvThread00()
+	case "9", "9.00":
+		dlvTest2()
+	case "8", "8.00":
+		dlvTest()
 	case "7", "7.00":
 		// GenPracticeExample测试
 		gen_practice_example_package.GenPracticeMain()
-	case "8", "8.00":
-		dlvTest()
-	case "9", "9.00":
-		dlvTest2()
-	case "10", "10.00":
-		dlvThread00()
-	case "11", "11.00":
-		concurrent_pt.ConcurrentPTMain()
+	case "6", "6.00":
+		// nsq工程中的陌生语法调试
+		nsq_project_practice.NSQProjectPracticeMain()
+	case "5", "5.00":
+		// Gin库语法测试
+		gin_practice.GinPracticeMain()
+	case "4", "4.00":
+		// Gorm库语法测试
+		gorm_practice.GormPracticeMain()
+	case "3", "3.00":
+		// 读取文件测试
+		read_file_practice.ReadFilePracticeMain()
+	case "2", "2.00":
+		// 命令行加载配置文件
+		command_line_practice.CommandLinePracticeMain()
+	case "1", "1.00":
+		go_svc_practice_main_package.Go_SVC_Practice_Main()
 	default:
 		return false
 	}
