@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-02-05 23:00:16
+ * @LastEditTime: 2026-04-14 22:50:19
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -16,6 +16,9 @@ sudo mysql.server start
 
 # Intel sql启动 密码：回车即可
 mysql -u root -p
+# mysql停止：
+brew services stop mysql  
+
 ```
 
 > <h5></h5>

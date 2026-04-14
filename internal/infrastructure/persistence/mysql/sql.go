@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:22:42
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-25 20:27:09
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-04-14 22:56:44
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/sql.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -46,6 +46,7 @@ func LoadSQLEnvValue() {
 		envFilePath = ConfigPackage.DEV_ENV_PATH
 	}
 
+	// 把该文件里的 MYSQL_* 变量加载进进程环境
 	err := godotenv.Load(envFilePath)
 	if err != nil {
 		logHG.ErrFInfo("警告：加载环境文件失败: %s, err: %v", envFilePath, err)

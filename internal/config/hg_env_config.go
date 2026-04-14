@@ -9,8 +9,9 @@
 package ConfigPackage
 
 import (
-	"strconv"
 	"os"
+	"runtime"
+	"strconv"
 )
 
 const (
@@ -28,26 +29,52 @@ const (
 )
 
 type ENVConfigModel struct {
-	MySQLHost string
-	MySQLPort string
-	MySQLUser string
-	MySQLPass string
-	MySQLDB string
-	MAC_TYPE string
+	MySQLHost      string
+	MySQLPort      string
+	MySQLUser      string
+	MySQLPass      string
+	MySQLDB        string
+	MAC_TYPE       string
 	MigrateVersion int
 }
 
 func Load() *ENVConfigModel {
 	// MIGRATE_EXPECT_VERSION 是字符串，用 strconv.Atoi 转为整数
-	v, _ := strconv.Atoi(os.Getenv("MIGRATE_EXPECT_VERSION"))
+	v, err := strconv.Atoi(os.Getenv("MIGRATE_EXPECT_VERSION"))
+	if err != nil {
+		v = 1
+	}
 
 	return &ENVConfigModel{
-		MySQLHost: os.Getenv("MYSQL_HOST"),
-		MySQLPort: os.Getenv("MYSQL_PORT"),
-		MySQLUser: os.Getenv("MYSQL_USER"),
-		MySQLPass: os.Getenv("MYSQL_PASSWORD"),
-		MySQLDB: os.Getenv("MYSQL_DB"),
-		MAC_TYPE: os.Getenv("MAC_TYPE"),
+		MySQLHost:      getEnvOrDefault("MYSQL_HOST", "127.0.0.1"),
+		MySQLPort:      getEnvOrDefault("MYSQL_PORT", "3306"),
+		MySQLUser:      getEnvOrDefault("MYSQL_USER", "root"),
+		MySQLPass:      resolveMySQLPassword(),
+		MySQLDB:        getEnvOrDefault("MYSQL_DB", "HG_MLC_DB"),
+		MAC_TYPE:       getEnvOrDefault("MAC_TYPE", DEV_COMPUTER),
 		MigrateVersion: v,
 	}
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func resolveMySQLPassword() string {
+	intelPassword := os.Getenv("MYSQL_PASSWORD")
+
+	// 仅在 macOS 下按芯片架构区分密码策略：
+	// Intel(amd64) -> 使用 MYSQL_PASSWORD（可为空）
+	// Apple Silicon(arm64) -> 优先 MYSQL_PASSWORD_ARM，否则回退 hh109
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if armPassword := os.Getenv("MYSQL_PASSWORD_ARM"); armPassword != "" {
+			return armPassword
+		}
+		return "hh109"
+	}
+
+	return intelPassword
 }
