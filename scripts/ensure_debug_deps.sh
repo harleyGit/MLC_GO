@@ -126,6 +126,22 @@ can_auto_start() {
     [ "${ALLOW_AUTO_START}" = "true" ]
 }
 
+# is_apple_silicon_mac 用来判断当前是不是 macOS 的 Apple Silicon 机器。
+# 这里主要是为了兼容你本地这种 M2 / arm64 场景：
+# 有些机器上 brew services start mysql 启动的是 Homebrew 安装的实例，
+# 但你实际可用的却是 /usr/local/mysql/support-files/mysql.server 对应的实例。
+is_apple_silicon_mac() {
+    [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]
+}
+
+# can_prompt_for_sudo 用来判断当前脚本是不是跑在可交互终端里。
+# 只有标准输入和标准输出都连接到终端时，sudo 才适合弹出密码输入。
+# 如果脚本运行在不能交互的场景，就不要直接执行 sudo mysql.server start，
+# 否则任务可能会卡在密码提示上。
+can_prompt_for_sudo() {
+    [ -t 0 ] && [ -t 1 ]
+}
+
 # docker compose 方式更适合本地模拟 pre 环境：
 # 因为 pre 需要一整套和 debug 隔离的依赖端口，
 # 所以这里用 compose 统一拉起 MySQL / Redis。
@@ -220,13 +236,13 @@ check_mysql() {
 # start_mysql 的作用是：当 MySQL 没起来时，尝试把它启动起来。
 # 启动顺序是：
 # 1. pre 环境优先尝试 docker compose
-# 2. 其他场景优先尝试 brew services start mysql
-# 3. 如果还不行，再尝试 sudo -n mysql.server start
+# 2. Apple Silicon 机器优先尝试 mysql.server，因为这类机器上常见的是 sudo mysql.server start
+# 3. 其他场景优先尝试 brew services start mysql
+# 4. 如果还不行，再尝试 sudo -n mysql.server start
 #
-# 这里特别使用 sudo -n：
-# -n 的含义是“不要进入交互式密码输入”
-# 这样如果系统要求输入 sudo 密码，命令会直接失败，
-# 而不会把 VS Code 的 preLaunchTask 卡死在 Password: 提示上。
+# 如果当前终端支持交互，则允许执行 sudo mysql.server start，
+# 这样像你当前 M2 机器这种“必须手动输入密码”的场景也能直接拉起。
+# 如果当前终端不支持交互，则仍然只尝试 sudo -n，避免后台任务卡死。
 start_mysql() {
     log_info "MySQL 未就绪，尝试启动"
 
@@ -245,6 +261,27 @@ start_mysql() {
         fi
     fi
 
+    # Apple Silicon 机器优先尝试 mysql.server。
+    # 这样可以兼容你当前这种需要执行 sudo mysql.server start 的 MySQL 安装方式。
+    if is_apple_silicon_mac && command -v mysql.server >/dev/null 2>&1; then
+        # 如果当前任务跑在可交互终端里，就直接允许 sudo 弹密码。
+        # VS Code integratedTerminal 一般属于这种场景，输入一次密码后即可继续。
+        if can_prompt_for_sudo; then
+            log_info "检测到 Apple Silicon macOS，优先尝试 sudo mysql.server start"
+            if sudo mysql.server start; then
+                log_info "已执行 sudo mysql.server start"
+                return 0
+            fi
+        fi
+
+        # 如果当前不是可交互场景，则退回到 sudo -n。
+        # 这样不会因为无法输入密码而把任务挂住。
+        if sudo -n mysql.server start >/dev/null 2>&1; then
+            log_info "已执行 sudo -n mysql.server start"
+            return 0
+        fi
+    fi
+
     # command -v brew 用来检查 brew 命令是否存在。
     # 如果存在，再尝试用 Homebrew 的服务管理命令启动 MySQL。
     if command -v brew >/dev/null 2>&1; then
@@ -257,13 +294,21 @@ start_mysql() {
     # 如果 brew 方式没有成功，再检查 mysql.server 这个命令是否存在。
     # 一些 MySQL 安装方式会提供 mysql.server 启停命令。
     #
-    # 注意这里不是直接 sudo mysql.server start，而是 sudo -n。
-    # 原因是 VS Code 的 preLaunchTask 不适合等待你现场输入 sudo 密码。
-    # 如果这里需要密码，命令会立即失败，脚本会继续给出清晰提示。
+    # 非 Apple Silicon 的场景依然优先保持原来的保守策略：
+    # 先尝试非交互 sudo，避免不能输入密码的任务被卡住；
+    # 如果当前终端可交互，再允许你手动输入 sudo 密码。
     if command -v mysql.server >/dev/null 2>&1; then
         if sudo -n mysql.server start >/dev/null 2>&1; then
             log_info "已执行 sudo -n mysql.server start"
             return 0
+        fi
+
+        if can_prompt_for_sudo; then
+            log_info "检测到当前终端可交互，尝试 sudo mysql.server start，可能需要输入密码"
+            if sudo mysql.server start; then
+                log_info "已执行 sudo mysql.server start"
+                return 0
+            fi
         fi
     fi
 
