@@ -369,9 +369,16 @@ check_redis() {
 }
 
 # start_redis 的作用是尝试启动 Redis。
-# 当前这里只走 brew services start redis，
-# 因为你这个项目目前 Redis 默认就是连接本机 6379，
-# 本地最常见的 Redis 启动方式也是 Homebrew。
+# 启动顺序是：
+# 1. pre 环境优先走 docker compose
+# 2. 先尝试直接执行 redis-server
+# 3. 如果还不行，再尝试 brew services start redis
+#
+# 这里之所以不是把 redis-server 直接跑在前台，
+# 是因为当前脚本会被 VS Code 的 preLaunchTask 调用。
+# 如果 redis-server 一直占住前台，脚本就无法继续往下执行。
+# 所以这里采用“后台启动”的方式，既满足执行 redis-server，
+# 也避免阻塞后续的依赖检查和调试启动。
 start_redis() {
     log_info "Redis 未就绪，尝试启动"
 
@@ -385,6 +392,17 @@ start_redis() {
     # 如果 MySQL 检查阶段已经拉起过 compose，这里通常很快就会通过。
     if [ "${TARGET_ENV}" = "pre" ]; then
         if start_pre_compose_services; then
+            return 0
+        fi
+    fi
+
+    # 如果本机存在 redis-server，则优先直接用它拉起 Redis。
+    # nohup + 后台符号 & 的组合表示：
+    # 即使当前启动命令返回后，Redis 进程也继续在后台运行。
+    # 日志重定向到 /tmp，避免把 task 面板刷满。
+    if command -v redis-server >/dev/null 2>&1; then
+        if nohup redis-server >/tmp/mlc_go_redis_server.log 2>&1 & then
+            log_info "已执行 redis-server（后台启动）"
             return 0
         fi
     fi
