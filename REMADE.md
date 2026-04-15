@@ -7,21 +7,11 @@
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
 
-```sh
-# redis 启动
-redis-server
-
-# M2Pro sql 启动
-sudo mysql.server start
-
-# Intel sql启动 密码：回车即可
-mysql -u root -p
-# mysql停止：
-brew services stop mysql  
-
-```
-
 > <h5></h5>
+- [**‌工程启动**](#工程启动)
+	- [VSCode启动](#VSCode启动)
+	- [Intel电脑修改配置启动](#Intel电脑修改配置启动)
+	- [redis启动](#redis启动)
 - [**代码调用举例**](#代码调用举例)
 	- [分页model调用](#分页model调用)
 - [**高级语法**](#高级语法)
@@ -84,6 +74,221 @@ brew services stop mysql
 	- [文件排版和架构](#文件排版和架构)
 
 
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="工程启动">工程启动</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="VSCode启动">VSCode启动</h2>
+
+在 **VS Code** 里按下面操作进行启动工程：
+
+- 1.打开左侧“运行和调试”
+- 2.在顶部下拉框里选一个配置
+- 3.点绿色启动按钮
+
+<br/>
+你会看到这三个：
+
+- `🧪 Launch MLC_GO Root main.go (debug)`
+- `🧪 Launch MLC_GO Root main.go (pre)`
+- `🧪 Launch MLC_GO Root main.go (prod)`
+
+它们分别对应：
+- `debug`：本机开发
+- `pre`：本机模拟预发
+- `prod`：只检查生产配置
+
+如果你不用 VS Code，也可以在终端里手动执行前置脚本：
+
+```bash
+./scripts/ensure_debug_deps.sh debug
+./scripts/ensure_debug_deps.sh pre
+./scripts/ensure_debug_deps.sh prod
+```
+
+这个脚本只是做“前置依赖检查/启动”，真正启动 Go 程序还是靠 VS Code 的 debug 配置。
+
+你说的 IP、端口、密码不对，这个改法很简单，主要改这几类文件。
+
+***
+<br/>
+
+**改 debug 环境**
+文件在：
+[config/env_configs/hg_debug.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_debug.env:1)
+
+你可以改这些值：
+
+```env
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=!hxxx9
+MYSQL_DB=HG_MLC_DB
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+```
+
+如果你本机 MySQL 不是 `3306`，或者密码不是 `hh109`，就在这里改。
+
+***
+<br/>
+
+**改 pre 环境**
+文件在：
+[config/env_configs/hg_pre.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_pre.env:1)
+
+目前我给你配的是“本地模拟预发”：
+
+```env
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3308
+MYSQL_USER=root
+MYSQL_PASSWORD=!hxxx9
+MYSQL_DB=HG_MLC_PRE_DB
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6380
+```
+
+<br/>
+如果你想让 `pre` 连真实预发机器，比如：
+
+```env
+MYSQL_HOST=10.10.1.25
+MYSQL_PORT=3306
+MYSQL_USER=pre_user
+MYSQL_PASSWORD=你的密码
+MYSQL_DB=pre_db
+REDIS_HOST=10.10.1.26
+REDIS_PORT=6379
+```
+
+也可以直接改这里。
+
+但注意一件事：
+
+- 如果 `pre` 改成远端机器地址，那它就不应该再“自动启动 docker compose”
+- 它应该只做检查
+
+也就是说：
+- 本地模拟预发：`127.0.0.1 + 3308/6380 + compose`
+- 真实预发环境：远程 IP + 只检查不启动
+
+***
+<br/>
+
+**改 prod 环境**
+文件在：
+[config/env_configs/hg_prod.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_prod.env:1)
+
+例如：
+
+```env
+MYSQL_HOST=prod-mysql.internal
+MYSQL_PORT=3306
+MYSQL_USER=app
+MYSQL_PASSWORD=*******
+MYSQL_DB=HG_MLC_PROD_DB
+REDIS_HOST=prod-redis.internal
+REDIS_PORT=6379
+```
+
+生产环境建议你只改这些连接信息，不要做自动启动。
+
+**改 pre 本地容器端口**
+如果你本地 `3308` 或 `6380` 被占用了，就改：
+[config/docker/hg_docker_compose.pre.yml](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/docker/hg_docker_compose.pre.yml:7)
+
+现在是：
+
+```yaml
+ports:
+  - "3308:3306"
+```
+
+和
+
+```yaml
+ports:
+  - "6380:6379"
+```
+
+如果你想改成 `3310` 和 `6381`，那就同时改两边：
+
+1. 改 compose：
+
+```yaml
+- "3310:3306"
+- "6381:6379"
+```
+
+2. 再改 `hg_pre.env`：
+
+```env
+MYSQL_PORT=3310
+REDIS_PORT=6381
+```
+
+一定要两边一致，不然脚本能拉起容器，但程序连不上。
+
+***
+<br/>
+
+**改 VS Code 启动配置**
+如果你想改调试名、参数、环境名，就看：
+[.vscode/launch.json](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/.vscode/launch.json:8)
+
+这里主要是：
+- `preLaunchTask`
+- `env.SERVER_ENV`
+- `args`
+
+通常你现在不用先改这里，优先改 `.env` 和 `compose` 就够了。
+
+<br/>
+
+**最推荐的修改原则**
+你可以按这个思路改：
+
+- 本地开发不对：改 `hg_debug.env`
+- 本地模拟预发不对：改 `hg_pre.env` 和 `hg_docker_compose.pre.yml`
+- 真实预发地址不对：改 `hg_pre.env`
+- 生产地址不对：改 `hg_prod.env`
+
+**你现在可以先这样试一次**
+如果你要跑本地模拟预发：
+
+1. 先检查 `hg_pre.env` 里的端口和密码对不对
+2. 再看 `hg_docker_compose.pre.yml` 里的端口映射对不对
+3. 然后在 VS Code 选：
+   `🧪 Launch MLC_GO Root main.go (pre)`
+4. 点运行
+
+如果你要跑本地 debug：
+
+1. 先检查 `hg_debug.env`
+2. 在 VS Code 选：
+   `🧪 Launch MLC_GO Root main.go (debug)`
+3. 点运行
+
+如果你愿意，我下一步可以直接帮你做一件更省心的事：
+
+你把你真实想用的三套配置发我：
+- debug 的 MySQL/Redis 地址、端口、账号、密码
+- pre 的地址、端口、账号、密码
+- prod 的地址、端口、账号、密码
+
+
+***
+<br/><br/><br/>
+> <h2 id="Intel电脑修改配置启动">Intel电脑修改配置启动</h2>
+
+
 **Intel电脑：**
 hg_debug.env文件：
 
@@ -108,6 +313,7 @@ redis-server
 启动mysql
 
 ```sh
+# M2Pro sql 启动
 sudo mysql.server start
 
 cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
@@ -115,7 +321,24 @@ cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
 ```
 
 
+```sh
 localhost:8080/auth/send_code?phone=17681317668
+```
+
+<br/><br/>
+> <h3 id="redis启动">redis启动</h3>
+
+
+```sh
+# redis 启动
+redis-server
+
+# M2Pro sql 启动
+sudo mysql.server start
+
+# Intel sql启动 密码：回车即可
+mysql -u root -p
+```
 
 
 

@@ -219,9 +219,14 @@ check_mysql() {
 
 # start_mysql 的作用是：当 MySQL 没起来时，尝试把它启动起来。
 # 启动顺序是：
-# 1. 优先尝试 brew services start mysql
-# 2. 如果不行，再尝试 mysql.server start
-# 这样兼容本机常见的两种 MySQL 安装方式。
+# 1. pre 环境优先尝试 docker compose
+# 2. 其他场景优先尝试 brew services start mysql
+# 3. 如果还不行，再尝试 sudo -n mysql.server start
+#
+# 这里特别使用 sudo -n：
+# -n 的含义是“不要进入交互式密码输入”
+# 这样如果系统要求输入 sudo 密码，命令会直接失败，
+# 而不会把 VS Code 的 preLaunchTask 卡死在 Password: 提示上。
 start_mysql() {
     log_info "MySQL 未就绪，尝试启动"
 
@@ -251,14 +256,23 @@ start_mysql() {
 
     # 如果 brew 方式没有成功，再检查 mysql.server 这个命令是否存在。
     # 一些 MySQL 安装方式会提供 mysql.server 启停命令。
+    #
+    # 注意这里不是直接 sudo mysql.server start，而是 sudo -n。
+    # 原因是 VS Code 的 preLaunchTask 不适合等待你现场输入 sudo 密码。
+    # 如果这里需要密码，命令会立即失败，脚本会继续给出清晰提示。
     if command -v mysql.server >/dev/null 2>&1; then
-        if mysql.server start >/dev/null 2>&1; then
-            log_info "已执行 mysql.server start"
+        if sudo -n mysql.server start >/dev/null 2>&1; then
+            log_info "已执行 sudo -n mysql.server start"
             return 0
         fi
     fi
 
-    # 两种方式都没成功，就返回失败。
+    # 两种自动方式都没成功，就给出更明确的说明。
+    # 这样你在 VS Code 中看到报错时，能立刻知道下一步该做什么。
+    log_error "MySQL 自动启动失败。"
+    log_error "如果你的 MySQL 启动方式需要 sudo 密码，请先在终端手动执行：sudo mysql.server start"
+    log_error "手动启动成功后，再回到 VS Code 点击绿色启动按钮。"
+
     return 1
 }
 
