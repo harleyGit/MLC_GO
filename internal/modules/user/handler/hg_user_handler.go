@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-02-25 21:24:17
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-04-15 21:30:59
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -101,6 +101,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+// GET /profile/list?cursor=0&pageSize=20; “我要第一页，从最新的数据开始拿 20 条”。
 func (h *UserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 
 	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
