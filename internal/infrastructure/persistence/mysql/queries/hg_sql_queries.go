@@ -30,10 +30,13 @@ const (
 	SelectUserInfoByPhoneSQL = `SELECT id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
 	// 用户分页查询【在十万级别数据还可以，百万以上不行】
-	QueryUserPageSQL = `SELECT user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
+	QueryUserPageSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ? OFFSET ?`
-	// 用户分页查询，使用有标查询优化， 比如：LIMIT 21
-	QueryUserPageV2SQL = `SELECT user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
+	// 用户列表首屏查询，按主键倒序取最新数据。
+	QueryUserPageFirstSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
+	FROM users ORDER BY id DESC LIMIT ?`
+	// 用户分页查询，使用游标查询优化，避免深分页 offset 扫描。
+	QueryUserPageV2SQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users WHERE id < ? ORDER BY id DESC LIMIT ?`
 
 	GetUserByUsernameSQL  = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE username = ?"

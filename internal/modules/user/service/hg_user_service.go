@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-03-01 22:28:01
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-04-15 20:44:43
 
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -24,7 +24,6 @@ import (
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
-	// "encoding/json"
 )
 
 type UserService struct {
@@ -115,45 +114,87 @@ func LoginService(account, password string) (string, error) {
 }
 
 /* 获取注册的用户列表 */
-func (s *UserService) GetUserList(ctx context.Context, page, size int) (HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], error) {
+func (s *UserService) GetUserList(
+	ctx context.Context,
+	cursor int64,
+	size int,
+) (HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], error) {
 
-	// ===== 1. Redis =====
-	// if !UtilsPackage.IsEmpty(s.userCache) {
-	// 	cacheValue, err := s.userCache.GetUserListCache(ctx, page, size)
-	// 	if err != nil {
-	// 		logHG.DebugFInfo("GetUserListCache err: %v", err)
-	// 		return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
-	// 	}
+	// 先查 Redis。
+	// cursor 分页的缓存 key 使用 cursor + size，避免大 offset 导致缓存命中率和 MySQL 性能都变差。
+	if !UtilsPackage.IsEmpty(s.userCache) {
+		cacheValue, err := s.userCache.GetUserListCache(ctx, cursor, size)
+		if err != nil {
+			logHG.DebugFInfo("GetUserListCache err: %v", err)
+			return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
+		}
 
-	// 	if !UtilsPackage.IsEmpty(cacheValue) {
-	// 		var userList HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]
-	// 		if err := json.Unmarshal([]byte(cacheValue), &userList); err != nil {
-	// 			return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
-	// 		}
-	// 		return userList, nil
-	// 	}
-	// }
+		if cacheValue != nil {
+			return *cacheValue, nil
+		}
+	}
 
-	users, total, err := s.repo.FindPage(ctx, page, size)
+	users, nextCursor, hasMore, err := s.repo.FindByCursor(ctx, cursor, size)
 	if err != nil {
 		return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
 	}
+
+	total, err := s.getUserListTotal(ctx)
+	if err != nil {
+		return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
+	}
+
 	var dtoList []*UserDtoPackage.HGCreateUserDTO
 	for _, user := range users {
 		dtoList = append(dtoList, UserMapperPackage.UserModelToDTO(&user))
 	}
 
+	// 兼容现有响应结构中的 page 字段：
+	// cursor 首页返回 1，其余页因为已经是游标模型，不再强行模拟 offset 页码。
+	page := 1
+	if cursor > 0 {
+		page = 0
+	}
+
 	resp := HGResponsePakcage.NewPageResponse[*UserDtoPackage.HGCreateUserDTO](dtoList,
+		HGResponsePakcage.WithPagesize(size),
 		HGResponsePakcage.WithPage(page),
 		HGResponsePakcage.WithTotal(total),
-		HGResponsePakcage.WithNumPages(page))
+		HGResponsePakcage.WithNextCursor(nextCursor),
+		HGResponsePakcage.WithHasMore(hasMore))
 
 	if s.userCache != nil {
-		err := s.userCache.SetUserListCache(ctx, resp, page, size)
+		err := s.userCache.SetUserListCache(ctx, resp, cursor, size)
 		if err != nil {
 			logHG.DebugFInfo("SetUserListCache err: %v", err)
 		}
 	}
 
 	return resp, nil
+}
+
+func (s *UserService) getUserListTotal(ctx context.Context) (int, error) {
+	if UtilsPackage.IsEmpty(s.userCache) {
+		return s.repo.CountUsers(ctx)
+	}
+
+	total, err := s.userCache.GetUserListTotalCache(ctx)
+	if err != nil {
+		logHG.DebugFInfo("GetUserListTotalCache err: %v", err)
+		return 0, err
+	}
+	if total > 0 {
+		return total, nil
+	}
+
+	total, err = s.repo.CountUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	if err = s.userCache.SetUserListTotalCache(ctx, total); err != nil {
+		logHG.DebugFInfo("SetUserListTotalCache err: %v", err)
+	}
+
+	return total, nil
 }

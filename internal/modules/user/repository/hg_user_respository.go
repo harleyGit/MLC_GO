@@ -130,6 +130,7 @@ func (r *UserRepo) FindPage(
 	for rows.Next() {
 		var u UserModelsPackage.HGUserModel
 		err := rows.Scan(
+			&u.ID,
 			&u.UserID,
 			&u.Username,
 			&u.Email,
@@ -147,4 +148,86 @@ func (r *UserRepo) FindPage(
 
 	return users, total, nil
 
+}
+
+// FindByCursor 使用主键 id 倒序做 cursor 分页，避免大 offset 深分页扫描。
+// 查询时多取一条，用来判断是否还有下一页，并计算 nextCursor。
+func (r *UserRepo) FindByCursor(
+	ctx context.Context,
+	cursor int64,
+	size int,
+) ([]UserModelsPackage.HGUserModel, int64, bool, error) {
+	limit := size + 1
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if cursor > 0 {
+		rows, err = r.QueryContext(
+			ctx,
+			SQLQueriesPackage.QueryUserPageV2SQL,
+			cursor,
+			limit,
+		)
+	} else {
+		rows, err = r.QueryContext(
+			ctx,
+			SQLQueriesPackage.QueryUserPageFirstSQL,
+			limit,
+		)
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+
+	users := make([]UserModelsPackage.HGUserModel, 0, limit)
+	for rows.Next() {
+		var u UserModelsPackage.HGUserModel
+		err = rows.Scan(
+			&u.ID,
+			&u.UserID,
+			&u.Username,
+			&u.Email,
+			&u.Phone,
+			&u.PasswordHash,
+			&u.Salt,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		users = append(users, u)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, false, err
+	}
+
+	hasMore := len(users) > size
+	if hasMore {
+		users = users[:size]
+	}
+
+	var nextCursor int64
+	if hasMore && len(users) > 0 {
+		nextCursor = users[len(users)-1].ID
+	}
+
+	return users, nextCursor, hasMore, nil
+}
+
+func (r *UserRepo) CountUsers(ctx context.Context) (int, error) {
+	var total int
+	err := r.QueryRow(
+		ctx,
+		SQLQueriesPackage.UserTotalNumSQL,
+	).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
 }

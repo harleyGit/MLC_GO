@@ -13,6 +13,7 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -24,21 +25,38 @@ func NewUserCache(redisService *PersistenceRedisPackage.RedisService) *HGUserCac
 	return &HGUserCache{redisCache: redisService}
 }
 
-func (c *HGUserCache) GetUserListCache(ctx context.Context, page, size int) (string, error) {
+func (c *HGUserCache) GetUserListCache(
+	ctx context.Context,
+	cursor int64,
+	size int,
+) (*HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], error) {
 
-	key := fmt.Sprintf(PersistenceRedisPackage.UserListKey, page, size)
+	key := fmt.Sprintf(PersistenceRedisPackage.UserListKey, cursor, size)
 	val, err := c.redisCache.GetFromRedisV2(key, ctx)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if val == "" {
+		return nil, nil
 	}
 
-	return val, nil
+	var resp HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]
+	if err := json.Unmarshal([]byte(val), &resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
 }
 
-func (c *HGUserCache) SetUserListCache(ctx context.Context, resp HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], page, size int) error {
+func (c *HGUserCache) SetUserListCache(
+	ctx context.Context,
+	resp HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO],
+	cursor int64,
+	size int,
+) error {
 
-	// 缓存key应包含page和size
-	key := fmt.Sprintf(PersistenceRedisPackage.UserListKey, page, size)
+	// 缓存 key 需要包含 cursor 和 size，避免不同游标页互相覆盖。
+	key := fmt.Sprintf(PersistenceRedisPackage.UserListKey, cursor, size)
 
 	// 存：整个分页对象
 	expireTime := PersistenceRedisPackage.GetWEBCacheTime()
@@ -48,4 +66,26 @@ func (c *HGUserCache) SetUserListCache(ctx context.Context, resp HGResponsePakca
 	}
 
 	return nil
+}
+
+func (c *HGUserCache) GetUserListTotalCache(ctx context.Context) (int, error) {
+	val, err := c.redisCache.GetFromRedisV2(PersistenceRedisPackage.UserListTotalKey, ctx)
+	if err != nil {
+		return 0, err
+	}
+	if val == "" {
+		return 0, nil
+	}
+
+	var total int
+	if err := json.Unmarshal([]byte(val), &total); err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+func (c *HGUserCache) SetUserListTotalCache(ctx context.Context, total int) error {
+	expireTime := PersistenceRedisPackage.GetWEBCacheTime()
+	return c.redisCache.SetToRedisV2(PersistenceRedisPackage.UserListTotalKey, total, expireTime, ctx)
 }

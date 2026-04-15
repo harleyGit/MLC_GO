@@ -103,17 +103,22 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 
+	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
 	page, _ := strconv.Atoi(r.URL.Query().Get("pageNum"))
 	size, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
 
-	if page <= 0 {
-		page = 1
-	}
 	if size <= 0 || size > 1000 {
 		size = 20
 	}
 
-	resp, err := h.svc.GetUserList(r.Context(), page, size)
+	// 兼容旧参数 pageNum：
+	// 新方案优先使用 cursor；若未传 cursor，则默认按首屏查询处理。
+	// 深分页请改用上一次返回结果中的 nextCursor。
+	if cursor <= 0 && page <= 1 {
+		cursor = 0
+	}
+
+	resp, err := h.svc.GetUserList(r.Context(), cursor, size)
 	if err != nil {
 		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.UserListFailCode, err.Error())
 		return

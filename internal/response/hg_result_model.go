@@ -42,6 +42,8 @@ type HGPageResultModel[T any] struct {
 	Pagesize       int    `json:"pagesize"`        // 每页返回多少条结果
 	NumResults     int    `json:"numResults"`      // 总共匹配到的结果数（可能为估算值）
 	NumPages       int    `json:"numPages"`        // 总共页数
+	NextCursor     int64  `json:"nextCursor"`      // 下一页游标，0 表示没有下一页
+	HasMore        bool   `json:"hasMore"`         // 是否还有下一页
 	SuggestKeyword string `json:"suggest_keyword"` // 搜索建议词
 	RqtType        string `json:"rqt_type"`        // 请求类型，如 "search"
 	IsHitWebInf    bool   `json:"is_hit_web_inf"`  // 是否命中网页信息
@@ -59,6 +61,8 @@ type HGPageResponseConfig struct {
 	Pagesize       int
 	NumResults     int
 	NumPages       int
+	NextCursor     int64
+	HasMore        bool
 	SuggestKeyword string
 	RqtType        string
 	IsHitWebInf    bool
@@ -72,6 +76,8 @@ func defaultPageConfig() *HGPageResponseConfig {
 		Pagesize:       20,                          // 默认每页 20 条
 		NumResults:     0,
 		NumPages:       0,
+		NextCursor:     0,
+		HasMore:        false,
 		SuggestKeyword: "",
 		RqtType:        "search",
 		IsHitWebInf:    false,
@@ -130,6 +136,22 @@ func WithNumPages(pages int) HGPageOption {
 	}
 }
 
+// WithNextCursor 设置下一页游标。
+func WithNextCursor(cursor int64) HGPageOption {
+	return func(c *HGPageResponseConfig) {
+		if cursor >= 0 {
+			c.NextCursor = cursor
+		}
+	}
+}
+
+// WithHasMore 设置是否还有更多数据。
+func WithHasMore(hasMore bool) HGPageOption {
+	return func(c *HGPageResponseConfig) {
+		c.HasMore = hasMore
+	}
+}
+
 // WithSuggestKeyword 设置建议词
 func WithSuggestKeyword(keyword string) HGPageOption {
 	return func(c *HGPageResponseConfig) {
@@ -153,7 +175,6 @@ func WithIsHitWebInf(hit bool) HGPageOption {
 	}
 }
 
-
 // NewPageResponse 创建一个新的 PageResponse[T] 实例
 // items: 实际数据列表
 // opts: 可选配置（模拟“默认参数”）
@@ -176,6 +197,8 @@ func NewPageResponse[T any](items []T, opts ...HGPageOption) HGPageResultModel[T
 		Pagesize:       config.Pagesize,
 		NumResults:     config.NumResults,
 		NumPages:       config.NumPages,
+		NextCursor:     config.NextCursor,
+		HasMore:        config.HasMore,
 		SuggestKeyword: config.SuggestKeyword,
 		RqtType:        config.RqtType,
 		IsHitWebInf:    config.IsHitWebInf,
@@ -267,5 +290,3 @@ func writeResult(resp interface{}, w http.ResponseWriter) {
 
 	w.Write(jsonBytes)
 }
-
-
