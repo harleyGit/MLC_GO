@@ -39,17 +39,8 @@ import (
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
-	ConfigPackage "MLC_GO/internal/config"
-	HGHandlerPackage "MLC_GO/internal/handler"
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
-	HGLoggerPackage "MLC_GO/internal/logger"
-	HGSMSPackage "MLC_GO/internal/modules/sms"
-	"MLC_GO/internal/pkg/logHG"
 	"bufio"
-	"fmt" //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
-	"log"
+	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
 	"net/http" //提供了 HTTP 客户端和服务端的实现
 	"os"
 	"strings"
@@ -83,9 +74,6 @@ const (
 	Module_go_svc             ModuleType = "1: go_svc轻量库使用"
 )
 
-func init() {
-	PersistenceSQLPackage.LoadSQLEnvValue()
-}
 func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
@@ -113,45 +101,6 @@ func getPracticeModules() []ModuleType {
 func main() {
 
 	practiceKnowledge()
-}
-
-func mlc_main() {
-	logHG.DebugInfo("MLC_GO项目启动中...")
-
-	// 日志写入文件中
-	HGLoggerPackage.Init()
-	defer HGLoggerPackage.CloseLogger() // 程序退出前
-
-	// --- Redis ----
-	redisService := PersistenceRedisPackage.NewRedisService() // 初始化Redis连接
-
-	// -- MySQL----
-	sqlManager, err := PersistenceSQLPackage.NewSQLManager()
-	if err != nil {
-		logHG.ErrFInfo("数据库初化失败，error：", err)
-		return
-	}
-
-	//--------- 依赖 ----------
-	smsSender := HGSMSPackage.NewMockSender()
-	rootMux := HGHandlerPackage.RootHander(redisService, sqlManager, smsSender)
-	// --- server ---------
-	srv := &http.Server{
-		Addr:         ":8080",
-		Handler:      HGMiddlewarePackage.HGCORSMiddleware(rootMux),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
-	logHG.DebugInfo("HTTP server 开始监听： 8080 ")
-	log.Fatal(srv.ListenAndServe())
-
-	env := ConfigPackage.GetEnv()
-	if err := ConfigPackage.LoadConfig(string(env)); err != nil {
-		logHG.FatalFInfo("加载配置文件失败: %v\n", err)
-		return
-	}
-	logHG.DebugInfo("当前环境: %s\n", env)
 }
 
 func practiceKnowledge() {
