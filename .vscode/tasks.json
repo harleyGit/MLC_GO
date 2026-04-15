@@ -1,0 +1,24 @@
+{
+  // VS Code 在调试前会先执行这里定义的任务。
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // launch.json 里通过 preLaunchTask 引用的任务名。
+      "label": "ensure-debug-deps",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/ensure_debug_deps.sh",
+      "args": ["debug"],
+      "options": {
+        // 固定在项目根目录执行，避免路径解析差异。
+        "cwd": "${workspaceFolder}"
+      },
+      // 不需要从输出里提取编译错误，因此不配置 problemMatcher。
+      "problemMatcher": [],
+      "presentation": {
+        // 始终展示终端，确保能看到 MySQL/Redis 检查及启动提示。
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

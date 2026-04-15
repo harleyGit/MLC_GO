@@ -1,0 +1,75 @@
+{
+  // 使用 IntelliSense 了解相关属性。
+  // 悬停以查看现有属性的描述。
+  // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "🧪 Launch MLC_GO Root main.go", // 配置名称
+      "type": "go", // 调试类型（Go）
+      "request": "launch", // 启动模式（launch 或 attach）
+      "mode": "auto", // 调试模式（auto/debug/test）
+      "program": "${workspaceFolder}", // 调试工作区根目录（按 main 包整体启动，避免单文件缺少符号）
+      "args": [
+        "--version=true",
+        "--port=8081",
+        "--data-path=/data/nsq",
+        "--log-level=debug",
+        "--tcp-port=4150",
+        "--verbose",
+        "-gen"
+      ], // 命令行参数
+      "env": {
+        "GOPATH": "${env:GOPATH}",
+        "MY_ENV": "debug" // 自定义环境变量
+      },
+      "preLaunchTask": "ensure-debug-deps",
+      "showLog": true, // 显示调试日志
+      "console": "integratedTerminal" // 👈 关键：使用集成终端,解决在vscode中debug【调试控制台】无法输入，使其【调试控制台】与终端大致合并
+      //"stopOnEntry": true //“启动调试”按钮后程序就立即暂停在入口（main函数），可以立即 Evaluate 表达式
+    },
+    {
+      //针对包的调试配置
+      "name": "Launch Package",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${fileDirname}" //调试当前文件所在的包
+    },
+    {
+      //测试调试配置
+      "name": "Debug test",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${workspaceFolder}",
+      "args": ["-test.run", "MyTestFunction"]
+    },
+    {
+      //带参数的调试
+      "name": "Launch with args",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}", //调试工作区根目录（适用于有 main 包的项目）
+      "args": ["--port=8080", "--env=dev"]
+    },
+    {
+      // 当前目录包调试（不要用单文件模式，避免 main.go 引用其他文件时报 undefined）
+      "name": "Launch current package",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${fileDirname}" //调试当前打开文件所在目录对应的包
+    },
+    {
+      "name": "🧠 性能分析 Run performance_practice",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/TestNotes/performance_practice/performance_analysis_main.go",
+      "args": []
+    }
+  ]
+}
