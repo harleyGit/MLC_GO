@@ -28,7 +28,6 @@
   },
   "go.toolsManagement.checkForUpdates": "local",
   "accessibility.signalOptions": {
-    
     "volume": 70,
     "debouncePositionChanges": false,
     "experimental.delays": {
