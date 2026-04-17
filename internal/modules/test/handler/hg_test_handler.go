@@ -13,6 +13,11 @@ type HGTestHandler struct {
 	Status int64 `json:"status"`
 }
 
+const (
+	// TestModuleBasePath 是 test 模块对外暴露的统一 API 前缀。
+	TestModuleBasePath = "/api/v1/test"
+)
+
 // NewTestHandler 创建测试模块 handler。
 func NewTestHandler() *HGTestHandler {
 	return &HGTestHandler{Status: 0}
@@ -23,23 +28,25 @@ func TestModuleHandler() http.Handler {
 	handler := NewTestHandler()
 	testMux := http.NewServeMux()
 	for _, route := range testRouteSpecs(handler) {
-		testMux.HandleFunc(route.Path, route.Handler)
+		testMux.HandleFunc(route.SubPath, route.Handler)
 	}
 
-	return HGMiddlewarePackage.JSONHeaderMiddleware(
-		HGMiddlewarePackage.TIDMiddleware(testMux),
+	return HGMiddlewarePackage.ChainInterceptors(
+		testMux,
+		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
 }
 
 // TestRouteCatalog 返回 test 模块完整可调用路径清单。
-func TestRouteCatalog(basePrefix string) []HGMiddlewareGroupPackage.HGRouteCatalogItem {
+func TestRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	specs := testRouteSpecs(nil)
 	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, len(specs))
 	for _, spec := range specs {
 		items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
-			Group:    "test",
+			Group:    spec.Group,
 			Method:   spec.Method,
-			Path:     joinRoutePath(basePrefix, spec.Path),
+			Path:     spec.FullPath,
 			NeedAuth: spec.NeedAuth,
 			Summary:  spec.Summary,
 		})
@@ -49,24 +56,38 @@ func TestRouteCatalog(basePrefix string) []HGMiddlewareGroupPackage.HGRouteCatal
 }
 
 type hgTestRouteSpec struct {
+	Group    string
 	Method   string
-	Path     string
+	SubPath  string
+	FullPath string
 	NeedAuth bool
 	Summary  string
 	Handler  http.HandlerFunc
 }
 
+func newTestRouteSpec(method string, subPath string, needAuth bool, summary string, handler http.HandlerFunc) hgTestRouteSpec {
+	return hgTestRouteSpec{
+		Group:    "test",
+		Method:   method,
+		SubPath:  subPath,
+		FullPath: joinRoutePath(TestModuleBasePath, subPath),
+		NeedAuth: needAuth,
+		Summary:  summary,
+		Handler:  handler,
+	}
+}
+
 func testRouteSpecs(handler *HGTestHandler) []hgTestRouteSpec {
 	if handler == nil {
 		return []hgTestRouteSpec{
-			{Method: http.MethodGet, Path: "/ok", NeedAuth: false, Summary: "测试正常返回"},
-			{Method: http.MethodGet, Path: "/error", NeedAuth: false, Summary: "测试 panic 恢复链路"},
+			newTestRouteSpec(http.MethodGet, "/ok", false, "测试正常返回", nil),
+			newTestRouteSpec(http.MethodGet, "/error", false, "测试 panic 恢复链路", nil),
 		}
 	}
 
 	return []hgTestRouteSpec{
-		{Method: http.MethodGet, Path: "/ok", NeedAuth: false, Summary: "测试正常返回", Handler: handler.OK},
-		{Method: http.MethodGet, Path: "/error", NeedAuth: false, Summary: "测试 panic 恢复链路", Handler: handler.Error},
+		newTestRouteSpec(http.MethodGet, "/ok", false, "测试正常返回", handler.OK),
+		newTestRouteSpec(http.MethodGet, "/error", false, "测试 panic 恢复链路", handler.Error),
 	}
 }
 

@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-/* 日志中间件 */
-func LoggerMiddleware(next http.Handler) http.Handler {
+// AccessLogInterceptor 记录请求方法、路径和耗时，作为基础访问日志拦截器。
+func AccessLogInterceptor(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -28,4 +28,9 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			time.Since(start).Milliseconds(),
 		)
 	})
+}
+
+// LoggerMiddleware 兼容旧方法名，内部转发到拦截器实现。
+func LoggerMiddleware(next http.Handler) http.Handler {
+	return AccessLogInterceptor(next)
 }

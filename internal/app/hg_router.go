@@ -25,14 +25,11 @@ type HGRouter struct {
 func Register(mux *http.ServeMux, routes []HGRouter) {
 
 	for _, r := range routes {
-		var h http.Handler = r.Handle
-		h = HGMiddlewarePackage.TraceMiddleware(r.Span)(h)
-		// if r.Auth {
-		// 	h = HGMiddlewarePackage.AuthMiddlewareGroup(h)
-		// }
-		// h = HGMiddlewarePackage.LoggerMiddleware(h)
-		h = HGMiddlewarePackage.TIDMiddleware(h)
-
+		interceptors := []HGMiddlewarePackage.HGHTTPInterceptor{
+			HGMiddlewarePackage.TraceInterceptor(r.Span),
+			HGMiddlewarePackage.RequestTIDInterceptor,
+		}
+		h := HGMiddlewarePackage.ChainInterceptors(r.Handle, interceptors...)
 		mux.Handle(r.Path, h)
 	}
 }

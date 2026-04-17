@@ -25,22 +25,25 @@ const (
 
 // AuthMiddlewareGroup 注册认证模块路由并装配公共中间件链路。
 func AuthMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+	return NewAuthRouteInterceptorGroup(userHandler)
+}
+
+// NewAuthRouteInterceptorGroup 注册认证模块路由并装配拦截器链路。
+func NewAuthRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 	specs := authRoutes(userHandler)
 	publicMux := http.NewServeMux()
 	bindRouteSpecs(publicMux, specs)
 
-	guard := HGMiddlewarePackage.NewAPIGuard(HGServerPackage.PublicAPIRules())
-
 	// 链路顺序：Recover -> Logger -> TID -> JSONHeader -> Handler。
-	chain := chainMiddlewares(
+	chain := HGMiddlewarePackage.ChainInterceptors(
 		publicMux,
-		HGMiddlewarePackage.RecoverMiddleware,
-		HGMiddlewarePackage.LoggerMiddleware,
-		HGMiddlewarePackage.TIDMiddleware,
-		HGMiddlewarePackage.JSONHeaderMiddleware,
+		HGMiddlewarePackage.RecoverInterceptor,
+		HGMiddlewarePackage.AccessLogInterceptor,
+		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
 
-	return guard.MethodGuardMiddlewareV3(chain)
+	return HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.PublicAPIRules())(chain)
 }
 
 // AuthRouteCatalog 返回 auth 模块完整可调用路径清单。

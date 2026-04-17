@@ -39,12 +39,14 @@ type HGAPIRule struct {
 type ctxKey string
 
 const (
-	CtxUserID   ctxKey = "userID"
-	CtxDeviceID ctxKey = "deviceID"
+	CtxUserID         ctxKey = "userID"
+	CtxDeviceID       ctxKey = "deviceID"
+	defaultAPIVersion        = "v1"
 )
 
 type HGAPIGuard struct {
-	rules map[string]HGAPIRule
+	rulesByVersion map[string]map[string]HGAPIRule
+	legacyRules    map[string]HGAPIRule
 }
 
 var rolePermissions = map[string]map[string]bool{
@@ -58,56 +60,88 @@ var rolePermissions = map[string]map[string]bool{
 }
 
 func NewAPIGuard(rules []HGAPIRule) *HGAPIGuard {
-
-	ruleMap := make(map[string]HGAPIRule)
-	for _, r := range rules {
-		key := r.Version + r.Path
-		ruleMap[key] = r
+	guard := &HGAPIGuard{
+		rulesByVersion: make(map[string]map[string]HGAPIRule),
+		legacyRules:    make(map[string]HGAPIRule),
 	}
 
-	return &HGAPIGuard{rules: ruleMap}
+	for _, r := range rules {
+		version := strings.TrimSpace(r.Version)
+		if version == "" {
+			version = defaultAPIVersion
+		}
+
+		if _, ok := guard.rulesByVersion[version]; !ok {
+			guard.rulesByVersion[version] = make(map[string]HGAPIRule)
+		}
+
+		guard.rulesByVersion[version][r.Path] = r
+		guard.legacyRules[r.Path] = r
+	}
+
+	return guard
 }
 
-func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
+// APIGuardInterceptor 快速构建 API Guard 拦截器，供路由链直接复用。
+func APIGuardInterceptor(rules []HGAPIRule) HGHTTPInterceptor {
+	return NewAPIGuard(rules).Interceptor()
+}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// Interceptor 执行 Method/Header/Auth/Permission 统一拦截。
+func (g *HGAPIGuard) Interceptor() HGHTTPInterceptor {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			version := strings.TrimSpace(r.Header.Get("X-API-Version"))
+			if version == "" {
+				version = defaultAPIVersion
+			}
 
-		version := r.Header.Get("X-API-Version")
-		if version == "" {
-			version = "v1"
-		}
-
-		key := version + r.URL.Path
-		rule, ok := g.rules[key]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-
-		// 1️⃣ Method 校验
-		if !rule.Methods[r.Method] {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
-			return
-		}
-
-		// 2.1 header检验
-		ctx := g.checkoutHeader(w, r, rule.NeedAuth)
-		if ctx == nil {
-			return
-		}
-
-		// 3️⃣ 权限校验（可选）
-		if len(rule.Permissions) > 0 {
-			role, _ := r.Context().Value("role").(string)
-			if !HasPermission(role, rule.Permissions) {
-				w.WriteHeader(http.StatusForbidden)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ForbiddenCode, "FORBIDDEN")
+			rule, ok := g.lookupRule(version, r.URL.Path)
+			if !ok {
+				http.NotFound(w, r)
 				return
 			}
-		}
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+
+			// 1️⃣ Method 校验
+			if !rule.Methods[r.Method] {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+				return
+			}
+
+			// 2.1 header检验
+			ctx := g.checkoutHeader(w, r, rule.NeedAuth)
+			if ctx == nil {
+				return
+			}
+
+			// 3️⃣ 权限校验（可选）
+			if len(rule.Permissions) > 0 {
+				role, _ := r.Context().Value("role").(string)
+				if !HasPermission(role, rule.Permissions) {
+					w.WriteHeader(http.StatusForbidden)
+					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ForbiddenCode, "FORBIDDEN")
+					return
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// MethodGuardMiddlewareV3 兼容旧方法名，内部使用拦截器实现。
+func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
+	return g.Interceptor()(next)
+}
+
+func (g *HGAPIGuard) lookupRule(version string, path string) (HGAPIRule, bool) {
+	routesByPath, ok := g.rulesByVersion[version]
+	if !ok {
+		return HGAPIRule{}, false
+	}
+
+	rule, ok := routesByPath[path]
+	return rule, ok
 }
 
 // checkoutHeader 统一校验接口请求头、JWT 和签名，并把通过校验的用户上下文写回请求链路。
@@ -423,7 +457,7 @@ func (m *HGAPIGuard) MethodGuardMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		rule, ok := m.rules[r.URL.Path]
+		rule, ok := m.legacyRules[r.URL.Path]
 		if !ok {
 			// 未注册接口，直接 404
 			http.NotFound(w, r)

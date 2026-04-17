@@ -144,4 +144,39 @@ func TestNewRouteCatalogHandler_ReturnCatalog(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "/api/v1/profile/list") {
 		t.Fatalf("response should contain profile list path, body=%s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "/api/v1/routes/groups") {
+		t.Fatalf("response should contain grouped routes path, body=%s", rec.Body.String())
+	}
+}
+
+func TestNewRouteCatalogGroupedHandler_MethodGuard(t *testing.T) {
+	grouped := buildRouteCatalogGrouped(buildRouteCatalog())
+	handler := newRouteCatalogGroupedHandler(grouped)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/groups", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
+	}
+}
+
+func TestNewRouteCatalogGroupedHandler_ReturnGroups(t *testing.T) {
+	grouped := buildRouteCatalogGrouped(buildRouteCatalog())
+	handler := newRouteCatalogGroupedHandler(grouped)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/groups", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "\"auth\"") {
+		t.Fatalf("response should contain auth group, body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "\"profile\"") {
+		t.Fatalf("response should contain profile group, body=%s", rec.Body.String())
+	}
 }

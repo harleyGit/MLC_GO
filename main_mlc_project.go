@@ -74,7 +74,7 @@ func buildMLCServer() (*http.Server, error) {
 
 	return &http.Server{
 		Addr:         buildListenAddr(ConfigPackage.GetServerPort()),
-		Handler:      HGMiddlewarePackage.HGCORSMiddleware(rootMux),
+		Handler:      HGMiddlewarePackage.CORSInterceptor(rootMux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}, nil

@@ -13,7 +13,8 @@ import (
 	"net/http"
 )
 
-func RecoverMiddleware(next http.Handler) http.Handler {
+// RecoverInterceptor 统一拦截 panic，防止请求链路异常中断。
+func RecoverInterceptor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
@@ -25,4 +26,9 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RecoverMiddleware 兼容旧方法名，内部转发到拦截器实现。
+func RecoverMiddleware(next http.Handler) http.Handler {
+	return RecoverInterceptor(next)
 }

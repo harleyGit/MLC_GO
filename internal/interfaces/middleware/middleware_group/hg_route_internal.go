@@ -13,8 +13,6 @@ type hgRouteSpec struct {
 	Handler  http.HandlerFunc
 }
 
-type hgMiddleware func(http.Handler) http.Handler
-
 // bindRouteSpecs 负责把模块内子路由批量注册到 mux。
 func bindRouteSpecs(mux *http.ServeMux, specs []hgRouteSpec) {
 	for _, route := range specs {
@@ -60,23 +58,6 @@ func newRouteSpec(
 		Summary:  summary,
 		Handler:  handler,
 	}
-}
-
-// chainMiddlewares 按声明顺序拼接中间件，避免手工嵌套导致链路顺序不清晰。
-func chainMiddlewares(base http.Handler, chain ...hgMiddleware) http.Handler {
-	if base == nil {
-		return nil
-	}
-
-	wrapped := base
-	for i := len(chain) - 1; i >= 0; i-- {
-		if chain[i] == nil {
-			continue
-		}
-		wrapped = chain[i](wrapped)
-	}
-
-	return wrapped
 }
 
 func joinRoutePath(prefix string, subPath string) string {

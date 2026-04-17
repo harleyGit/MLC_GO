@@ -10,7 +10,8 @@ package HGMiddlewarePackage
 
 import "net/http"
 
-func HGCORSMiddleware(next http.Handler) http.Handler {
+// CORSInterceptor 统一处理跨域请求与预检响应。
+func CORSInterceptor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -25,4 +26,9 @@ func HGCORSMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// HGCORSMiddleware 兼容旧方法名，内部转发到拦截器实现。
+func HGCORSMiddleware(next http.Handler) http.Handler {
+	return CORSInterceptor(next)
 }

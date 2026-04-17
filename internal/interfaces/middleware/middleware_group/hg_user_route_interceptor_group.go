@@ -26,20 +26,23 @@ const (
 
 // UserMiddlewareGroup 注册用户模块路由并装配鉴权链路。
 func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+	return NewUserRouteInterceptorGroup(userHandler)
+}
+
+// NewUserRouteInterceptorGroup 注册用户模块路由并装配鉴权拦截器链路。
+func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 	specs := userRoutes(userHandler)
 	userMux := http.NewServeMux()
 	bindRouteSpecs(userMux, specs)
 
-	guard := HGMiddlewarePackage.NewAPIGuard(HGServerPackage.UserMethodRules())
-
-	chain := chainMiddlewares(
+	chain := HGMiddlewarePackage.ChainInterceptors(
 		userMux,
 		UserJWTMiddlewarePackage.AuthMiddleware,
-		HGMiddlewarePackage.TIDMiddleware,
-		HGMiddlewarePackage.JSONHeaderMiddleware,
+		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
 
-	return guard.MethodGuardMiddlewareV3(chain)
+	return HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.UserMethodRules())(chain)
 }
 
 // UserRouteCatalog 返回 user/profile 模块完整可调用路径清单。

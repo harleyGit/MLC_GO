@@ -10,7 +10,8 @@ package HGMiddlewarePackage
 
 import "net/http"
 
-func JSONHeaderMiddleware(next http.Handler) http.Handler {
+// JSONHeaderInterceptor 统一设置 JSON 响应头，保证客户端按 JSON 解析。
+func JSONHeaderInterceptor(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -24,4 +25,9 @@ func JSONHeaderMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// JSONHeaderMiddleware 兼容旧方法名，内部转发到拦截器实现。
+func JSONHeaderMiddleware(next http.Handler) http.Handler {
+	return JSONHeaderInterceptor(next)
 }

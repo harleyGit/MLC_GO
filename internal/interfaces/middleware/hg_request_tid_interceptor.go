@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-/* tid中间件，tid必须放在中间件中。放在http的context可以贯穿生命周期，若是直接放在返回结果的字段里没法全链路追踪了。 */
-func TIDMiddleware(next http.Handler) http.Handler {
+// RequestTIDInterceptor 注入请求链路追踪 ID，并输出请求级耗时日志。
+func RequestTIDInterceptor(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tid := UtilsPackage.GenerateTID()
 		start := time.Now()
@@ -46,4 +46,9 @@ func TIDMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		logHG.DebugFInfo("[TID=%s] <-- %s %s (%v)\n\n", tid, r.Method, r.URL.Path, time.Since(start))
 	})
+}
+
+// TIDMiddleware 兼容旧方法名，内部转发到拦截器实现。
+func TIDMiddleware(next http.Handler) http.Handler {
+	return RequestTIDInterceptor(next)
 }

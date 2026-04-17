@@ -19,6 +19,7 @@ func TestBuildRouteCatalogContainsFullPaths(t *testing.T) {
 		"GET /api/v1/test/error",
 		"GET /api/v1/test/ok",
 		"GET /api/v1/routes",
+		"GET /api/v1/routes/groups",
 	}
 
 	for _, route := range expected {

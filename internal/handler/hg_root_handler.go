@@ -36,9 +36,8 @@ type HGRouteMount struct {
 	Handler     http.Handler
 }
 
-const (
-	testModuleBasePath = "/api/v1/test"
-)
+const routeCatalogPath = "/api/v1/routes"
+const routeCatalogGroupsPath = "/api/v1/routes/groups"
 
 // NewRootHandler 负责构建根路由，仅挂载 /api/v1 前缀的模块路由。
 func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
@@ -50,26 +49,21 @@ func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
 	}
 
 	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, deps.SQLManager, smsSender)
-	publicHandler := HGMiddlewareGroupPackage.AuthMiddlewareGroup(userHandler)
-	userHandlerWithAuth := HGMiddlewareGroupPackage.UserMiddlewareGroup(userHandler)
+	publicHandler := HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(userHandler)
+	userHandlerWithAuth := HGMiddlewareGroupPackage.NewUserRouteInterceptorGroup(userHandler)
 	testHandler := HGTestHandlerPackage.TestModuleHandler()
 	// API 调用路径清单
 	routeCatalog := buildRouteCatalog()
+	routeCatalogGrouped := buildRouteCatalogGrouped(routeCatalog)
 
 	registerRootPrefixRoutes(rootMux, []HGRouteMount{
 		// 统一前缀，便于网关治理与版本演进
 		{Prefix: HGMiddlewareGroupPackage.AuthModuleBasePath + "/", StripPrefix: HGMiddlewareGroupPackage.AuthModuleBasePath, Handler: publicHandler},
 		{Prefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath + "/", StripPrefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath, Handler: userHandlerWithAuth},
-		{Prefix: testModuleBasePath + "/", StripPrefix: testModuleBasePath, Handler: testHandler},
+		{Prefix: HGTestHandlerPackage.TestModuleBasePath + "/", StripPrefix: HGTestHandlerPackage.TestModuleBasePath, Handler: testHandler},
 	})
-	rootMux.Handle(
-		"/api/v1/routes",
-		HGMiddlewarePackage.JSONHeaderMiddleware(
-			HGMiddlewarePackage.TIDMiddleware(
-				newRouteCatalogHandler(routeCatalog),
-			),
-		),
-	)
+	rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(routeCatalog)))
+	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(routeCatalogGrouped)))
 	logRouteCatalog(routeCatalog)
 
 	return rootMux
@@ -90,13 +84,20 @@ func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
 	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
-	items = append(items, HGTestHandlerPackage.TestRouteCatalog(testModuleBasePath)...)
+	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
 		Group:    "meta",
 		Method:   http.MethodGet,
-		Path:     "/api/v1/routes",
+		Path:     routeCatalogPath,
 		NeedAuth: false,
 		Summary:  "查看完整 API 路由清单",
+	})
+	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
+		Group:    "meta",
+		Method:   http.MethodGet,
+		Path:     routeCatalogGroupsPath,
+		NeedAuth: false,
+		Summary:  "按模块分组查看 API 路由清单",
 	})
 
 	sort.Slice(items, func(i, j int) bool {
@@ -109,13 +110,35 @@ func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	return items
 }
 
+// buildRouteCatalogGrouped 把路由按 group 聚合，便于 App/Web 按模块展示。
+func buildRouteCatalogGrouped(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem {
+	grouped := make(map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem, 8)
+	for _, item := range catalog {
+		grouped[item.Group] = append(grouped[item.Group], item)
+	}
+
+	for group := range grouped {
+		routes := grouped[group]
+		sort.Slice(routes, func(i, j int) bool {
+			if routes[i].Path == routes[j].Path {
+				return routes[i].Method < routes[j].Method
+			}
+			return routes[i].Path < routes[j].Path
+		})
+		grouped[group] = routes
+	}
+
+	return grouped
+}
+
 // logRouteCatalog 在服务启动时输出完整 API 路由清单，方便 App/Web 联调时直接确认完整路径。
 func logRouteCatalog(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) {
 	logHG.DebugInfo("API 路由清单如下（完整可调用路径）：")
 	for _, item := range catalog {
 		logHG.DebugFInfo("[API] %s %s auth=%t group=%s summary=%s", item.Method, item.Path, item.NeedAuth, item.Group, item.Summary)
 	}
-	logHG.DebugInfo("API 路由清单接口：GET /api/v1/routes")
+	logHG.DebugFInfo("API 路由清单接口：GET %s", routeCatalogPath)
+	logHG.DebugFInfo("API 路由分组接口：GET %s", routeCatalogGroupsPath)
 }
 
 // newRouteCatalogHandler 提供完整接口路径查询，方便 App/Web 联调自助查看。
@@ -136,6 +159,32 @@ func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogIte
 	})
 }
 
+// newRouteCatalogGroupedHandler 提供按模块分组的路由清单，方便端侧按业务域筛选。
+func newRouteCatalogGroupedHandler(grouped map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			HGResponsePakcage.FailResult[string](
+				w,
+				r,
+				HGResponsePakcage.MethodNotAllowCode,
+				"method not allowed",
+			)
+			return
+		}
+
+		HGResponsePakcage.SuccessResult(w, r, grouped)
+	})
+}
+
+func buildRouteCatalogHandler(core http.Handler) http.Handler {
+	return HGMiddlewarePackage.ChainInterceptors(
+		core,
+		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.JSONHeaderInterceptor,
+	)
+}
+
 /*
 路由访问：
 
@@ -150,15 +199,15 @@ func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogIte
 /* 现在请求链路是这样的：
 Request
  ↓
-APIGuardMiddleware   ← Method / Auth / Permission / Version
+APIGuardInterceptor   ← Method / Auth / Permission / Version
  ↓
-Recover
+RecoverInterceptor
  ↓
-Logger
+AccessLogInterceptor
  ↓
-TID
+RequestTIDInterceptor
  ↓
-JSONHeader
+JSONHeaderInterceptor
  ↓
 Handler
  ↓
