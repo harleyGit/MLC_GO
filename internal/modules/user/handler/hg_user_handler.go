@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-04-15 21:30:59
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-04-15 21:30:59
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -252,7 +252,11 @@ func registerHandlerV2(w http.ResponseWriter, r *http.Request) {
 
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
 	code, err := PersistenceRedisPackage.GetFromRedis(r.Context(), key)
-	if err != nil || code != req.Code {
+	if err != nil {
+		PresentersPackage.WriteJSON(w, map[string]string{"error": "验证码错误 or 已过期"})
+		return
+	}
+	if decodeRedisStringValue(code) != req.Code {
 		PresentersPackage.WriteJSON(w, map[string]string{"error": "验证码错误 or 已过期"})
 		return
 	}
@@ -380,7 +384,11 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	} else { // 若是使用验证码
 		// 校验验证码
 		val, err := h.redisService.GetFromRedisV2(cacheKey, ctx)
-		if err != nil || val != *req.Code {
+		if err != nil {
+			http.Error(w, "invalid code", http.StatusUnauthorized)
+			return
+		}
+		if decodeRedisStringValue(val) != *req.Code {
 			http.Error(w, "invalid code", http.StatusUnauthorized)
 			return
 		}
@@ -465,6 +473,15 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
 	HGResponsePakcage.SuccessResult(w, r, userDto)
+}
+
+// decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
+func decodeRedisStringValue(v string) string {
+	var code string
+	if err := json.Unmarshal([]byte(v), &code); err == nil {
+		return code
+	}
+	return v
 }
 
 /*

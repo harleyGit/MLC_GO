@@ -45,7 +45,7 @@ var (
 )
 
 type HGClaims struct {
-	UserID  string  `json:"uid"`
+	UserID  string `json:"uid"`
 	Device  string `json:"device"`
 	JTI     string `json:"jti"`
 	TokenTp string `json"tp"`
@@ -166,7 +166,10 @@ func (s *HGAuthService) SendCode(ctx context.Context, d *UserDtoPackage.SendCode
 func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserDtoPackage.LoginResultDTO, error) {
 	real, err := s.codes.GetCode(ctx, phone)
 
-	if err != nil || real != code {
+	if err != nil {
+		return nil, errors.New("验证码错误")
+	}
+	if decodeRedisStringValue(real) != code {
 		return nil, errors.New("验证码错误")
 	}
 
@@ -189,7 +192,10 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 // Deprecated: 使用 LoginV2 替代, 后面可以删除若是其他地方没有用了
 func (s *HGAuthService) Login(ctx context.Context, d *UserDtoPackage.LoginDTO) (*UserDtoPackage.LoginResultDTO, error) {
 	code, err := s.codes.GetCode(ctx, d.Phone)
-	if err != nil || code != d.Code {
+	if err != nil {
+		return nil, errors.New("验证码错误")
+	}
+	if decodeRedisStringValue(code) != d.Code {
 		return nil, errors.New("验证码错误")
 	}
 	user, err := s.users.GetByPhone(ctx, d.Phone)
@@ -229,7 +235,7 @@ func (s *HGAuthService) Valid(ctx context.Context, uid int64,
 	// v := s.rdb.Get(ctx,
 	// 	fmt.Sprintf("token:%d:%s", uid, deice),
 	// ).Val()
-	
+
 	// 是否踢下线
 	return v == jti
 }
