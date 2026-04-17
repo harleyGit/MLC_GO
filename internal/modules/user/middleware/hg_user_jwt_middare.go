@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-22 16:44:22
  * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-04-18 02:28:01
+ * @LastEditTime: 2026-04-18 03:02:29
  * @FilePath: /MLC_GO/internal/modules/user/middleware/hg_user_jwt_middare.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -11,6 +11,7 @@ package UserJWTMiddlewarePackage
 import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
+	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
 	"errors"
 	"net/http"
@@ -30,16 +31,18 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 		func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
 			if !strings.HasPrefix(h, "Bearer ") {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 
-		// strings.TrimPrefix(s, prefix string) 会检查 s 是否以 prefix 开头
-		// 如果是，就返回去掉前缀后的字符串
-		// 如果不是，就返回原字符串不变
+			// strings.TrimPrefix(s, prefix string) 会检查 s 是否以 prefix 开头
+			// 如果是，就返回去掉前缀后的字符串
+			// 如果不是，就返回原字符串不变
 			token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 			if token == "" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 			claims := &UserServicePackage.HGClaims{}
@@ -73,11 +76,14 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 				desc +=
 					"\n localTime:" + now.Format("2006-01-02 15:04:05") +
 						"\n UTC time:" + now.UTC().Format("2006-01-02 15:04:05")
-				http.Error(w, desc, http.StatusUnauthorized)
+
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc + desc)
 				return
 			}
 			if err := validateAccessClaims(r, claims); err != nil {
-				http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 

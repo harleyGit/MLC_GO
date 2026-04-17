@@ -11,7 +11,7 @@ package PkgMiddlewarePackage
 
 import (
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
-	PresentersPackage "MLC_GO/internal/interfaces/presenters"
+	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
 )
 
@@ -19,11 +19,13 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if token == "" {
-			http.Error(w, "缺少Token", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		if _, err := PersistenceRedisPackage.GetFromRedis(nil, "token:"+token); err != nil {
-			http.Error(w, "无效Token", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		next(w, r)
@@ -35,13 +37,15 @@ func TokenAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if token == "" {
-			PresentersPackage.WriteJSON(w, map[string]string{"error": "缺少Token"})
+			w.WriteHeader(http.StatusUnauthorized)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 
 		_, err := PersistenceRedisPackage.RDB.Get(r.Context(), "token:"+token).Result()
 		if err != nil {
-			PresentersPackage.WriteJSON(w, map[string]string{"error": "无效Token"})
+			w.WriteHeader(http.StatusUnauthorized)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		next(w, r)
