@@ -10,7 +10,6 @@ package HGMiddlewarePackage
 
 import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
-	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"bytes"
@@ -24,8 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type HGAPIRule struct {
@@ -137,6 +134,13 @@ func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 func (g *HGAPIGuard) lookupRule(version string, path string) (HGAPIRule, bool) {
 	routesByPath, ok := g.rulesByVersion[version]
 	if !ok {
+		// 兼容兜底：客户端传错版本头时，尝试回退到默认版本路由规则。
+		if version != defaultAPIVersion {
+			if fallbackRoutes, fallbackOK := g.rulesByVersion[defaultAPIVersion]; fallbackOK {
+				rule, ruleOK := fallbackRoutes[path]
+				return rule, ruleOK
+			}
+		}
 		return HGAPIRule{}, false
 	}
 
@@ -195,17 +199,6 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, need
 		return nil
 	}
 
-	var userID string
-	if !UtilsPackage.IsEmpty(token) {
-		claims, err := verifyToken(token, r)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
-			return nil
-		}
-		userID = claims.UserID
-	}
-
 	if err := verifySignature(r, body, signature, timestamp, requestid, deviceID, clientType, clientVersion, version, languange, token); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "signature无效，请求可能被篡改")
@@ -213,64 +206,11 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, need
 	}
 
 	// ===== 2. 写入 Context =====
+	// 鉴权 token 的解析交给下游 JWT 拦截器，避免 APIGuard 与业务鉴权重复计算。
 	ctx := r.Context()
-	if !UtilsPackage.IsEmpty(userID) {
-		ctx = context.WithValue(ctx, CtxUserID, userID)
-	}
 	ctx = context.WithValue(ctx, CtxDeviceID, deviceID)
 
 	return ctx
-}
-
-// verifyToken 负责验签 JWT，并校验登录接口生成的 access token 关键 claims 是否一致。
-func verifyToken(token string, r *http.Request) (*UserServicePackage.HGClaims, error) {
-
-	if !strings.HasPrefix(token, "Bearer ") {
-		return nil, errors.New("invalid token format")
-	}
-
-	// strings.TrimPrefix(s, prefix string) 会检查 s 是否以 prefix 开头
-	// 如果是，就返回去掉前缀后的字符串
-	// 如果不是，就返回原字符串不变
-	rawToken := strings.TrimSpace(strings.TrimPrefix(token, "Bearer "))
-	if rawToken == "" {
-		return nil, errors.New("empty token")
-	}
-
-	claims := &UserServicePackage.HGClaims{}
-	parser := jwt.NewParser(
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}),
-		jwt.WithLeeway(30*time.Second),
-	)
-
-	// 解析 JWT（JSON Web Token）并验证其签名 的
-	t, err := parser.ParseWithClaims(rawToken, claims, func(t *jwt.Token) (any, error) {
-		return UserServicePackage.Secret, nil
-	})
-	if err != nil || !t.Valid {
-		return nil, errors.New("token verify failed")
-	}
-
-	// 验证 token 类型,如果 token type 不为空且不是 "access"，就拒绝
-	if claims.TokenTp != "" && claims.TokenTp != "access" {
-		return nil, errors.New("token type invalid")
-	}
-	// 验证发行者,确保 token 是由 mlc-go 系统生成，防止第三方伪造
-	if claims.Issuer != "" && claims.Issuer != "mlc-go" {
-		return nil, errors.New("token issuer invalid")
-	}
-	// 验证主题（Subject）,必须是 "user-token"，保证 token 用于用户认证。
-	if claims.Subject != "" && claims.Subject != "user-token" {
-		return nil, errors.New("token subject invalid")
-	}
-
-	// 登录时会把设备指纹放入 JWT，这里顺带校验当前请求是否来自同一设备环境。
-	// PkGDevicePackage.Fingerprint(r) → 当前请求的设备指纹
-	if claims.Device != "" && claims.Device != PkGDevicePackage.Fingerprint(r) {
-		return nil, errors.New("device fingerprint mismatch")
-	}
-
-	return claims, nil
 }
 
 // 验证传入的时间戳是否在允许的时间范围内，用于拦截过期或重放请求。

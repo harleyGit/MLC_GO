@@ -13,6 +13,7 @@
 - `.ai_agents/05-validation.md`：验证
 - `.ai_agents/06-output.md`：输出
 - `.ai_agents/07-forbidden.md`：禁止项
+- `.ai_agents/08-performance.md`：高并发性能
 
 ## 优先级
 1. 用户要求
@@ -34,6 +35,7 @@
 - `.ai_agents/05-validation.md`
 - `.ai_agents/06-output.md`
 - `.ai_agents/07-forbidden.md`
+- `.ai_agents/08-performance.md`
 
 按类型追加：
 - Go：`.ai_agents/02-go-rules.md`
@@ -58,6 +60,7 @@
 - 新增或修改方法、函数、关键变量：补简洁注释
 - Redis 字符串值若可能经 JSON 序列化后入库（如验证码），读取后比较前先做解码兼容，不直接拿原值比较
 - 涉及会影响列表结果的数据写操作（如用户注册）后，按现有 key 规则删除对应列表分页缓存和 total 缓存
+- 高并发链路优先消除重复计算（比如：重复鉴权、重复 panic 恢复、重复 body 读取），保证语义不变
 - 不做无关重构
 - 未验证的结果不得说已通过
 

@@ -180,6 +180,8 @@ func newRouteCatalogGroupedHandler(grouped map[string][]HGMiddlewareGroupPackage
 func buildRouteCatalogHandler(core http.Handler) http.Handler {
 	return HGMiddlewarePackage.ChainInterceptors(
 		core,
+		HGMiddlewarePackage.RecoverInterceptor,
+		HGMiddlewarePackage.AccessLogInterceptor,
 		HGMiddlewarePackage.RequestTIDInterceptor,
 		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
@@ -199,15 +201,17 @@ func buildRouteCatalogHandler(core http.Handler) http.Handler {
 /* 现在请求链路是这样的：
 Request
  ↓
-APIGuardInterceptor   ← Method / Auth / Permission / Version
- ↓
-RecoverInterceptor
+RequestTIDInterceptor
  ↓
 AccessLogInterceptor
  ↓
-RequestTIDInterceptor
+RecoverInterceptor
  ↓
 JSONHeaderInterceptor
+ ↓
+APIGuardInterceptor   ← Method / Auth / Permission / Version
+ ↓
+(User 模块额外) JWT AuthInterceptor
  ↓
 Handler
  ↓

@@ -35,14 +35,20 @@ func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) h
 	userMux := http.NewServeMux()
 	bindRouteSpecs(userMux, specs)
 
-	chain := HGMiddlewarePackage.ChainInterceptors(
+	protected := HGMiddlewarePackage.ChainInterceptors(
 		userMux,
 		UserJWTMiddlewarePackage.AuthMiddleware,
+	)
+	guarded := HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.UserMethodRules())(protected)
+
+	// 外层统一打 TID/日志/恢复/JSON 头，确保鉴权失败请求也可追踪。
+	return HGMiddlewarePackage.ChainInterceptors(
+		guarded,
 		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.AccessLogInterceptor,
+		HGMiddlewarePackage.RecoverInterceptor,
 		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
-
-	return HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.UserMethodRules())(chain)
 }
 
 // UserRouteCatalog 返回 user/profile 模块完整可调用路径清单。

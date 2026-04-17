@@ -33,6 +33,8 @@ func TestModuleHandler() http.Handler {
 
 	return HGMiddlewarePackage.ChainInterceptors(
 		testMux,
+		HGMiddlewarePackage.RecoverInterceptor,
+		HGMiddlewarePackage.AccessLogInterceptor,
 		HGMiddlewarePackage.RequestTIDInterceptor,
 		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)

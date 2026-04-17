@@ -11,7 +11,6 @@ package HGMiddlewarePackage
 import (
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
-	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
 	"time"
 )
@@ -25,26 +24,12 @@ func RequestTIDInterceptor(next http.Handler) http.Handler {
 		r = r.WithContext(ctx)
 
 		logHG.DebugFInfo("[TID=%s] --> %s %s \n", tid, r.Method, r.URL.Path)
-		// 捕获 panic
+		// 无论正常返回还是 panic，都会输出结束日志；panic 交给外层 RecoverInterceptor 统一恢复。
 		defer func() {
-			if err := recover(); err != nil {
-				logHG.DebugFInfo("[TID=%s] 🧨 PANIC: %v \n", tid, err)
-				errModel := HGResponsePakcage.HGErrorResult{
-					Code:    http.StatusInternalServerError,
-					Message: "internal server error",
-				}
-				HGResponsePakcage.WriteJSON(
-					w,
-					r,
-					errModel,
-				)
-				logHG.DebugFInfo("[TID=%s] <-- %s %s (%v)\n\n", tid, r.Method, r.URL.Path, time.Since(start))
-
-			}
+			logHG.DebugFInfo("[TID=%s] <-- %s %s (%v)\n\n", tid, r.Method, r.URL.Path, time.Since(start))
 		}()
 
 		next.ServeHTTP(w, r)
-		logHG.DebugFInfo("[TID=%s] <-- %s %s (%v)\n\n", tid, r.Method, r.URL.Path, time.Since(start))
 	})
 }
 

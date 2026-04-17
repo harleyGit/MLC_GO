@@ -34,16 +34,16 @@ func NewAuthRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) h
 	publicMux := http.NewServeMux()
 	bindRouteSpecs(publicMux, specs)
 
-	// 链路顺序：Recover -> Logger -> TID -> JSONHeader -> Handler。
-	chain := HGMiddlewarePackage.ChainInterceptors(
-		publicMux,
-		HGMiddlewarePackage.RecoverInterceptor,
-		HGMiddlewarePackage.AccessLogInterceptor,
+	guarded := HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.PublicAPIRules())(publicMux)
+
+	// 外层统一打 TID/日志/恢复/JSON 头，确保鉴权失败请求也可追踪。
+	return HGMiddlewarePackage.ChainInterceptors(
+		guarded,
 		HGMiddlewarePackage.RequestTIDInterceptor,
+		HGMiddlewarePackage.AccessLogInterceptor,
+		HGMiddlewarePackage.RecoverInterceptor,
 		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
-
-	return HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.PublicAPIRules())(chain)
 }
 
 // AuthRouteCatalog 返回 auth 模块完整可调用路径清单。

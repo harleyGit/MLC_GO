@@ -26,7 +26,9 @@ func Register(mux *http.ServeMux, routes []HGRouter) {
 
 	for _, r := range routes {
 		interceptors := []HGMiddlewarePackage.HGHTTPInterceptor{
+			HGMiddlewarePackage.RecoverInterceptor,
 			HGMiddlewarePackage.TraceInterceptor(r.Span),
+			HGMiddlewarePackage.AccessLogInterceptor,
 			HGMiddlewarePackage.RequestTIDInterceptor,
 		}
 		h := HGMiddlewarePackage.ChainInterceptors(r.Handle, interceptors...)
