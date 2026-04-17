@@ -19,39 +19,36 @@ import (
 	"net/http"
 )
 
+const (
+	// UserProfileModuleBasePath 是用户资料模块对外暴露的统一 API 前缀。
+	UserProfileModuleBasePath = "/api/v1/profile"
+)
+
 // UserMiddlewareGroup 注册用户模块路由并装配鉴权链路。
 func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+	specs := userRouteSpecs(userHandler)
 	userMux := http.NewServeMux()
-	for _, route := range userRouteSpecs(userHandler) {
-		userMux.HandleFunc(route.Path, route.Handler)
-	}
+	bindRouteSpecs(userMux, specs)
 
 	guard := HGMiddlewarePackage.NewAPIGuard(HGServerPackage.UserMethodRules())
 
-	authHandler := UserJWTMiddlewarePackage.AuthMiddleware(userMux)
-	tidHandler := HGMiddlewarePackage.TIDMiddleware(authHandler)
-	jsonHandler := HGMiddlewarePackage.JSONHeaderMiddleware(tidHandler)
+	chain := chainMiddlewares(
+		userMux,
+		UserJWTMiddlewarePackage.AuthMiddleware,
+		HGMiddlewarePackage.TIDMiddleware,
+		HGMiddlewarePackage.JSONHeaderMiddleware,
+	)
 
-	return guard.MethodGuardMiddlewareV3(jsonHandler)
+	return guard.MethodGuardMiddlewareV3(chain)
 }
 
 // UserRouteCatalog 返回 user/profile 模块完整可调用路径清单。
 func UserRouteCatalog(basePrefix string) []HGRouteCatalogItem {
-	specs := userRouteSpecs(nil)
-	items := make([]HGRouteCatalogItem, 0, len(specs))
-	for _, spec := range specs {
-		items = append(items, HGRouteCatalogItem{
-			Group:    "profile",
-			Method:   spec.Method,
-			Path:     joinRoutePath(basePrefix, spec.Path),
-			NeedAuth: spec.NeedAuth,
-			Summary:  spec.Summary,
-		})
-	}
-
-	return items
+	return buildRouteCatalogItems("profile", basePrefix, userRouteSpecs(nil))
 }
 
+// userRouteSpecs 返回 profile 模块内部子路由元信息。
+// 注意：Path 仅是模块内子路径（如 /list），完整路径由根前缀拼接（如 /api/v1/profile/list）。
 func userRouteSpecs(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
 	if userHandler == nil {
 		return []hgRouteSpec{
