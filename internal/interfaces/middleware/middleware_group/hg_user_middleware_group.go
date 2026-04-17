@@ -26,7 +26,7 @@ const (
 
 // UserMiddlewareGroup 注册用户模块路由并装配鉴权链路。
 func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
-	specs := userRouteSpecs(userHandler)
+	specs := userRoutes(userHandler)
 	userMux := http.NewServeMux()
 	bindRouteSpecs(userMux, specs)
 
@@ -43,22 +43,22 @@ func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handl
 }
 
 // UserRouteCatalog 返回 user/profile 模块完整可调用路径清单。
-func UserRouteCatalog(basePrefix string) []HGRouteCatalogItem {
-	return buildRouteCatalogItems("profile", basePrefix, userRouteSpecs(nil))
+func UserRouteCatalog() []HGRouteCatalogItem {
+	return buildRouteCatalogItems(userRoutes(nil))
 }
 
-// userRouteSpecs 返回 profile 模块内部子路由元信息。
-// 注意：Path 仅是模块内子路径（如 /list），完整路径由根前缀拼接（如 /api/v1/profile/list）。
-func userRouteSpecs(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
+// userRoutes 返回 profile 模块完整路由定义。
+// 这里会同时保存子路径（用于模块内注册）和完整路径（用于目录展示与联调）。
+func userRoutes(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
 	if userHandler == nil {
 		return []hgRouteSpec{
-			{Method: http.MethodGet, Path: "/info", NeedAuth: true, Summary: "获取当前用户信息"},
-			{Method: http.MethodGet, Path: "/list", NeedAuth: true, Summary: "获取用户分页列表"},
+			newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
+			newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", nil),
 		}
 	}
 
 	return []hgRouteSpec{
-		{Method: http.MethodGet, Path: "/info", NeedAuth: true, Summary: "获取当前用户信息", Handler: userHandler.Profile},
-		{Method: http.MethodGet, Path: "/list", NeedAuth: true, Summary: "获取用户分页列表", Handler: userHandler.GetUserList},
+		newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", userHandler.Profile),
+		newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", userHandler.GetUserList),
 	}
 }

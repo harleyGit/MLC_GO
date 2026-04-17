@@ -4,8 +4,10 @@ import "net/http"
 
 // hgRouteSpec 描述模块内子路由注册元信息。
 type hgRouteSpec struct {
+	Group    string
 	Method   string
-	Path     string
+	SubPath  string
+	FullPath string
 	NeedAuth bool
 	Summary  string
 	Handler  http.HandlerFunc
@@ -19,24 +21,45 @@ func bindRouteSpecs(mux *http.ServeMux, specs []hgRouteSpec) {
 		if route.Handler == nil {
 			continue
 		}
-		mux.HandleFunc(route.Path, route.Handler)
+		mux.HandleFunc(route.SubPath, route.Handler)
 	}
 }
 
 // buildRouteCatalogItems 负责把子路由元信息转成完整对外可调用路径清单。
-func buildRouteCatalogItems(group string, basePrefix string, specs []hgRouteSpec) []HGRouteCatalogItem {
+func buildRouteCatalogItems(specs []hgRouteSpec) []HGRouteCatalogItem {
 	items := make([]HGRouteCatalogItem, 0, len(specs))
 	for _, spec := range specs {
 		items = append(items, HGRouteCatalogItem{
-			Group:    group,
+			Group:    spec.Group,
 			Method:   spec.Method,
-			Path:     joinRoutePath(basePrefix, spec.Path),
+			Path:     spec.FullPath,
 			NeedAuth: spec.NeedAuth,
 			Summary:  spec.Summary,
 		})
 	}
 
 	return items
+}
+
+// newRouteSpec 统一构建路由元信息，确保子路径和完整路径同时可用。
+func newRouteSpec(
+	group string,
+	method string,
+	basePath string,
+	subPath string,
+	needAuth bool,
+	summary string,
+	handler http.HandlerFunc,
+) hgRouteSpec {
+	return hgRouteSpec{
+		Group:    group,
+		Method:   method,
+		SubPath:  subPath,
+		FullPath: joinRoutePath(basePath, subPath),
+		NeedAuth: needAuth,
+		Summary:  summary,
+		Handler:  handler,
+	}
 }
 
 // chainMiddlewares 按声明顺序拼接中间件，避免手工嵌套导致链路顺序不清晰。

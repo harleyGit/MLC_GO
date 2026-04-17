@@ -25,7 +25,7 @@ const (
 
 // AuthMiddlewareGroup 注册认证模块路由并装配公共中间件链路。
 func AuthMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
-	specs := authRouteSpecs(userHandler)
+	specs := authRoutes(userHandler)
 	publicMux := http.NewServeMux()
 	bindRouteSpecs(publicMux, specs)
 
@@ -44,24 +44,24 @@ func AuthMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handl
 }
 
 // AuthRouteCatalog 返回 auth 模块完整可调用路径清单。
-func AuthRouteCatalog(basePrefix string) []HGRouteCatalogItem {
-	return buildRouteCatalogItems("auth", basePrefix, authRouteSpecs(nil))
+func AuthRouteCatalog() []HGRouteCatalogItem {
+	return buildRouteCatalogItems(authRoutes(nil))
 }
 
-// authRouteSpecs 返回 auth 模块内部子路由元信息。
-// 注意：Path 是模块内子路径（如 /login），完整路径需拼接模块前缀（如 /api/v1/auth/login）。
-func authRouteSpecs(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
+// authRoutes 返回 auth 模块完整路由定义。
+// 这里会同时保存子路径（用于模块内注册）和完整路径（用于目录展示与联调）。
+func authRoutes(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
 	if userHandler == nil {
 		return []hgRouteSpec{
-			{Method: http.MethodGet, Path: "/send_code", NeedAuth: false, Summary: "发送登录/注册验证码"},
-			{Method: http.MethodPost, Path: "/register", NeedAuth: false, Summary: "用户注册"},
-			{Method: http.MethodPost, Path: "/login", NeedAuth: false, Summary: "用户登录"},
+			newRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_code", false, "发送登录/注册验证码", nil),
+			newRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", nil),
+			newRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", nil),
 		}
 	}
 
 	return []hgRouteSpec{
-		{Method: http.MethodGet, Path: "/send_code", NeedAuth: false, Summary: "发送登录/注册验证码", Handler: userHandler.SendCode},
-		{Method: http.MethodPost, Path: "/register", NeedAuth: false, Summary: "用户注册", Handler: userHandler.RegisterHandlerV3},
-		{Method: http.MethodPost, Path: "/login", NeedAuth: false, Summary: "用户登录", Handler: userHandler.Login},
+		newRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_code", false, "发送登录/注册验证码", userHandler.SendCode),
+		newRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", userHandler.RegisterHandlerV3),
+		newRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", userHandler.Login),
 	}
 }

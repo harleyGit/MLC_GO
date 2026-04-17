@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-07 20:43:40
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-04-18 01:07:16
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -53,6 +53,7 @@ func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
 	publicHandler := HGMiddlewareGroupPackage.AuthMiddlewareGroup(userHandler)
 	userHandlerWithAuth := HGMiddlewareGroupPackage.UserMiddlewareGroup(userHandler)
 	testHandler := HGTestHandlerPackage.TestModuleHandler()
+	// API 调用路径清单
 	routeCatalog := buildRouteCatalog()
 
 	registerRootPrefixRoutes(rootMux, []HGRouteMount{
@@ -87,8 +88,8 @@ func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 // buildRouteCatalog 汇总完整 API 调用路径清单，供 App/Web 联调用。
 func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
-	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog(HGMiddlewareGroupPackage.AuthModuleBasePath)...)
-	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog(HGMiddlewareGroupPackage.UserProfileModuleBasePath)...)
+	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	items = append(items, HGTestHandlerPackage.TestRouteCatalog(testModuleBasePath)...)
 	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
 		Group:    "meta",
