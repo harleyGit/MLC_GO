@@ -32,7 +32,7 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Methods: map[string]bool{
 				http.MethodPut: true,
 			},
-			NeedAuth: false,
+			NeedAuth: true,
 			Permissions: []string{
 				"user:update",
 			},
@@ -43,7 +43,7 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Methods: map[string]bool{
 				http.MethodGet: true,
 			},
-			NeedAuth: false,
+			NeedAuth: true,
 			Permissions: []string{
 				"user:view",
 			},

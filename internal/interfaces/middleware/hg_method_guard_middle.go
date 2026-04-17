@@ -91,17 +91,8 @@ func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 			return
 		}
 
-		//2️⃣ 登录态校验
-		if rule.NeedAuth {
-			if r.Context().Value("uid") == nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UnauthorizedCode, "not unauthorized")
-				return
-			}
-		}
-
 		// 2.1 header检验
-		ctx := g.checkoutHeader(w, r)
+		ctx := g.checkoutHeader(w, r, rule.NeedAuth)
 		if ctx == nil {
 			return
 		}
@@ -121,7 +112,7 @@ func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 
 // checkoutHeader 统一校验接口请求头、JWT 和签名，并把通过校验的用户上下文写回请求链路。
 // 这里同时负责时间戳、防篡改签名和设备信息校验，避免请求头合法但请求内容已被替换。
-func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) context.Context {
+func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAuth bool) context.Context {
 
 	// ===== 1. Header 校验 =====
 	token := r.Header.Get("Authorization")            // Authorization: Bearer <access_token>
@@ -135,8 +126,7 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) cont
 	timestamp := r.Header.Get("X-Timestamp")          // X-Timestamp: 1700000000
 	signature := r.Header.Get("X-Signature")          // TODO：后端验证签名，防止中间人伪造请求，请求体 + 时间戳 + 密钥进行 HMAC 签名，放入 Header：X-Signature: sha256=8f42a1b3c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2
 
-	if UtilsPackage.IsEmpty(token) ||
-		UtilsPackage.IsEmpty(conentType) ||
+	if UtilsPackage.IsEmpty(conentType) ||
 		UtilsPackage.IsEmpty(deviceID) ||
 		UtilsPackage.IsEmpty(clientType) ||
 		UtilsPackage.IsEmpty(clientVersion) ||
@@ -148,6 +138,13 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) cont
 
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, HGResponsePakcage.RequestHeaderFailDesc)
+		return nil
+	}
+
+	// needAuth 为 true 时，Authorization 必须存在，避免受保护接口在空 token 场景下仅靠签名通过。
+	if needAuth && UtilsPackage.IsEmpty(token) {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UnauthorizedCode, "Authorization不能为空")
 		return nil
 	}
 
@@ -164,11 +161,15 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) cont
 		return nil
 	}
 
-	claims, err := verifyToken(token, r)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
-		return nil
+	var userID string
+	if !UtilsPackage.IsEmpty(token) {
+		claims, err := verifyToken(token, r)
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+			return nil
+		}
+		userID = claims.UserID
 	}
 
 	if err := verifySignature(r, body, signature, timestamp, requestid, deviceID, clientType, clientVersion, version, languange, token); err != nil {
@@ -178,7 +179,10 @@ func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) cont
 	}
 
 	// ===== 2. 写入 Context =====
-	ctx := context.WithValue(r.Context(), CtxUserID, claims.UserID)
+	ctx := r.Context()
+	if !UtilsPackage.IsEmpty(userID) {
+		ctx = context.WithValue(ctx, CtxUserID, userID)
+	}
 	ctx = context.WithValue(ctx, CtxDeviceID, deviceID)
 
 	return ctx
