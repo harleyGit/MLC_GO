@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-04-14 22:50:19
+ * @LastEditTime: 2026-04-17 22:05:30
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -72,6 +72,54 @@
 	- [redis缓存-登录注册](#redis缓存-登录注册)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
+
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="常用命令">常用命令</h1>
+
+# Intel
+```sh
+# Intel进入mysql交互
+mysql -u root -p
+
+# 查看所有数据库
+show databases;
+
+# 查看所有表
+show tables;
+
+# 查看users表中所有字段数据
+select * from users;
+
+```
+
+***
+<br>
+
+
+```sh
+
+```
+
+***
+<br>
+
+```sh
+
+```
+
+***
+<br>
+
+```sh
+
+```
+
 
 
 <br/><br/><br/>

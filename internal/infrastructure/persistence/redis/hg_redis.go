@@ -227,3 +227,32 @@ func DeleteFromRedis(key string, opts ...RedisOption) error {
 	}
 	return RDB.Del(opt.ctx, key).Err()
 }
+
+// DeleteFromRedisByPattern 批量删除匹配 pattern 的 Redis key。
+func DeleteFromRedisByPattern(pattern string, opts ...RedisOption) error {
+	opt := defaultRedisOptions()
+	for _, option := range opts {
+		option(opt)
+	}
+
+	var cursor uint64
+	for {
+		keys, nextCursor, err := RDB.Scan(opt.ctx, cursor, pattern, 200).Result()
+		if err != nil {
+			return err
+		}
+
+		if len(keys) > 0 {
+			if err = RDB.Del(opt.ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}

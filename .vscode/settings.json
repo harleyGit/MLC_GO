@@ -3,6 +3,7 @@
   "editor.fontSize": 14,
   "editor.lineHeight": 22, //行高
   "editor.fontFamily": "'Fira Code', monospace, Consolas",
+  "debug.inlineValues": "off", // 禁止断点调试代码区显示变量值
 
   //主题外观
   "workbench.colorTheme": "Default Light Modern", // 主题默认: Default Light Modern, 暗色: Default Dark+

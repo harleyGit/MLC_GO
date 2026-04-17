@@ -41,8 +41,9 @@ const (
 	AuthTokenKey            = "auth:token:"
 	AuthRefreshKey          = "auth:refresh:"
 
-	UserListKey      = "user:list:cursor:%d:size:%d" // user:list:{cursor}:{size} 获取注册用户列表的Key
-	UserListTotalKey = "user:list:total"
+	UserListKey        = "user:list:cursor:%d:size:%d" // user:list:{cursor}:{size} 获取注册用户列表的Key
+	UserListPatternKey = "user:list:cursor:*:size:*"   // 删除用户列表分页缓存时使用
+	UserListTotalKey   = "user:list:total"
 
 	LoginCodeKey      = "login:code:"
 	LoginMultiportKey = "token:" //token+多端登录控制key

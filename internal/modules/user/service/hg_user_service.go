@@ -24,6 +24,8 @@ import (
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
+	"encoding/json"
+	"errors"
 )
 
 type UserService struct {
@@ -66,11 +68,16 @@ func (s *UserService) PathUser(
 	return UserMapperPackage.UserModelToDTO(user), nil
 }
 
+// RegisterService 负责注册验证码校验、落库与注册后缓存清理。
 func RegisterService(ctx context.Context, reigisterModel UserDtoPackage.RegisterReqModel) error {
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(reigisterModel.Phone)
 	v, err := PersistenceRedisPackage.GetFromRedis(ctx, key)
-	if err != nil || v != reigisterModel.Code {
+	if err != nil {
 		return err
+	}
+	redisCode := decodeRedisStringValue(v)
+	if redisCode != reigisterModel.Code {
+		return errors.New("验证码错误 or 已过期")
 	}
 	// TODO: 密码判空处理
 	salt := utilsPackage.GenerateRandomNum(8)
@@ -92,9 +99,37 @@ func RegisterService(ctx context.Context, reigisterModel UserDtoPackage.Register
 	err = PersistenceSQLPackage.CreateUser(u)
 	if err == nil {
 		// 删除注册时发送的验证码
-		PersistenceRedisPackage.DeleteFromRedis(key)
+		if delErr := PersistenceRedisPackage.DeleteFromRedis(
+			key,
+			PersistenceRedisPackage.WithContext(ctx),
+		); delErr != nil {
+			logHG.DebugFInfo("Delete register verify code cache err: %v", delErr)
+		}
+
+		// 注册成功后，删除用户列表缓存，避免 GetUserList 命中旧数据。
+		if delErr := PersistenceRedisPackage.DeleteFromRedis(
+			PersistenceRedisPackage.UserListTotalKey,
+			PersistenceRedisPackage.WithContext(ctx),
+		); delErr != nil {
+			logHG.DebugFInfo("Delete user list total cache err: %v", delErr)
+		}
+		if delErr := PersistenceRedisPackage.DeleteFromRedisByPattern(
+			PersistenceRedisPackage.UserListPatternKey,
+			PersistenceRedisPackage.WithContext(ctx),
+		); delErr != nil {
+			logHG.DebugFInfo("Delete user list page cache err: %v", delErr)
+		}
 	}
 	return err
+}
+
+// decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
+func decodeRedisStringValue(v string) string {
+	var result string
+	if err := json.Unmarshal([]byte(v), &result); err == nil {
+		return result
+	}
+	return v
 }
 
 func LoginService(account, password string) (string, error) {
