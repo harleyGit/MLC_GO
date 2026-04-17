@@ -66,7 +66,11 @@ func buildMLCServer() (*http.Server, error) {
 	}
 
 	smsSender := HGSMSPackage.NewMockSender()
-	rootMux := HGHandlerPackage.RootHander(redisService, sqlManager, smsSender)
+	rootMux := HGHandlerPackage.NewRootHandler(HGHandlerPackage.HGRootHandlerDeps{
+		RedisService: redisService,
+		SQLManager:   sqlManager,
+		SMSSender:    smsSender,
+	})
 
 	return &http.Server{
 		Addr:         buildListenAddr(ConfigPackage.GetServerPort()),
