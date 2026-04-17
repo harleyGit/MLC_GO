@@ -17,10 +17,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TestUserMiddlewareGoup_ListMethodGuard 验证 /list 只允许 GET。
+// TestUserMiddlewareGroup_ListMethodGuard 验证 /list 只允许 GET。
 // 这里不依赖真实数据库或 Redis，因为 MethodGuard 会先于业务 handler 生效。
-func TestUserMiddlewareGoup_ListMethodGuard(t *testing.T) {
-	handler := UserMiddlewareGoup(&UserHandlerPackage.UserHandler{})
+func TestUserMiddlewareGroup_ListMethodGuard(t *testing.T) {
+	handler := UserMiddlewareGroup(&UserHandlerPackage.UserHandler{})
 
 	req := httptest.NewRequest(http.MethodPost, "/list", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -34,11 +34,11 @@ func TestUserMiddlewareGoup_ListMethodGuard(t *testing.T) {
 	}
 }
 
-// TestUserMiddlewareGoup_ListRequireBearerToken 验证 /list 已经过 JWT 鉴权中间件。
+// TestUserMiddlewareGroup_ListRequireBearerToken 验证 /list 已经过 JWT 鉴权中间件。
 // 这里传入一个假的 Bearer token，让请求通过 MethodGuard 和 Header 检查，
 // 最终由 JWT 中间件返回 401，这样可以确认路由和鉴权链路都已接通。
-func TestUserMiddlewareGoup_ListRequireBearerToken(t *testing.T) {
-	handler := UserMiddlewareGoup(&UserHandlerPackage.UserHandler{})
+func TestUserMiddlewareGroup_ListRequireBearerToken(t *testing.T) {
+	handler := UserMiddlewareGroup(&UserHandlerPackage.UserHandler{})
 
 	req := httptest.NewRequest(http.MethodGet, "/list?cursor=0&pageSize=20", nil)
 	req.Header.Set("Content-Type", "application/json")

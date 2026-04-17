@@ -9,13 +9,16 @@
 package HGHandlerPackage
 
 import (
-	HGPracticeTestHandlerPackage "MLC_GO/TestNotes/handler_practice"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
+	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
+	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
+	"sort"
 )
 
 // HGRootHandlerDeps 统一承载 Root 路由装配所需依赖，避免入口函数参数持续膨胀。
@@ -42,17 +45,25 @@ func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
 	}
 
 	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, deps.SQLManager, smsSender)
-	publicHandler := HGMiddlewareGroupPackage.AuthMiddlewareGoup(userHandler)
-	userHandlerWithAuth := HGMiddlewareGroupPackage.UserMiddlewareGoup(userHandler)
-	testHandler := HGPracticeTestHandlerPackage.PracticeTestHandler()
+	publicHandler := HGMiddlewareGroupPackage.AuthMiddlewareGroup(userHandler)
+	userHandlerWithAuth := HGMiddlewareGroupPackage.UserMiddlewareGroup(userHandler)
+	testHandler := HGTestHandlerPackage.TestModuleHandler()
+	routeCatalog := buildRouteCatalog()
 
 	registerRootPrefixRoutes(rootMux, []HGRouteMount{
 		// 统一前缀，便于网关治理与版本演进
 		{Prefix: "/api/v1/auth/", StripPrefix: "/api/v1/auth", Handler: publicHandler},
-		{Prefix: "/api/v1/user/", StripPrefix: "/api/v1/user", Handler: publicHandler},
 		{Prefix: "/api/v1/profile/", StripPrefix: "/api/v1/profile", Handler: userHandlerWithAuth},
 		{Prefix: "/api/v1/test/", StripPrefix: "/api/v1/test", Handler: testHandler},
 	})
+	rootMux.Handle(
+		"/api/v1/routes",
+		HGMiddlewarePackage.JSONHeaderMiddleware(
+			HGMiddlewarePackage.TIDMiddleware(
+				newRouteCatalogHandler(routeCatalog),
+			),
+		),
+	)
 
 	return rootMux
 }
@@ -67,6 +78,48 @@ func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 	}
 }
 
+// buildRouteCatalog 汇总完整 API 调用路径清单，供 App/Web 联调用。
+func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
+	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog("/api/v1/auth")...)
+	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog("/api/v1/profile")...)
+	items = append(items, HGTestHandlerPackage.TestRouteCatalog("/api/v1/test")...)
+	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
+		Group:    "meta",
+		Method:   http.MethodGet,
+		Path:     "/api/v1/routes",
+		NeedAuth: false,
+		Summary:  "查看完整 API 路由清单",
+	})
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Path == items[j].Path {
+			return items[i].Method < items[j].Method
+		}
+		return items[i].Path < items[j].Path
+	})
+
+	return items
+}
+
+// newRouteCatalogHandler 提供完整接口路径查询，方便 App/Web 联调自助查看。
+func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			HGResponsePakcage.FailResult[string](
+				w,
+				r,
+				HGResponsePakcage.MethodNotAllowCode,
+				"method not allowed",
+			)
+			return
+		}
+
+		HGResponsePakcage.SuccessResult(w, r, catalog)
+	})
+}
+
 /*
 路由访问：
 
@@ -74,7 +127,7 @@ func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 | ------------------------ | ------------------------- |
 | `/api/v1/auth/send_code` | `publicMux -> /send_code` |
 | `/api/v1/auth/login`     | `publicMux -> /login`     |
-| `/api/v1/user/register`  | `publicMux -> /register`  |
+| `/api/v1/auth/register`  | `publicMux -> /register`  |
 | `/api/v1/profile/info`   | `userMux -> /info`        |
 */
 

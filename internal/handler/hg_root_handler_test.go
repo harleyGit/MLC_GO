@@ -3,6 +3,7 @@ package HGHandlerPackage
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +89,59 @@ func TestRegisterRootPrefixRoutes_RejectLegacyPath(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status=%d, got=%d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestRegisterRootPrefixRoutes_RejectDeprecatedAuthPath(t *testing.T) {
+	rootMux := http.NewServeMux()
+	mockModuleMux := http.NewServeMux()
+	mockModuleMux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	registerRootPrefixRoutes(rootMux, []HGRouteMount{
+		{
+			Prefix:      "/api/v1/auth/",
+			StripPrefix: "/api/v1/auth",
+			Handler:     mockModuleMux,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/login", nil)
+	rec := httptest.NewRecorder()
+	rootMux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status=%d, got=%d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestNewRouteCatalogHandler_MethodGuard(t *testing.T) {
+	handler := newRouteCatalogHandler(buildRouteCatalog())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
+	}
+}
+
+func TestNewRouteCatalogHandler_ReturnCatalog(t *testing.T) {
+	handler := newRouteCatalogHandler(buildRouteCatalog())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "/api/v1/auth/login") {
+		t.Fatalf("response should contain auth login path, body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "/api/v1/profile/list") {
+		t.Fatalf("response should contain profile list path, body=%s", rec.Body.String())
 	}
 }

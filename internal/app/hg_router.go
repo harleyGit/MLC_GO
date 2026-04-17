@@ -28,7 +28,7 @@ func Register(mux *http.ServeMux, routes []HGRouter) {
 		var h http.Handler = r.Handle
 		h = HGMiddlewarePackage.TraceMiddleware(r.Span)(h)
 		// if r.Auth {
-		// 	h = HGMiddlewarePackage.AuthMiddlewareGoup(h)
+		// 	h = HGMiddlewarePackage.AuthMiddlewareGroup(h)
 		// }
 		// h = HGMiddlewarePackage.LoggerMiddleware(h)
 		h = HGMiddlewarePackage.TIDMiddleware(h)
