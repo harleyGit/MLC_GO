@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 12:30:27
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-04-16 23:34:28
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-04-17 09:52:53
  * @FilePath: /MLC_GO/internal/interfaces/middleware/hg_method_guard_middle.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -119,6 +119,8 @@ func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 	})
 }
 
+// checkoutHeader 统一校验接口请求头、JWT 和签名，并把通过校验的用户上下文写回请求链路。
+// 这里同时负责时间戳、防篡改签名和设备信息校验，避免请求头合法但请求内容已被替换。
 func (g *HGAPIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request) context.Context {
 
 	// ===== 1. Header 校验 =====
@@ -233,7 +235,8 @@ func verifyToken(token string, r *http.Request) (*UserServicePackage.HGClaims, e
 	return claims, nil
 }
 
-// 验证传入的时间戳是否在允许的时间范围内
+// 验证传入的时间戳是否在允许的时间范围内，用于拦截过期或重放请求。
+// 当前按 5 分钟容忍窗口处理，兼顾客户端时钟偏差和安全性。
 func verifyTimestamp(timestamp string) error {
 	// strings.TrimSpace 去掉首尾空格
 	// strconv.ParseInt(..., 10, 64) 将字符串按十进制转换为 int64 类型。
@@ -253,6 +256,8 @@ func verifyTimestamp(timestamp string) error {
 	return nil
 }
 
+// verifySignature 按约定的请求签名串重新计算 HMAC，判断关键头和请求体是否被篡改。
+// 这里只接受当前约定的 sha256 签名格式，签名不一致时直接拦截请求。
 func verifySignature(
 	r *http.Request,
 	body []byte,
@@ -300,6 +305,8 @@ func verifySignature(
 }
 
 /* 生成 服务器端计算的签名，用来和请求中提供的签名比对 */
+// buildRequestSignature 把方法、路径、时间戳、设备信息和请求体摘要拼成稳定签名串。
+// 这样可以在不直接暴露原始 body 的前提下，对请求关键内容做完整性校验。
 func buildRequestSignature(
 	r *http.Request,
 	body []byte,
@@ -339,6 +346,8 @@ func buildRequestSignature(
 	return mac.Sum(nil)
 }
 
+// readAndRestoreBody 读取请求体后重新放回 r.Body，避免后续 handler 再读 body 时拿到空数据。
+// 该方法只做透明恢复，不改变请求体内容本身。
 func readAndRestoreBody(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
@@ -357,6 +366,7 @@ func readAndRestoreBody(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+// absInt64 返回 int64 的绝对值，用于时间戳窗口校验时避免正负差值分支重复。
 func absInt64(v int64) int64 {
 	if v < 0 {
 		return -v
