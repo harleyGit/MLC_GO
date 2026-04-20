@@ -28,22 +28,17 @@
     "editor.defaultFormatter": "golang.go"
   },
   "go.toolsManagement.checkForUpdates": "local",
-  "accessibility.signalOptions": {
-    "volume": 70,
-    "debouncePositionChanges": false,
-    "experimental.delays": {
-      "general": {
-        "announcement": 3000,
-        "sound": 400
-      },
-      "warningAtPosition": {
-        "announcement": 3000,
-        "sound": 1000
-      },
-      "errorAtPosition": {
-        "announcement": 3000,
-        "sound": 1000
-      }
-    }
+  "accessibility.signalOptions.volume": 70,
+  "accessibility.signalOptions.experimental.delays.general": {
+    "announcement": 3000,
+    "sound": 400
+  },
+  "accessibility.signalOptions.experimental.delays.errorAtPosition": {
+    "announcement": 3000,
+    "sound": 1000
+  },
+  "accessibility.signalOptions.experimental.delays.warningAtPosition": {
+    "announcement": 3000,
+    "sound": 1000
   }
 }
