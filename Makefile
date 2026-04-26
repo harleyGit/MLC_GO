@@ -27,7 +27,7 @@ db-run:
 		echo "[Info]: 用法： make db-run SQL=path/to/file.sql"; \
 		exit 1; \
 	fi
-	@./scripts/db.sh run
+	@./scripts/db.sh run "$(SQL)"
 
 db-shell:
 	@./scripts/db.sh shell
