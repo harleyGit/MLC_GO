@@ -35,7 +35,9 @@ import (
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -146,6 +148,45 @@ func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(user)
+}
+
+// UpdateProfile 处理用户资料更新，支持单字段或多字段更新。
+func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUpdateUserID(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		return
+	}
+
+	var req UserDtoPackage.HGUpdateUserProfileReqDTO
+	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		return
+	}
+
+	resp, err := h.svc.UpdateProfile(r.Context(), userID, &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			w.WriteHeader(http.StatusNotFound)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			return
+		case errors.Is(err, UserServicePackage.ErrProfileNoField),
+			errors.Is(err, UserServicePackage.ErrProfileGenderInvalid),
+			errors.Is(err, UserServicePackage.ErrProfileBirthDateInvalid):
+			w.WriteHeader(http.StatusBadRequest)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+			return
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "更新用户资料失败")
+			return
+		}
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
 func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
@@ -559,6 +600,22 @@ func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(resp)
+}
+
+// parseUpdateUserID 解析资料更新目标 user_id，优先读取 query 参数，缺失时尝试从 JWT claims 获取。
+func parseUpdateUserID(r *http.Request) (string, error) {
+	userIDText := strings.TrimSpace(r.URL.Query().Get("user_id"))
+	if userIDText == "" {
+		claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
+		if ok && claims != nil {
+			userIDText = strings.TrimSpace(claims.UserID)
+		}
+	}
+	if userIDText == "" {
+		return "", errors.New("缺少 user_id 参数")
+	}
+
+	return userIDText, nil
 }
 
 /* 受保护接口 */

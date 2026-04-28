@@ -33,9 +33,6 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodPut: true,
 			},
 			NeedAuth: true,
-			Permissions: []string{
-				"user:update",
-			},
 		},
 		{
 			Path:    "/info",

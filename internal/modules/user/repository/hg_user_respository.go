@@ -10,10 +10,14 @@ package UserRepositoryPackage
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
+	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	RepositoryPackage "MLC_GO/internal/repository"
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 )
 
 /* UserRepo 继承  RepositoryPackage.HGBaseRepo */
@@ -230,4 +234,57 @@ func (r *UserRepo) CountUsers(ctx context.Context) (int, error) {
 	}
 
 	return total, nil
+}
+
+// UpdateProfileByID 按传入字段动态更新用户资料，支持单字段或多字段修改。
+func (r *UserRepo) UpdateProfileByID(
+	ctx context.Context,
+	userID string,
+	d *UserDtoPackage.HGUpdateUserProfileReqDTO,
+) error {
+	if d == nil || !d.HasAnyField() {
+		return errors.New("no fields to update")
+	}
+
+	setClauses := make([]string, 0, 5)
+	args := make([]any, 0, 6)
+
+	if d.Nickname != nil {
+		setClauses = append(setClauses, "`nickname` = ?")
+		args = append(args, *d.Nickname)
+	}
+	if d.Signature != nil {
+		setClauses = append(setClauses, "`signature` = ?")
+		args = append(args, *d.Signature)
+	}
+	if d.Gender != nil {
+		setClauses = append(setClauses, "`gender` = ?")
+		args = append(args, *d.Gender)
+	}
+	if d.BirthDate != nil {
+		setClauses = append(setClauses, "`birth_month` = ?")
+		args = append(args, *d.BirthDate)
+	}
+	if d.AvatarURL != nil {
+		setClauses = append(setClauses, "`avatar_url` = ?")
+		args = append(args, *d.AvatarURL)
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
+	args = append(args, userID)
+
+	res, err := r.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }

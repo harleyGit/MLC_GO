@@ -26,12 +26,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"time"
 )
 
 type UserService struct {
 	repo      *UserRepositoryPackage.UserRepo //sql逻辑处理
 	userCache *HGUserCachePackage.HGUserCache //缓存处理
 }
+
+var (
+	// ErrProfileNoField 表示更新资料请求未包含任何可更新字段。
+	ErrProfileNoField = errors.New("至少更新一个资料字段")
+	// ErrProfileGenderInvalid 表示性别字段超出允许范围。
+	ErrProfileGenderInvalid = errors.New("gender 仅支持 0/1/2")
+	// ErrProfileBirthDateInvalid 表示出生日期格式不符合约定。
+	ErrProfileBirthDateInvalid = errors.New("birth_date 仅支持 YYYY-MM-DD 或 YYYY-MM")
+)
 
 func NewUserService(repo *UserRepositoryPackage.UserRepo,
 	userCache *HGUserCachePackage.HGUserCache) *UserService {
@@ -66,6 +77,44 @@ func (s *UserService) PathUser(
 	}
 
 	return UserMapperPackage.UserModelToDTO(user), nil
+}
+
+// UpdateProfile 更新用户资料，支持单字段或多字段更新。
+func (s *UserService) UpdateProfile(
+	ctx context.Context,
+	userID string,
+	d *UserDtoPackage.HGUpdateUserProfileReqDTO,
+) (*UserDtoPackage.HGUpdateUserProfileRespDTO, error) {
+	if d == nil || !d.HasAnyField() {
+		return nil, ErrProfileNoField
+	}
+
+	if d.Gender != nil && (*d.Gender < 0 || *d.Gender > 2) {
+		return nil, ErrProfileGenderInvalid
+	}
+
+	if d.BirthDate != nil {
+		normalizedDate, err := normalizeBirthDate(*d.BirthDate)
+		if err != nil {
+			return nil, err
+		}
+		d.BirthDate = &normalizedDate
+	}
+
+	if err := s.repo.UpdateProfileByID(ctx, userID, d); err != nil {
+		return nil, err
+	}
+
+	s.clearUserListCache(ctx)
+
+	return &UserDtoPackage.HGUpdateUserProfileRespDTO{
+		UserID:    userID,
+		Nickname:  d.Nickname,
+		Signature: d.Signature,
+		Gender:    d.Gender,
+		BirthDate: d.BirthDate,
+		AvatarURL: d.AvatarURL,
+	}, nil
 }
 
 // RegisterService 负责注册验证码校验、落库与注册后缓存清理。
@@ -232,4 +281,43 @@ func (s *UserService) getUserListTotal(ctx context.Context) (int, error) {
 	}
 
 	return total, nil
+}
+
+// normalizeBirthDate 统一规范出生日期格式，支持 YYYY-MM-DD 与 YYYY-MM 输入。
+func normalizeBirthDate(raw string) (string, error) {
+	birthDate := strings.TrimSpace(raw)
+	if birthDate == "" {
+		return "", ErrProfileBirthDateInvalid
+	}
+
+	if parsedDate, err := time.Parse("2006-01-02", birthDate); err == nil {
+		return parsedDate.Format("2006-01-02"), nil
+	}
+
+	if parsedMonth, err := time.Parse("2006-01", birthDate); err == nil {
+		return parsedMonth.Format("2006-01") + "-01", nil
+	}
+
+	return "", ErrProfileBirthDateInvalid
+}
+
+// clearUserListCache 在用户资料写操作后清理列表分页缓存和总数缓存。
+func (s *UserService) clearUserListCache(ctx context.Context) {
+	if PersistenceRedisPackage.RDB == nil {
+		return
+	}
+
+	if err := PersistenceRedisPackage.DeleteFromRedis(
+		PersistenceRedisPackage.UserListTotalKey,
+		PersistenceRedisPackage.WithContext(ctx),
+	); err != nil {
+		logHG.DebugFInfo("Delete user list total cache err: %v", err)
+	}
+
+	if err := PersistenceRedisPackage.DeleteFromRedisByPattern(
+		PersistenceRedisPackage.UserListPatternKey,
+		PersistenceRedisPackage.WithContext(ctx),
+	); err != nil {
+		logHG.DebugFInfo("Delete user list page cache err: %v", err)
+	}
 }

@@ -20,6 +20,11 @@ type HGCreateUserDTO struct { // 让 JSON 响应“只包含有意义的数据�
 	ID           int64   `json:"id,omitempty"`
 	UserID       *string `json:"userID,omitempty"`
 	Username     *string `json:"userName,omitempty"`
+	Nickname     *string `json:"nickname,omitempty"`
+	Signature    *string `json:"signature,omitempty"`
+	Gender       *int    `json:"gender,omitempty"`
+	BirthDate    *string `json:"birth_date,omitempty"`
+	AvatarURL    *string `json:"avatar_url,omitempty"`
 	Email        *string `json:"email,omitempty"`
 	Phone        *string `json:"phone,omitempty"`
 	Code         *string `json:"code,omitempty"`
@@ -38,4 +43,36 @@ func (HGCreateUserDTO) ResponseCode() HGResponsePakcage.HGErrorCode {
 
 func (HGCreateUserDTO) ResponseMessage() string {
 	return "success💯"
+}
+
+// HGUpdateUserProfileReqDTO 定义用户资料更新请求，字段均可选，支持单字段或多字段更新。
+type HGUpdateUserProfileReqDTO struct {
+	Nickname  *string `json:"nickname,omitempty"`
+	Signature *string `json:"signature,omitempty"`
+	Gender    *int    `json:"gender,omitempty"`
+	BirthDate *string `json:"birth_date,omitempty"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+}
+
+// HasAnyField 判断更新请求是否至少包含一个可更新字段。
+func (d *HGUpdateUserProfileReqDTO) HasAnyField() bool {
+	if d == nil {
+		return false
+	}
+
+	return d.Nickname != nil ||
+		d.Signature != nil ||
+		d.Gender != nil ||
+		d.BirthDate != nil ||
+		d.AvatarURL != nil
+}
+
+// HGUpdateUserProfileRespDTO 定义用户资料更新成功后的返回结构。
+type HGUpdateUserProfileRespDTO struct {
+	UserID    string  `json:"user_id"`
+	Nickname  *string `json:"nickname,omitempty"`
+	Signature *string `json:"signature,omitempty"`
+	Gender    *int    `json:"gender,omitempty"`
+	BirthDate *string `json:"birth_date,omitempty"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
 }
