@@ -1,57 +1,26 @@
 # AGENTS.md
 
-## AI 工具入口
-本文件为 AI 编程助手规则入口，支持多种工具。
+## 入口
+- 先读本文件，再读 `.ai_agents/` 对应模块。
 
-## 目录结构
-```
-.glm/           # GLM (opencode) 规则
-├── rules.md    # 核心规则入口
-├── go.md       # Go 规则
-├── api.md      # API 规则
-├── data.md     # 数据层规则
-├── validation.md # 验证规则
-├── output.md   # 输出格式规则
-├── forbidden.md # 禁止项
-└── performance.md # 高并发性能规则
-
-.ai_agents/     # Codex 规则（精简版）
-├── 00-core.md      # 核心
-├── 01-style.md     # 风格
-├── 02-go-rules.md     # Go
-├── 03-api-rules.md`  # API
-├── 04-data-rules.md` # 数据层
-├── 05-validation.md` # 验证
-├── 06-output.md`     # 输出
-├── 07-forbidden.md`  # 禁止项
-└── 08-performance.md` # 高并发性能
-```
-
-## GLM 使用方式
-GLM 自动加载本文件，核心规则位于 `.glm/rules.md`。
-
-按任务类型 GLM 应主动读取：
-- Go 代码 → `.glm/go.md`
-- API / Handler / Service → `.glm/api.md`
-- Repository / DAO / DB → `.glm/data.md`
-- 需要验证 → `.glm/validation.md`
-- 需要输出格式 → `.glm/output.md`
-- 涉及禁止项 → `.glm/forbidden.md`
-- 性能优化 → `.glm/performance.md`
-
-## Codex 使用方式
-Codex 自动加载本文件，按任务类型读取 `.ai_agents/` 目录：
-- Go 代码 → `01-go.md`
-- API / Handler / Service → `02-api.md`
-- Repository / DAO / DB → `03-data.md`
-- 性能优化 → `04-performance.md`
-- 需要验证 → `05-validation.md`
+## 文件
+- `AGENTS.md`：总规则
+- `.ai_agents/00-core.md`：核心
+- `.ai_agents/01-style.md`：风格
+- `.ai_agents/02-go-rules.md`：Go
+- `.ai_agents/03-api-rules.md`：API
+- `.ai_agents/04-data-rules.md`：数据层
+- `.ai_agents/05-validation.md`：验证
+- `.ai_agents/06-output.md`：输出
+- `.ai_agents/07-forbidden.md`：禁止项
+- `.ai_agents/08-performance.md`：高并发性能
 
 ## 优先级
 1. 用户要求
-2. 本文件 (AGENTS.md)
-3. 对应工具规则目录 (.glm/ 或 .ai_agents/)
-4. 项目现有实现
+2. `AGENTS.md`
+3. `.ai_agents/00-core.md`
+4. 其他 `.ai_agents/*.md`
+5. 项目现有实现
 
 冲突时选：
 - 更保守
