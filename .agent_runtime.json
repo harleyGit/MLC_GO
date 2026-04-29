@@ -1,0 +1,45 @@
+{
+  "$schema": "https://your-org.ai/agent-runtime.schema.json",
+  "mode": "codex",
+  "fallback_mode": "glm",
+
+  "strategy": {
+    "merge_common_rules": true,
+    "prefer_strict_mode": true,
+    "conflict_policy": "conservative"
+  },
+
+  "load": {
+    "common": [
+      "AGENTS.md#common",
+      ".ai_agents/00-core.md",
+      ".ai_agents/01-style.md",
+      ".ai_agents/05-validation.md",
+      ".ai_agents/06-output.md",
+      ".ai_agents/07-forbidden.md",
+      ".ai_agents/08-performance.md"
+    ],
+    "codex": [
+      ".ai_agents/02-go-rules.md",
+      ".ai_agents/03-api-rules.md",
+      ".ai_agents/04-data-rules.md"
+    ],
+    "glm": [
+      ".glm/go.md",
+      ".glm/api.md",
+      ".glm/data.md",
+      ".glm/validation.md",
+      ".glm/output.md",
+      ".glm/forbidden.md",
+      ".glm/performance.md"
+    ]
+  },
+
+  "task_mapping": {
+    "go": ["go", "service", "handler"],
+    "api": ["api", "controller"],
+    "data": ["repository", "dao", "db", "sql"],
+    "performance": ["optimize", "benchmark"],
+    "validation": ["validate", "check"]
+  }
+}
