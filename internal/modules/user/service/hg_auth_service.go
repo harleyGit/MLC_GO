@@ -97,14 +97,14 @@ func GenerateTokens(
 
 	rdb.Set(
 		ctx,
-		fmt.Sprintf("%s%d:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti),
+		fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti),
 		"1",
 		AccessTTL,
 	)
 
 	rdb.Set(
 		ctx,
-		fmt.Sprintf("%s%d:%s", PersistenceRedisPackage.AuthRefreshKey, userID, jti),
+		fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, userID, jti),
 		"1",
 		RefreshTTL,
 	)
@@ -129,7 +129,7 @@ func RefreshToken(
 		return "", err
 	}
 
-	key := fmt.Sprintf("%s%d:%s", PersistenceRedisPackage.AuthRefreshKey, claims.UserID, claims.JTI)
+	key := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, claims.UserID, claims.JTI)
 	if rdb.Exists(ctx, key).Val() == 0 {
 		return "", errors.New("refresh token 无效")
 	}

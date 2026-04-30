@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-04-30 09:43:11
+ * @LastEditTime: 2026-04-30 22:53:26
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -89,6 +89,8 @@ mysql -u root -p
 
 # 查看所有数据库
 show databases;
+
+use  HG_MLC_DB;
 
 # 查看所有表
 show tables;
