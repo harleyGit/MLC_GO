@@ -1,8 +1,8 @@
 <!--
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-04-17 22:05:30
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-04-30 09:43:11
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -102,8 +102,19 @@ select * from users;
 <br>
 
 
-```sh
+AI的AGENTS.md配置文件
 
+```sh
+.ai_agents/     # Codex 规则（精简版）
+├── 00-core.md      # 核心
+├── 01-style.md     # 风格
+├── 02-go-rules.md     # Go
+├── 03-api-rules.md`  # API
+├── 04-data-rules.md` # 数据层
+├── 05-validation.md` # 验证
+├── 06-output.md`     # 输出
+├── 07-forbidden.md`  # 禁止项
+└── 08-performance.md` # 高并发性能
 ```
 
 ***

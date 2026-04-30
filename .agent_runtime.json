@@ -1,7 +1,7 @@
 {
   "$schema": "https://your-org.ai/agent-runtime.schema.json",
-  "mode": "codex",
-  "fallback_mode": "glm",
+  "version": "1.0",
+  "active_model": "glm",
 
   "strategy": {
     "merge_common_rules": true,
@@ -9,30 +9,39 @@
     "conflict_policy": "conservative"
   },
 
-  "load": {
-    "common": [
-      "AGENTS.md#common",
+  "shared_rules": {
+    "base": [
+      "AGENTS.md",
       ".ai_agents/00-core.md",
-      ".ai_agents/01-style.md",
+      ".ai_agents/01-style.md"
+    ],
+    "validation": [
       ".ai_agents/05-validation.md",
       ".ai_agents/06-output.md",
       ".ai_agents/07-forbidden.md",
       ".ai_agents/08-performance.md"
     ],
-    "codex": [
-      ".ai_agents/02-go-rules.md",
-      ".ai_agents/03-api-rules.md",
-      ".ai_agents/04-data-rules.md"
-    ],
-    "glm": [
-      ".glm/go.md",
-      ".glm/api.md",
-      ".glm/data.md",
-      ".glm/validation.md",
-      ".glm/output.md",
-      ".glm/forbidden.md",
-      ".glm/performance.md"
-    ]
+    "go": [".ai_agents/02-go-rules.md"],
+    "api": [".ai_agents/03-api-rules.md"],
+    "data": [".ai_agents/04-data-rules.md"]
+  },
+
+  "models": {
+    "codex": {
+      "description": "OpenAI Codex / GPT-4 based agents",
+      "extends": "shared_rules",
+      "overrides": {}
+    },
+    "glm": {
+      "description": "GLM (智谱) model",
+      "extends": "shared_rules",
+      "overrides": {}
+    },
+    "claude": {
+      "description": "Anthropic Claude model",
+      "extends": "shared_rules",
+      "overrides": {}
+    }
   },
 
   "task_mapping": {

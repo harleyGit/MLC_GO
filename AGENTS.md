@@ -1,34 +1,42 @@
 # AGENTS.md
 
-## 入口
-- 先读本文件，再读 `.ai_agents/` 对应模块。
+> 入口文件，通用规则。模型差异化配置见 `.agent_runtime.json`
 
-## 文件
-- `AGENTS.md`：总规则
-- `.ai_agents/00-core.md`：核心
-- `.ai_agents/01-style.md`：风格
-- `.ai_agents/02-go-rules.md`：Go
-- `.ai_agents/03-api-rules.md`：API
-- `.ai_agents/04-data-rules.md`：数据层
-- `.ai_agents/05-validation.md`：验证
-- `.ai_agents/06-output.md`：输出
-- `.ai_agents/07-forbidden.md`：禁止项
-- `.ai_agents/08-performance.md`：高并发性能
+## 配置说明
+
+| 文件 | 作用 |
+|------|------|
+| `.agent_runtime.json` | 模型配置：定义当前模型、加载规则、行为差异 |
+| `.ai_agents/*.md` | 共享规则模块（所有模型共用） |
+
+## 规则模块
+
+| 文件 | 用途 |
+|------|------|
+| `00-core.md` | 核心原则 |
+| `01-style.md` | 命名与风格 |
+| `02-go-rules.md` | Go 规则 |
+| `03-api-rules.md` | API / Handler / Service |
+| `04-data-rules.md` | 数据层 / SQL / ORM |
+| `05-validation.md` | 验证与自检 |
+| `06-output.md` | 输出格式 |
+| `07-forbidden.md` | 禁止项 |
+| `08-performance.md` | 高并发性能 |
 
 ## 优先级
-1. 用户要求
-2. `AGENTS.md`
-3. `.ai_agents/00-core.md`
-4. 其他 `.ai_agents/*.md`
-5. 项目现有实现
 
-冲突时选：
-- 更保守
-- 更兼容
-- 更优和主流设计
+1. 用户要求
+2. `.agent_runtime.json` 中模型特定配置
+3. 本文件
+4. `.ai_agents/00-core.md`
+5. 其他 `.ai_agents/*.md`
+6. 项目现有实现
+
+冲突时选：更保守、更兼容、更优和主流设计
 
 ## 默认加载
-所有任务：
+
+所有任务（由 `.agent_runtime.json` 控制）：
 - `AGENTS.md`
 - `.ai_agents/00-core.md`
 - `.ai_agents/01-style.md`
@@ -44,8 +52,9 @@
 - Shell / Bash：补足流程、分支、失败处理注释
 
 ## 默认流程
+
 1. 读任务
-2. 读规则
+2. 读规则（按 `.agent_runtime.json` 配置）
 3. 看上下文和相似实现
 4. 优先做最优和主流设计改动
 5. SQL 变更先做验证（语法、目标库、影响范围），确认无误后再执行
@@ -53,6 +62,7 @@
 7. 按 `.ai_agents/06-output.md` 输出
 
 ## 默认要求
+
 - 按高并发后端工程处理
 - 先复用现有实现
 - 优先主流稳定架构和常用优秀设计模式
@@ -66,6 +76,7 @@
 - 未验证的结果不得说已通过
 
 ## 风险
+
 默认不做：
 - 大重构
 - 改目录或模块边界
@@ -76,10 +87,12 @@
 - 改响应结构或错误语义
 
 ## 临时文件
+
 - 不把缓存、日志、二进制写入工程目录
 - 优先用系统临时目录或工程外目录
 
 ## 收尾
+
 - 自检
 - 格式化
 - 尽量编译/测试
