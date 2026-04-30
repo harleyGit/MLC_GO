@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-01 12:13:58
+ * @LastEditTime: 2026-04-30 20:52:47
  * @FilePath: /MLC_GO/main.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -36,12 +36,13 @@ import (
 	go_svc_practice_main_package "MLC_GO/TestNotes/ungrammar_pt/libraries/go-svc-practice"
 	"MLC_GO/TestNotes/ungrammar_pt/libraries/gorm_practice"
 	logpt "MLC_GO/TestNotes/ungrammar_pt/log_pt"
+	middlewarept "MLC_GO/TestNotes/ungrammar_pt/middleware_pt"
 	"MLC_GO/TestNotes/ungrammar_pt/nsq_project_practice"
 	"MLC_GO/TestNotes/ungrammar_pt/read_file_practice"
 	securitypt "MLC_GO/TestNotes/ungrammar_pt/security_pt"
 	"bufio"
-	"fmt"      //实现了类似 C 语言 printf 和 scanf 的格式化 I/O。格式化动作（‘verb’）源自 C 语言但更简单
-	"net/http" //提供了 HTTP 客户端和服务端的实现
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -54,8 +55,8 @@ type ModuleType string
 
 /* 练习模块值 */
 const (
-	MLC_Project ModuleType = "100.00: MLC_GO工程运行"
-
+	MLC_Project               ModuleType = "100.00: MLC_GO工程运行"
+	Module_middlewareDemo     ModuleType = "16: 中间件调用Demo"
 	Security_01               ModuleType = "14.00: 安全：编译或直接运行生成证书（RSA 默认）"
 	Security_00_client        ModuleType = "13.02: 启动客户端"
 	Security_00_server        ModuleType = "13.01: 启动服务端"
@@ -78,7 +79,7 @@ func getPracticeModules() []ModuleType {
 
 	return []ModuleType{
 		MLC_Project,
-
+		Module_middlewareDemo,
 		Security_01,
 		Security_00_client,
 		Security_00_server,
@@ -139,6 +140,8 @@ func runPracticeModule(functionModule string) bool {
 	switch functionModule {
 	case "100", "100.00":
 		mlc_main()
+	case "16", "16.00":
+		middlewarept.MiddlewareDemoMain()
 	case "14", "14.00":
 		securitypt.SecurityV01_mtls_tool()
 	case "13.02":
