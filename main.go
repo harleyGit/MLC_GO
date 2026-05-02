@@ -100,8 +100,8 @@ func getPracticeModules() []ModuleType {
 }
 
 func main() {
-
-	practiceKnowledge()
+runPracticeModule("100")
+	// practiceKnowledge()
 }
 
 func practiceKnowledge() {
