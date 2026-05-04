@@ -9,8 +9,11 @@
 package logHG
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"runtime"
+	"strings"
 )
 
 type Level int
@@ -46,30 +49,55 @@ func Setup() {
 	logger = log.New(F, DefaultPrefix, log.LstdFlags)
 }
 
+// getCallerInfo 获取调用者的文件名和函数名
+// skip=1 获取直接调用者，skip=2 获取调用者的调用者，依此类推
+func getCallerInfo(skip int) string {
+	pc, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return "???:0"
+	}
+
+	// 只保留文件名，去掉路径
+	parts := strings.Split(file, "/")
+	fileName := parts[len(parts)-1]
+
+	// 获取函数名
+	funcName := runtime.FuncForPC(pc).Name()
+	// 只保留函数名，去掉包路径
+	funcParts := strings.Split(funcName, ".")
+	funcName = funcParts[len(funcParts)-1]
+
+	return fmt.Sprintf("%s:%d %s", fileName, line, funcName)
+}
+
 func DebugInfo(v ...interface{}) {
 	// setPrefix(DEBUG)
-	log.Println("🔥", v)
+	caller := getCallerInfo(2)
+	log.Printf("🔥 [%s] %v\n", caller, fmt.Sprint(v...))
 }
 
 // 比如： DebugFInfo("This is value: %v, and another: %d", "test", 42)
 func DebugFInfo(format string, v ...interface{}) {
 	// setPrefix(DEBUG)
-	log.Printf("🔥 "+format, v...)
+	caller := getCallerInfo(2)
+	log.Printf("🔥 [%s] "+format, append([]interface{}{caller}, v...)...)
 }
 
 func ErrInfo(v ...interface{}) {
 	// setPrefix(ERROR)
-	log.Println("❌", v)
+	caller := getCallerInfo(2)
+	log.Printf("❌ [%s] %v\n", caller, fmt.Sprint(v...))
 }
 
 func ErrFInfo(format string, v ...interface{}) {
 	// setPrefix(ERROR)
-	log.Printf("❌"+format, v...)
-	// os.Exit(1)
+	caller := getCallerInfo(2)
+	log.Printf("❌ [%s] "+format, append([]interface{}{caller}, v...)...)
 }
 
 func FatalFInfo(format string, v ...interface{}) {
 	// setPrefix(ERROR)
-	log.Printf("💣"+format, v...)
+	caller := getCallerInfo(2)
+	log.Printf("💣 [%s] "+format, append([]interface{}{caller}, v...)...)
 	os.Exit(1)
 }
