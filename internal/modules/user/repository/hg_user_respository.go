@@ -93,10 +93,13 @@ func (r *UserRepo) GetByID(ctx context.Context, id int64) (*UserModelsPackage.HG
 	).Scan(
 		&u.UserID,
 		&u.Username,
+		&u.Nickname,
+		&u.Signature,
+		&u.Gender,
+		&u.BirthMonth,
+		&u.AvatarURL,
 		&u.Email,
 		&u.Phone,
-		&u.PasswordHash,
-		&u.Salt,
 	)
 
 	return &u, err

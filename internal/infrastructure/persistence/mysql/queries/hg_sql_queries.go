@@ -26,7 +26,7 @@ const (
 
 	InsertUserInfoSQL        = `INSERT INTO users(email, phone, password_hash, salt) VALUES (?, ?, ?, ?)`
 	UpdateUserInfoSQL        = `UPDATE users SET email = ?, phone = ?, WHERE user_id = ?`
-	GetUserByIDSQL           = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE user_id = ?"
+	GetUserByIDSQL           = "SELECT user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
 	SelectUserInfoByPhoneSQL = `SELECT id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
 	// 用户分页查询【在十万级别数据还可以，百万以上不行】

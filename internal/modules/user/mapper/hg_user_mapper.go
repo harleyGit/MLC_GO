@@ -12,6 +12,7 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
+	"database/sql"
 )
 
 func UserDTOToModel(d *UserDtoPackage.HGCreateUserDTO) *UserModelsPackage.HGUserModel {
@@ -31,15 +32,32 @@ func PatchUserDTOToModel(d *UserDtoPackage.HGCreateUserDTO, u *UserModelsPackage
 }
 
 func UserModelToDTO(u *UserModelsPackage.HGUserModel) *UserDtoPackage.HGCreateUserDTO {
+	var birthMonth *string
+	if u.BirthMonth.Valid {
+		s := u.BirthMonth.Time.Format("2006-01-02")
+		birthMonth = &s
+	}
+
 	return &UserDtoPackage.HGCreateUserDTO{
 		ID:           u.ID,
 		UserID:       UtilsPackage.NullStrToPtr(u.UserID),
 		Username:     UtilsPackage.NullStrToPtr(u.Username),
+		Nickname:     UtilsPackage.NullStrToPtr(u.Nickname),
+		Signature:    UtilsPackage.NullStrToPtr(u.Signature),
+		Gender:       nullInt64ToPtr(u.Gender),
+		BirthMonth:   birthMonth,
+		AvatarURL:    UtilsPackage.NullStrToPtr(u.AvatarURL),
 		Email:        UtilsPackage.NullStrToPtr(u.Email),
 		Phone:        UtilsPackage.NullStrToPtr(u.Phone),
-		PasswordHash: UtilsPackage.NullStrToPtr(u.PasswordHash),
-		Salt:         UtilsPackage.NullStrToPtr(u.Salt),
 		Created_at:   UtilsPackage.NullStrToPtr(u.CreatedAt),
 		Updated_at:   UtilsPackage.NullStrToPtr(u.UpdatedAt),
 	}
+}
+
+func nullInt64ToPtr(v sql.NullInt64) *int {
+	if v.Valid {
+		i := int(v.Int64)
+		return &i
+	}
+	return nil
 }

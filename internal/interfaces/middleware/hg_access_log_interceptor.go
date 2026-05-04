@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-29 19:52:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-29 19:55:18
+ * @LastEditTime: 2026-05-03 21:47:32
  * @FilePath: /MLC_GO/internal/interfaces/middleware/hg_log_middle.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -18,6 +18,7 @@ import (
 	"time"
 )
 
+const tag = "hg_access_log_interceptor"
 const accessLogSampleRateEnv = "HG_ACCESS_LOG_SAMPLE_RATE"
 
 var accessLogSampleRate = loadAccessLogSampleRate()
@@ -75,7 +76,8 @@ func AccessLogInterceptor(next http.Handler) http.Handler {
 		}
 
 		logHG.DebugFInfo(
-			`{"method":"%s", "path":"%s", "cost_ms":%d}`,
+			`%s-日志拦截器： {"method":"%s", "path":"%s", "cost_ms":%d}`,
+			tag,
 			r.Method,
 			r.URL.Path,
 			time.Since(start).Milliseconds(),

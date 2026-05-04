@@ -18,12 +18,12 @@ import HGResponsePakcage "MLC_GO/internal/response"
 // TODO: 定一个基类结构体，有 Code和message，然dto有这2个变量，方便在协议返回。否则这样写死了
 type HGCreateUserDTO struct { // 让 JSON 响应“只包含有意义的数据”，提升 API 的简洁性、安全性、可维护性和用户体验。
 	ID           int64   `json:"id,omitempty"`
-	UserID       *string `json:"userID,omitempty"`
-	Username     *string `json:"userName,omitempty"`
+	UserID       *string `json:"user_id,omitempty"`
+	Username     *string `json:"user_name,omitempty"`
 	Nickname     *string `json:"nickname,omitempty"`
 	Signature    *string `json:"signature,omitempty"`
 	Gender       *int    `json:"gender,omitempty"`
-	BirthDate    *string `json:"birth_date,omitempty"`
+	BirthMonth   *string `json:"birth_month,omitempty"`
 	AvatarURL    *string `json:"avatar_url,omitempty"`
 	Email        *string `json:"email,omitempty"`
 	Phone        *string `json:"phone,omitempty"`

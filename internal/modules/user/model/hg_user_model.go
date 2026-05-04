@@ -18,7 +18,12 @@ type HGUserModel struct {
 	ID           int64
 	UserID       sql.NullString
 	Username     sql.NullString
-	Email        sql.NullString 
+	Nickname     sql.NullString
+	Signature    sql.NullString
+	Gender       sql.NullInt64
+	BirthMonth   sql.NullTime
+	AvatarURL    sql.NullString
+	Email        sql.NullString
 	Phone        sql.NullString
 	Password     sql.NullString
 	PasswordHash sql.NullString

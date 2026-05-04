@@ -590,16 +590,17 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "unauthorized")
 		return
 	}
 
-	resp := map[string]any{
-		"user_id": claims.UserID,
-		"device":  claims.Device,
+	userDTO, err := h.svc.GetUserByID(r.Context(), claims.UserID)
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+		return
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	HGResponsePakcage.SuccessResult(w, r, userDTO)
 }
 
 // parseUpdateUserID 解析资料更新目标 user_id，优先读取 query 参数，缺失时尝试从 JWT claims 获取。

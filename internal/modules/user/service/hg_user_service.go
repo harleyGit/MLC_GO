@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,6 +60,21 @@ func (s *UserService) CreateUser(ctx context.Context, d *UserDtoPackage.HGCreate
 	user := UserMapperPackage.UserDTOToModel(d)
 
 	return s.repo.Insert(ctx, user)
+}
+
+// GetUserByID 根据用户ID获取用户信息
+func (s *UserService) GetUserByID(ctx context.Context, userID string) (*UserDtoPackage.HGCreateUserDTO, error) {
+	id, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		return nil, errors.New("invalid user_id")
+	}
+
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return UserMapperPackage.UserModelToDTO(user), nil
 }
 
 func (s *UserService) PathUser(
