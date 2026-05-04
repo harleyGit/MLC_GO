@@ -70,6 +70,8 @@
 - [功能模块](#功能模块)
 	- [登录注册](#登录注册) 
 	- [redis缓存-登录注册](#redis缓存-登录注册)
+- [**环境变量传递**](#环境变量传递)
+	- [VSCode launch.json 环境变量传递流程](#VSCode-launch.json-环境变量传递流程)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
@@ -3632,3 +3634,114 @@ func (s *Server) RegisterModuleRoutes() {
 - **扩展性好**：新功能容易添加
 
 这个架构适合大型企业级应用，可以支持数百个开发人员协作，代码可维护性和可扩展性都非常好。
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="环境变量传递">环境变量传递</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="VSCode-launch.json-环境变量传递流程">VSCode launch.json 环境变量传递流程</h2>
+
+**问题：** `internal/config/env.go` 中的 `GetEnv()` 函数是如何获取当前环境的？
+
+**答案：** 通过 VSCode 的 launch.json 配置注入环境变量。
+
+---
+
+### 1. launch.json 配置（`.vscode/launch.json`）
+
+```json
+{
+  "name": "🧪 Launch MLC_GO Debug",
+  "type": "go",
+  "request": "launch",
+  "mode": "auto",
+  "program": "${workspaceFolder}",
+  "env": {
+    "GOPATH": "${env:GOPATH}",
+    "MY_ENV": "debug",
+    "SERVER_ENV": "debug"  // ← 关键：设置 SERVER_ENV=debug
+  }
+}
+```
+
+---
+
+### 2. VSCode 调试按钮点击流程
+
+```
+点击 "🧪 Launch MLC_GO Debug" 
+    ↓
+VSCode 读取 launch.json
+    ↓
+启动 Go 调试器 (dlv)
+    ↓
+dlv 创建子进程，注入 env 中的环境变量
+    ↓
+Go 程序启动，进程的环境变量包含 SERVER_ENV=debug
+```
+
+---
+
+### 3. Go 代码获取环境变量（`internal/config/env.go`）
+
+```go
+func GetEnv() Env {
+    env := os.Getenv("SERVER_ENV")  // 从进程环境变量中读取
+    if env == "" {
+        return EnvDebug // 默认环境为 debug
+    }
+    return Env(env)
+}
+```
+
+---
+
+### 4. 完整链路
+
+```
+launch.json "env.SERVER_ENV" = "debug"
+        ↓
+VSCode/dlv 注入到进程环境变量
+        ↓
+os.Getenv("SERVER_ENV") 读取到 "debug"
+        ↓
+GetEnv() 返回 EnvDebug
+        ↓
+LoadConfig("debug") 加载 config.debug.yaml
+```
+
+---
+
+### 5. 三个环境配置对照表
+
+| 配置名 | SERVER_ENV | 加载配置文件 |
+|--------|------------|--------------|
+| 🧪 Launch MLC_GO Debug | `debug` | config.debug.yaml |
+| 💥 Launch MLC_GO Pre | `pre` | config.pre.yaml |
+| 🎾 Launch MLC_GO Prod | `prod` | config.prod.yaml |
+
+---
+
+### 6. 简单理解
+
+- `launch.json` 的 `env` 字段 = 启动时注入的环境变量
+- `os.Getenv()` = 从当前进程读取环境变量
+- 两者通过**操作系统进程环境变量机制**连接
+
+---
+
+### 7. 相关文件
+
+| 文件 | 作用 |
+|------|------|
+| `.vscode/launch.json` | VSCode 调试配置，定义环境变量 |
+| `internal/config/env.go` | 读取环境变量，决定加载哪个配置文件 |
+| `config/config.debug.yaml` | debug 环境配置 |
+| `config/config.pre.yaml` | pre 环境配置 |
+| `config/config.prod.yaml` | prod 环境配置 |
