@@ -22,6 +22,9 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodGet: true,
 			},
 			NeedAuth: true,
+			Permissions: []string{
+				"user:view",
+			},
 		},
 		{
 			Path:    "/list",
@@ -30,9 +33,6 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodGet: true,
 			},
 			NeedAuth: false,
-			// Permissions: []string{
-			// 	"user:list",
-			// },
 		},
 		{
 			Path:    "/update",
@@ -41,17 +41,6 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodPut: true,
 			},
 			NeedAuth: true,
-		},
-		{
-			Path:    "/info",
-			Version: "v1",
-			Methods: map[string]bool{
-				http.MethodGet: true,
-			},
-			NeedAuth: true,
-			Permissions: []string{
-				"user:view",
-			},
 		},
 	}
 }

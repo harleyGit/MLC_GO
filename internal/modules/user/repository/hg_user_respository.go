@@ -105,6 +105,28 @@ func (r *UserRepo) GetByID(ctx context.Context, id int64) (*UserModelsPackage.HG
 	return &u, err
 }
 
+// GetByUserID 根据 user_id 字符串查询用户（直接使用 VARCHAR 类型的 user_id 字段）
+func (r *UserRepo) GetByUserID(ctx context.Context, userID string) (*UserModelsPackage.HGUserModel, error) {
+	var u UserModelsPackage.HGUserModel
+	err := r.QueryRow(
+		ctx,
+		SQLQueriesPackage.GetUserByIDSQL,
+		userID,
+	).Scan(
+		&u.UserID,
+		&u.Username,
+		&u.Nickname,
+		&u.Signature,
+		&u.Gender,
+		&u.BirthMonth,
+		&u.AvatarURL,
+		&u.Email,
+		&u.Phone,
+	)
+
+	return &u, err
+}
+
 func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel) error {
 	// 使用带超时的上下文，防止长时间阻塞
 	const queryTimeout = 5 * time.Second

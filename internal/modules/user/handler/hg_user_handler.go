@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-04-15 21:30:59
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-05-04 16:18:04
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -590,13 +590,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !ok {
+		logHG.ErrInfo("用户信息Profile error: %v", ok)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "unauthorized")
 		return
 	}
 
 	userDTO, err := h.svc.GetUserByID(r.Context(), claims.UserID)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+		logHG.ErrFInfo("用户信息Profile error: %v", err)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在"+err.Error())
 		return
 	}
 

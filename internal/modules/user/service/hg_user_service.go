@@ -26,7 +26,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -62,14 +61,13 @@ func (s *UserService) CreateUser(ctx context.Context, d *UserDtoPackage.HGCreate
 	return s.repo.Insert(ctx, user)
 }
 
-// GetUserByID 根据用户ID获取用户信息
+// GetUserByID 根据用户ID获取用户信息（直接使用 string 类型的 user_id 查询）
 func (s *UserService) GetUserByID(ctx context.Context, userID string) (*UserDtoPackage.HGCreateUserDTO, error) {
-	id, err := strconv.ParseInt(userID, 10, 64)
-	if err != nil {
-		return nil, errors.New("invalid user_id")
+	if userID == "" {
+		return nil, errors.New("user_id 不能为空")
 	}
 
-	user, err := s.repo.GetByID(ctx, id)
+	user, err := s.repo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

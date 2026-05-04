@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 12:30:27
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-04-17 09:52:53
+ * @LastEditTime: 2026-05-04 16:00:49
  * @FilePath: /MLC_GO/internal/interfaces/middleware/hg_method_guard_middle.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -10,6 +10,7 @@ package HGMiddlewarePackage
 
 import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
+	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"bytes"
@@ -25,12 +26,25 @@ import (
 	"time"
 )
 
+/*
+Permissions权限的几种配置
+
+	var rolePermissions = map[string]map[string]bool{
+	    "admin": {
+	        "user:update": true,    // admin 角色有 user:update 权限
+	        "user:view":   true,    // admin 角色有 user:view 权限
+	    },
+	    "user": {
+	        "user:view": true,      // user 角色只有 user:view 权限
+	    },
+	}
+*/
 type HGAPIRule struct {
-	Path        string
-	Methods     map[string]bool
-	NeedAuth    bool
-	Permissions []string
-	Version     string
+	Path        string          // 路由路径
+	Methods     map[string]bool // 允许的 HTTP 方法
+	NeedAuth    bool            // 是否需要认证
+	Permissions []string        // 需要的权限列表
+	Version     string          // API 版本
 }
 
 type ctxKey string
@@ -41,17 +55,37 @@ const (
 	defaultAPIVersion        = "v1"
 )
 
+/*
+	 HGAPIGuard存放数据结构：
+
+				guard.rulesByVersion:
+			{
+			    "v1": {
+			        "/info":  {Path: "/info", NeedAuth: true, ...},
+			        "/login": {Path: "/login", NeedAuth: false, ...},
+			    },
+			    "v2": {
+			        "/info":  {Path: "/info", NeedAuth: true, ...},
+			    }
+			}
+
+			guard.legacyRules:
+			{
+			    "/info":  {Path: "/info", NeedAuth: true, ...},
+			    "/login": {Path: "/login", NeedAuth: false, ...},
+			}
+*/
 type HGAPIGuard struct {
 	rulesByVersion map[string]map[string]HGAPIRule
 	legacyRules    map[string]HGAPIRule
 }
 
 var rolePermissions = map[string]map[string]bool{
-	"admin": {
+	"admin": { //管理员，可以查看和更新
 		"user:update": true,
 		"user:view":   true,
 	},
-	"user": {
+	"user": {// 普通用户，只能查看
 		"user:view": true,
 	},
 }
@@ -65,9 +99,10 @@ func NewAPIGuard(rules []HGAPIRule) *HGAPIGuard {
 	for _, r := range rules {
 		version := strings.TrimSpace(r.Version)
 		if version == "" {
-			version = defaultAPIVersion
+			version = defaultAPIVersion // 默认 "v1"
 		}
 
+		// 初始化内层 map（如果不存在）
 		if _, ok := guard.rulesByVersion[version]; !ok {
 			guard.rulesByVersion[version] = make(map[string]HGAPIRule)
 		}
@@ -88,14 +123,18 @@ func APIGuardInterceptor(rules []HGAPIRule) HGHTTPInterceptor {
 func (g *HGAPIGuard) Interceptor() HGHTTPInterceptor {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 2.2 获取版本
 			version := strings.TrimSpace(r.Header.Get("X-API-Version"))
 			if version == "" {
 				version = defaultAPIVersion
 			}
 
+			// 2.3 获取路由规则，r.URL.Path 是 StripPrefix 之后的路径【接口路径】
 			rule, ok := g.lookupRule(version, r.URL.Path)
 			if !ok {
 				http.NotFound(w, r)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.NotFoundCode, "interface not found")
+				logHG.ErrFInfo(`%s-APIGuard拦截器： 未找到接口规则，version="%s", path="%s"`, tag, version, r.URL.Path)
 				return
 			}
 
@@ -103,24 +142,31 @@ func (g *HGAPIGuard) Interceptor() HGHTTPInterceptor {
 			if !rule.Methods[r.Method] {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+				logHG.ErrFInfo(`%s-Method检验拦截器： Method校验失败，version="%s", path="%s"`, tag, version, r.URL.Path)
 				return
 			}
 
 			// 2.1 header检验
 			ctx := g.checkoutHeader(w, r, rule.NeedAuth)
 			if ctx == nil {
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "heaer vaild fail")
+				logHG.ErrFInfo(`%s-header检验拦截器： Method校验失败，version="%s", path="%s"`, tag, version, r.URL.Path)
 				return
 			}
 
 			// 3️⃣ 权限校验（可选）
 			if len(rule.Permissions) > 0 {
-				role, _ := r.Context().Value("role").(string)
+				role := r.Header.Get("X-Role")  // 从前端 header 获取角色
+				if role == "" {
+					role = "user"  // 默认为普通用户
+				}
 				if !HasPermission(role, rule.Permissions) {
 					w.WriteHeader(http.StatusForbidden)
-					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ForbiddenCode, "FORBIDDEN")
+					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ForbiddenCode, "权限校验失败❌")
 					return
 				}
 			}
+			// 权限校验已移至 PermissionInterceptor，在 JWT 中间件之后执行
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -131,7 +177,11 @@ func (g *HGAPIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 	return g.Interceptor()(next)
 }
 
+/*
+ * 获取接口规则
+ */
 func (g *HGAPIGuard) lookupRule(version string, path string) (HGAPIRule, bool) {
+	// comma-ok模式：map、channel、类型判断均可以这么做
 	routesByPath, ok := g.rulesByVersion[version]
 	if !ok {
 		// 兼容兜底：客户端传错版本头时，尝试回退到默认版本路由规则。
