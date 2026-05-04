@@ -72,6 +72,12 @@
 	- [redis缓存-登录注册](#redis缓存-登录注册)
 - [**环境变量传递**](#环境变量传递)
 	- [VSCode launch.json 环境变量传递流程](#VSCode-launch.json-环境变量传递流程)
+- [**日志系统**](#日志系统)
+	- [日志函数添加调用者信息](#日志函数添加调用者信息)
+- [**配置加载**](#配置加载)
+	- [LoadConfig函数解释](#LoadConfig函数解释)
+- [**Redis配置**](#Redis配置)
+	- [getRedisAddr函数解释](#getRedisAddr函数解释)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
@@ -3745,3 +3751,234 @@ LoadConfig("debug") 加载 config.debug.yaml
 | `config/config.debug.yaml` | debug 环境配置 |
 | `config/config.pre.yaml` | pre 环境配置 |
 | `config/config.prod.yaml` | prod 环境配置 |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="日志系统">日志系统</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="日志函数添加调用者信息">日志函数添加调用者信息</h2>
+
+**文件位置：** `internal/pkg/logHG/hglog.go`
+
+**功能：** 在日志输出中自动添加调用者的文件名、行号和函数名。
+
+---
+
+### 1. getCallerInfo 辅助函数
+
+```go
+// getCallerInfo 获取调用者的文件名和函数名
+// skip=1 获取直接调用者，skip=2 获取调用者的调用者，依此类推
+func getCallerInfo(skip int) string {
+    pc, file, line, ok := runtime.Caller(skip)
+    if !ok {
+        return "???:0"
+    }
+
+    // 只保留文件名，去掉路径
+    parts := strings.Split(file, "/")
+    fileName := parts[len(parts)-1]
+
+    // 获取函数名
+    funcName := runtime.FuncForPC(pc).Name()
+    // 只保留函数名，去掉包路径
+    funcParts := strings.Split(funcName, ".")
+    funcName = funcParts[len(funcParts)-1]
+
+    return fmt.Sprintf("%s:%d %s", fileName, line, funcName)
+}
+```
+
+---
+
+### 2. 日志函数示例
+
+```go
+func DebugFInfo(format string, v ...interface{}) {
+    caller := getCallerInfo(2)
+    log.Printf("🔥 [%s] "+format, append([]interface{}{caller}, v...)...)
+}
+
+func ErrFInfo(format string, v ...interface{}) {
+    caller := getCallerInfo(2)
+    log.Printf("❌ [%s] "+format, append([]interface{}{caller}, v...)...)
+}
+```
+
+---
+
+### 3. 输出格式
+
+```
+🔥 [hg_user_handler.go:123 Login] 用户登录成功
+❌ [hg_user_service.go:45 GetUserByID] 查询用户失败
+💣 [main.go:30 main] 启动失败
+```
+
+---
+
+### 4. 日志函数对照表
+
+| 函数 | 前缀 | 用途 |
+|------|------|------|
+| `DebugInfo` | 🔥 | 调试信息 |
+| `DebugFInfo` | 🔥 | 调试信息（格式化） |
+| `ErrInfo` | ❌ | 错误信息 |
+| `ErrFInfo` | ❌ | 错误信息（格式化） |
+| `FatalFInfo` | 💣 | 致命错误（会退出程序） |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="配置加载">配置加载</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="LoadConfig函数解释">LoadConfig函数解释</h2>
+
+**文件位置：** `internal/config/env.go`
+
+**功能：** 使用 Viper 库加载不同环境的 YAML 配置文件。
+
+---
+
+### 1. 函数代码
+
+```go
+func LoadConfig(env string) error {
+    viper.SetConfigName(fmt.Sprintf("config.%s", env))  // 1️⃣ 设置配置文件名
+    viper.SetConfigType("yaml")                          // 2️⃣ 设置配置文件类型
+    viper.AddConfigPath("./config")                      // 3️⃣ 设置配置文件搜索路径
+    err := viper.ReadInConfig()                          // 4️⃣ 读取配置文件
+    return err
+}
+```
+
+---
+
+### 2. 逐行解析
+
+| 行 | 代码 | 作用 |
+|---|------|------|
+| 1 | `viper.SetConfigName(fmt.Sprintf("config.%s", env))` | 设置配置文件名为 `config.debug`、`config.pre` 或 `config.prod`（不含扩展名） |
+| 2 | `viper.SetConfigType("yaml")` | 告诉 viper 配置文件是 YAML 格式 |
+| 3 | `viper.AddConfigPath("./config")` | 在 `./config` 目录下搜索配置文件 |
+| 4 | `viper.ReadInConfig()` | 实际读取并解析配置文件到内存 |
+
+---
+
+### 3. 调用流程
+
+```
+main.go
+  ↓
+GetEnv() → "debug"
+  ↓
+LoadConfig("debug")
+  ↓
+viper 读取 ./config/config.debug.yaml
+  ↓
+配置加载完成，后续可用 viper.GetString("mysql.host") 等读取
+```
+
+---
+
+### 4. 实际效果
+
+当传入 `env="debug"` 时，viper 会去读取 `./config/config.debug.yaml` 文件，将其中的配置项（如数据库连接、Redis 地址等）加载到内存中，供程序后续使用。
+
+---
+
+### 5. 相关配置文件
+
+| 环境 | 配置文件 |
+|------|----------|
+| debug | `config/config.debug.yaml` |
+| pre | `config/config.pre.yaml` |
+| prod | `config/config.prod.yaml` |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="Redis配置">Redis配置</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="getRedisAddr函数解释">getRedisAddr函数解释</h2>
+
+**文件位置：** `internal/infrastructure/persistence/redis/hg_redis.go`
+
+**功能：** 从环境变量获取 Redis 服务器的地址和端口号。
+
+---
+
+### 1. 函数代码
+
+```go
+func getRedisAddr() string {
+    redisHost := os.Getenv("REDIS_HOST")    // 1️⃣ 从环境变量读取主机
+    if redisHost == "" {
+        redisHost = "localhost"             // 默认值
+    }
+
+    redisPort := os.Getenv("REDIS_PORT")    // 2️⃣ 从环境变量读取端口
+    if redisPort == "" {
+        redisPort = "6379"                  // 默认值
+    }
+
+    return redisHost + ":" + redisPort      // 3️⃣ 拼接成 "host:port" 格式
+}
+```
+
+---
+
+### 2. 数据来源链路
+
+```
+VSCode launch.json
+    ↓
+env.SERVER_ENV = "debug"
+    ↓
+Go 程序启动，加载 config.debug.yaml
+    ↓
+env 文件 (config/env_configs/hg_debug.env) 中定义：
+    REDIS_HOST=127.0.0.1
+    REDIS_PORT=6379
+    ↓
+os.Getenv("REDIS_HOST") → "127.0.0.1"
+os.Getenv("REDIS_PORT") → "6379"
+    ↓
+返回 "127.0.0.1:6379"
+```
+
+---
+
+### 3. 三个环境的配置对照
+
+| 环境 | REDIS_HOST | REDIS_PORT | 最终地址 |
+|------|------------|------------|----------|
+| debug | 127.0.0.1 | 6379 | 127.0.0.1:6379 |
+| pre | 127.0.0.1 | 6380 | 127.0.0.1:6380 |
+| prod | prod-redis.internal | 6379 | prod-redis.internal:6379 |
+
+---
+
+### 4. 相关配置文件
+
+| 文件 | 作用 |
+|------|------|
+| `config/env_configs/hg_debug.env` | debug 环境的环境变量定义 |
+| `config/env_configs/hg_pre.env` | pre 环境的环境变量定义 |
+| `config/env_configs/hg_prod.env` | prod 环境的环境变量定义 |
