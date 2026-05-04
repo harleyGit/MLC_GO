@@ -78,6 +78,32 @@
 	- [LoadConfig函数解释](#LoadConfig函数解释)
 - [**Redis配置**](#Redis配置)
 	- [getRedisAddr函数解释](#getRedisAddr函数解释)
+- [**环境配置加载**](#环境配置加载)
+	- [Load函数解释](#Load函数解释)
+	- [getEnvOrDefault函数解释](#getEnvOrDefault函数解释)
+- [**根路由处理**](#根路由处理)
+	- [NewRootHandler方法解释](#NewRootHandler方法解释)
+- [**路由注册机制**](#路由注册机制)
+	- [bindRouteSpecs函数解释](#bindRouteSpecs函数解释)
+- [**API规则配置**](#API规则配置)
+	- [PublicAPIRules配置](#PublicAPIRules配置)
+	- [HGAPIRule使用说明](#HGAPIRule使用说明)
+	- [Permissions权限配置](#Permissions权限配置)
+- [**Go基础语法**](#Go基础语法)
+	- [切片和数组的区别](#切片和数组的区别)
+- [**结构体实例化**](#结构体实例化)
+	- [HGAPIGuard实例化-map容器](#HGAPIGuard实例化-map容器)
+- [**拦截器机制**](#拦截器机制)
+	- [Interceptor方法解读](#Interceptor方法解读)
+	- [http.HandlerFunc与http.Handler的关系](#http.HandlerFunc与http.Handler的关系)
+- [**HTTP请求获取方法**](#HTTP请求获取方法)
+	- [r.Header.Get详解](#r.Header.Get详解)
+	- [r.URL.Path详解](#r.URL.Path详解)
+- [**Go语法特性**](#Go语法特性)
+	- [comma-ok模式详解](#comma-ok模式详解)
+- [**HTTP响应方法**](#HTTP响应方法)
+	- [常用响应方法对照表](#常用响应方法对照表)
+	- [前端收到的数据格式](#前端收到的数据格式)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
@@ -3982,3 +4008,1614 @@ os.Getenv("REDIS_PORT") → "6379"
 | `config/env_configs/hg_debug.env` | debug 环境的环境变量定义 |
 | `config/env_configs/hg_pre.env` | pre 环境的环境变量定义 |
 | `config/env_configs/hg_prod.env` | prod 环境的环境变量定义 |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="环境配置加载">环境配置加载</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="Load函数解释">Load函数解释</h2>
+
+**文件位置：** `internal/config/hg_env_config.go`
+
+**功能：** 从环境变量加载 MySQL 等基础设施配置，返回配置模型。
+
+---
+
+### 1. 函数代码
+
+```go
+func Load() *ENVConfigModel {
+    // 1️⃣ 读取数据库迁移版本号
+    v, err := strconv.Atoi(os.Getenv("MIGRATE_EXPECT_VERSION"))
+    if err != nil {
+        v = 1  // 默认版本为 1
+    }
+
+    // 2️⃣ 返回配置模型
+    return &ENVConfigModel{
+        MySQLHost:      getEnvOrDefault("MYSQL_HOST", "127.0.0.1"),
+        MySQLPort:      getEnvOrDefault("MYSQL_PORT", "3306"),
+        MySQLUser:      getEnvOrDefault("MYSQL_USER", "root"),
+        MySQLPass:      resolveMySQLPassword(),  // 3️⃣ 特殊处理密码
+        MySQLDB:        getEnvOrDefault("MYSQL_DB", "HG_MLC_DB"),
+        MAC_TYPE:       getEnvOrDefault("MAC_TYPE", DEV_COMPUTER),
+        MigrateVersion: v,
+    }
+}
+```
+
+---
+
+### 2. 核心逻辑
+
+| 函数 | 作用 |
+|------|------|
+| `getEnvOrDefault(key, fallback)` | 读取环境变量，若为空则返回默认值 |
+| `resolveMySQLPassword()` | 根据电脑芯片类型（Intel/M2）选择不同密码策略 |
+
+---
+
+### 3. `resolveMySQLPassword()` 密码策略
+
+```
+判断是否 macOS + ARM64 (M1/M2/M3 芯片)
+    ↓
+是 → 优先读 MYSQL_PASSWORD_ARM，否则默认 "hh109"
+    ↓
+否 → 直接读 MYSQL_PASSWORD（Intel 电脑）
+```
+
+---
+
+### 4. 数据来源
+
+| 配置项 | 环境变量 | 默认值 |
+|--------|----------|--------|
+| MySQLHost | MYSQL_HOST | 127.0.0.1 |
+| MySQLPort | MYSQL_PORT | 3306 |
+| MySQLUser | MYSQL_USER | root |
+| MySQLPass | MYSQL_PASSWORD 或 MYSQL_PASSWORD_ARM | 视芯片而定 |
+| MySQLDB | MYSQL_DB | HG_MLC_DB |
+| MigrateVersion | MIGRATE_EXPECT_VERSION | 1 |
+
+---
+
+### 5. 与 `LoadConfig` 的区别
+
+| 函数 | 文件 | 作用 |
+|------|------|------|
+| `Load()` | hg_env_config.go | 加载 MySQL 等基础设施配置 |
+| `LoadConfig()` | env.go | 加载 YAML 配置文件（使用 Viper） |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="getEnvOrDefault函数解释">getEnvOrDefault函数解释</h2>
+
+**文件位置：** `internal/config/hg_env_config.go`
+
+**功能：** 从操作系统的环境变量中读取值，若不存在则返回默认值。
+
+---
+
+### 1. 函数代码
+
+```go
+func getEnvOrDefault(key, fallback string) string {
+    if value := os.Getenv(key); value != "" {
+        return value      // 环境变量存在，返回它
+    }
+    return fallback       // 环境变量不存在，返回默认值
+}
+```
+
+---
+
+### 2. 环境变量的来源链路
+
+```
+.env 文件 (config/env_configs/hg_debug.env)
+    ↓
+程序启动时加载到进程环境变量
+    ↓
+os.Getenv("MYSQL_HOST") 读取
+    ↓
+getEnvOrDefault 返回值
+```
+
+---
+
+### 3. 具体流程
+
+| 步骤 | 说明 |
+|------|------|
+| 1 | VSCode 启动程序，注入 `SERVER_ENV=debug` |
+| 2 | 程序根据环境加载对应的 `.env` 文件（如 `hg_debug.env`） |
+| 3 | `.env` 文件中的 `MYSQL_HOST=127.0.0.1` 被加载到进程环境变量 |
+| 4 | `os.Getenv("MYSQL_HOST")` 返回 `"127.0.0.1"` |
+
+---
+
+### 4. 相关 .env 文件
+
+| 文件 | 内容示例 |
+|------|----------|
+| `config/env_configs/hg_debug.env` | `MYSQL_HOST=127.0.0.1` |
+| `config/env_configs/hg_pre.env` | `MYSQL_HOST=127.0.0.1` |
+| `config/env_configs/hg_prod.env` | `MYSQL_HOST=prod-mysql.internal` |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="根路由处理">根路由处理</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="NewRootHandler方法解释">NewRootHandler方法解释</h2>
+
+**文件位置：** `internal/handler/hg_root_handler.go`
+
+**功能：** 构建根路由，统一挂载各模块的路由到 `/api/v1` 前缀下。
+
+---
+
+### 1. 函数代码
+
+```go
+func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
+    rootMux := http.NewServeMux()  // 1️⃣ 创建根路由
+
+    // 2️⃣ 创建各模块的 Handler
+    userHandler := UserHandlerPackage.NewUserHandler(...)
+    publicHandler := HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(userHandler)
+    userHandlerWithAuth := HGMiddlewareGroupPackage.NewUserRouteInterceptorGroup(userHandler)
+    testHandler := HGTestHandlerPackage.TestModuleHandler()
+
+    // 3️⃣ 挂载模块路由到根路由
+    registerRootPrefixRoutes(rootMux, []HGRouteMount{
+        {Prefix: "/api/v1/auth/", StripPrefix: "/api/v1/auth", Handler: publicHandler},
+        {Prefix: "/api/v1/profile/", StripPrefix: "/api/v1/profile", Handler: userHandlerWithAuth},
+        {Prefix: "/api/v1/test/", StripPrefix: "/api/v1/test", Handler: testHandler},
+    })
+
+    // 4️⃣ 注册路由清单接口
+    rootMux.Handle("/api/v1/routes", ...)
+    rootMux.Handle("/api/v1/routes/groups", ...)
+
+    return rootMux
+}
+```
+
+---
+
+### 2. 核心职责
+
+| 步骤 | 说明 |
+|------|------|
+| 1 | 创建根路由 `http.ServeMux` |
+| 2 | 初始化各模块 Handler（用户、认证、测试） |
+| 3 | 使用 `StripPrefix` 挂载模块路由 |
+| 4 | 注册路由清单接口（供前端联调） |
+
+---
+
+### 3. StripPrefix 机制
+
+```
+请求: GET /api/v1/profile/info
+         ↓
+rootMux 匹配 /api/v1/profile/
+         ↓
+StripPrefix("/api/v1/profile")
+         ↓
+子路由收到: /info
+         ↓
+匹配到 Profile Handler
+```
+
+---
+
+### 4. 模块路由对照表
+
+| 请求 URL | 实际命中 |
+|----------|----------|
+| `/api/v1/auth/send_code` | publicMux → /send_code |
+| `/api/v1/auth/login` | publicMux → /login |
+| `/api/v1/auth/register` | publicMux → /register |
+| `/api/v1/profile/info` | userMux → /info |
+| `/api/v1/profile/list` | userMux → /list |
+| `/api/v1/profile/update` | userMux → /update |
+
+---
+
+### 5. 依赖结构体
+
+```go
+type HGRootHandlerDeps struct {
+    RedisService *PersistenceRedisPackage.RedisService
+    SQLManager   *PersistenceSQLPackage.HGSQLManager
+    SMSSender    HGSMSPackage.HGSender
+}
+```
+
+---
+
+### 6. 请求链路
+
+```
+Request
+  ↓
+RequestTIDInterceptor
+  ↓
+AccessLogInterceptor
+  ↓
+RecoverInterceptor
+  ↓
+JSONHeaderInterceptor
+  ↓
+APIGuardInterceptor   ← Method / Auth / Permission / Version
+  ↓
+(User 模块额外) JWT AuthInterceptor
+  ↓
+Handler
+  ↓
+Service
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="路由注册机制">路由注册机制</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="bindRouteSpecs函数解释">bindRouteSpecs函数解释</h2>
+
+**文件位置：** `internal/interfaces/middleware/middleware_group/hg_route_internal.go`
+
+**功能：** 批量注册路由，遍历路由规格列表，将每个子路由注册到 `http.ServeMux`。
+
+---
+
+### 1. 函数代码
+
+```go
+func bindRouteSpecs(mux *http.ServeMux, specs []hgRouteSpec) {
+    for _, route := range specs {
+        if route.Handler == nil {
+            continue
+        }
+        mux.HandleFunc(route.SubPath, route.Handler)  // 注册路由
+    }
+}
+```
+
+---
+
+### 2. 作用
+
+**批量注册路由**：遍历路由规格列表，将每个子路由注册到 `http.ServeMux`。
+
+---
+
+### 3. 举例
+
+```go
+// 1. 定义路由规格列表
+specs := []hgRouteSpec{
+    newRouteSpec("profile", http.MethodGet, "/api/v1/profile", "/info", true, "获取用户信息", userHandler.Profile),
+    newRouteSpec("profile", http.MethodGet, "/api/v1/profile", "/list", true, "获取用户列表", userHandler.GetUserList),
+    newRouteSpec("profile", http.MethodPut, "/api/v1/profile", "/update", true, "更新用户资料", userHandler.UpdateProfile),
+}
+
+// 2. 调用 bindRouteSpecs 批量注册
+mux := http.NewServeMux()
+bindRouteSpecs(mux, specs)
+
+// 等价于：
+mux.HandleFunc("/info", userHandler.Profile)
+mux.HandleFunc("/list", userHandler.GetUserList)
+mux.HandleFunc("/update", userHandler.UpdateProfile)
+```
+
+---
+
+### 4. 配合 `newRouteSpec` 使用
+
+```go
+// newRouteSpec 构建路由元信息
+newRouteSpec(
+    "profile",              // group: 分组名
+    http.MethodGet,         // method: HTTP 方法
+    "/api/v1/profile",      // basePath: 完整前缀
+    "/info",                // subPath: 子路径
+    true,                   // needAuth: 是否需要认证
+    "获取用户信息",           // summary: 描述
+    userHandler.Profile,    // handler: 处理函数
+)
+
+// 生成的 hgRouteSpec 结构体：
+{
+    Group:    "profile",
+    Method:   "GET",
+    SubPath:  "/info",                    // ← 用于注册到子路由
+    FullPath: "/api/v1/profile/info",     // ← 用于对外展示
+    NeedAuth: true,
+    Summary:  "获取用户信息",
+    Handler:  userHandler.Profile,
+}
+```
+
+---
+
+### 5. 核心价值
+
+| 作用 | 说明 |
+|------|------|
+| **批量注册** | 一次调用注册多个路由，避免重复代码 |
+| **子路径分离** | 子路由只关心 `/info`，完整路径 `/api/v1/profile/info` 用于对外展示 |
+| **路由清单** | 通过 `buildRouteCatalogItems` 生成 API 文档 |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="API规则配置">API规则配置</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="PublicAPIRules配置">PublicAPIRules配置</h2>
+
+**文件位置：** `server/hg_router.go`
+
+**功能：** 定义公开接口的 API 规则（不需要认证的接口）。
+
+---
+
+### 1. 函数代码
+
+```go
+func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
+    return []HGMiddlewarePackage.HGAPIRule{
+        {
+            Path:    "/send_code",           // 路由路径
+            Version: "v1",                   // API 版本
+            Methods: map[string]bool{        // 只允许 GET
+                http.MethodGet: true,
+            },
+            NeedAuth: false,                 // 不需要认证
+        },
+        {
+            Path:    "/register",
+            Version: "v1",
+            Methods: map[string]bool{        // 只允许 POST
+                http.MethodPost: true,
+            },
+            NeedAuth: false,
+        },
+        {
+            Path:    "/login",
+            Version: "v1",
+            Methods: map[string]bool{        // 只允许 POST
+                http.MethodPost: true,
+            },
+            NeedAuth: false,
+        },
+    }
+}
+```
+
+---
+
+### 2. 配置对照表
+
+| Path | Methods | NeedAuth | 说明 |
+|------|---------|----------|------|
+| `/send_code` | GET | false | 发送验证码（公开接口） |
+| `/register` | POST | false | 注册（公开接口） |
+| `/login` | POST | false | 登录（公开接口） |
+
+---
+
+### 3. 使用方式
+
+```go
+// 在 hg_auth_route_interceptor_group.go 中
+guarded := HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.PublicAPIRules())(publicMux)
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="HGAPIRule使用说明">HGAPIRule使用说明</h2>
+
+**文件位置：** `internal/interfaces/middleware/hg_api_guard_interceptor.go`
+
+---
+
+### 1. 结构体定义
+
+```go
+type HGAPIRule struct {
+    Path        string            // 路由路径
+    Methods     map[string]bool   // 允许的 HTTP 方法
+    NeedAuth    bool              // 是否需要认证
+    Permissions []string          // 需要的权限列表
+    Version     string            // API 版本
+}
+```
+
+---
+
+### 2. 字段说明
+
+| 字段 | 类型 | 说明 | 示例 |
+|------|------|------|------|
+| Path | string | 子路由路径 | `/info`, `/login` |
+| Methods | map[string]bool | 允许的 HTTP 方法 | `{GET: true, POST: true}` |
+| NeedAuth | bool | 是否需要 JWT 认证 | `true` / `false` |
+| Permissions | []string | 需要的权限列表 | `["user:view", "user:update"]` |
+| Version | string | API 版本 | `"v1"` |
+
+---
+
+### 3. 三种 Rules 配置对比
+
+| 函数 | 用途 | NeedAuth | 有 Permissions |
+|------|------|----------|----------------|
+| `PublicAPIRules()` | 公开接口（登录、注册） | false | 无 |
+| `UserMethodRules()` | 用户模块接口（需登录） | true | 部分有 |
+| `MethdRules()` | 仅校验 HTTP 方法 | 不涉及 | 无 |
+
+---
+
+### 4. 完整配置示例
+
+```go
+// 需要认证 + 权限的接口
+{
+    Path:    "/info",
+    Version: "v1",
+    Methods: map[string]bool{
+        http.MethodGet: true,
+    },
+    NeedAuth: true,
+    Permissions: []string{
+        "user:view",
+    },
+}
+
+// 需要认证但无权限要求的接口
+{
+    Path:    "/update",
+    Version: "v1",
+    Methods: map[string]bool{
+        http.MethodPut: true,
+    },
+    NeedAuth: true,
+}
+
+// 公开接口（无需认证）
+{
+    Path:    "/login",
+    Version: "v1",
+    Methods: map[string]bool{
+        http.MethodPost: true,
+    },
+    NeedAuth: false,
+}
+```
+
+---
+
+### 5. 拦截器校验流程
+
+```
+请求进入
+    ↓
+1. Method 校验 → 方法不允许返回 405
+    ↓
+2. Header 校验 → 缺少必要 Header 返回 400
+    ↓
+3. Auth 校验 → NeedAuth=true 时检查 JWT
+    ↓
+4. Permission 校验 → 检查 Permissions 列表
+    ↓
+5. 进入 Handler
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="Permissions权限配置">Permissions权限配置</h2>
+
+**文件位置：** `internal/interfaces/middleware/hg_api_guard_interceptor.go`
+
+**功能：** 配置接口需要的权限，实现基于角色的访问控制（RBAC）。
+
+---
+
+### 1. 配置方式
+
+```go
+// 在 server/hg_router.go 中配置
+func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
+    return []HGMiddlewarePackage.HGAPIRule{
+        {
+            Path:    "/info",
+            Version: "v1",
+            Methods: map[string]bool{
+                http.MethodGet: true,
+            },
+            NeedAuth: true,
+            Permissions: []string{      // ← 配置需要的权限
+                "user:view",
+            },
+        },
+        {
+            Path:    "/update",
+            Version: "v1",
+            Methods: map[string]bool{
+                http.MethodPut: true,
+            },
+            NeedAuth: true,
+            Permissions: []string{      // ← 配置多个权限（满足任一即可）
+                "user:update",
+                "admin:update",
+            },
+        },
+    }
+}
+```
+
+---
+
+### 2. 角色权限映射表
+
+```go
+// 在 hg_api_guard_interceptor.go 中定义
+var rolePermissions = map[string]map[string]bool{
+    "admin": {
+        "user:update": true,    // admin 角色有 user:update 权限
+        "user:view":   true,    // admin 角色有 user:view 权限
+    },
+    "user": {
+        "user:view": true,      // user 角色只有 user:view 权限
+    },
+}
+```
+
+---
+
+### 3. 权限校验逻辑
+
+```go
+func HasPermission(role string, perms []string) bool {
+    rolePerms := rolePermissions[role]  // 获取角色的权限列表
+    for _, p := range perms {           // 遍历需要的权限
+        if rolePerms[p] {               // 只要满足一个权限即可
+            return true
+        }
+    }
+    return false
+}
+```
+
+---
+
+### 4. 完整校验流程
+
+```
+请求进入
+    ↓
+PermissionInterceptor 获取 JWT claims 中的 role
+    ↓
+查找 rule.Permissions（如 ["user:view"]）
+    ↓
+调用 HasPermission("user", ["user:view"])
+    ↓
+rolePermissions["user"]["user:view"] → true
+    ↓
+校验通过，进入 Handler
+```
+
+---
+
+### 5. 配置示例对照表
+
+| 场景 | Permissions 配置 | 说明 |
+|------|------------------|------|
+| 仅查看 | `["user:view"]` | 需要查看权限 |
+| 仅编辑 | `["user:update"]` | 需要编辑权限 |
+| 查看或编辑 | `["user:view", "user:update"]` | 满足任一即可 |
+| 管理员 | `["admin:manage"]` | 需要管理员权限 |
+| 无权限要求 | `[]` 或不配置 | 只需要认证 |
+
+---
+
+### 6. 添加新权限步骤
+
+**步骤 1：在角色权限映射表中添加**
+
+```go
+var rolePermissions = map[string]map[string]bool{
+    "admin": {
+        "user:update": true,
+        "user:view":   true,
+        "user:delete": true,    // ← 新增
+    },
+    "user": {
+        "user:view": true,
+    },
+    "editor": {                 // ← 新增角色
+        "user:view":   true,
+        "user:update": true,
+    },
+}
+```
+
+**步骤 2：在 API 规则中配置**
+
+```go
+{
+    Path:    "/delete",
+    Version: "v1",
+    Methods: map[string]bool{
+        http.MethodDelete: true,
+    },
+    NeedAuth: true,
+    Permissions: []string{
+        "user:delete",          // ← 使用新权限
+    },
+}
+```
+
+**步骤 3：在登录时设置角色**
+
+```go
+claims := &UserServicePackage.HGClaims{
+    UserID:  userID,
+    Role:    "editor",          // ← 设置用户角色
+    // ...
+}
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="Go基础语法">Go基础语法</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="切片和数组的区别">切片和数组的区别</h2>
+
+**核心区别：长度是否固定**
+
+---
+
+### 1. 对比表
+
+| 特性 | 数组 (Array) | 切片 (Slice) |
+|------|--------------|--------------|
+| 声明语法 | `[3]int` | `[]int` |
+| 长度 | **固定**，编译时确定 | **动态**，运行时可变 |
+| 是否可追加 | ❌ 不可以 | ✅ 可以用 `append` |
+
+---
+
+### 2. 最简单的区分方法：**看有没有数字**
+
+```go
+// 数组：有数字 [3]
+var arr [3]int = [3]int{1, 2, 3}
+
+// 切片：没数字 []
+var s []int = []int{1, 2, 3}
+```
+
+---
+
+### 3. 对比示例
+
+```go
+// ❌ 数组：长度固定为 3
+arr := [3]int{1, 2, 3}
+arr = append(arr, 4)  // 编译错误！数组没有 append
+
+// ✅ 切片：长度动态
+s := []int{1, 2, 3}
+s = append(s, 4)      // 正确！切片可以追加
+fmt.Println(s)         // [1 2 3 4]
+```
+
+---
+
+### 4. 常见声明方式对比
+
+```go
+// 数组（必须指定长度）
+a1 := [3]int{1, 2, 3}
+a2 := [...]int{1, 2, 3}  // 自动推断长度，但仍是数组
+
+// 切片（不指定长度）
+s1 := []int{1, 2, 3}
+s2 := make([]int, 3)      // 长度为 3 的切片
+s3 := make([]int, 0, 10)  // 长度为 0，容量为 10 的切片
+```
+
+---
+
+### 5. 一句话记忆
+
+```
+[3]int  → 数组（有数字，固定长度）
+[]int   → 切片（没数字，动态长度）
+```
+
+---
+
+### 6. 实际项目中
+
+**99% 用切片**，几乎不用数组：
+
+```go
+// 项目中常见的切片用法
+users := []User{}                    // 空切片
+ids := make([]int, 0, 100)          // 预分配容量
+result := append(result, newItem)   // 追加元素
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="结构体实例化">结构体实例化</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="HGAPIGuard实例化-map容器"> HGAPIGuard实例化-map容器</h2>
+
+**文件位置：** `internal/interfaces/middleware/hg_api_guard_interceptor.go`
+
+**功能：** 存储和管理 API 路由规则，支持按版本查询。
+
+---
+
+### 1. 结构体定义
+
+```go
+type HGAPIGuard struct {
+    rulesByVersion map[string]map[string]HGAPIRule  // 嵌套 map：版本 → 路径 → 规则
+    legacyRules    map[string]HGAPIRule              // 旧版规则：路径 → 规则
+}
+```
+
+---
+
+### 2. 实例化方式
+
+```go
+guard := &HGAPIGuard{
+    rulesByVersion: make(map[string]map[string]HGAPIRule),
+    legacyRules:    make(map[string]HGAPIRule),
+}
+```
+
+---
+
+### 3. 为什么用 `make`？
+
+| 字段 | 类型 | 为什么需要 make |
+|------|------|----------------|
+| `rulesByVersion` | `map[string]map[string]HGAPIRule` | 嵌套 map，需要初始化外层和内层 |
+| `legacyRules` | `map[string]HGAPIRule` | 普通 map，需要初始化才能使用 |
+
+---
+
+### 4. 完整初始化示例
+
+```go
+// 1. 创建实例
+guard := &HGAPIGuard{
+    rulesByVersion: make(map[string]map[string]HGAPIRule),
+    legacyRules:    make(map[string]HGAPIRule),
+}
+
+// 2. 初始化内层 map
+guard.rulesByVersion["v1"] = make(map[string]HGAPIRule)
+
+// 3. 添加规则
+guard.rulesByVersion["v1"]["/info"] = HGAPIRule{
+    Path:    "/info",
+    Version: "v1",
+    Methods: map[string]bool{http.MethodGet: true},
+    NeedAuth: true,
+}
+
+guard.legacyRules["/info"] = HGAPIRule{
+    Path:    "/info",
+    Methods: map[string]bool{http.MethodGet: true},
+}
+```
+
+---
+
+### 5. `NewAPIGuard` 函数（推荐方式）
+
+```go
+func NewAPIGuard(rules []HGAPIRule) *HGAPIGuard {
+    guard := &HGAPIGuard{
+        rulesByVersion: make(map[string]map[string]HGAPIRule),
+        legacyRules:    make(map[string]HGAPIRule),
+    }
+
+    for _, r := range rules {
+        version := strings.TrimSpace(r.Version)
+        if version == "" {
+            version = defaultAPIVersion  // 默认 "v1"
+        }
+
+        // 初始化内层 map（如果不存在）
+        if _, ok := guard.rulesByVersion[version]; !ok {
+            guard.rulesByVersion[version] = make(map[string]HGAPIRule)
+        }
+
+        // 存储规则
+        guard.rulesByVersion[version][r.Path] = r
+        guard.legacyRules[r.Path] = r
+    }
+
+    return guard
+}
+```
+
+---
+
+### 6. 使用示例
+
+```go
+// 定义规则
+rules := []HGAPIRule{
+    {Path: "/info", Version: "v1", Methods: map[string]bool{"GET": true}, NeedAuth: true},
+    {Path: "/login", Version: "v1", Methods: map[string]bool{"POST": true}, NeedAuth: false},
+}
+
+// 创建 guard
+guard := NewAPIGuard(rules)
+
+// 查询规则
+rule, ok := guard.lookupRule("v1", "/info")  // 找到规则
+rule, ok := guard.lookupRule("v1", "/xxx")   // 未找到
+```
+
+---
+
+### 7. 内存结构图
+
+```
+guard.rulesByVersion:
+{
+    "v1": {
+        "/info":  {Path: "/info", NeedAuth: true, ...},
+        "/login": {Path: "/login", NeedAuth: false, ...},
+    },
+    "v2": {
+        "/info":  {Path: "/info", NeedAuth: true, ...},
+    }
+}
+
+guard.legacyRules:
+{
+    "/info":  {Path: "/info", NeedAuth: true, ...},
+    "/login": {Path: "/login", NeedAuth: false, ...},
+}
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="拦截器机制">拦截器机制</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="Interceptor方法解读">Interceptor方法解读</h2>
+
+**文件位置：** `internal/interfaces/middleware/hg_api_guard_interceptor.go`
+
+**功能：** 创建拦截器，执行 Method/Header/Auth 统一拦截。
+
+---
+
+### 1. 方法代码
+
+```go
+func (g *HGAPIGuard) Interceptor() HGHTTPInterceptor {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // 1. 获取 API 版本
+            version := strings.TrimSpace(r.Header.Get("X-API-Version"))
+            if version == "" {
+                version = defaultAPIVersion
+            }
+
+            // 2. 查找路由规则
+            rule, ok := g.lookupRule(version, r.URL.Path)
+            if !ok {
+                http.NotFound(w, r)
+                return
+            }
+
+            // 3. Method 校验
+            if !rule.Methods[r.Method] {
+                w.WriteHeader(http.StatusMethodNotAllowed)
+                return
+            }
+
+            // 4. Header 校验
+            ctx := g.checkoutHeader(w, r, rule.NeedAuth)
+            if ctx == nil {
+                return
+            }
+
+            // 5. 传递给下一个处理器
+            next.ServeHTTP(w, r.WithContext(ctx))
+        })
+    }
+}
+```
+
+---
+
+### 2. 返回类型说明
+
+```go
+// HGHTTPInterceptor 类型定义
+type HGHTTPInterceptor func(http.Handler) http.Handler
+
+// Interceptor() 返回的是一个函数
+// 这个函数接受 http.Handler，返回 http.Handler
+```
+
+---
+
+### 3. 执行流程
+
+```
+Interceptor() 被调用
+    ↓
+返回 func(next http.Handler) http.Handler
+    ↓
+当这个函数被调用时（如 APIGuardInterceptor）
+    ↓
+返回 http.HandlerFunc(...)
+    ↓
+当请求到来时，调用 ServeHTTP
+    ↓
+执行内部的校验逻辑
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="http.HandlerFunc与http.Handler的关系">http.HandlerFunc与http.Handler的关系</h2>
+
+**核心问题：为什么 `http.HandlerFunc` 就是 `http.Handler`？**
+
+---
+
+### 1. http.Handler 接口定义
+
+```go
+type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+```
+
+---
+
+### 2. http.HandlerFunc 类型定义
+
+```go
+type HandlerFunc func(ResponseWriter, *Request)
+```
+
+---
+
+### 3. HandlerFunc 实现了 Handler 接口
+
+```go
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
+    f(w, r)  // 调用自身
+}
+```
+
+---
+
+### 4. 类比理解
+
+```go
+// 接口
+type Animal interface {
+    Speak()
+}
+
+// 类型
+type Dog func()
+
+// Dog 实现了 Animal 接口
+func (d Dog) Speak() {
+    d()
+}
+
+// 所以 Dog 类型就是 Animal
+var a Animal = Dog(func() { fmt.Println("汪汪") })
+```
+
+---
+
+### 5. 完整类型推导
+
+```go
+// Interceptor() 返回类型是 HGHTTPInterceptor
+type HGHTTPInterceptor func(http.Handler) http.Handler
+
+// 返回的是一个函数：func(next http.Handler) http.Handler
+// 里面的 return 是：http.HandlerFunc(func(...){...})
+
+// http.HandlerFunc(func(...){...}) 是什么？
+// → 是 HandlerFunc 类型的值
+// → HandlerFunc 实现了 http.Handler 接口
+// → 所以它就是 http.Handler
+```
+
+---
+
+### 6. 一句话总结
+
+```
+http.HandlerFunc 是一个类型，它实现了 http.Handler 接口
+所以 http.HandlerFunc 类型的值可以直接作为 http.Handler 使用
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="HTTP请求获取方法">HTTP请求获取方法</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="r.Header.Get详解">r.Header.Get详解</h2>
+
+**功能：** 获取 HTTP 请求头中的值。
+
+---
+
+### 1. 请求头示例
+
+```
+GET /api/v1/profile/info HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+Content-Type: application/json
+X-API-Version: v1
+X-Device-ID: abc123
+X-Client-Type: ios
+X-Client-Version: 1.0.0
+X-Language: zh-CN
+X-Request-ID: req-123
+X-Timestamp: 1700000000
+X-Signature: sha256=8f42a...
+```
+
+---
+
+### 2. 获取方式
+
+```go
+token := r.Header.Get("Authorization")      // "Bearer eyJhbGciOiJIUzI1NiIs..."
+contentType := r.Header.Get("Content-Type")  // "application/json"
+version := r.Header.Get("X-API-Version")     // "v1"
+deviceID := r.Header.Get("X-Device-ID")      // "abc123"
+clientType := r.Header.Get("X-Client-Type")  // "ios"
+clientVersion := r.Header.Get("X-Client-Version") // "1.0.0"
+language := r.Header.Get("X-Language")       // "zh-CN"
+requestID := r.Header.Get("X-Request-ID")    // "req-123"
+timestamp := r.Header.Get("X-Timestamp")     // "1700000000"
+signature := r.Header.Get("X-Signature")     // "sha256=8f42a..."
+```
+
+---
+
+### 3. 常用 Header 对照表
+
+| Header | 说明 | 示例值 |
+|--------|------|--------|
+| `Authorization` | Token | `"Bearer eyJhbG..."` |
+| `Content-Type` | 内容类型 | `"application/json"` |
+| `X-API-Version` | API 版本 | `"v1"` |
+| `X-Device-ID` | 设备 ID | `"abc123"` |
+| `X-Client-Type` | 客户端类型 | `"ios"` / `"android"` |
+| `X-Client-Version` | 客户端版本 | `"1.0.0"` |
+| `X-Language` | 语言 | `"zh-CN"` |
+| `X-Request-ID` | 请求 ID | `"req-123"` |
+| `X-Timestamp` | 时间戳 | `"1700000000"` |
+| `X-Signature` | 签名 | `"sha256=8f42a..."` |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="r.URL.Path详解">r.URL.Path详解</h2>
+
+**功能：** 获取请求的路径部分。
+
+---
+
+### 1. 示例
+
+```go
+// 请求: GET /api/v1/profile/info
+r.URL.Path  // "/api/v1/profile/info"
+
+// 请求: POST /api/v1/auth/login
+r.URL.Path  // "/api/v1/auth/login"
+
+// 请求: PUT /api/v1/profile/update
+r.URL.Path  // "/api/v1/profile/update"
+```
+
+---
+
+### 2. 其他 URL 相关方法
+
+```go
+// 请求: GET /api/v1/users?page=1&size=10
+
+r.URL.Path       // "/api/v1/users"
+r.URL.RawQuery   // "page=1&size=10"
+
+// 获取查询参数
+r.URL.Query().Get("page")   // "1"
+r.URL.Query().Get("size")   // "10"
+```
+
+---
+
+### 3. 其他常用的 r 方法
+
+```go
+r.Method           // "GET" / "POST" / "PUT" / "DELETE"
+r.Host             // "localhost:8080"
+r.RemoteAddr       // "127.0.0.1:54321"
+r.RequestURI       // "/api/v1/users?page=1"
+```
+
+---
+
+### 4. 读取请求体
+
+```go
+// POST 请求的 Body
+var req LoginRequest
+json.NewDecoder(r.Body).Decode(&req)
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="Go语法特性">Go语法特性</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="comma-ok模式详解">comma-ok模式详解</h2>
+
+**功能：** 从 map、type assertion、channel 中获取值时，同时判断是否存在/成功。
+
+---
+
+### 1. 核心概念
+
+```go
+// 从 map 中获取值，返回两个值
+value, ok := m[key]
+//   ↑      ↑
+//  值    是否存在
+```
+
+---
+
+### 2. 示例
+
+```go
+m := map[string]int{
+    "a": 1,
+    "b": 2,
+}
+
+// 返回两个值
+v1, ok1 := m["a"]  // v1=1, ok1=true
+v2, ok2 := m["c"]  // v2=0, ok2=false（不存在）
+
+// 只返回一个值（忽略 ok）
+v3 := m["a"]       // v3=1
+v4 := m["c"]       // v4=0（不存在时返回零值）
+```
+
+---
+
+### 3. 为什么需要 ok？
+
+```go
+// 问题：值为 0 时，无法区分是"不存在"还是"值就是 0"
+m := map[string]int{"a": 0}
+v := m["a"]  // v=0，但不知道是"不存在"还是"值是 0"
+
+// 解决：用 ok 判断
+v, ok := m["a"]  // v=0, ok=true → 存在，值是 0
+v, ok := m["b"]  // v=0, ok=false → 不存在
+```
+
+---
+
+### 4. 哪些类型支持 "comma ok"？
+
+| 类型 | 示例 | 返回值 |
+|------|------|--------|
+| **map** | `v, ok := m[key]` | 值 + 是否存在 |
+| **type assertion** | `v, ok := x.(Type)` | 值 + 是否是该类型 |
+| **channel** | `v, ok := <-ch` | 值 + channel 是否关闭 |
+
+---
+
+### 5. map 的 "comma ok"
+
+```go
+m := map[string]int{"a": 1, "b": 2}
+
+// 两个值
+v, ok := m["a"]
+if ok {
+    fmt.Println("存在:", v)
+} else {
+    fmt.Println("不存在")
+}
+
+// 一个值（忽略 ok）
+v := m["a"]  // 不存在时返回零值
+```
+
+---
+
+### 6. type assertion 的 "comma ok"
+
+```go
+var x interface{} = "hello"
+
+// 两个值
+s, ok := x.(string)
+if ok {
+    fmt.Println("是字符串:", s)
+} else {
+    fmt.Println("不是字符串")
+}
+
+// 一个值（不是该类型时会 panic）
+s := x.(string)  // 如果 x 不是 string，会 panic
+```
+
+---
+
+### 7. channel 的 "comma ok"
+
+```go
+ch := make(chan int, 1)
+ch <- 1
+close(ch)
+
+// 两个值
+v, ok := <-ch
+if ok {
+    fmt.Println("收到:", v)
+} else {
+    fmt.Println("channel 已关闭")
+}
+
+// 一个值（channel 关闭时返回零值）
+v := <-ch  // channel 关闭时返回零值
+```
+
+---
+
+### 8. lookupRule 中的例子
+
+```go
+func (g *HGAPIGuard) lookupRule(version string, path string) (HGAPIRule, bool) {
+    routesByPath, ok := g.rulesByVersion[version]
+    //      ↑              ↑
+    //     值         是否存在这个版本
+    
+    if !ok {
+        // 版本不存在，尝试回退到默认版本
+        return HGAPIRule{}, false
+    }
+    
+    rule, ok := routesByPath[path]
+    //  ↑              ↑
+    // 值         是否存在这个路径
+    
+    return rule, ok
+}
+```
+
+---
+
+### 9. 返回值模式总结
+
+| 模式 | 示例 | 说明 |
+|------|------|------|
+| 只返回值 | `v := m[key]` | 不存在时返回零值 |
+| 值 + ok | `v, ok := m[key]` | ok 判断是否存在 |
+| 只返回成功/失败 | `_, ok := m[key]` | 忽略值，只判断存在 |
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="HTTP响应方法">HTTP响应方法</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="常用响应方法对照表">常用响应方法对照表</h2>
+
+**功能：** HTTP 响应的各种方式，包括错误处理和成功响应。
+
+---
+
+### 1. 常用响应方法对照表
+
+| 方法 | 状态码 | 说明 | 前端收到的数据 |
+|------|--------|------|----------------|
+| `http.NotFound(w, r)` | 404 | 资源不存在 | `404 page not found` |
+| `w.WriteHeader(405)` | 405 | 方法不允许 | 空 body |
+| `w.WriteHeader(400)` | 400 | 请求参数错误 | 空 body |
+| `w.WriteHeader(401)` | 401 | 未授权 | 空 body |
+| `w.WriteHeader(403)` | 403 | 禁止访问 | 空 body |
+| `w.WriteHeader(500)` | 500 | 服务器内部错误 | 空 body |
+| `w.Write([]byte)` | 200 | 成功响应 | 原始字节 |
+| `json.NewEncoder(w).Encode(data)` | 200 | JSON 响应 | JSON 数据 |
+
+---
+
+### 2. 详细示例
+
+#### 2.1 `http.NotFound(w, r)` - 404
+
+```go
+// 代码
+http.NotFound(w, r)
+
+// 前端收到
+// HTTP/1.1 404 Not Found
+// Content-Type: text/plain
+
+// 响应体: "404 page not found"
+```
+
+**前端处理：**
+```javascript
+fetch('/api/v1/xxx')
+  .then(res => {
+    if (res.status === 404) {
+      console.log('资源不存在')
+    }
+  })
+```
+
+---
+
+#### 2.2 `w.WriteHeader(statusCode)` - 设置状态码
+
+```go
+// 代码
+w.WriteHeader(http.StatusMethodNotAllowed)  // 405
+w.WriteHeader(http.StatusBadRequest)        // 400
+w.WriteHeader(http.StatusUnauthorized)       // 401
+w.WriteHeader(http.StatusForbidden)          // 403
+w.WriteHeader(http.StatusInternalServerError) // 500
+
+// 前端收到
+// HTTP/1.1 405 Method Not Allowed
+// Content-Type: text/plain
+
+// 响应体: 空
+```
+
+**前端处理：**
+```javascript
+fetch('/api/v1/profile/info', { method: 'POST' })
+  .then(res => {
+    if (res.status === 405) {
+      console.log('方法不允许，应该用 GET')
+    }
+  })
+```
+
+---
+
+#### 2.3 `w.Write([]byte)` - 写入响应体
+
+```go
+// 代码
+w.Header().Set("Content-Type", "application/json")
+w.WriteHeader(200)
+w.Write([]byte(`{"code":0,"message":"success","data":{}}`))
+
+// 前端收到
+// HTTP/1.1 200 OK
+// Content-Type: application/json
+
+// 响应体: {"code":0,"message":"success","data":{}}
+```
+
+**前端处理：**
+```javascript
+fetch('/api/v1/profile/info')
+  .then(res => res.json())
+  .then(data => {
+    console.log(data)  // {code: 0, message: "success", data: {}}
+  })
+```
+
+---
+
+#### 2.4 `json.NewEncoder(w).Encode(data)` - JSON 响应
+
+```go
+// 代码
+type Response struct {
+    Code    int         `json:"code"`
+    Message string      `json:"message"`
+    Data    interface{} `json:"data"`
+}
+
+resp := Response{
+    Code:    0,
+    Message: "success",
+    Data: map[string]string{
+        "user_id": "123",
+        "name":    "张三",
+    },
+}
+
+w.Header().Set("Content-Type", "application/json")
+json.NewEncoder(w).Encode(resp)
+
+// 前端收到
+// HTTP/1.1 200 OK
+// Content-Type: application/json
+
+// 响应体: {"code":0,"message":"success","data":{"user_id":"123","name":"张三"}}
+```
+
+---
+
+#### 2.5 `next.ServeHTTP(w, r.WithContext(ctx))` - 传递给下一个处理器
+
+```go
+// 这不是响应给前端，而是传递给下一个中间件或处理器
+ctx := context.WithValue(r.Context(), "userID", "123")
+next.ServeHTTP(w, r.WithContext(ctx))
+
+// 下一个处理器可以获取这个值
+userID := r.Context().Value("userID")  // "123"
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="前端收到的数据格式">前端收到的数据格式</h2>
+
+---
+
+### 1. 状态码对照表
+
+| 状态码 | 前端收到的 res.status | 响应体 |
+|--------|----------------------|--------|
+| 200 | 200 | JSON 数据 |
+| 400 | 400 | 错误信息 |
+| 401 | 401 | "未授权" |
+| 403 | 403 | "禁止访问" |
+| 404 | 404 | "404 page not found" |
+| 405 | 405 | 空 |
+| 500 | 500 | "Internal Server Error" |
+
+---
+
+### 2. 完整响应模式示例
+
+```go
+// 成功响应
+w.Header().Set("Content-Type", "application/json")
+w.WriteHeader(200)
+json.NewEncoder(w).Encode(map[string]interface{}{
+    "code":    0,
+    "message": "success",
+    "data":    data,
+})
+
+// 错误响应
+w.Header().Set("Content-Type", "application/json")
+w.WriteHeader(400)
+json.NewEncoder(w).Encode(map[string]interface{}{
+    "code":    1001,
+    "message": "参数错误",
+    "data":    nil,
+})
+```
+
+---
+
+### 3. 前端处理示例
+
+```javascript
+fetch('/api/v1/profile/info')
+  .then(res => {
+    if (res.ok) {
+      return res.json()
+    }
+    throw new Error(`HTTP ${res.status}`)
+  })
+  .then(data => {
+    console.log(data)  // {code: 0, message: "success", data: {...}}
+  })
+  .catch(err => {
+    console.error(err)  // Error: HTTP 404
+  })
+```
