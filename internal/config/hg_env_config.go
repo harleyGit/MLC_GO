@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-18 09:03:20
+ * @LastEditTime: 2026-05-04 11:21:32
  * @FilePath: /MLC_GO/internal/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -38,6 +38,7 @@ type ENVConfigModel struct {
 	MigrateVersion int
 }
 
+/* 加载 MySQL 等基础设施配置 */
 func Load() *ENVConfigModel {
 	// MIGRATE_EXPECT_VERSION 是字符串，用 strconv.Atoi 转为整数
 	v, err := strconv.Atoi(os.Getenv("MIGRATE_EXPECT_VERSION"))
@@ -56,6 +57,11 @@ func Load() *ENVConfigModel {
 	}
 }
 
+/*
+读取环境变量，若为空则返回默认值
+getEnvOrDefault 不是从文件读取的，而是从操作系统的环境变量中读取;
+来源是：config/env_configs/hg_debug.env
+*/
 func getEnvOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -63,6 +69,14 @@ func getEnvOrDefault(key, fallback string) string {
 	return fallback
 }
 
+/*
+	 获取 MySQL 密码
+		判断是否 macOS + ARM64 (M1/M2/M3 芯片)
+	    ↓
+		是 → 优先读 MYSQL_PASSWORD_ARM，否则默认 "hh109"
+				↓
+		否 → 直接读 MYSQL_PASSWORD（Intel 电脑）
+*/
 func resolveMySQLPassword() string {
 	intelPassword := os.Getenv("MYSQL_PASSWORD")
 

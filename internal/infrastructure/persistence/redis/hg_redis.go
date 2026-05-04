@@ -41,6 +41,7 @@ var (
 	RDB *redis.Client
 )
 
+/* 比如：debug环境中，Go 程序启动，加载 config.debug.yaml变量 */
 func getRedisAddr() string {
 	redisHost := os.Getenv("REDIS_HOST")
 	if redisHost == "" {

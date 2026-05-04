@@ -30,6 +30,7 @@ type HGSQLManager struct {
 	db *sql.DB
 }
 
+/* 获取比如：hg_debug.env 数据库连接所需要的环境变量 */
 func LoadSQLEnvValue() {
 	// 按 SERVER_ENV 选择当前要加载的环境文件。
 	// 这样在 VS Code 中切换 debug / pre / prod 时，

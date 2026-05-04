@@ -39,8 +39,12 @@ type HGRouteMount struct {
 const routeCatalogPath = "/api/v1/routes"
 const routeCatalogGroupsPath = "/api/v1/routes/groups"
 
+/* 
+	若是使用路由可以使用httprouter库，gin它们底层用的都是它。
+*/
 // NewRootHandler 负责构建根路由，仅挂载 /api/v1 前缀的模块路由。
 func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
+	// 根路由只负责挂载模块路由，具体路径由各模块定义，确保模块内路径清晰且不受外层变动影响。
 	rootMux := http.NewServeMux()
 
 	smsSender := deps.SMSSender

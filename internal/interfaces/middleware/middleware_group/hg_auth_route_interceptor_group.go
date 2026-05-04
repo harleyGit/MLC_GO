@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-26 18:10:07
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-04-18 01:18:00
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-05-04 13:23:05
 
 * @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_tid_middle_group.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -32,6 +32,7 @@ func AuthMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handl
 func NewAuthRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 	specs := authRoutes(userHandler)
 	publicMux := http.NewServeMux()
+	// 注册路由
 	bindRouteSpecs(publicMux, specs)
 
 	guarded := HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.PublicAPIRules())(publicMux)
