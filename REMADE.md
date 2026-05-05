@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-03-15 08:47:16
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-04-30 22:53:26
+ * @LastEditTime: 2026-05-05 18:10:08
  * @FilePath: /MLC_GO/IntroduceREMADE.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -799,6 +799,31 @@ myapp/
 ├── .env                         # 环境变量文件（不要提交到git）
 ├── go.mod
 └── README.md
+```
+
+```sh
+大厂标准分层
+┌─────────────────────────────────────────────────────────────┐
+│                     请求入口                                  │
+├─────────────────────────────────────────────────────────────┤
+│  基础层（所有请求必经）                                         │
+│  ├── CORS          跨域处理                                   │
+│  ├── Recovery      panic 恢复                                 │
+│  ├── RequestID     请求 ID 生成                                │
+│  ├── AccessLog     访问日志                                    │
+│  └── JSONHeader    响应头设置                                  │
+├─────────────────────────────────────────────────────────────┤
+│  安全层（按需组装）                                            │
+│  ├── MethodGuard   HTTP 方法校验                               │
+│  ├── HeaderGuard   请求头校验 + 签名验证                        │
+│  ├── JWTAuth       JWT 认证                                   │
+│  └── Permission    权限校验                                    │
+├─────────────────────────────────────────────────────────────┤
+│  业务层（模块路由组）                                          │
+│  ├── AuthModule    公开路由                                    │
+│  ├── UserModule    需认证路由                                  │
+│  └── OrderModule   订单路由                                    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 > **说明：**

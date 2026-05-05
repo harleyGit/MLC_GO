@@ -1,11 +1,3 @@
-/*
- * @Author: GangHuang harleysor@qq.com
- * @Date: 2026-01-28 21:00:13
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-28 21:12:38
- * @FilePath: /MLC_GO/internal/app/hg_router.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
 package HGAppPackage
 
 import (
@@ -13,6 +5,7 @@ import (
 	"net/http"
 )
 
+// HGRouter 定义路由注册元信息。
 type HGRouter struct {
 	Method string
 	Path   string
@@ -21,107 +14,16 @@ type HGRouter struct {
 	Handle http.HandlerFunc
 }
 
-/* 很模块路由注册 */
+// Register 批量注册路由，自动装配基础中间件链。
 func Register(mux *http.ServeMux, routes []HGRouter) {
-
 	for _, r := range routes {
-		interceptors := []HGMiddlewarePackage.HGHTTPInterceptor{
-			HGMiddlewarePackage.RecoverInterceptor,
-			HGMiddlewarePackage.TraceInterceptor(r.Span),
-			HGMiddlewarePackage.AccessLogInterceptor,
-			HGMiddlewarePackage.RequestTIDInterceptor,
+		middlewares := []HGMiddlewarePackage.Middleware{
+			HGMiddlewarePackage.RecoverMiddleware,
+			HGMiddlewarePackage.TraceMiddleware(r.Span),
+			HGMiddlewarePackage.AccessLogMiddleware,
+			HGMiddlewarePackage.RequestIDMiddleware,
 		}
-		h := HGMiddlewarePackage.ChainInterceptors(r.Handle, interceptors...)
+		h := HGMiddlewarePackage.Chain(r.Handle, middlewares...)
 		mux.Handle(r.Path, h)
 	}
 }
-
-// TODO：事例使用，如下：一定要用，很赞
-
-/*
-module/user/handler.go
-
-
-package user
-
-import (
-	"net/http"
-
-	"hg-server/internal/app"
-	"hg-server/internal/response"
-)
-
-func Routes() []app.Route {
-	return []app.Route{
-		{
-			Method: "GET",
-			Path:   "/user/profile",
-			Auth:   true,
-			Span:   "user.profile",
-			Handle: Profile,
-		},
-	}
-}
-
-func Profile(w http.ResponseWriter, r *http.Request) {
-	response.Success(w, r, map[string]string{
-		"user": "harley",
-	})
-}
-
-
-
-// =====================
-module/auth/handler.go
-
-package auth
-
-import (
-	"net/http"
-
-	"hg-server/internal/app"
-	"hg-server/internal/response"
-)
-
-func Routes() []app.Route {
-	return []app.Route{
-		{
-			Method: "POST",
-			Path:   "/auth/login",
-			Auth:   false,
-			Span:   "auth.login",
-			Handle: Login,
-		},
-	}
-}
-
-func Login(w http.ResponseWriter, r *http.Request) {
-	response.Success(w, r, map[string]string{
-		"token": "mock-token",
-	})
-}
-
-
-// =========================
-main.go（最终形态）
-
-package main
-
-import (
-	"net/http"
-
-	"hg-server/internal/app"
-	"hg-server/internal/module/auth"
-	"hg-server/internal/module/user"
-)
-
-func main() {
-	mux := http.NewServeMux()
-
-	app.Register(mux, auth.Routes())
-	app.Register(mux, user.Routes())
-
-	http.ListenAndServe(":8080", mux)
-}
-
-*/

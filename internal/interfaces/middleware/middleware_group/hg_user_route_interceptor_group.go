@@ -1,14 +1,3 @@
-/*
-* @Author: GangHuang harleysor@qq.com
-* @Date: 2026-01-26 19:48:25
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-04 20:58:17
-
-* @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_user_middle_group.go
-* @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
-
-* 需要用户登录的接口
-*/
 package HGMiddlewareGroupPackage
 
 import (
@@ -24,52 +13,56 @@ const (
 	UserProfileModuleBasePath = "/api/v1/profile"
 )
 
-// UserMiddlewareGroup 注册用户模块路由并装配鉴权链路。
-func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
-	return NewUserRouteInterceptorGroup(userHandler)
-}
-
-// NewUserRouteInterceptorGroup 用户模块路由并装配鉴权拦截器链路。
-func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+// NewUserRouteGroup 注册用户模块路由并装配鉴权链路。
+func NewUserRouteGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 	specs := userRoutes(userHandler)
 	userMux := http.NewServeMux()
-	bindRouteSpecs(userMux, specs)
+	BindRouteSpecs(userMux, specs)
 
-	protected := HGMiddlewarePackage.ChainInterceptors(
+	protected := HGMiddlewarePackage.Chain(
 		userMux,
 		UserJWTMiddlewarePackage.AuthMiddleware,
 	)
-	guarded := HGMiddlewarePackage.APIGuardInterceptor(HGServerPackage.UserMethodRules())(protected)
+	guarded := HGMiddlewarePackage.APIGuardMiddleware(HGServerPackage.UserMethodRules())(protected)
 
 	// 外层统一打 TID/日志/恢复/JSON 头，确保鉴权失败请求也可追踪。
-	return HGMiddlewarePackage.ChainInterceptors(
+	return HGMiddlewarePackage.Chain(
 		guarded,
-		HGMiddlewarePackage.RequestTIDInterceptor,
-		HGMiddlewarePackage.AccessLogInterceptor,
-		HGMiddlewarePackage.RecoverInterceptor,
-		HGMiddlewarePackage.JSONHeaderInterceptor,
+		HGMiddlewarePackage.RequestIDMiddleware,
+		HGMiddlewarePackage.AccessLogMiddleware,
+		HGMiddlewarePackage.RecoverMiddleware,
+		HGMiddlewarePackage.JSONHeaderMiddleware,
 	)
+}
+
+// NewUserRouteInterceptorGroup 兼容旧方法名。
+func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+	return NewUserRouteGroup(userHandler)
+}
+
+// UserMiddlewareGroup 兼容旧方法名。
+func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+	return NewUserRouteGroup(userHandler)
 }
 
 // UserRouteCatalog 返回 user/profile 模块完整可调用路径清单。
 func UserRouteCatalog() []HGRouteCatalogItem {
-	return buildRouteCatalogItems(userRoutes(nil))
+	return BuildRouteCatalogItems(userRoutes(nil))
 }
 
 // userRoutes 返回 profile 模块完整路由定义。
-// 这里会同时保存子路径（用于模块内注册）和完整路径（用于目录展示与联调）。
-func userRoutes(userHandler *UserHandlerPackage.UserHandler) []hgRouteSpec {
+func userRoutes(userHandler *UserHandlerPackage.UserHandler) []RouteSpec {
 	if userHandler == nil {
-		return []hgRouteSpec{
-			newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
-			newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", nil),
-			newRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", nil),
+		return []RouteSpec{
+			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
+			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", nil),
+			NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", nil),
 		}
 	}
 
-	return []hgRouteSpec{
-		newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", userHandler.Profile),
-		newRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", userHandler.GetUserList),
-		newRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", userHandler.UpdateProfile),
+	return []RouteSpec{
+		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", userHandler.Profile),
+		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", userHandler.GetUserList),
+		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", userHandler.UpdateProfile),
 	}
 }
