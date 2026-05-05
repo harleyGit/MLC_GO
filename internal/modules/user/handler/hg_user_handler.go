@@ -35,6 +35,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -575,8 +576,9 @@ func (h *HGUserHandler) Avatar(w http.ResponseWriter, r *http.Request) {
 
 // UploadAvatar 上传用户头像（支持百万级并发）。
 // 接口：POST /api/v1/profile/avatar
-// Content-Type: multipart/form-data
-// 参数：avatar - 图片文件
+// Content-Type: application/octet-stream
+// Body: 二进制图片数据
+// Query: ext=png（可选，图片格式，默认从 Content-Type 推断）
 // 响应：AvatarUploadResponse
 func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	// 1. 获取用户 ID（从 JWT 中解析）
@@ -587,23 +589,32 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 解析 multipart 表单（最大 10MB）
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	// 2. 读取二进制图片数据（最大 10MB）
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	imageData, err := io.ReadAll(r.Body)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "解析表单失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "读取图片数据失败")
 		return
 	}
 
-	// 3. 获取上传的文件
-	fileHeader := r.MultipartForm.File["avatar"]
-	if len(fileHeader) == 0 {
+	if len(imageData) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 avatar 文件字段")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "图片数据为空")
 		return
+	}
+
+	// 3. 获取图片格式（从 query 参数或 Content-Type 推断）
+	ext := r.URL.Query().Get("ext")
+	if ext == "" {
+		ext = getExtFromContentType(r.Header.Get("Content-Type"))
+	}
+	if ext == "" {
+		ext = "png" // 默认 png
 	}
 
 	// 4. 调用 Service 层上传头像
-	result, err := h.avatarSvc.UploadAvatar(r.Context(), userID, fileHeader[0])
+	result, err := h.avatarSvc.UploadAvatarFromBytes(r.Context(), userID, imageData, ext)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "上传头像失败: "+err.Error())
@@ -615,6 +626,22 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		AvatarURL: result.AvatarURL,
 		IsNew:     result.IsNew,
 	})
+}
+
+// getExtFromContentType 从 Content-Type 推断图片格式。
+func getExtFromContentType(contentType string) string {
+	switch {
+	case strings.Contains(contentType, "image/png"):
+		return "png"
+	case strings.Contains(contentType, "image/jpeg"):
+		return "jpg"
+	case strings.Contains(contentType, "image/gif"):
+		return "gif"
+	case strings.Contains(contentType, "image/webp"):
+		return "webp"
+	default:
+		return ""
+	}
 }
 
 // GetAvatar 获取用户头像 URL。

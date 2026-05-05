@@ -60,13 +60,13 @@ func (s *AvatarService) getUserLock(userID string) *sync.Mutex {
 
 // region 业务方法
 
-// UploadAvatar 上传用户头像。
+// UploadAvatarFromBytes 从二进制数据上传用户头像。
 // 流程：
 //  1. 检查用户当前头像，如果存在且文件存在则直接返回
 //  2. 上传新头像到文件系统
 //  3. 更新 users 表的 avatar_url 字段
 //  4. 删除旧头像文件
-func (s *AvatarService) UploadAvatar(ctx context.Context, userID string, fileHeader *multipart.FileHeader) (*AvatarUploadResult, error) {
+func (s *AvatarService) UploadAvatarFromBytes(ctx context.Context, userID string, imageData []byte, ext string) (*AvatarUploadResult, error) {
 	// 1. 获取用户锁，防止并发上传
 	lock := s.getUserLock(userID)
 	lock.Lock()
@@ -91,8 +91,8 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, userID string, fileHea
 		}
 	}
 
-	// 4. 上传新头像
-	result, err := s.uploader.UploadSingle(fileHeader, "user")
+	// 4. 上传新头像（从二进制数据）
+	result, err := s.uploader.UploadFromBytes(imageData, "user", ext)
 	if err != nil {
 		logHG.ErrFInfo("上传头像失败: %v", err)
 		return nil, ErrAvatarUploadFailed
@@ -121,6 +121,27 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, userID string, fileHea
 		FileName:  result.FileName,
 		IsNew:     true,
 	}, nil
+}
+
+// UploadAvatar 从 multipart 文件上传用户头像（兼容旧方式）。
+func (s *AvatarService) UploadAvatar(ctx context.Context, userID string, fileHeader *multipart.FileHeader) (*AvatarUploadResult, error) {
+	// 读取文件内容
+	src, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer src.Close()
+
+	// 读取全部内容
+	imageData := make([]byte, fileHeader.Size)
+	if _, err := src.Read(imageData); err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
+	}
+
+	// 获取文件扩展名
+	ext := HGUploadPackage.GetFileExt(fileHeader.Filename)
+
+	return s.UploadAvatarFromBytes(ctx, userID, imageData, ext)
 }
 
 // GetAvatarURL 获取用户头像 URL。

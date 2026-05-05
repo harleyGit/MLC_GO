@@ -267,6 +267,61 @@ func DeleteFile(filePath string) error {
 
 // endregion
 
+// region 二进制数据上传
+
+// UploadFromBytes 从二进制数据上传文件。
+func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (*UploadResult, error) {
+	// 1. 检查数据大小
+	if int64(len(data)) > u.config.MaxFileSize {
+		return nil, fmt.Errorf("data size %d exceeds max %d", len(data), u.config.MaxFileSize)
+	}
+
+	// 2. 检查文件类型
+	if !u.isAllowedType(ext) {
+		return nil, fmt.Errorf("file type %s not allowed", ext)
+	}
+
+	// 3. 生成文件名
+	fileName := GenerateFileName(moduleName, ext)
+
+	// 4. 创建上传目录
+	uploadDir := filepath.Join(u.config.UploadDir, moduleName)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		return nil, fmt.Errorf("create upload dir failed: %w", err)
+	}
+
+	// 5. 构建文件路径
+	filePath := filepath.Join(uploadDir, fileName)
+
+	// 6. 保存文件
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return nil, fmt.Errorf("save file failed: %w", err)
+	}
+
+	// 7. 构建完整访问 URL（HTTPS）
+	relativeURL := fmt.Sprintf("/uploads/%s/%s", moduleName, fileName)
+	fileURL := u.config.BaseURL + relativeURL
+
+	return &UploadResult{
+		FileName: fileName,
+		FilePath: filePath,
+		FileURL:  fileURL,
+		FileSize: int64(len(data)),
+		IsNew:    true,
+	}, nil
+}
+
+// GetFileExt 获取文件扩展名。
+func GetFileExt(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == "" {
+		return ""
+	}
+	return strings.TrimPrefix(ext, ".")
+}
+
+// endregion
+
 // region 图片去重检查
 
 // ImageDeduplicator 图片去重器，检查图片是否已存在。

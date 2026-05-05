@@ -216,11 +216,12 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		return nil
 	}
 
-	// 对于 multipart/form-data 请求，使用空字符串作为 body 签名
-	// 前端 FormData 签名时也使用空字符串，保证前后端一致
+	// 对于 multipart/form-data 或二进制数据请求，使用空字符串作为 body 签名
+	// 前端签名时也使用空字符串，保证前后端一致
 	var body []byte
-	isMultipart := strings.HasPrefix(contentType, "multipart/form-data")
-	if !isMultipart {
+	isBinaryUpload := strings.HasPrefix(contentType, "multipart/form-data") ||
+		strings.HasPrefix(contentType, "application/octet-stream")
+	if !isBinaryUpload {
 		var err error
 		body, err = readAndRestoreBody(r)
 		if err != nil {

@@ -60,6 +60,10 @@ func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem)
 	rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(catalog)))
 	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(catalogGrouped)))
 
+	// 配置静态文件服务，支持访问上传的图片
+	// 浏览器访问 http://localhost:8080/uploads/user/hg_user_xxx.jpg 时，从 ./uploads/ 目录读取文件
+	rootMux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
+
 	// 启动时打印路由清单
 	logRouteCatalog(catalog)
 
