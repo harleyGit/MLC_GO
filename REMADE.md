@@ -6177,3 +6177,328 @@ rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogG
 - /api/v1/routes → 扁平列表
 - /api/v1/routes/groups → 按模块分组
 ```
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="JWT双Token机制">JWT 双 Token 机制（大厂标准实现）</h1>
+
+***
+<br/><br/><br/>
+
+> <h2 id="Token机制概述">Token 机制概述</h2>
+
+本项目采用 **JWT 双 Token 机制**，是大厂标准的认证方案，支持：
+- 7 天内无操作自动登出
+- 7 天内有操作自动续期
+- 多端登录控制
+- Token 黑名单
+
+<br/>
+
+### Token 类型
+
+| Token 类型 | 有效期 | 用途 | 存储位置 |
+|-----------|--------|------|---------|
+| Access Token | 15 分钟 | API 认证 | Redis |
+| Refresh Token | 7 天 | 刷新 Access Token | Redis |
+
+<br/>
+
+### 自动续期逻辑
+
+```
+用户登录
+  ↓
+生成 Access Token (15分钟) + Refresh Token (7天)
+  ↓
+存储到 Redis（用于撤销和黑名单）
+  ↓
+客户端使用 Access Token 访问 API
+  ↓
+Access Token 过期 (15分钟后)
+  ↓
+客户端自动调用 /api/v1/auth/refresh 接口
+  ↓
+后端验证 Refresh Token
+  ↓
+撤销旧的 Refresh Token（一次性使用）
+  ↓
+生成新的 Token Pair
+  ↓
+新的 Refresh Token 过期时间从刷新时刻算起 7 天
+  ↓
+如果用户 7 天没有使用 → Refresh Token 过期 → 需要重新登录
+如果用户 7 天内有使用 → Refresh Token 继续有效
+```
+
+<br/>
+
+### API 接口
+
+#### 1. 登录接口
+
+```
+POST /api/v1/auth/login
+Content-Type: application/json
+
+请求：
+{
+  "phone": "17681317668",
+  "password": "123456"
+}
+
+响应：
+{
+  "code": 200,
+  "result": {
+    "user_id": "xxx",
+    "user_name": "xxx",
+    "nickname": "xxx",
+    "access_token": "eyJhbGciOiJIUzI1NiIs...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+  }
+}
+```
+
+<br/>
+
+#### 2. 刷新 Token 接口
+
+```
+POST /api/v1/auth/refresh
+Content-Type: application/json
+
+请求：
+{
+  "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
+}
+
+响应：
+{
+  "code": 200,
+  "result": {
+    "token": "新的 Access Token",
+    "refreshToken": "新的 Refresh Token"
+  }
+}
+```
+
+<br/>
+
+### 代码实现
+
+#### 1. Token 生成（hg_auth_service.go）
+
+```go
+// GenerateTokens 生成 Access Token 和 Refresh Token
+func GenerateTokens(ctx context.Context, rdb *redis.Client, userID string, device string, role string) (*TokenPair, error) {
+    now := time.Now()
+    jti := randJTI()
+
+    // 生成 Access Token
+    accessClaims := &HGClaims{
+        UserID:  userID,
+        Device:  device,
+        JTI:     jti,
+        TokenTp: "access",
+        Role:    role,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)), // 15 分钟
+            IssuedAt:  jwt.NewNumericDate(now),
+            NotBefore: jwt.NewNumericDate(now),
+            Issuer:    "mlc-go",
+            Subject:   "user-token",
+        },
+    }
+    accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+    accessTokenString, _ := accessToken.SignedString(Secret)
+
+    // 生成 Refresh Token（使用独立的 JTI）
+    refreshJTI := randJTI()
+    refreshClaims := &HGClaims{
+        UserID:  userID,
+        Device:  device,
+        JTI:     refreshJTI,
+        TokenTp: "refresh",
+        Role:    role,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(now.Add(RefreshTTL)), // 7 天
+            IssuedAt:  jwt.NewNumericDate(now),
+            NotBefore: jwt.NewNumericDate(now),
+            Issuer:    "mlc-go",
+            Subject:   "user-token",
+        },
+    }
+    refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+    refreshTokenString, _ := refreshToken.SignedString(Secret)
+
+    // 存储到 Redis
+    rdb.Set(ctx, "auth:access:"+userID+":"+jti, "1", AccessTTL)
+    rdb.Set(ctx, "auth:refresh:"+userID+":"+refreshJTI, "1", RefreshTTL)
+
+    return &TokenPair{
+        AccessToken:  accessTokenString,
+        RefreshToken: refreshTokenString,
+    }, nil
+}
+```
+
+<br/>
+
+#### 2. Token 刷新（hg_auth_service.go）
+
+```go
+// RefreshToken 刷新 Access Token
+func RefreshToken(ctx context.Context, rdb *redis.Client, refreshTokenString string) (*TokenPair, error) {
+    // 1. 解析并验证 Refresh Token
+    claims := &HGClaims{}
+    token, err := jwt.ParseWithClaims(refreshTokenString, claims, func(t *jwt.Token) (any, error) {
+        return Secret, nil
+    })
+    if err != nil || !token.Valid {
+        return nil, errors.New("refresh token 无效")
+    }
+
+    // 2. 验证 Token 类型
+    if claims.TokenTp != "refresh" {
+        return nil, errors.New("token 类型错误，需要 refresh token")
+    }
+
+    // 3. 检查 Redis 中是否存在（未被撤销）
+    refreshKey := "auth:refresh:" + claims.UserID + ":" + claims.JTI
+    if rdb.Exists(ctx, refreshKey).Val() == 0 {
+        return nil, errors.New("refresh token 已被撤销或不存在")
+    }
+
+    // 4. 撤销旧的 Refresh Token（一次性使用）
+    rdb.Del(ctx, refreshKey)
+
+    // 5. 撤销旧的 Access Token
+    rdb.Del(ctx, "auth:access:"+claims.UserID+":"+claims.JTI)
+
+    // 6. 生成新的 Token Pair（继承设备信息和角色）
+    return GenerateTokens(ctx, rdb, claims.UserID, claims.Device, claims.Role)
+}
+```
+
+<br/>
+
+### 前端实现
+
+#### 1. 存储 Token
+
+```javascript
+// 登录成功后存储 Token
+localStorage.setItem('token', response.result.access_token);
+localStorage.setItem('refresh_token', response.result.refresh_token);
+```
+
+<br/>
+
+#### 2. 自动刷新 Token
+
+```javascript
+// HttpManagerV1.js 中的 refreshToken 方法
+async refreshToken() {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+        throw { type: "AUTH_ERROR", message: "没有 refresh token" };
+    }
+
+    const response = await fetch('/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+    });
+
+    const data = await response.json();
+    if (data.code !== 200) {
+        throw { type: "AUTH_ERROR", message: data.message };
+    }
+
+    // 存储新的 Token
+    localStorage.setItem('token', data.result.token);
+    localStorage.setItem('refresh_token', data.result.refreshToken);
+}
+```
+
+<br/>
+
+#### 3. 401 自动重试
+
+```javascript
+// HttpManagerV1.js 中的 handle401 方法
+async handle401(originalRequest) {
+    if (originalRequest?._hasRetried) {
+        throw { type: "AUTH_ERROR", message: "登录状态失效，请重新登录" };
+    }
+
+    // 刷新 Token
+    await this.refreshToken();
+
+    // 重试原始请求
+    return this.request({
+        ...originalRequest,
+        _hasRetried: true,
+    });
+}
+```
+
+<br/>
+
+### 安全特性
+
+| 特性 | 说明 |
+|------|------|
+| 一次性 Refresh Token | 每次刷新后旧 Token 立即撤销，防止重放攻击 |
+| 独立 JTI | Access Token 和 Refresh Token 使用不同的 JTI |
+| 设备绑定 | Token 包含设备信息，支持多端登录控制 |
+| 角色控制 | Token 包含角色信息，支持权限校验 |
+| Redis 黑名单 | 支持强制下线、撤销所有 Token |
+
+<br/>
+
+### 时序图
+
+```
+┌──────────┐                    ┌──────────┐                    ┌──────────┐
+│  Client  │                    │  Server  │                    │  Redis   │
+└────┬─────┘                    └────┬─────┘                    └────┬─────┘
+     │                               │                               │
+     │  1. POST /auth/login          │                               │
+     │  {phone, password}            │                               │
+     │──────────────────────────────>│                               │
+     │                               │  2. 验证用户名密码              │
+     │                               │──────────────────────────────>│
+     │                               │  3. 存储 Token                 │
+     │                               │──────────────────────────────>│
+     │  4. 返回 Access + Refresh     │                               │
+     │<──────────────────────────────│                               │
+     │                               │                               │
+     │  5. 使用 Access Token 访问 API │                               │
+     │──────────────────────────────>│                               │
+     │                               │  6. 验证 Token                 │
+     │                               │──────────────────────────────>│
+     │  7. 返回数据                   │                               │
+     │<──────────────────────────────│                               │
+     │                               │                               │
+     │  8. Access Token 过期          │                               │
+     │  9. POST /auth/refresh        │                               │
+     │  {refreshToken}               │                               │
+     │──────────────────────────────>│                               │
+     │                               │  10. 验证 Refresh Token        │
+     │                               │──────────────────────────────>│
+     │                               │  11. 撤销旧 Token              │
+     │                               │──────────────────────────────>│
+     │                               │  12. 生成新 Token              │
+     │                               │──────────────────────────────>│
+     │  13. 返回新的 Token Pair       │                               │
+     │<──────────────────────────────│                               │
+     │                               │                               │
+     │  14. 使用新 Access Token 继续   │                               │
+     │──────────────────────────────>│                               │
+     │                               │                               │
+```
