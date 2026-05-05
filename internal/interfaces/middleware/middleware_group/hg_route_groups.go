@@ -10,9 +10,10 @@ import (
 
 // region 模块路径常量
 const (
-	AuthModuleBasePath        = "/api/v1/auth"	// 认证模块基础路径
-	UserProfileModuleBasePath = "/api/v1/profile"	// 用户信息模块基础路径
+	AuthModuleBasePath        = "/api/v1/auth"    // 认证模块基础路径
+	UserProfileModuleBasePath = "/api/v1/profile" // 用户信息模块基础路径
 )
+
 // endregion
 
 // region 路由组构建器（高性能，支持百万级并发），RouteGroupConfig 路由组配置。
@@ -136,6 +137,7 @@ func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", nil),
 			NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", nil),
+			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/avatar", true, "头像操作（POST上传/GET获取）", nil),
 		}
 	}
 
@@ -143,6 +145,7 @@ func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", userHandler.Profile),
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", userHandler.GetUserList),
 		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", userHandler.UpdateProfile),
+		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/avatar", true, "头像操作（POST上传/GET获取）", userHandler.Avatar),
 	}
 }
 

@@ -42,6 +42,18 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			},
 			NeedAuth: true,
 		},
+		{
+			Path:    "/avatar",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true, // 上传头像
+				http.MethodGet:  true, // 获取头像
+			},
+			NeedAuth: true,
+			Permissions: []string{
+				"user:view",
+			},
+		},
 	}
 }
 

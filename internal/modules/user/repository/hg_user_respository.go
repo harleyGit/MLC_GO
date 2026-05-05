@@ -35,12 +35,12 @@ func NewUserRepo(db *sql.DB) *UserRepo {
 func (r *UserRepo) Insert(ctx context.Context, u *UserModelsPackage.HGUserModel) error {
 	// ExecContext 用于执行一条“写操作”SQL，用于 插入、更新、删除操作
 	// TODO： 检查Phone和Email唯一性，上层操作判断
-	
+
 	// 使用带超时的上下文，防止长时间阻塞
 	const queryTimeout = 5 * time.Second
 	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	
+
 	res, err := r.Exec(
 		queryCtx,
 		SQLQueriesPackage.InsertUserInfoSQL,
@@ -152,7 +152,7 @@ func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel)
 	const queryTimeout = 5 * time.Second
 	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	
+
 	_, err := r.Exec(
 		queryCtx,
 		SQLQueriesPackage.UpdateUserInfoSQL,

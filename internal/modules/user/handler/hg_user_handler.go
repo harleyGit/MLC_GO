@@ -65,6 +65,7 @@ type HGUserHandler struct {
 	svc          *UserServicePackage.UserService
 	tokenService *UserServicePackage.HGAuthService
 	smsSender    HGSMSPackage.HGSender
+	avatarSvc    *UserServicePackage.AvatarService
 }
 
 var (
@@ -84,6 +85,7 @@ func NewUserHandler(deps HGUserHandlerDeps) *HGUserHandler {
 	// 创建 Service 层
 	svc := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
 	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
+	avatarSvc := UserServicePackage.NewAvatarService(svc)
 
 	// 处理 SMS Sender
 	smsSender := deps.SMSSender
@@ -96,6 +98,7 @@ func NewUserHandler(deps HGUserHandlerDeps) *HGUserHandler {
 		svc:          svc,
 		tokenService: tokenService,
 		smsSender:    smsSender,
+		avatarSvc:    avatarSvc,
 	}
 }
 
@@ -546,3 +549,97 @@ func RegisterUserRoutes() {
 	http.HandleFunc("/user/login", loginHandler)
 	http.HandleFunc("/user/profile", PkgMiddlewarePackage.TokenAuthMiddleware(profile)) // 受保护接口
 }
+
+// region 头像上传
+
+// AvatarUploadResponse 头像上传响应。
+type AvatarUploadResponse struct {
+	AvatarURL string `json:"avatarUrl"` // 头像访问 URL
+	IsNew     bool   `json:"isNew"`     // 是否新上传
+}
+
+// Avatar 头像统一处理（根据 HTTP 方法分发）。
+// POST - 上传头像
+// GET  - 获取头像
+func (h *HGUserHandler) Avatar(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		h.UploadAvatar(w, r)
+	case http.MethodGet:
+		h.GetAvatar(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+	}
+}
+
+// UploadAvatar 上传用户头像（支持百万级并发）。
+// 接口：POST /api/v1/profile/avatar
+// Content-Type: multipart/form-data
+// 参数：avatar - 图片文件
+// 响应：AvatarUploadResponse
+func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	// 1. 获取用户 ID（从 JWT 中解析）
+	userID, err := parseUpdateUserID(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		return
+	}
+
+	// 2. 解析 multipart 表单（最大 10MB）
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "解析表单失败: "+err.Error())
+		return
+	}
+
+	// 3. 获取上传的文件
+	fileHeader := r.MultipartForm.File["avatar"]
+	if len(fileHeader) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 avatar 文件字段")
+		return
+	}
+
+	// 4. 调用 Service 层上传头像
+	result, err := h.avatarSvc.UploadAvatar(r.Context(), userID, fileHeader[0])
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "上传头像失败: "+err.Error())
+		return
+	}
+
+	// 5. 返回结果
+	HGResponsePakcage.SuccessResult(w, r, AvatarUploadResponse{
+		AvatarURL: result.AvatarURL,
+		IsNew:     result.IsNew,
+	})
+}
+
+// GetAvatar 获取用户头像 URL。
+// 接口：GET /api/v1/profile/avatar?user_id=xxx
+func (h *HGUserHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
+	// 1. 获取用户 ID
+	userID, err := parseUpdateUserID(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		return
+	}
+
+	// 2. 调用 Service 层获取头像 URL
+	avatarURL, err := h.avatarSvc.GetAvatarURL(r.Context(), userID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "获取头像失败: "+err.Error())
+		return
+	}
+
+	// 3. 返回结果
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{
+		"avatarUrl": avatarURL,
+	})
+}
+
+// endregion

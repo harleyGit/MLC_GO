@@ -216,16 +216,22 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		return nil
 	}
 
-	body, err := readAndRestoreBody(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "请求体读取失败")
-		return nil
+	// 对于 multipart/form-data 请求，使用空字符串作为 body 签名
+	// 前端 FormData 签名时也使用空字符串，保证前后端一致
+	var body []byte
+	isMultipart := strings.HasPrefix(contentType, "multipart/form-data")
+	if !isMultipart {
+		var err error
+		body, err = readAndRestoreBody(r)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "请求体读取失败")
+			return nil
+		}
 	}
 
 	if err := verifySignature(r, body, signature, timestamp, requestID, deviceID, clientType, clientVersion, version, language, token); err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "signature无效，请求可能被篡改")
+		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.TokenInvalidCode)
 		return nil
 	}
 
