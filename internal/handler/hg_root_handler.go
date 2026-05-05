@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-04-18 01:07:16
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-05-05 08:26:58
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -15,7 +15,10 @@ import (
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
+	UserCachePackage "MLC_GO/internal/modules/user/cache"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
+	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
@@ -39,7 +42,7 @@ type HGRouteMount struct {
 const routeCatalogPath = "/api/v1/routes"
 const routeCatalogGroupsPath = "/api/v1/routes/groups"
 
-/* 
+/*
 	若是使用路由可以使用httprouter库，gin它们底层用的都是它。
 */
 // NewRootHandler 负责构建根路由，仅挂载 /api/v1 前缀的模块路由。
@@ -52,22 +55,51 @@ func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
 		smsSender = HGSMSPackage.NewMockSender()
 	}
 
-	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, deps.SQLManager, smsSender)
+	// 依赖注入：创建 Repository、Cache、Service，然后注入到 Handler
+	db := deps.SQLManager.GetSQLDB()
+	redisClient := UserCachePackage.NewCodeCache(deps.RedisService)
+	userCache := UserCachePackage.NewUserCache(deps.RedisService)
+	userRepo := UserRepositoryPackage.NewUserRepo(db)
+	svc := UserServicePackage.NewUserService(userRepo, userCache)
+	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
+
+	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, svc, tokenService, smsSender)
 	publicHandler := HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(userHandler)
 	userHandlerWithAuth := HGMiddlewareGroupPackage.NewUserRouteInterceptorGroup(userHandler)
+
 	testHandler := HGTestHandlerPackage.TestModuleHandler()
 	// API 调用路径清单
 	routeCatalog := buildRouteCatalog()
+	// 按模块分组
 	routeCatalogGrouped := buildRouteCatalogGrouped(routeCatalog)
 
+	// 挂载模块路由
 	registerRootPrefixRoutes(rootMux, []HGRouteMount{
 		// 统一前缀，便于网关治理与版本演进
-		{Prefix: HGMiddlewareGroupPackage.AuthModuleBasePath + "/", StripPrefix: HGMiddlewareGroupPackage.AuthModuleBasePath, Handler: publicHandler},
-		{Prefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath + "/", StripPrefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath, Handler: userHandlerWithAuth},
-		{Prefix: HGTestHandlerPackage.TestModuleBasePath + "/", StripPrefix: HGTestHandlerPackage.TestModuleBasePath, Handler: testHandler},
+		{
+			Prefix:      HGMiddlewareGroupPackage.AuthModuleBasePath + "/",
+			StripPrefix: HGMiddlewareGroupPackage.AuthModuleBasePath,
+			Handler:     publicHandler,
+		},
+		{
+			Prefix:      HGMiddlewareGroupPackage.UserProfileModuleBasePath + "/",
+			StripPrefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath,
+			Handler:     userHandlerWithAuth,
+		},
+		{
+			Prefix:      HGTestHandlerPackage.TestModuleBasePath + "/",
+			StripPrefix: HGTestHandlerPackage.TestModuleBasePath,
+			Handler:     testHandler,
+		},
 	})
+	// rootMux.Handle 注册路由清单接口
+	// 可以没有，但有了更方便
+	// 没有路由清单的情况
+	// 后端写好接口 → 前端开发人员问"有哪些接口？" → 后端口头告诉 / 写文档
 	rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(routeCatalog)))
 	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(routeCatalogGrouped)))
+
+	// 启动时打印路由清单
 	logRouteCatalog(routeCatalog)
 
 	return rootMux
@@ -104,23 +136,36 @@ func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 		Summary:  "按模块分组查看 API 路由清单",
 	})
 
+	// sort.Slice` 是 Go 标准库的排序函数：
+	// 参数 1：要排序的切片
+	// 参数 2：比较函数，返回 `true` 表示 `i` 应该排在 `j` 前面
 	sort.Slice(items, func(i, j int) bool {
+		// 第一步：先按 Path 排序
 		if items[i].Path == items[j].Path {
+			// 第二步：Path 相同时，按 Method 排序
 			return items[i].Method < items[j].Method
 		}
+		// 默认：按 Path 字母顺序排序
 		return items[i].Path < items[j].Path
 	})
 
 	return items
 }
 
-// buildRouteCatalogGrouped 把路由按 group 聚合，便于 App/Web 按模块展示。
+/*
+	把扁平的路由列表按 Group 字段分成多个组，每组内部再按 Path 排序
+
+buildRouteCatalogGrouped 把路由按 group 聚合，便于 App/Web 按模块展示。
+*/
 func buildRouteCatalogGrouped(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem {
+	// 1️⃣ 创建分组 map
 	grouped := make(map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem, 8)
+	// 2️⃣ 按 Group 字段分组
 	for _, item := range catalog {
 		grouped[item.Group] = append(grouped[item.Group], item)
 	}
 
+	// 3️⃣ 每组内部排序
 	for group := range grouped {
 		routes := grouped[group]
 		sort.Slice(routes, func(i, j int) bool {
@@ -148,6 +193,7 @@ func logRouteCatalog(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) {
 // newRouteCatalogHandler 提供完整接口路径查询，方便 App/Web 联调自助查看。
 func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 路由清单是只读接口，只允许 GET 方法，其他方法返回 405
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			HGResponsePakcage.FailResult[string](

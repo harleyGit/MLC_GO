@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-26 19:48:25
-  - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-03-01 18:56:38
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-05-04 20:58:17
 
 * @FilePath: /MLC_GO/internal/interfaces/middleware/middleware_group/hg_user_middle_group.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -29,7 +29,7 @@ func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handl
 	return NewUserRouteInterceptorGroup(userHandler)
 }
 
-// NewUserRouteInterceptorGroup 注册用户模块路由并装配鉴权拦截器链路。
+// NewUserRouteInterceptorGroup 用户模块路由并装配鉴权拦截器链路。
 func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
 	specs := userRoutes(userHandler)
 	userMux := http.NewServeMux()

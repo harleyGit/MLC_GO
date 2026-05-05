@@ -127,6 +127,26 @@ func (r *UserRepo) GetByUserID(ctx context.Context, userID string) (*UserModelsP
 	return &u, err
 }
 
+// GetByEmailOrPhone 根据邮箱或手机号查询用户
+func (r *UserRepo) GetByEmailOrPhone(ctx context.Context, account string) (*UserModelsPackage.HGUserModel, error) {
+	var u UserModelsPackage.HGUserModel
+	err := r.QueryRow(
+		ctx,
+		SQLQueriesPackage.GetUserByEmailOrPhoneSQL,
+		account,
+		account,
+	).Scan(
+		&u.UserID,
+		&u.Username,
+		&u.Email,
+		&u.Phone,
+		&u.PasswordHash,
+		&u.Salt,
+	)
+
+	return &u, err
+}
+
 func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel) error {
 	// 使用带超时的上下文，防止长时间阻塞
 	const queryTimeout = 5 * time.Second

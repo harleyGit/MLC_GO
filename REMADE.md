@@ -104,6 +104,13 @@
 - [**HTTP响应方法**](#HTTP响应方法)
 	- [常用响应方法对照表](#常用响应方法对照表)
 	- [前端收到的数据格式](#前端收到的数据格式)
+- [**Go标准库**](#Go标准库)
+	- [sort.Slice排序详解](#sort.Slice排序详解)
+- [**路由分组机制**](#路由分组机制)
+	- [buildRouteCatalogGrouped详解](#buildRouteCatalogGrouped详解)
+- [**NewRootHandler详解**](#NewRootHandler详解)
+	- [各函数调用关系](#各函数调用关系)
+	- [路由清单接口对比](#路由清单接口对比)
 - [**未完成优秀代码**](#未完成优秀代码)
 	- [文件排版和架构](#文件排版和架构)
 
@@ -5618,4 +5625,517 @@ fetch('/api/v1/profile/info')
   .catch(err => {
     console.error(err)  // Error: HTTP 404
   })
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="Go标准库">Go标准库</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="sort.Slice排序详解">sort.Slice排序详解</h2>
+
+**文件位置：** `internal/handler/hg_root_handler.go`
+
+**功能：** 对切片进行自定义排序。
+
+---
+
+### 1. 函数代码
+
+```go
+sort.Slice(items, func(i, j int) bool {
+    if items[i].Path == items[j].Path {
+        return items[i].Method < items[j].Method
+    }
+    return items[i].Path < items[j].Path
+})
+```
+
+---
+
+### 2. `sort.Slice` 是什么？
+
+`sort.Slice` 是 Go 标准库的排序函数：
+- **参数 1**：要排序的切片
+- **参数 2**：比较函数，返回 `true` 表示 `i` 应该排在 `j` 前面
+
+---
+
+### 3. 比较函数解析
+
+```go
+func(i, j int) bool {
+    // 第一步：先按 Path 排序
+    if items[i].Path == items[j].Path {
+        // 第二步：Path 相同时，按 Method 排序
+        return items[i].Method < items[j].Method
+    }
+    // 默认：按 Path 字母顺序排序
+    return items[i].Path < items[j].Path
+}
+```
+
+---
+
+### 4. 排序规则
+
+| 优先级 | 排序字段 | 顺序 |
+|--------|----------|------|
+| 1 | Path | 字母升序 (A → Z) |
+| 2 | Method | 字母升序 (DELETE → GET → POST → PUT) |
+
+---
+
+### 5. 排序前后对比
+
+**排序前：**
+```
+POST   /api/v1/auth/login
+GET    /api/v1/profile/info
+GET    /api/v1/auth/send_code
+PUT    /api/v1/profile/update
+POST   /api/v1/auth/register
+GET    /api/v1/profile/list
+```
+
+**排序后：**
+```
+POST   /api/v1/auth/login
+POST   /api/v1/auth/register
+GET    /api/v1/auth/send_code
+GET    /api/v1/profile/info
+GET    /api/v1/profile/list
+PUT    /api/v1/profile/update
+```
+
+---
+
+### 6. 一句话总结
+
+```
+先按路径字母排序，路径相同时按 HTTP 方法字母排序
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="路由分组机制">路由分组机制</h1>
+
+***
+<br/><br/><br/>
+> <h2 id="buildRouteCatalogGrouped详解">buildRouteCatalogGrouped详解</h2>
+
+**文件位置：** `internal/handler/hg_root_handler.go`
+
+**功能：** 把扁平的路由列表按 Group 字段分成多个组，每组内部再按 Path 排序。
+
+---
+
+### 1. 函数代码
+
+```go
+func buildRouteCatalogGrouped(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem {
+    // 1️⃣ 创建分组 map
+    grouped := make(map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem, 8)
+    
+    // 2️⃣ 按 Group 字段分组
+    for _, item := range catalog {
+        grouped[item.Group] = append(grouped[item.Group], item)
+    }
+
+    // 3️⃣ 每组内部排序
+    for group := range grouped {
+        routes := grouped[group]
+        sort.Slice(routes, func(i, j int) bool {
+            if routes[i].Path == routes[j].Path {
+                return routes[i].Method < routes[j].Method
+            }
+            return routes[i].Path < routes[j].Path
+        })
+        grouped[group] = routes
+    }
+
+    return grouped
+}
+```
+
+---
+
+### 2. 输入和输出
+
+**输入**：扁平的路由列表
+```go
+[]HGRouteCatalogItem{
+    {Group: "auth",    Method: "POST", Path: "/api/v1/auth/login"},
+    {Group: "auth",    Method: "GET",  Path: "/api/v1/auth/send_code"},
+    {Group: "profile", Method: "GET",  Path: "/api/v1/profile/info"},
+    {Group: "profile", Method: "PUT",  Path: "/api/v1/profile/update"},
+    {Group: "meta",    Method: "GET",  Path: "/api/v1/routes"},
+}
+```
+
+**输出**：按 Group 分组的 map
+```go
+map[string][]HGRouteCatalogItem{
+    "auth": [
+        {Group: "auth", Method: "POST", Path: "/api/v1/auth/login"},
+        {Group: "auth", Method: "GET",  Path: "/api/v1/auth/send_code"},
+    ],
+    "profile": [
+        {Group: "profile", Method: "GET",  Path: "/api/v1/profile/info"},
+        {Group: "profile", Method: "PUT",  Path: "/api/v1/profile/update"},
+    ],
+    "meta": [
+        {Group: "meta", Method: "GET", Path: "/api/v1/routes"},
+    ],
+}
+```
+
+---
+
+### 3. 执行流程图
+
+```
+输入：扁平路由列表
+    ↓
+步骤1：创建空 map
+    grouped = {}
+    ↓
+步骤2：遍历列表，按 Group 分组
+    grouped["auth"] = [login, send_code]
+    grouped["profile"] = [info, update]
+    grouped["meta"] = [routes]
+    ↓
+步骤3：每组内部排序
+    auth 组：按 Path 排序
+    profile 组：按 Path 排序
+    meta 组：按 Path 排序
+    ↓
+输出：分组后的 map
+```
+
+---
+
+### 4. 为什么要分组？
+
+| 场景 | 用途 |
+|------|------|
+| 前端展示 | 按模块展示 API 列表（auth 模块、profile 模块） |
+| 文档生成 | 自动生成分组的 API 文档 |
+| 权限管理 | 按模块配置权限 |
+
+---
+
+### 5. 前端收到的数据格式
+
+```json
+{
+  "auth": [
+    {"method": "POST", "path": "/api/v1/auth/login", "summary": "登录"},
+    {"method": "GET", "path": "/api/v1/auth/send_code", "summary": "发送验证码"}
+  ],
+  "profile": [
+    {"method": "GET", "path": "/api/v1/profile/info", "summary": "获取用户信息"},
+    {"method": "PUT", "path": "/api/v1/profile/update", "summary": "更新用户资料"}
+  ],
+  "meta": [
+    {"method": "GET", "path": "/api/v1/routes", "summary": "查看完整 API 路由清单"}
+  ]
+}
+```
+
+---
+
+### 6. 一句话总结
+
+```
+把扁平的路由列表按 Group 字段分成多个组，每组内部再按 Path 排序
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="NewRootHandler详解">NewRootHandler详解</h1>
+
+**文件位置：** `internal/handler/hg_root_handler.go`
+
+**功能：** 构建根路由，挂载各模块路由，注册路由清单接口。
+
+---
+
+### 1. 函数调用关系图
+
+```
+NewRootHandler(deps)
+    │
+    ├── registerRootPrefixRoutes()   ← 挂载模块路由
+    │
+    ├── buildRouteCatalog()          ← 构建路由清单
+    │
+    ├── buildRouteCatalogGrouped()   ← 按模块分组
+    │
+    ├── rootMux.Handle()             ← 注册路由清单接口
+    │   ├── buildRouteCatalogHandler(newRouteCatalogHandler())
+    │   └── buildRouteCatalogHandler(newRouteCatalogGroupedHandler())
+    │
+    └── logRouteCatalog()            ← 启动时打印路由清单
+```
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="各函数调用关系">各函数调用关系</h2>
+
+---
+
+### 1. `registerRootPrefixRoutes` - 挂载模块路由
+
+```go
+registerRootPrefixRoutes(rootMux, []HGRouteMount{
+    {Prefix: "/api/v1/auth/", StripPrefix: "/api/v1/auth", Handler: publicHandler},
+    {Prefix: "/api/v1/profile/", StripPrefix: "/api/v1/profile", Handler: userHandlerWithAuth},
+    {Prefix: "/api/v1/test/", StripPrefix: "/api/v1/test", Handler: testHandler},
+})
+```
+
+**作用：** 把各模块的 Handler 挂载到根路由，并用 `StripPrefix` 去掉前缀。
+
+**示例：**
+```
+请求: GET /api/v1/profile/info
+    ↓
+rootMux 匹配 /api/v1/profile/
+    ↓
+StripPrefix("/api/v1/profile")
+    ↓
+子路由收到: /info
+```
+
+---
+
+### 2. `buildRouteCatalog` - 构建路由清单
+
+```go
+routeCatalog := buildRouteCatalog()
+```
+
+**作用：** 汇总所有模块的路由，生成完整的 API 清单。
+
+**返回值：**
+```go
+[]HGRouteCatalogItem{
+    {Group: "auth", Method: "POST", Path: "/api/v1/auth/login", Summary: "登录"},
+    {Group: "auth", Method: "GET", Path: "/api/v1/auth/send_code", Summary: "发送验证码"},
+    {Group: "profile", Method: "GET", Path: "/api/v1/profile/info", Summary: "获取用户信息"},
+    // ...
+}
+```
+
+---
+
+### 3. `buildRouteCatalogGrouped` - 按模块分组
+
+```go
+routeCatalogGrouped := buildRouteCatalogGrouped(routeCatalog)
+```
+
+**作用：** 把扁平的路由清单按 Group 分组。
+
+**返回值：**
+```go
+map[string][]HGRouteCatalogItem{
+    "auth": [
+        {Method: "POST", Path: "/api/v1/auth/login"},
+        {Method: "GET", Path: "/api/v1/auth/send_code"},
+    ],
+    "profile": [
+        {Method: "GET", Path: "/api/v1/profile/info"},
+        {Method: "PUT", Path: "/api/v1/profile/update"},
+    ],
+}
+```
+
+---
+
+### 4. `newRouteCatalogHandler` - 创建路由清单处理器
+
+```go
+rootMux.Handle("/api/v1/routes", buildRouteCatalogHandler(newRouteCatalogHandler(routeCatalog)))
+```
+
+**作用：** 创建一个 HTTP Handler，返回扁平的路由清单。
+
+**前端调用：**
+```javascript
+fetch('/api/v1/routes')
+  .then(res => res.json())
+  .then(data => console.log(data))
+// 返回: [{method: "GET", path: "/api/v1/profile/info", ...}, ...]
+```
+
+---
+
+### 5. `newRouteCatalogGroupedHandler` - 创建分组路由清单处理器
+
+```go
+rootMux.Handle("/api/v1/routes/groups", buildRouteCatalogHandler(newRouteCatalogGroupedHandler(routeCatalogGrouped)))
+```
+
+**作用：** 创建一个 HTTP Handler，返回按模块分组的路由清单。
+
+**前端调用：**
+```javascript
+fetch('/api/v1/routes/groups')
+  .then(res => res.json())
+  .then(data => console.log(data))
+// 返回: {auth: [...], profile: [...], meta: [...]}
+```
+
+---
+
+### 6. `buildRouteCatalogHandler` - 添加中间件
+
+```go
+func buildRouteCatalogHandler(core http.Handler) http.Handler {
+    return HGMiddlewarePackage.ChainInterceptors(
+        core,
+        HGMiddlewarePackage.RecoverInterceptor,    // panic 恢复
+        HGMiddlewarePackage.AccessLogInterceptor,  // 访问日志
+        HGMiddlewarePackage.RequestTIDInterceptor, // 请求追踪ID
+        HGMiddlewarePackage.JSONHeaderInterceptor, // JSON 响应头
+    )
+}
+```
+
+**作用：** 给路由清单接口添加通用中间件（日志、恢复、追踪等）。
+
+---
+
+### 7. `logRouteCatalog` - 打印路由清单
+
+```go
+logRouteCatalog(routeCatalog)
+```
+
+**作用：** 服务启动时打印所有路由，方便开发调试。
+
+**输出示例：**
+```
+API 路由清单如下（完整可调用路径）：
+[API] POST /api/v1/auth/login auth=false group=auth summary=登录
+[API] GET /api/v1/auth/send_code auth=false group=auth summary=发送验证码
+[API] GET /api/v1/profile/info auth=true group=profile summary=获取用户信息
+API 路由清单接口：GET /api/v1/routes
+API 路由分组接口：GET /api/v1/routes/groups
+```
+
+---
+
+### 8. 完整流程图
+
+```
+NewRootHandler 被调用
+    ↓
+1. 创建根路由 rootMux
+    ↓
+2. 初始化各模块 Handler
+    ↓
+3. registerRootPrefixRoutes 挂载模块路由
+    ↓
+4. buildRouteCatalog 构建路由清单
+    ↓
+5. buildRouteCatalogGrouped 按模块分组
+    ↓
+6. rootMux.Handle 注册路由清单接口
+    ↓
+7. logRouteCatalog 打印路由清单
+    ↓
+返回 rootMux
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h2 id="路由清单接口对比">路由清单接口对比</h2>
+
+**说明：** 两个接口路径不同，返回数据格式不同，不是重复的。
+
+---
+
+### 1. 两个接口对比
+
+| 接口 | 路径 | 返回数据 |
+|------|------|----------|
+| 路由清单 | `/api/v1/routes` | 扁平列表 |
+| 分组路由清单 | `/api/v1/routes/groups` | 按模块分组 |
+
+---
+
+### 2. 常量定义
+
+```go
+const routeCatalogPath = "/api/v1/routes"
+const routeCatalogGroupsPath = "/api/v1/routes/groups"
+```
+
+---
+
+### 3. 返回数据格式不同
+
+**`/api/v1/routes`** - 扁平列表
+```json
+[
+  {"method": "POST", "path": "/api/v1/auth/login", "summary": "登录"},
+  {"method": "GET", "path": "/api/v1/profile/info", "summary": "获取用户信息"}
+]
+```
+
+**`/api/v1/routes/groups`** - 按模块分组
+```json
+{
+  "auth": [
+    {"method": "POST", "path": "/api/v1/auth/login", "summary": "登录"}
+  ],
+  "profile": [
+    {"method": "GET", "path": "/api/v1/profile/info", "summary": "获取用户信息"}
+  ]
+}
+```
+
+---
+
+### 4. 代码对应
+
+```go
+// 注册扁平路由清单接口
+rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(routeCatalog)))
+
+// 注册分组路由清单接口
+rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(routeCatalogGrouped)))
+```
+
+---
+
+### 5. 一句话总结
+
+```
+两个接口路径不同，返回数据格式不同，不是重复的
+- /api/v1/routes → 扁平列表
+- /api/v1/routes/groups → 按模块分组
 ```

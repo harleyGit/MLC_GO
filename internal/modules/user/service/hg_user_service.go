@@ -75,6 +75,15 @@ func (s *UserService) GetUserByID(ctx context.Context, userID string) (*UserDtoP
 	return UserMapperPackage.UserModelToDTO(user), nil
 }
 
+// GetByEmailOrPhone 根据邮箱或手机号获取用户信息
+func (s *UserService) GetByEmailOrPhone(ctx context.Context, account string) (*UserModelsPackage.HGUserModel, error) {
+	if account == "" {
+		return nil, errors.New("account 不能为空")
+	}
+
+	return s.repo.GetByEmailOrPhone(ctx, account)
+}
+
 func (s *UserService) PathUser(
 	ctx context.Context,
 	id int64,
