@@ -2,6 +2,20 @@ package HGMiddlewareGroupPackage
 
 import "net/http"
 
+// region 数据结构定义
+
+// RouteCatalogItem 描述对外可调用的 API 路由，供 App/Web 联调查看。
+type RouteCatalogItem struct {
+	Group    string `json:"group"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	NeedAuth bool   `json:"needAuth"`
+	Summary  string `json:"summary"`
+}
+
+// HGRouteCatalogItem 兼容旧类型名。
+type HGRouteCatalogItem = RouteCatalogItem
+
 // RouteSpec 描述模块内子路由注册元信息。
 type RouteSpec struct {
 	Group    string
@@ -15,6 +29,10 @@ type RouteSpec struct {
 
 // hgRouteSpec 兼容旧类型名。
 type hgRouteSpec = RouteSpec
+
+// endregion
+
+// region 路由注册工具
 
 // BindRouteSpecs 负责把模块内子路由批量注册到 mux。
 func BindRouteSpecs(mux *http.ServeMux, specs []RouteSpec) {
@@ -32,10 +50,10 @@ func bindRouteSpecs(mux *http.ServeMux, specs []RouteSpec) {
 }
 
 // BuildRouteCatalogItems 负责把子路由元信息转成完整对外可调用路径清单。
-func BuildRouteCatalogItems(specs []RouteSpec) []HGRouteCatalogItem {
-	items := make([]HGRouteCatalogItem, 0, len(specs))
+func BuildRouteCatalogItems(specs []RouteSpec) []RouteCatalogItem {
+	items := make([]RouteCatalogItem, 0, len(specs))
 	for _, spec := range specs {
-		items = append(items, HGRouteCatalogItem{
+		items = append(items, RouteCatalogItem{
 			Group:    spec.Group,
 			Method:   spec.Method,
 			Path:     spec.FullPath,
@@ -48,7 +66,7 @@ func BuildRouteCatalogItems(specs []RouteSpec) []HGRouteCatalogItem {
 }
 
 // buildRouteCatalogItems 兼容旧方法名。
-func buildRouteCatalogItems(specs []RouteSpec) []HGRouteCatalogItem {
+func buildRouteCatalogItems(specs []RouteSpec) []RouteCatalogItem {
 	return BuildRouteCatalogItems(specs)
 }
 
@@ -105,3 +123,5 @@ func JoinRoutePath(prefix string, subPath string) string {
 func joinRoutePath(prefix string, subPath string) string {
 	return JoinRoutePath(prefix, subPath)
 }
+
+// endregion
