@@ -37,22 +37,7 @@ type HGAuthService struct {
 	rdb     *redis.Client
 }
 
-// Token 结构定义
-var (
-	AccessTTL  = 15 * time.Minute
-	RefreshTTL = 7 * 24 * time.Hour
-	Secret     = []byte("change-me") //todo：jwt用来签名和验签的对称密钥，token不被修改，通常放在配置中心或者环境变量中，长度 >= 32字节
-)
-
-type HGClaims struct {
-	UserID  string `json:"uid"`
-	Device  string `json:"device"`
-	JTI     string `json:"jti"`
-	TokenTp string `json:"tp"`
-	Role    string `json:"role,omitempty"`
-	jwt.RegisteredClaims
-}
-
+// NewAuthService 创建认证服务。
 func NewAuthService(
 	users *UserRepositoryPackage.UserRepo,
 	codes *UserCachePackage.HGCodeCache,
@@ -63,87 +48,217 @@ func NewAuthService(
 	}
 }
 
-// 生成 Access / Refresh Token
+// Token 结构定义
+var (
+	AccessTTL  = 15 * time.Minute
+	RefreshTTL = 7 * 24 * time.Hour
+	Secret     = []byte("change-me") // jwt 签名密钥，生产环境应从配置中心或环境变量读取
+)
+
+// HGClaims JWT Claims 结构。
+type HGClaims struct {
+	UserID  string `json:"uid"`            // 用户 ID
+	Device  string `json:"device"`         // 设备信息（支持多端登录控制）
+	JTI     string `json:"jti"`            // JWT 唯一 ID（防重放攻击）
+	TokenTp string `json:"tp"`             // Token 类型：access / refresh
+	Role    string `json:"role,omitempty"` // 用户角色
+	jwt.RegisteredClaims
+}
+
+// TokenPair Token 对。
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// randJTI 生成随机的 JWT ID（32 字节十六进制字符串）。
 func randJTI() string {
 	b := make([]byte, 16)
 	rand.Read(b)
-
 	return hex.EncodeToString(b)
 }
 
-// TODO：鉴权改进，使用中大型公司方案：https://www.qianwen.com/share/chat/6712b6ccfeda4307a0d50a3a7e7c9551
-/* 生成Access/Refresh Token */
+// GenerateTokens 生成 Access Token 和 Refresh Token（大厂标准实现）。
+// 参数：
+//   - ctx: 上下文
+//   - rdb: Redis 客户端
+//   - userID: 用户 ID
+//   - device: 设备信息（可选，用于多端登录控制）
+//   - role: 用户角色（可选，默认 "user"）
 func GenerateTokens(
 	ctx context.Context,
 	rdb *redis.Client,
 	userID string,
-) (access, refresh string, err error) {
-	jti := randJTI()
-	now := time.Now()
-
-	claims := HGClaims{
-		UserID: userID, //表示哪个用户
-		JTI:    jti,    // jwt的唯一ID类似UUID，用于防重复攻击
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(now),                // token签发时间
-			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)), //token过期时间
-		},
+	device string,
+	role string,
+) (*TokenPair, error) {
+	if userID == "" {
+		return nil, errors.New("userID 不能为空")
 	}
 
-	// 创建一个jwt对象，使用签名算法HS256，将claims塞进去。，用迷药Secret对JST签名， at 就是 AccessToken
-	at, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
+	if role == "" {
+		role = "user"
+	}
 
-	claims.ExpiresAt = jwt.NewNumericDate(now.Add(RefreshTTL))
-	rt, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
+	now := time.Now()
+	jti := randJTI()
 
-	rdb.Set(
-		ctx,
-		fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti),
-		"1",
-		AccessTTL,
-	)
+	// 生成 Access Token
+	accessClaims := &HGClaims{
+		UserID:  userID,
+		Device:  device,
+		JTI:     jti,
+		TokenTp: "access",
+		Role:    role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessTokenString, err := accessToken.SignedString(Secret)
+	if err != nil {
+		return nil, fmt.Errorf("生成 access token 失败: %w", err)
+	}
 
-	rdb.Set(
-		ctx,
-		fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, userID, jti),
-		"1",
-		RefreshTTL,
-	)
+	// 生成 Refresh Token（使用独立的 JTI）
+	refreshJTI := randJTI()
+	refreshClaims := &HGClaims{
+		UserID:  userID,
+		Device:  device,
+		JTI:     refreshJTI,
+		TokenTp: "refresh",
+		Role:    role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(RefreshTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	refreshTokenString, err := refreshToken.SignedString(Secret)
+	if err != nil {
+		return nil, fmt.Errorf("生成 refresh token 失败: %w", err)
+	}
 
-	return at, rt, nil
+	// 存储 Token 状态到 Redis（用于撤销和黑名单）
+	accessKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti)
+	if err := rdb.Set(ctx, accessKey, "1", AccessTTL).Err(); err != nil {
+		return nil, fmt.Errorf("存储 access token 失败: %w", err)
+	}
+
+	refreshKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, userID, refreshJTI)
+	if err := rdb.Set(ctx, refreshKey, "1", RefreshTTL).Err(); err != nil {
+		return nil, fmt.Errorf("存储 refresh token 失败: %w", err)
+	}
+
+	return &TokenPair{
+		AccessToken:  accessTokenString,
+		RefreshToken: refreshTokenString,
+	}, nil
 }
 
-/* 登录刷新 */
+// RefreshToken 刷新 Access Token（大厂标准实现）。
+// 流程：
+//  1. 验证 Refresh Token 签名和有效期
+//  2. 检查 Redis 中是否存在（未被撤销）
+//  3. 撤销旧的 Refresh Token（一次性使用）
+//  4. 生成新的 Token Pair
 func RefreshToken(
 	ctx context.Context,
 	rdb *redis.Client,
-	refreshToken string,
-) (string, error) {
+	refreshTokenString string,
+) (*TokenPair, error) {
+	if refreshTokenString == "" {
+		return nil, errors.New("refresh token 不能为空")
+	}
+
+	// 1. 解析并验证 Refresh Token
 	claims := &HGClaims{}
-	// 解析一个refreshToken， t为ture表示签名正确，没有篡改
-	t, err := jwt.ParseWithClaims(refreshToken, claims, func(t *jwt.Token) (any, error) {
-		// jwt库验证签名时，会调用这个
-		// 返回用于验证的密钥
+	token, err := jwt.ParseWithClaims(refreshTokenString, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
 		return Secret, nil
 	})
-	if err != nil || !t.Valid {
-		return "", err
+	if err != nil {
+		return nil, fmt.Errorf("refresh token 无效: %w", err)
+	}
+	if !token.Valid {
+		return nil, errors.New("refresh token 已过期")
 	}
 
-	key := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, claims.UserID, claims.JTI)
-	if rdb.Exists(ctx, key).Val() == 0 {
-		return "", errors.New("refresh token 无效")
+	// 2. 验证 Token 类型
+	if claims.TokenTp != "refresh" {
+		return nil, errors.New("token 类型错误，需要 refresh token")
 	}
-	access, _, err := GenerateTokens(ctx, rdb, claims.UserID)
-	return access, err
+
+	// 3. 检查 Redis 中是否存在（未被撤销）
+	refreshKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, claims.UserID, claims.JTI)
+	exists, err := rdb.Exists(ctx, refreshKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("检查 refresh token 状态失败: %w", err)
+	}
+	if exists == 0 {
+		return nil, errors.New("refresh token 已被撤销或不存在")
+	}
+
+	// 4. 撤销旧的 Refresh Token（一次性使用，防止重放攻击）
+	if err := rdb.Del(ctx, refreshKey).Err(); err != nil {
+		return nil, fmt.Errorf("撤销旧 refresh token 失败: %w", err)
+	}
+
+	// 5. 撤销旧的 Access Token
+	oldAccessKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, claims.UserID, claims.JTI)
+	rdb.Del(ctx, oldAccessKey) // 忽略错误，可能已过期
+
+	// 6. 生成新的 Token Pair（继承设备信息和角色）
+	return GenerateTokens(ctx, rdb, claims.UserID, claims.Device, claims.Role)
 }
 
-/* 推出登录【注销】 */
-func Logout(ctx context.Context, rdb *redis.Client, userId int64, jti string) {
-	rdb.Del(ctx,
-		fmt.Sprintf("%s%d:%s", PersistenceRedisPackage.AuthTokenKey, userId, jti),
-		fmt.Sprintf("%s%d:%s", PersistenceRedisPackage.AuthRefreshKey, userId, jti),
-	)
+// Logout 用户登出，撤销所有 Token。
+func Logout(ctx context.Context, rdb *redis.Client, userID string, jti string) error {
+	if userID == "" || jti == "" {
+		return errors.New("userID 和 jti 不能为空")
+	}
+
+	// 撤销 Access Token
+	accessKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti)
+	rdb.Del(ctx, accessKey)
+
+	// 撤销 Refresh Token
+	refreshKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, userID, jti)
+	rdb.Del(ctx, refreshKey)
+
+	return nil
+}
+
+// LogoutAll 撤销用户的所有 Token（强制下线）。
+func LogoutAll(ctx context.Context, rdb *redis.Client, userID string) error {
+	if userID == "" {
+		return errors.New("userID 不能为空")
+	}
+
+	// 删除所有 Access Token
+	accessPattern := fmt.Sprintf("%s%s:*", PersistenceRedisPackage.AuthTokenKey, userID)
+	keys, _ := rdb.Keys(ctx, accessPattern).Result()
+	if len(keys) > 0 {
+		rdb.Del(ctx, keys...)
+	}
+
+	// 删除所有 Refresh Token
+	refreshPattern := fmt.Sprintf("%s%s:*", PersistenceRedisPackage.AuthRefreshKey, userID)
+	keys, _ = rdb.Keys(ctx, refreshPattern).Result()
+	if len(keys) > 0 {
+		rdb.Del(ctx, keys...)
+	}
+
+	return nil
 }
 
 func (s *HGAuthService) SendCodeV2(ctx context.Context, phone, ip string) error {
@@ -180,13 +295,16 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 		s.users.Insert(ctx, user)
 	}
 
-	at, rt, _ := GenerateTokens(ctx, s.rdb, *UtilsPackage.NullStrToPtr(user.UserID))
+	tokenPair, err := GenerateTokens(ctx, s.rdb, *UtilsPackage.NullStrToPtr(user.UserID), "", "user")
+	if err != nil {
+		return nil, fmt.Errorf("生成 token 失败: %w", err)
+	}
 	s.codes.DeleteCode(ctx, phone)
 
 	return &UserDtoPackage.LoginResultDTO{
 		UserID:       user.ID,
-		Token:        at,
-		RefreshToken: rt,
+		Token:        tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	}, nil
 }
 

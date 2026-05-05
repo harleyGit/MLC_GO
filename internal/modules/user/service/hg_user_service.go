@@ -26,11 +26,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 type UserService struct {
@@ -425,82 +423,18 @@ func (s *UserService) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 	}
 
 	// 4. 生成 JWT Token
-	now := time.Now().UTC()
-	jti := uuid.NewString()
-
-	// 生成 Access Token
-	accessClaims := &HGClaims{
-		UserID:  userModel.UserID.String,
-		Device:  req.Device,
-		JTI:     jti,
-		TokenTp: "access",
-		Role:    "user",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "mlc-go",
-			Subject:   "user-token",
-		},
-	}
-	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
-	accessTokenString, err := accessToken.SignedString(Secret)
+	tokenPair, err := GenerateTokens(ctx, PersistenceRedisPackage.RDB, userModel.UserID.String, req.Device, "user")
 	if err != nil {
-		return nil, errors.New("生成 access token 失败")
+		return nil, fmt.Errorf("生成 token 失败: %w", err)
 	}
 
-	// 生成 Refresh Token
-	refreshJTI := uuid.NewString()
-	refreshClaims := &HGClaims{
-		UserID:  userModel.UserID.String,
-		Device:  req.Device,
-		JTI:     refreshJTI,
-		TokenTp: "refresh",
-		Role:    "user",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(RefreshTTL)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "mlc-go",
-			Subject:   "user-token",
-		},
-	}
-	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
-	refreshTokenString, err := refreshToken.SignedString(Secret)
-	if err != nil {
-		return nil, errors.New("生成 refresh token 失败")
-	}
-
-	// 5. 存储 Token 状态到 Redis（用于多端登录控制和 Token 黑名单）
-	// 存储 Access Token
-	accessTokenKey := PersistenceRedisPackage.AuthTokenKey + userModel.UserID.String + ":" + jti
-	s.redisService.SetToRedisV2(accessTokenKey, "1", AccessTTL, ctx)
-
-	// 存储 Refresh Token
-	refreshTokenKey := PersistenceRedisPackage.AuthRefreshKey + userModel.UserID.String + ":" + refreshJTI
-	s.redisService.SetToRedisV2(refreshTokenKey, "1", RefreshTTL, ctx)
-
-	// 设置 Content-Type 废弃
-	// w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
-	// 使用 json.MarshalIndent 生成格式化 JSON
-	//userDto.Token = &signed
-	// 废弃
-	// jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
-	// if err != nil {
-	// 	http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
-
-	// 6. 返回响应
+	// 5. 返回响应
 	return &LoginResponse{
 		UserID:       userModel.UserID.String,
 		UserName:     userModel.Username.String,
 		Nickname:     userModel.Nickname.String,
-		AccessToken:  accessTokenString,
-		RefreshToken: refreshTokenString,
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
 	}, nil
 }
 
