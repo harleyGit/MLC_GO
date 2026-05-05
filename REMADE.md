@@ -805,6 +805,19 @@ myapp/
 > `internal/`:Go的约定，该目录下的代码只能**被本项目引用**，防止被外部项目import；
 > 分层架构：**`Handler → Service → Repository → Model + DB/Cache`**，职责分离，便于测试和维护
 
+```txt
+问题分析：
+1. 职责不清：Handler 层应该只负责 HTTP 请求的解析和响应，不应该包含业务逻辑
+2. 业务逻辑泄露：Login 方法中包含了太多的业务逻辑（JWT 生成、Redis 操作等）
+3. Service 层不完整：UserService 缺少一些方法，比如 Login、SendCode 等
+4. 重复代码：loginHandlerV2、loginHandler 等旧函数与 Login 方法重复
+优化方案：
+1. 将业务逻辑从 Handler 层移到 Service 层
+2. Handler 层只负责请求解析、参数校验、调用 Service、响应返回
+3. Service 层负责业务逻辑、数据处理
+4. Repository 层负责数据访问
+```
+
 <br/><br/>
 
 **设计说明：**

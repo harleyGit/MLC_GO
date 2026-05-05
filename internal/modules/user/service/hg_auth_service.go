@@ -48,7 +48,8 @@ type HGClaims struct {
 	UserID  string `json:"uid"`
 	Device  string `json:"device"`
 	JTI     string `json:"jti"`
-	TokenTp string `json"tp"`
+	TokenTp string `json:"tp"`
+	Role    string `json:"role,omitempty"`
 	jwt.RegisteredClaims
 }
 

@@ -60,7 +60,7 @@ func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
 	redisClient := UserCachePackage.NewCodeCache(deps.RedisService)
 	userCache := UserCachePackage.NewUserCache(deps.RedisService)
 	userRepo := UserRepositoryPackage.NewUserRepo(db)
-	svc := UserServicePackage.NewUserService(userRepo, userCache)
+	svc := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
 	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
 
 	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, svc, tokenService, smsSender)

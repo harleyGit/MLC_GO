@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:54:52
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-04-15 20:44:43
+  - @LastEditTime: 2026-05-05 09:37:46
 
 * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -28,11 +28,15 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type UserService struct {
-	repo      *UserRepositoryPackage.UserRepo //sql逻辑处理
-	userCache *HGUserCachePackage.HGUserCache //缓存处理
+	repo         *UserRepositoryPackage.UserRepo       //sql逻辑处理
+	userCache    *HGUserCachePackage.HGUserCache       //缓存处理
+	redisService *PersistenceRedisPackage.RedisService //redis服务
 }
 
 var (
@@ -42,12 +46,25 @@ var (
 	ErrProfileGenderInvalid = errors.New("gender 仅支持 0/1/2")
 	// ErrProfileBirthDateInvalid 表示出生日期格式不符合约定。
 	ErrProfileBirthDateInvalid = errors.New("birth_date 仅支持 YYYY-MM-DD 或 YYYY-MM")
+	// ErrUserNotFound 表示用户不存在
+	ErrUserNotFound = errors.New("用户不存在")
+	// ErrPasswordIncorrect 表示密码不正确
+	ErrPasswordIncorrect = errors.New("密码不正确")
+	// ErrCodeInvalid 表示验证码无效
+	ErrCodeInvalid = errors.New("验证码无效或已过期")
+	// ErrPhoneOrEmailRequired 表示手机号或邮箱必填
+	ErrPhoneOrEmailRequired = errors.New("手机号或邮箱必填")
 )
 
 func NewUserService(repo *UserRepositoryPackage.UserRepo,
-	userCache *HGUserCachePackage.HGUserCache) *UserService {
+	userCache *HGUserCachePackage.HGUserCache,
+	redisService *PersistenceRedisPackage.RedisService,
+) *UserService {
 
-	return &UserService{repo: repo, userCache: userCache}
+	return &UserService{
+		repo:         repo,
+		userCache:    userCache,
+		redisService: redisService}
 }
 
 func (s *UserService) CreateUser(ctx context.Context, d *UserDtoPackage.HGCreateUserDTO) error {
@@ -343,4 +360,170 @@ func (s *UserService) clearUserListCache(ctx context.Context) {
 	); err != nil {
 		logHG.DebugFInfo("Delete user list page cache err: %v", err)
 	}
+}
+
+// LoginRequest 登录请求参数
+type LoginRequest struct {
+	Phone    *string `json:"phone,omitempty"`
+	Email    *string `json:"email,omitempty"`
+	Code     *string `json:"code,omitempty"`
+	Password *string `json:"password,omitempty"`
+	Device   string  `json:"device,omitempty"`
+}
+
+// LoginResponse 登录响应
+type LoginResponse struct {
+	UserID       string `json:"user_id"`
+	UserName     string `json:"user_name,omitempty"`
+	Nickname     string `json:"nickname,omitempty"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+// Login 用户登录（支持验证码和密码两种方式）
+func (s *UserService) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
+	// 1. 参数校验
+	if UtilsPackage.IsEmpty(req.Phone) && UtilsPackage.IsEmpty(req.Email) {
+		return nil, ErrPhoneOrEmailRequired
+	}
+
+	// 2. 查询用户
+	var account string
+	if !UtilsPackage.IsEmpty(req.Phone) {
+		account = *req.Phone
+	} else {
+		account = *req.Email
+	}
+
+	userModel, err := s.repo.GetByEmailOrPhone(ctx, account)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	// 3. 验证身份（验证码或密码）
+	if UtilsPackage.IsEmpty(req.Code) {
+		// 使用密码登录
+		if UtilsPackage.IsEmpty(req.Password) {
+			return nil, ErrPasswordIncorrect
+		}
+		hashedPassword := utilsPackage.HashPassword(*req.Password, userModel.Salt.String)
+		if hashedPassword != userModel.PasswordHash.String {
+			return nil, ErrPasswordIncorrect
+		}
+	} else {
+		// 使用验证码登录
+		cacheKey := PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, account)
+		val, err := s.redisService.GetFromRedisV2(cacheKey, ctx)
+		if err != nil {
+			return nil, ErrCodeInvalid
+		}
+		if decodeRedisStringValue(val) != *req.Code {
+			return nil, ErrCodeInvalid
+		}
+		// 删除验证码（一次性）
+		s.redisService.DeleteFromRedis(cacheKey, ctx)
+	}
+
+	// 4. 生成 JWT Token
+	now := time.Now().UTC()
+	jti := uuid.NewString()
+
+	// 生成 Access Token
+	accessClaims := &HGClaims{
+		UserID:  userModel.UserID.String,
+		Device:  req.Device,
+		JTI:     jti,
+		TokenTp: "access",
+		Role:    "user",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessTokenString, err := accessToken.SignedString(Secret)
+	if err != nil {
+		return nil, errors.New("生成 access token 失败")
+	}
+
+	// 生成 Refresh Token
+	refreshJTI := uuid.NewString()
+	refreshClaims := &HGClaims{
+		UserID:  userModel.UserID.String,
+		Device:  req.Device,
+		JTI:     refreshJTI,
+		TokenTp: "refresh",
+		Role:    "user",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(RefreshTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	refreshTokenString, err := refreshToken.SignedString(Secret)
+	if err != nil {
+		return nil, errors.New("生成 refresh token 失败")
+	}
+
+	// 5. 存储 Token 状态到 Redis（用于多端登录控制和 Token 黑名单）
+	// 存储 Access Token
+	accessTokenKey := PersistenceRedisPackage.AuthTokenKey + userModel.UserID.String + ":" + jti
+	s.redisService.SetToRedisV2(accessTokenKey, "1", AccessTTL, ctx)
+
+	// 存储 Refresh Token
+	refreshTokenKey := PersistenceRedisPackage.AuthRefreshKey + userModel.UserID.String + ":" + refreshJTI
+	s.redisService.SetToRedisV2(refreshTokenKey, "1", RefreshTTL, ctx)
+
+	// 设置 Content-Type 废弃
+	// w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	// 使用 json.MarshalIndent 生成格式化 JSON
+	//userDto.Token = &signed
+	// 废弃
+	// jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
+	// if err != nil {
+	// 	http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
+	// 	return
+	// }
+
+	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
+
+	// 6. 返回响应
+	return &LoginResponse{
+		UserID:       userModel.UserID.String,
+		UserName:     userModel.Username.String,
+		Nickname:     userModel.Nickname.String,
+		AccessToken:  accessTokenString,
+		RefreshToken: refreshTokenString,
+	}, nil
+}
+
+// SendCodeRequest 发送验证码请求
+type SendCodeRequest struct {
+	Phone string `json:"phone"`
+}
+
+// SendCode 发送验证码
+func (s *UserService) SendCode(ctx context.Context, phone string) (string, error) {
+	if phone == "" {
+		return "", errors.New("手机号不能为空")
+	}
+
+	code := utilsPackage.GenerateRandomNum(6)
+	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(phone)
+
+	// Redis：存验证码（1 分钟）
+	err := s.redisService.SetToRedisV2(key, code, 1*time.Minute, ctx)
+	if err != nil {
+		return "", errors.New("redis error")
+	}
+
+	logHG.DebugFInfo("验证码发送到 phone %s:，验证码： %s， 1分钟过期", phone, code)
+	return code, nil
 }

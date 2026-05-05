@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-21 15:28:45
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-07 20:53:55
+ * @LastEditTime: 2026-05-05 09:38:45
  * @FilePath: /MLC_GO/internal/modules/user/service/hg_user_service_test.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -29,7 +29,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 func TestCreateUser_NullEmail(t *testing.T) {
 	db := setupTestDB(t)
 	repo := UserRepositoryPackage.NewUserRepo(db)
-	svc := NewUserService(repo,nil)
+	svc := NewUserService(repo, nil, nil)
 
 	phone := "13800000000"
 	d := &UserDtoPackage.HGCreateUserDTO{

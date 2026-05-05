@@ -20,17 +20,14 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
-	BaseModelsPackage "MLC_GO/internal/models"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
-	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	"MLC_GO/internal/pkg/logHG"
 	PkgMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"database/sql"
@@ -40,9 +37,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // 验证码响应结构体
@@ -198,38 +192,29 @@ func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Req
 	HGResponsePakcage.SuccessResult(w, r, req)
 }
 
+// SendCode 发送验证码
 func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
-
 	// 从 URL 查询参数中获取 phone
 	phone := r.URL.Query().Get("phone")
 	if phone == "" {
-		http.Error(w, "缺少 phone 参数", http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 phone 参数")
 		return
 	}
-	req := UserDtoPackage.HGCreateUserDTO{
-		Phone: &phone, // 假设结构体中有 Phone 字段
-	}
 
-	ctx := r.Context()
-	code := utilsPackage.GenerateRandomNum(6)
-
-	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(*req.Phone)
-	// Redis：存验证码（5 分钟）
-	err := h.redisService.SetToRedisV2(key, code, 1*time.Minute, ctx)
+	// 调用 Service 层
+	code, err := h.svc.SendCode(r.Context(), phone)
 	if err != nil {
-		http.Error(w, "redis error", 500)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
 		return
 	}
 
 	// 发送短信（Mock / 真实）
-	if err := h.smsSender.Send(*req.Phone, code); err != nil {
-		http.Error(w, "send sms failed", 500)
+	if err := h.smsSender.Send(phone, code); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "发送短信失败")
 		return
 	}
-	req.Code = &code
-	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", *req.Phone, code)
 
-	HGResponsePakcage.SuccessResult(w, r, req)
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"phone": phone, "message": "验证码已发送"})
 }
 
 /* 处理发送验证码的逻辑
@@ -257,147 +242,41 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "验证码已发送"})
 }
 
-/* Login 方法（验证码 + JWT） */
+// Login 用户登录（支持验证码和密码两种方式）
 func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var uid int64 = 1
-	var userModel *UserModelsPackage.HGUserModel
-	var err error
-	var cacheKey string
 
-	var req UserDtoPackage.HGCreateUserDTO
-	bodyV := r.Body
-	jsonV := json.NewDecoder(bodyV)
-	if err := jsonV.Decode(&req); err != nil {
-		http.Error(w, "JSON 解析失败: "+err.Error(), http.StatusBadRequest)
+	var req UserServicePackage.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
 		return
 	}
-	ctx := r.Context()
-	device := PkGDevicePackage.Fingerprint(r)
-	jti := uuid.NewString()
-	// phone := r.FormValue("phone")
-	// email := r.FormValue("email")
-	// code := r.FormValue("code")
-	// password := r.FormValue("password")
 
-	if !UtilsPackage.IsEmpty(req.Phone) {
-		// TODO: key最好放入某个文件中，太分散了
-		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, *req.Phone)
-		userModel, err = h.svc.GetByEmailOrPhone(ctx, *req.Phone)
-	} else if !UtilsPackage.IsEmpty(*req.Email) {
-		cacheKey = PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthLoginVerifyCodekKey, *req.Email)
-		userModel, err = h.svc.GetByEmailOrPhone(ctx, *req.Email)
-	} else {
-		http.Error(w, "phone/code required", http.StatusBadRequest)
-		return
-	}
+	// 设置设备信息
+	req.Device = PkGDevicePackage.Fingerprint(r)
+
+	// 调用 Service 层
+	resp, err := h.svc.Login(r.Context(), &req)
 	if err != nil {
-		// TODO: 这些错误可以常量化，用标准字符串表示
-		http.Error(w, "用户不存在", http.StatusBadRequest)
+		switch err {
+		case UserServicePackage.ErrUserNotFound:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+		case UserServicePackage.ErrPasswordIncorrect:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "密码不正确")
+		case UserServicePackage.ErrCodeInvalid:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码无效或已过期")
+		case UserServicePackage.ErrPhoneOrEmailRequired:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "手机号或邮箱必填")
+		default:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "登录失败: "+err.Error())
+		}
 		return
 	}
 
-	if UtilsPackage.IsEmpty(req.Code) { // 使用密码
-		hashedPassword := utilsPackage.HashPassword(req.Password, userModel.Salt.String)
-		if hashedPassword != userModel.PasswordHash.String {
-			http.Error(w, "密码不正确", http.StatusBadRequest)
-			return
-		}
-	} else { // 若是使用验证码
-		// 校验验证码
-		val, err := h.redisService.GetFromRedisV2(cacheKey, ctx)
-		if err != nil {
-			http.Error(w, "invalid code", http.StatusUnauthorized)
-			return
-		}
-		if decodeRedisStringValue(val) != *req.Code {
-			http.Error(w, "invalid code", http.StatusUnauthorized)
-			return
-		}
-		// 删除验证码（一次性）
-		h.redisService.DeleteFromRedis(cacheKey, ctx)
-	}
-
-	now := time.Now().UTC()
-	userDto := UserMapperPackage.UserModelToDTO(userModel)
-	claims := &UserServicePackage.HGClaims{
-		UserID:  *userDto.UserID,
-		Device:  device,
-		JTI:     jti,
-		TokenTp: "access",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * 60 * time.Minute)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "mlc-go",
-			Subject:   "user-token",
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString([]byte(UserServicePackage.Secret))
-	userMap := BaseModelsPackage.ModelToMap(userDto)
-	userMap["access_token"] = signed
-
-	// 🌟🌟🌟 关键点：写入 Redis 多端设备登录控制 // TODO: 简化下，不要这个地方太多套了过多层调用
-	h.tokenService.Store(ctx,
-		uid,
-		device,
-		jti,
-		15*time.Minute)
-
-	/** 刷新token生成
-	        refreshClaims := &UserServicePackage.HGClaims{
-			UserID:  1,
-			Device:  PkGDevicePackage.Fingerprint(r), //r.UserAgent(),
-			JTI:     uuid.NewString(),                //TODO:看看怎么产生的 比如：
-			TokenTp: "refresh",
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-				NotBefore: jwt.NewNumericDate(time.Now()),
-				Issuer:    "mlc-go",
-				Subject:   "user-token",
-			},
-		}
-
-			  refreshToken, err := jwt.NewWithClaims(
-		        jwt.SigningMethodHS256,
-		        refreshClaims,
-		    ).SignedString(s.secret)
-		    if err != nil {
-		        return nil, err
-		    }
-
-		    // -------- Refresh Token 状态入 Redis --------
-		    key := "refresh:" + refreshJTI
-
-		    if err := s.rdb.Set(
-		        ctx,
-		        key,
-		        userID,
-		        s.refreshTTL,
-		    ).Err(); err != nil {
-		        return nil, err
-		    }
-	*/
-
-	// 设置 Content-Type 废弃
-	// w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
-	// 使用 json.MarshalIndent 生成格式化 JSON
-	userDto.Token = &signed
-	// 废弃
-	// jsonBytes, err := json.MarshalIndent(userDto, "", "  ") // "" = 前缀，"  " = 每级缩进两个空格
-	// if err != nil {
-	// 	http.Error(w, "JSON 编码失败", http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// HGResponsePakcage.WriteJSON(w, r, userDto) // TODO:后面用下面的这个
-	HGResponsePakcage.SuccessResult(w, r, userDto)
+	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
 // decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
