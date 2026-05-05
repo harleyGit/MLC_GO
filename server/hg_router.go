@@ -83,6 +83,14 @@ func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
 			},
 			NeedAuth: false,
 		},
+		{
+			Path:    "/refresh",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
 	}
 }
 

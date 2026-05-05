@@ -303,6 +303,51 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// RefreshTokenRequest 刷新 Token 请求。
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
+// RefreshTokenResponse 刷新 Token 响应。
+type RefreshTokenResponse struct {
+	AccessToken  string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
+}
+
+// RefreshToken 刷新 Access Token。
+// 接口：POST /api/v1/auth/refresh
+// Body: {"refreshToken": "xxx"}
+func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RefreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
+		return
+	}
+
+	if req.RefreshToken == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "refreshToken 不能为空")
+		return
+	}
+
+	// 调用 Service 层刷新 Token
+	tokenPair, err := UserServicePackage.RefreshToken(r.Context(), PersistenceRedisPackage.RDB, req.RefreshToken)
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "刷新 Token 失败: "+err.Error())
+		return
+	}
+
+	// 返回新的 Token Pair
+	HGResponsePakcage.SuccessResult(w, r, RefreshTokenResponse{
+		AccessToken:  tokenPair.AccessToken,
+		RefreshToken: tokenPair.RefreshToken,
+	})
+}
+
 // decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
 func decodeRedisStringValue(v string) string {
 	var code string

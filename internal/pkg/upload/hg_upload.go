@@ -36,12 +36,25 @@ const (
 // UploadConfig 上传配置。
 type UploadConfig struct {
 	MaxFileSize  int64    // 最大文件大小（字节）
-	UploadDir    string   // 上传目录
+	UploadDir    string   // 上传目录（本地存储时使用）
 	AllowedTypes []string // 允许的图片类型
 	BaseURL      string   // 基础 URL，如 https://api.example.com
+
+	// 对象存储配置（生产环境使用）
+	StorageType string // 存储类型：local / oss / s3
+	OSSConfig   *OSSConfig
 }
 
-// DefaultConfig 返回默认配置。
+// OSSConfig 阿里云 OSS 配置。
+type OSSConfig struct {
+	Endpoint        string // OSS 端点
+	AccessKeyID     string // AccessKey ID
+	AccessKeySecret string // AccessKey Secret
+	BucketName      string // Bucket 名称
+	CDNDomain       string // CDN 域名（可选）
+}
+
+// DefaultConfig 返回默认配置（本地存储）。
 func DefaultConfig() UploadConfig {
 	return UploadConfig{
 		MaxFileSize: DefaultMaxFileSize,
@@ -53,7 +66,8 @@ func DefaultConfig() UploadConfig {
 			ImageTypeGIF,
 			ImageTypeWebP,
 		},
-		BaseURL: "http://localhost:8080", // 默认值，生产环境应配置为 HTTPS
+		BaseURL:     "http://localhost:8080",
+		StorageType: "local",
 	}
 }
 
@@ -64,11 +78,10 @@ func DefaultConfig() UploadConfig {
 // UploadResult 上传结果。
 type UploadResult struct {
 	FileName string `json:"fileName"` // 文件名
-	FilePath string `json:"filePath"` // 文件路径
-	FileURL  string `json:"fileURL"`  // 访问 URL
+	FilePath string `json:"filePath"` // 文件路径（本地存储时使用）
+	FileURL  string `json:"fileURL"`  // 访问 URL（CDN URL）
 	FileSize int64  `json:"fileSize"` // 文件大小
 	IsNew    bool   `json:"isNew"`    // 是否新上传
-	OldFile  string `json:"oldFile"`  // 旧文件路径（如果有）
 }
 
 // endregion
@@ -114,19 +127,152 @@ func GenerateFileName(moduleName string, ext string) string {
 
 // endregion
 
+// region 存储接口
+
+// StorageDriver 存储驱动接口。
+type StorageDriver interface {
+	// Upload 上传文件，返回访问 URL。
+	Upload(data []byte, key string, contentType string) (string, error)
+	// Delete 删除文件。
+	Delete(key string) error
+	// GetURL 获取文件访问 URL。
+	GetURL(key string) string
+}
+
+// endregion
+
+// region 本地存储驱动
+
+// LocalStorageDriver 本地存储驱动（开发环境使用）。
+type LocalStorageDriver struct {
+	baseURL   string
+	uploadDir string
+}
+
+// NewLocalStorageDriver 创建本地存储驱动。
+func NewLocalStorageDriver(baseURL, uploadDir string) *LocalStorageDriver {
+	return &LocalStorageDriver{
+		baseURL:   baseURL,
+		uploadDir: uploadDir,
+	}
+}
+
+// Upload 上传文件到本地磁盘。
+func (d *LocalStorageDriver) Upload(data []byte, key string, contentType string) (string, error) {
+	// 创建目录
+	dir := filepath.Dir(filepath.Join(d.uploadDir, key))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create dir failed: %w", err)
+	}
+
+	// 保存文件
+	filePath := filepath.Join(d.uploadDir, key)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return "", fmt.Errorf("write file failed: %w", err)
+	}
+
+	// 返回访问 URL
+	return d.baseURL + "/uploads/" + key, nil
+}
+
+// Delete 删除本地文件。
+func (d *LocalStorageDriver) Delete(key string) error {
+	filePath := filepath.Join(d.uploadDir, key)
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// GetURL 获取本地文件访问 URL。
+func (d *LocalStorageDriver) GetURL(key string) string {
+	return d.baseURL + "/uploads/" + key
+}
+
+// endregion
+
+// region OSS 存储驱动
+
+// OSSStorageDriver 阿里云 OSS 存储驱动（生产环境使用）。
+// 注意：实际使用需要引入阿里云 OSS SDK
+// go get github.com/aliyun/aliyun-oss-go-sdk/oss
+type OSSStorageDriver struct {
+	config *OSSConfig
+}
+
+// NewOSSStorageDriver 创建 OSS 存储驱动。
+func NewOSSStorageDriver(config *OSSConfig) *OSSStorageDriver {
+	return &OSSStorageDriver{config: config}
+}
+
+// Upload 上传文件到 OSS。
+// 注意：这里只是示例，实际需要使用阿里云 OSS SDK
+func (d *OSSStorageDriver) Upload(data []byte, key string, contentType string) (string, error) {
+	// TODO: 实际实现需要使用阿里云 OSS SDK
+	// client, err := oss.New(d.config.Endpoint, d.config.AccessKeyID, d.config.AccessKeySecret)
+	// if err != nil {
+	//     return "", err
+	// }
+	// bucket, err := client.Bucket(d.config.BucketName)
+	// if err != nil {
+	//     return "", err
+	// }
+	// err = bucket.PutObject(key, bytes.NewReader(data), oss.ContentType(contentType))
+	// if err != nil {
+	//     return "", err
+	// }
+	// return d.GetURL(key), nil
+
+	return d.GetURL(key), nil
+}
+
+// Delete 删除 OSS 文件。
+func (d *OSSStorageDriver) Delete(key string) error {
+	// TODO: 实际实现需要使用阿里云 OSS SDK
+	return nil
+}
+
+// GetURL 获取 OSS 文件访问 URL。
+func (d *OSSStorageDriver) GetURL(key string) string {
+	if d.config.CDNDomain != "" {
+		return fmt.Sprintf("https://%s/%s", d.config.CDNDomain, key)
+	}
+	return fmt.Sprintf("https://%s.%s/%s", d.config.BucketName, d.config.Endpoint, key)
+}
+
+// endregion
+
 // region 上传器
 
 // Uploader 文件上传器。
 type Uploader struct {
-	config UploadConfig
+	config  UploadConfig
+	storage StorageDriver
 }
 
 // NewUploader 创建上传器。
 func NewUploader(config UploadConfig) *Uploader {
-	return &Uploader{config: config}
+	var storage StorageDriver
+
+	switch config.StorageType {
+	case "oss":
+		if config.OSSConfig != nil {
+			storage = NewOSSStorageDriver(config.OSSConfig)
+		} else {
+			logHG.ErrFInfo("OSS config is nil, fallback to local storage")
+			storage = NewLocalStorageDriver(config.BaseURL, config.UploadDir)
+		}
+	default:
+		storage = NewLocalStorageDriver(config.BaseURL, config.UploadDir)
+	}
+
+	return &Uploader{
+		config:  config,
+		storage: storage,
+	}
 }
 
-// NewDefaultUploader 创建默认上传器。
+// NewDefaultUploader 创建默认上传器（本地存储）。
 func NewDefaultUploader() *Uploader {
 	return NewUploader(DefaultConfig())
 }
@@ -138,136 +284,22 @@ func NewUploaderWithBaseURL(baseURL string) *Uploader {
 	return NewUploader(config)
 }
 
-// UploadSingle 上传单个文件。
-func (u *Uploader) UploadSingle(fileHeader *multipart.FileHeader, moduleName string) (*UploadResult, error) {
-	results, err := u.UploadMultiple([]*multipart.FileHeader{fileHeader}, moduleName)
-	if err != nil {
-		logHG.ErrFInfo("上传文件失败: %v", err.Error())
-		return nil, err
+// NewOSSUploader 创建 OSS 上传器（生产环境使用）。
+func NewOSSUploader(config *OSSConfig) *Uploader {
+	uploadConfig := UploadConfig{
+		MaxFileSize: DefaultMaxFileSize,
+		AllowedTypes: []string{
+			ImageTypeJPG,
+			ImageTypeJPEG,
+			ImageTypePNG,
+			ImageTypeGIF,
+			ImageTypeWebP,
+		},
+		StorageType: "oss",
+		OSSConfig:   config,
 	}
-	return results[0], nil
+	return NewUploader(uploadConfig)
 }
-
-// UploadMultiple 上传多个文件。
-func (u *Uploader) UploadMultiple(fileHeaders []*multipart.FileHeader, moduleName string) ([]*UploadResult, error) {
-	if len(fileHeaders) == 0 {
-		logHG.ErrFInfo("上传多个图片失败 no files provided")
-		return nil, fmt.Errorf("no files provided")
-	}
-
-	results := make([]*UploadResult, 0, len(fileHeaders))
-
-	for _, fileHeader := range fileHeaders {
-		result, err := u.uploadOne(fileHeader, moduleName)
-		if err != nil {
-			// 上传失败，清理已上传的文件
-			for _, r := range results {
-				os.Remove(r.FilePath)
-			}
-			return nil, err
-		}
-		results = append(results, result)
-	}
-
-	return results, nil
-}
-
-// uploadOne 上传单个文件内部实现。
-func (u *Uploader) uploadOne(fileHeader *multipart.FileHeader, moduleName string) (*UploadResult, error) {
-	// 1. 检查文件大小
-	if fileHeader.Size > u.config.MaxFileSize {
-		return nil, fmt.Errorf("file size %d exceeds max %d", fileHeader.Size, u.config.MaxFileSize)
-	}
-
-	// 2. 检查文件类型
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(fileHeader.Filename), "."))
-	if !u.isAllowedType(ext) {
-		return nil, fmt.Errorf("file type %s not allowed", ext)
-	}
-
-	// 3. 生成文件名
-	fileName := GenerateFileName(moduleName, ext)
-
-	// 4. 创建上传目录
-	uploadDir := filepath.Join(u.config.UploadDir, moduleName)
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		return nil, fmt.Errorf("create upload dir failed: %w", err)
-	}
-
-	// 5. 构建文件路径
-	filePath := filepath.Join(uploadDir, fileName)
-
-	// 6. 保存文件
-	if err := u.saveFile(fileHeader, filePath); err != nil {
-		return nil, fmt.Errorf("save file failed: %w", err)
-	}
-
-	// 7. 构建完整访问 URL（HTTPS）
-	// 格式：https://api.example.com/uploads/user/hg_user_20260505183045_001.jpg
-	relativeURL := fmt.Sprintf("/uploads/%s/%s", moduleName, fileName)
-	fileURL := u.config.BaseURL + relativeURL
-
-	return &UploadResult{
-		FileName: fileName,
-		FilePath: filePath,
-		FileURL:  fileURL,
-		FileSize: fileHeader.Size,
-		IsNew:    true,
-	}, nil
-}
-
-// isAllowedType 检查文件类型是否允许。
-func (u *Uploader) isAllowedType(ext string) bool {
-	for _, allowed := range u.config.AllowedTypes {
-		if strings.EqualFold(ext, allowed) {
-			return true
-		}
-	}
-	return false
-}
-
-// saveFile 保存文件。
-func (u *Uploader) saveFile(fileHeader *multipart.FileHeader, filePath string) error {
-	src, err := fileHeader.Open()
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-
-	dst, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	_, err = io.Copy(dst, src)
-	return err
-}
-
-// endregion
-
-// region 文件检查
-
-// CheckFileExists 检查文件是否存在。
-func CheckFileExists(filePath string) bool {
-	_, err := os.Stat(filePath)
-	return err == nil
-}
-
-// DeleteFile 删除文件。
-func DeleteFile(filePath string) error {
-	if filePath == "" {
-		return nil
-	}
-	if !CheckFileExists(filePath) {
-		return nil
-	}
-	return os.Remove(filePath)
-}
-
-// endregion
-
-// region 二进制数据上传
 
 // UploadFromBytes 从二进制数据上传文件。
 func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (*UploadResult, error) {
@@ -281,34 +313,82 @@ func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (
 		return nil, fmt.Errorf("file type %s not allowed", ext)
 	}
 
-	// 3. 生成文件名
+	// 3. 生成文件名和对象键
 	fileName := GenerateFileName(moduleName, ext)
+	key := fmt.Sprintf("%s/%s", moduleName, fileName)
 
-	// 4. 创建上传目录
-	uploadDir := filepath.Join(u.config.UploadDir, moduleName)
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		return nil, fmt.Errorf("create upload dir failed: %w", err)
+	// 4. 确定 Content-Type
+	contentType := getContentType(ext)
+
+	// 5. 上传到存储
+	fileURL, err := u.storage.Upload(data, key, contentType)
+	if err != nil {
+		return nil, fmt.Errorf("upload failed: %w", err)
 	}
-
-	// 5. 构建文件路径
-	filePath := filepath.Join(uploadDir, fileName)
-
-	// 6. 保存文件
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return nil, fmt.Errorf("save file failed: %w", err)
-	}
-
-	// 7. 构建完整访问 URL（HTTPS）
-	relativeURL := fmt.Sprintf("/uploads/%s/%s", moduleName, fileName)
-	fileURL := u.config.BaseURL + relativeURL
 
 	return &UploadResult{
 		FileName: fileName,
-		FilePath: filePath,
+		FilePath: key,
 		FileURL:  fileURL,
 		FileSize: int64(len(data)),
 		IsNew:    true,
 	}, nil
+}
+
+// UploadSingle 上传单个文件。
+func (u *Uploader) UploadSingle(fileHeader *multipart.FileHeader, moduleName string) (*UploadResult, error) {
+	// 读取文件内容
+	src, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open file failed: %w", err)
+	}
+	defer src.Close()
+
+	data, err := io.ReadAll(src)
+	if err != nil {
+		return nil, fmt.Errorf("read file failed: %w", err)
+	}
+
+	// 获取文件扩展名
+	ext := GetFileExt(fileHeader.Filename)
+
+	return u.UploadFromBytes(data, moduleName, ext)
+}
+
+// DeleteFile 删除文件。
+func (u *Uploader) DeleteFile(key string) error {
+	return u.storage.Delete(key)
+}
+
+// isAllowedType 检查文件类型是否允许。
+func (u *Uploader) isAllowedType(ext string) bool {
+	for _, allowed := range u.config.AllowedTypes {
+		if strings.EqualFold(ext, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+// endregion
+
+// region 辅助函数
+
+// CheckFileExists 检查文件是否存在（本地存储时使用）。
+func CheckFileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return err == nil
+}
+
+// DeleteFile 删除文件（本地存储时使用）。
+func DeleteFile(filePath string) error {
+	if filePath == "" {
+		return nil
+	}
+	if !CheckFileExists(filePath) {
+		return nil
+	}
+	return os.Remove(filePath)
 }
 
 // GetFileExt 获取文件扩展名。
@@ -320,38 +400,20 @@ func GetFileExt(filename string) string {
 	return strings.TrimPrefix(ext, ".")
 }
 
-// endregion
-
-// region 图片去重检查
-
-// ImageDeduplicator 图片去重器，检查图片是否已存在。
-type ImageDeduplicator struct {
-	uploadDir string
-}
-
-// NewImageDeduplicator 创建图片去重器。
-func NewImageDeduplicator(uploadDir string) *ImageDeduplicator {
-	return &ImageDeduplicator{uploadDir: uploadDir}
-}
-
-// FindExistingImage 查找已存在的图片（基于文件内容哈希）。
-// 这里简化实现，基于文件名前缀查找。
-func (d *ImageDeduplicator) FindExistingImage(moduleName string, userID string) (string, bool) {
-	dir := filepath.Join(d.uploadDir, moduleName)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return "", false
+// getContentType 根据扩展名获取 Content-Type。
+func getContentType(ext string) string {
+	switch strings.ToLower(ext) {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "gif":
+		return "image/gif"
+	case "webp":
+		return "image/webp"
+	default:
+		return "application/octet-stream"
 	}
-
-	// 查找用户相关的图片
-	pattern := filepath.Join(dir, fmt.Sprintf("hg_%s_*", moduleName))
-	matches, _ := filepath.Glob(pattern)
-
-	// 返回第一个匹配的文件
-	for _, match := range matches {
-		return match, true
-	}
-
-	return "", false
 }
 
 // endregion

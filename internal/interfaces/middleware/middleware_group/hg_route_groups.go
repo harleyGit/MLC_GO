@@ -89,6 +89,7 @@ func authRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 			NewRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_code", false, "发送登录/注册验证码", nil),
 			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", nil),
 			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", nil),
+			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/refresh", false, "刷新 Token", nil),
 		}
 	}
 
@@ -96,6 +97,7 @@ func authRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 		NewRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_code", false, "发送登录/注册验证码", userHandler.SendCode),
 		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", userHandler.RegisterHandlerV3),
 		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", userHandler.Login),
+		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/refresh", false, "刷新 Token", userHandler.RefreshToken),
 	}
 }
 
