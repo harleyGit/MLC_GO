@@ -2,35 +2,23 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-05 08:26:58
+ * @LastEditTime: 2026-05-05 10:30:00
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ * @Description: 根路由处理器，支持模块自注册模式
  */
 package HGHandlerPackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
-	HGSMSPackage "MLC_GO/internal/modules/sms"
-	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
-	UserCachePackage "MLC_GO/internal/modules/user/cache"
-	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
-	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
-	UserServicePackage "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
 	"sort"
 )
 
-// HGRootHandlerDeps 统一承载 Root 路由装配所需依赖，避免入口函数参数持续膨胀。
-type HGRootHandlerDeps struct {
-	RedisService *PersistenceRedisPackage.RedisService
-	SQLManager   *PersistenceSQLPackage.HGSQLManager
-	SMSSender    HGSMSPackage.HGSender
-}
+const routeCatalogPath = "/api/v1/routes"
+const routeCatalogGroupsPath = "/api/v1/routes/groups"
 
 // HGRouteMount 定义一个模块路由挂载点，便于按模块扩展和统一管理前缀策略。
 type HGRouteMount struct {
@@ -39,96 +27,55 @@ type HGRouteMount struct {
 	Handler     http.Handler
 }
 
-const routeCatalogPath = "/api/v1/routes"
-const routeCatalogGroupsPath = "/api/v1/routes/groups"
-
 /*
 	若是使用路由可以使用httprouter库，gin它们底层用的都是它。
 */
-// NewRootHandler 负责构建根路由，仅挂载 /api/v1 前缀的模块路由。
-func NewRootHandler(deps HGRootHandlerDeps) *http.ServeMux {
+// NewRootHandler 负责构建根路由，从模块注册表中获取所有模块并挂载。
+func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem) *http.ServeMux {
 	// 根路由只负责挂载模块路由，具体路径由各模块定义，确保模块内路径清晰且不受外层变动影响。
 	rootMux := http.NewServeMux()
 
-	smsSender := deps.SMSSender
-	if smsSender == nil {
-		smsSender = HGSMSPackage.NewMockSender()
+	// 从注册表获取所有模块并挂载路由
+	mounts := make([]HGRouteMount, 0, 8)
+	for _, mod := range GetRegisteredModules() {
+		mounts = append(mounts, HGRouteMount{
+			Prefix:      mod.BasePath() + "/",
+			StripPrefix: mod.BasePath(),
+			Handler:     mod.Handler(),
+		})
 	}
+	registerRootPrefixRoutes(rootMux, mounts)
 
-	// 依赖注入：创建 Repository、Cache、Service，然后注入到 Handler
-	db := deps.SQLManager.GetSQLDB()
-	redisClient := UserCachePackage.NewCodeCache(deps.RedisService)
-	userCache := UserCachePackage.NewUserCache(deps.RedisService)
-	userRepo := UserRepositoryPackage.NewUserRepo(db)
-	svc := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
-	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
-
-	userHandler := UserHandlerPackage.NewUserHandler(deps.RedisService, svc, tokenService, smsSender)
-	publicHandler := HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(userHandler)
-	userHandlerWithAuth := HGMiddlewareGroupPackage.NewUserRouteInterceptorGroup(userHandler)
-
-	testHandler := HGTestHandlerPackage.TestModuleHandler()
 	// API 调用路径清单
-	routeCatalog := buildRouteCatalog()
+	catalog := routeCatalogs
+	// 添加元数据路由（路由清单接口）
+	catalog = appendMetaRoutes(catalog)
 	// 按模块分组
-	routeCatalogGrouped := buildRouteCatalogGrouped(routeCatalog)
+	catalogGrouped := buildRouteCatalogGrouped(catalog)
 
-	// 挂载模块路由
-	registerRootPrefixRoutes(rootMux, []HGRouteMount{
-		// 统一前缀，便于网关治理与版本演进
-		{
-			Prefix:      HGMiddlewareGroupPackage.AuthModuleBasePath + "/",
-			StripPrefix: HGMiddlewareGroupPackage.AuthModuleBasePath,
-			Handler:     publicHandler,
-		},
-		{
-			Prefix:      HGMiddlewareGroupPackage.UserProfileModuleBasePath + "/",
-			StripPrefix: HGMiddlewareGroupPackage.UserProfileModuleBasePath,
-			Handler:     userHandlerWithAuth,
-		},
-		{
-			Prefix:      HGTestHandlerPackage.TestModuleBasePath + "/",
-			StripPrefix: HGTestHandlerPackage.TestModuleBasePath,
-			Handler:     testHandler,
-		},
-	})
 	// rootMux.Handle 注册路由清单接口
 	// 可以没有，但有了更方便
 	// 没有路由清单的情况
 	// 后端写好接口 → 前端开发人员问"有哪些接口？" → 后端口头告诉 / 写文档
-	rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(routeCatalog)))
-	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(routeCatalogGrouped)))
+	rootMux.Handle(routeCatalogPath, buildRouteCatalogHandler(newRouteCatalogHandler(catalog)))
+	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(catalogGrouped)))
 
 	// 启动时打印路由清单
-	logRouteCatalog(routeCatalog)
+	logRouteCatalog(catalog)
 
 	return rootMux
 }
 
-// registerRootPrefixRoutes 统一处理前缀挂载，确保各模块的 strip-prefix 行为一致。
-func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
-	for _, mount := range mounts {
-		if mount.Handler == nil || mount.Prefix == "" || mount.StripPrefix == "" {
-			continue
-		}
-		rootMux.Handle(mount.Prefix, http.StripPrefix(mount.StripPrefix, mount.Handler))
-	}
-}
-
-// buildRouteCatalog 汇总完整 API 调用路径清单，供 App/Web 联调用。
-func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
-	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
-	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
-	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
-	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
-	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
+// appendMetaRoutes 添加元数据路由（路由清单接口）。
+func appendMetaRoutes(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) []HGMiddlewareGroupPackage.HGRouteCatalogItem {
+	catalog = append(catalog, HGMiddlewareGroupPackage.HGRouteCatalogItem{
 		Group:    "meta",
 		Method:   http.MethodGet,
 		Path:     routeCatalogPath,
 		NeedAuth: false,
 		Summary:  "查看完整 API 路由清单",
 	})
-	items = append(items, HGMiddlewareGroupPackage.HGRouteCatalogItem{
+	catalog = append(catalog, HGMiddlewareGroupPackage.HGRouteCatalogItem{
 		Group:    "meta",
 		Method:   http.MethodGet,
 		Path:     routeCatalogGroupsPath,
@@ -139,17 +86,27 @@ func buildRouteCatalog() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	// sort.Slice` 是 Go 标准库的排序函数：
 	// 参数 1：要排序的切片
 	// 参数 2：比较函数，返回 `true` 表示 `i` 应该排在 `j` 前面
-	sort.Slice(items, func(i, j int) bool {
+	sort.Slice(catalog, func(i, j int) bool {
 		// 第一步：先按 Path 排序
-		if items[i].Path == items[j].Path {
+		if catalog[i].Path == catalog[j].Path {
 			// 第二步：Path 相同时，按 Method 排序
-			return items[i].Method < items[j].Method
+			return catalog[i].Method < catalog[j].Method
 		}
 		// 默认：按 Path 字母顺序排序
-		return items[i].Path < items[j].Path
+		return catalog[i].Path < catalog[j].Path
 	})
 
-	return items
+	return catalog
+}
+
+// registerRootPrefixRoutes 统一处理前缀挂载，确保各模块的 strip-prefix 行为一致。
+func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
+	for _, mount := range mounts {
+		if mount.Handler == nil || mount.Prefix == "" || mount.StripPrefix == "" {
+			continue
+		}
+		rootMux.Handle(mount.Prefix, http.StripPrefix(mount.StripPrefix, mount.Handler))
+	}
 }
 
 /*

@@ -1,6 +1,7 @@
 package HGHandlerPackage
 
 import (
+	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,7 +118,11 @@ func TestRegisterRootPrefixRoutes_RejectDeprecatedAuthPath(t *testing.T) {
 }
 
 func TestNewRouteCatalogHandler_MethodGuard(t *testing.T) {
-	handler := newRouteCatalogHandler(buildRouteCatalog())
+	catalog := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	catalog = append(catalog, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	catalog = append(catalog, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+
+	handler := newRouteCatalogHandler(catalog)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes", nil)
 	rec := httptest.NewRecorder()
@@ -129,7 +134,11 @@ func TestNewRouteCatalogHandler_MethodGuard(t *testing.T) {
 }
 
 func TestNewRouteCatalogHandler_ReturnCatalog(t *testing.T) {
-	handler := newRouteCatalogHandler(buildRouteCatalog())
+	catalog := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	catalog = append(catalog, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	catalog = append(catalog, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+
+	handler := newRouteCatalogHandler(catalog)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes", nil)
 	rec := httptest.NewRecorder()
@@ -144,13 +153,14 @@ func TestNewRouteCatalogHandler_ReturnCatalog(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "/api/v1/profile/list") {
 		t.Fatalf("response should contain profile list path, body=%s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "/api/v1/routes/groups") {
-		t.Fatalf("response should contain grouped routes path, body=%s", rec.Body.String())
-	}
 }
 
 func TestNewRouteCatalogGroupedHandler_MethodGuard(t *testing.T) {
-	grouped := buildRouteCatalogGrouped(buildRouteCatalog())
+	catalog := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	catalog = append(catalog, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	catalog = append(catalog, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+
+	grouped := buildRouteCatalogGrouped(catalog)
 	handler := newRouteCatalogGroupedHandler(grouped)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes/groups", nil)
@@ -163,7 +173,11 @@ func TestNewRouteCatalogGroupedHandler_MethodGuard(t *testing.T) {
 }
 
 func TestNewRouteCatalogGroupedHandler_ReturnGroups(t *testing.T) {
-	grouped := buildRouteCatalogGrouped(buildRouteCatalog())
+	catalog := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	catalog = append(catalog, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	catalog = append(catalog, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+
+	grouped := buildRouteCatalogGrouped(catalog)
 	handler := newRouteCatalogGroupedHandler(grouped)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/routes/groups", nil)

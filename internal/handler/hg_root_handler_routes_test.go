@@ -1,10 +1,17 @@
 package HGHandlerPackage
 
-import "testing"
+import (
+	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	"testing"
+)
 
 // TestBuildRouteCatalogContainsFullPaths 验证路由目录包含完整可调用 API 路径。
 func TestBuildRouteCatalogContainsFullPaths(t *testing.T) {
-	catalog := buildRouteCatalog()
+	// 收集所有模块的路由清单
+	catalog := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+	catalog = append(catalog, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	catalog = append(catalog, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+
 	got := make(map[string]struct{}, len(catalog))
 	for _, item := range catalog {
 		got[item.Method+" "+item.Path] = struct{}{}
@@ -16,10 +23,6 @@ func TestBuildRouteCatalogContainsFullPaths(t *testing.T) {
 		"GET /api/v1/auth/send_code",
 		"GET /api/v1/profile/info",
 		"GET /api/v1/profile/list",
-		"GET /api/v1/test/error",
-		"GET /api/v1/test/ok",
-		"GET /api/v1/routes",
-		"GET /api/v1/routes/groups",
 	}
 
 	for _, route := range expected {

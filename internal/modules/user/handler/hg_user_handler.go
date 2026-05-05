@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-05-04 16:18:04
+  - @LastEditTime: 2026-05-05 17:01:49
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -21,9 +21,11 @@ import (
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	PresentersPackage "MLC_GO/internal/interfaces/presenters"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
+	UserCachePackage "MLC_GO/internal/modules/user/cache"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
+	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	"MLC_GO/internal/pkg/logHG"
@@ -51,6 +53,13 @@ type loginReqModel struct {
 	Password string `json:"password"`
 }
 
+// UserHandlerDeps 用户处理器依赖
+type UserHandlerDeps struct {
+	RedisService *PersistenceRedisPackage.RedisService
+	SQLManager   *PersistenceSQLPackage.HGSQLManager
+	SMSSender    HGSMSPackage.HGSender
+}
+
 type UserHandler struct {
 	redisService *PersistenceRedisPackage.RedisService
 	svc          *UserServicePackage.UserService
@@ -64,15 +73,26 @@ var (
 	userAutoID  int64 = 1                                               // 模拟自增用户ID
 )
 
-// NewUserHandler 创建用户处理器，依赖注入 Service 层
-func NewUserHandler(
-	redisService *PersistenceRedisPackage.RedisService,
-	svc *UserServicePackage.UserService,
-	tokenService *UserServicePackage.HGAuthService,
-	smsSender HGSMSPackage.HGSender,
-) *UserHandler {
+// NewUserHandler 创建用户处理器，内部创建所有依赖
+func NewUserHandler(deps UserHandlerDeps) *UserHandler {
+	// 创建基础设施依赖
+	db := deps.SQLManager.GetSQLDB()
+	redisClient := UserCachePackage.NewCodeCache(deps.RedisService)
+	userCache := UserCachePackage.NewUserCache(deps.RedisService)
+	userRepo := UserRepositoryPackage.NewUserRepo(db)
+
+	// 创建 Service 层
+	svc := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
+	tokenService := UserServicePackage.NewAuthService(userRepo, redisClient)
+
+	// 处理 SMS Sender
+	smsSender := deps.SMSSender
+	if smsSender == nil {
+		smsSender = HGSMSPackage.NewMockSender()
+	}
+
 	return &UserHandler{
-		redisService: redisService,
+		redisService: deps.RedisService,
 		svc:          svc,
 		tokenService: tokenService,
 		smsSender:    smsSender,
@@ -214,7 +234,7 @@ func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	HGResponsePakcage.SuccessResult(w, r, map[string]string{"phone": phone, "message": "验证码已发送"})
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"phone": phone, "message": "验证码已发送", "verifyCode": code})
 }
 
 /* 处理发送验证码的逻辑

@@ -6,8 +6,10 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
 	HGLoggerPackage "MLC_GO/internal/logger"
-	HGSMSPackage "MLC_GO/internal/modules/sms"
+	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
+	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	"MLC_GO/internal/pkg/logHG"
 	"errors"
 	"fmt"
@@ -58,19 +60,24 @@ func loadRuntimeConfig() error {
 
 // buildMLCServer 负责构建工程运行所需依赖，并组装 HTTP Server。
 func buildMLCServer() (*http.Server, error) {
+	// 1. 初始化基础设施
 	redisService := PersistenceRedisPackage.NewRedisService()
-
 	sqlManager, err := PersistenceSQLPackage.NewSQLManager()
 	if err != nil {
+		logHG.ErrFInfo("数据库初始化失败: %v", err)
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
 
-	smsSender := HGSMSPackage.NewMockSender()
-	rootMux := HGHandlerPackage.NewRootHandler(HGHandlerPackage.HGRootHandlerDeps{
-		RedisService: redisService,
-		SQLManager:   sqlManager,
-		SMSSender:    smsSender,
-	})
+	// 2. 注册所有模块（每个模块内部创建自己的 handler）
+	// 新增模块只需在此处调用 RegisterModules 即可
+	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
+	HGTestHandlerPackage.RegisterModules()
+
+	// 3. 收集所有模块的路由清单
+	routeCatalogs := collectRouteCatalogs()
+
+	// 4. 创建根路由
+	rootMux := HGHandlerPackage.NewRootHandler(routeCatalogs)
 
 	return &http.Server{
 		Addr:         buildListenAddr(ConfigPackage.GetServerPort()),
@@ -78,6 +85,20 @@ func buildMLCServer() (*http.Server, error) {
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}, nil
+}
+
+// collectRouteCatalogs 收集所有已注册模块的路由清单，供 App/Web 联调用。
+func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
+	items := make([]HGMiddlewareGroupPackage.HGRouteCatalogItem, 0, 16)
+
+	// 收集 auth 模块路由清单
+	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
+	// 收集 user 模块路由清单
+	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+	// 收集 test 模块路由清单
+	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
+
+	return items
 }
 
 // serveMLCServer 统一处理 ListenAndServe 返回错误，避免直接退出进程导致 defer 失效。
