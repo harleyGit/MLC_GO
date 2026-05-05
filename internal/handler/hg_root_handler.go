@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-05 10:30:00
+ * @LastEditTime: 2026-05-05 21:42:05
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
  * @Description: 根路由处理器，支持模块自注册模式
  */
@@ -41,7 +41,7 @@ func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem)
 		mounts = append(mounts, HGRouteMount{
 			Prefix:      mod.BasePath() + "/",
 			StripPrefix: mod.BasePath(),
-			Handler:     mod.Handler(),
+			Handler:     mod.Handler(), // 根据各自的模块，加入中间件+拦截器
 		})
 	}
 	registerRootPrefixRoutes(rootMux, mounts)

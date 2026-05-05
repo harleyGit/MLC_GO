@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-13 10:55:15
   - @LastEditors: GangHuang harleysor@qq.com
-  - @LastEditTime: 2026-05-05 17:01:49
+  - @LastEditTime: 2026-05-05 21:50:36
 
 * @FilePath: /MLC_GO/internal/modules/user/handler/hg_user_handler.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
@@ -53,14 +53,14 @@ type loginReqModel struct {
 	Password string `json:"password"`
 }
 
-// UserHandlerDeps 用户处理器依赖
-type UserHandlerDeps struct {
+// HGUserHandlerDeps 用户处理器依赖
+type HGUserHandlerDeps struct {
 	RedisService *PersistenceRedisPackage.RedisService
 	SQLManager   *PersistenceSQLPackage.HGSQLManager
 	SMSSender    HGSMSPackage.HGSender
 }
 
-type UserHandler struct {
+type HGUserHandler struct {
 	redisService *PersistenceRedisPackage.RedisService
 	svc          *UserServicePackage.UserService
 	tokenService *UserServicePackage.HGAuthService
@@ -74,7 +74,7 @@ var (
 )
 
 // NewUserHandler 创建用户处理器，内部创建所有依赖
-func NewUserHandler(deps UserHandlerDeps) *UserHandler {
+func NewUserHandler(deps HGUserHandlerDeps) *HGUserHandler {
 	// 创建基础设施依赖
 	db := deps.SQLManager.GetSQLDB()
 	redisClient := UserCachePackage.NewCodeCache(deps.RedisService)
@@ -91,7 +91,7 @@ func NewUserHandler(deps UserHandlerDeps) *UserHandler {
 		smsSender = HGSMSPackage.NewMockSender()
 	}
 
-	return &UserHandler{
+	return &HGUserHandler{
 		redisService: deps.RedisService,
 		svc:          svc,
 		tokenService: tokenService,
@@ -99,7 +99,7 @@ func NewUserHandler(deps UserHandlerDeps) *UserHandler {
 	}
 }
 
-func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -115,7 +115,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /profile/list?cursor=0&pageSize=20; “我要第一页，从最新的数据开始拿 20 条”。
-func (h *UserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 
 	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
 	page, _ := strconv.Atoi(r.URL.Query().Get("pageNum"))
@@ -143,7 +143,7 @@ func (h *UserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
-func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
 
 	var d UserDtoPackage.HGCreateUserDTO
@@ -162,7 +162,7 @@ func (h *UserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateProfile 处理用户资料更新，支持单字段或多字段更新。
-func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -201,7 +201,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // RegisterHandlerV3 处理用户注册
-func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
+func (handler *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
 	var req UserDtoPackage.RegisterReqModel
 	json.NewDecoder(r.Body).Decode(&req)
 	// TODO：防止多次重复注册，注意下
@@ -213,7 +213,7 @@ func (handler *UserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Req
 }
 
 // SendCode 发送验证码
-func (h *UserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 	// 从 URL 查询参数中获取 phone
 	phone := r.URL.Query().Get("phone")
 	if phone == "" {
@@ -263,7 +263,7 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 }
 
 // Login 用户登录（支持验证码和密码两种方式）
-func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -329,7 +329,7 @@ func loginHandlerV3(w http.ResponseWriter, r *http.Request) {
 }
 
 /* Profile 方法（需要中间件） */
-func (h *UserHandler) Profile(w http.ResponseWriter, r *http.Request) {
+func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !ok {
 		logHG.ErrInfo("用户信息Profile error: %v", ok)

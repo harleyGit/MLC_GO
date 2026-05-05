@@ -9,44 +9,70 @@ import (
 )
 
 // region 模块路径常量
-
 const (
-	// AuthModuleBasePath 是认证模块对外暴露的统一 API 前缀。
-	AuthModuleBasePath = "/api/v1/auth"
-
-	// UserProfileModuleBasePath 是用户资料模块对外暴露的统一 API 前缀。
-	UserProfileModuleBasePath = "/api/v1/profile"
+	AuthModuleBasePath        = "/api/v1/auth"	// 认证模块基础路径
+	UserProfileModuleBasePath = "/api/v1/profile"	// 用户信息模块基础路径
 )
+// endregion
+
+// region 路由组构建器（高性能，支持百万级并发），RouteGroupConfig 路由组配置。
+type RouteGroupConfig struct {
+	BasePath       string
+	Rules          []HGMiddlewarePackage.APIRule
+	AuthMiddleware HGMiddlewarePackage.Middleware // 可选，nil 表示不需要认证
+}
+
+// baseMiddlewares 预编译的基础中间件链，启动时构建一次，所有请求复用。
+var baseMiddlewares = []HGMiddlewarePackage.Middleware{
+	HGMiddlewarePackage.RequestIDMiddleware,
+	HGMiddlewarePackage.AccessLogMiddleware,
+	HGMiddlewarePackage.RecoverMiddleware,
+	HGMiddlewarePackage.JSONHeaderMiddleware,
+}
+
+// NewRouteGroup 通用路由组构建器，消除重复代码。
+// 性能优化：中间件链在启动时构建一次，请求期零分配。
+func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
+	mux := http.NewServeMux()
+	BindRouteSpecs(mux, specs)
+
+	// 1. 业务中间件（可选）
+	var handler http.Handler = mux
+	if config.AuthMiddleware != nil {
+		handler = HGMiddlewarePackage.Chain(mux, config.AuthMiddleware)
+	}
+
+	// 2. API Guard
+	if config.Rules != nil {
+		handler = HGMiddlewarePackage.APIGuardMiddleware(config.Rules)(handler)
+	}
+
+	// 3. 基础中间件链（预编译，零分配）
+	return HGMiddlewarePackage.Chain(handler, baseMiddlewares...)
+}
 
 // endregion
 
 // region Auth 路由组
 
-// NewAuthRouteGroup 注册认证模块路由并装配中间件链路。
-func NewAuthRouteGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
-	specs := authRoutes(userHandler)
-	publicMux := http.NewServeMux()
-	BindRouteSpecs(publicMux, specs)
-
-	guarded := HGMiddlewarePackage.APIGuardMiddleware(HGServerPackage.PublicAPIRules())(publicMux)
-
-	// 外层统一打 TID/日志/恢复/JSON 头，确保鉴权失败请求也可追踪。
-	return HGMiddlewarePackage.Chain(
-		guarded,
-		HGMiddlewarePackage.RequestIDMiddleware,
-		HGMiddlewarePackage.AccessLogMiddleware,
-		HGMiddlewarePackage.RecoverMiddleware,
-		HGMiddlewarePackage.JSONHeaderMiddleware,
+// NewAuthRouteGroup 注册认证模块路由（公开接口，无需认证）。
+func NewAuthRouteGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
+	return NewRouteGroup(
+		RouteGroupConfig{
+			BasePath: AuthModuleBasePath,
+			Rules:    HGServerPackage.PublicAPIRules(),
+		},
+		authRoutes(userHandler),
 	)
 }
 
 // NewAuthRouteInterceptorGroup 兼容旧方法名。
-func NewAuthRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+func NewAuthRouteInterceptorGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
 	return NewAuthRouteGroup(userHandler)
 }
 
 // AuthMiddlewareGroup 兼容旧方法名。
-func AuthMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+func AuthMiddlewareGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
 	return NewAuthRouteGroup(userHandler)
 }
 
@@ -56,7 +82,7 @@ func AuthRouteCatalog() []RouteCatalogItem {
 }
 
 // authRoutes 返回 auth 模块完整路由定义。
-func authRoutes(userHandler *UserHandlerPackage.UserHandler) []RouteSpec {
+func authRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 	if userHandler == nil {
 		return []RouteSpec{
 			NewRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_code", false, "发送登录/注册验证码", nil),
@@ -76,35 +102,25 @@ func authRoutes(userHandler *UserHandlerPackage.UserHandler) []RouteSpec {
 
 // region User 路由组
 
-// NewUserRouteGroup 注册用户模块路由并装配鉴权链路。
-func NewUserRouteGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
-	specs := userRoutes(userHandler)
-	userMux := http.NewServeMux()
-	BindRouteSpecs(userMux, specs)
-
-	protected := HGMiddlewarePackage.Chain(
-		userMux,
-		UserJWTMiddlewarePackage.AuthMiddleware,
-	)
-	guarded := HGMiddlewarePackage.APIGuardMiddleware(HGServerPackage.UserMethodRules())(protected)
-
-	// 外层统一打 TID/日志/恢复/JSON 头，确保鉴权失败请求也可追踪。
-	return HGMiddlewarePackage.Chain(
-		guarded,
-		HGMiddlewarePackage.RequestIDMiddleware,
-		HGMiddlewarePackage.AccessLogMiddleware,
-		HGMiddlewarePackage.RecoverMiddleware,
-		HGMiddlewarePackage.JSONHeaderMiddleware,
+// NewUserRouteGroup 注册用户模块路由（需要认证）。
+func NewUserRouteGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
+	return NewRouteGroup(
+		RouteGroupConfig{
+			BasePath:       UserProfileModuleBasePath,
+			Rules:          HGServerPackage.UserMethodRules(),
+			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		},
+		userRoutes(userHandler),
 	)
 }
 
 // NewUserRouteInterceptorGroup 兼容旧方法名。
-func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+func NewUserRouteInterceptorGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
 	return NewUserRouteGroup(userHandler)
 }
 
 // UserMiddlewareGroup 兼容旧方法名。
-func UserMiddlewareGroup(userHandler *UserHandlerPackage.UserHandler) http.Handler {
+func UserMiddlewareGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
 	return NewUserRouteGroup(userHandler)
 }
 
@@ -114,7 +130,7 @@ func UserRouteCatalog() []RouteCatalogItem {
 }
 
 // userRoutes 返回 profile 模块完整路由定义。
-func userRoutes(userHandler *UserHandlerPackage.UserHandler) []RouteSpec {
+func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 	if userHandler == nil {
 		return []RouteSpec{
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
@@ -132,31 +148,22 @@ func userRoutes(userHandler *UserHandlerPackage.UserHandler) []RouteSpec {
 
 // endregion
 
-// region Order 路由组（示例，待实现）
+// region Order 路由组（示例）
 
 /*
 const OrderModuleBasePath = "/api/v1/order"
 
 func NewOrderRouteGroup(orderHandler *OrderHandler) http.Handler {
-	specs := []RouteSpec{
-		NewRouteSpec("order", http.MethodPost, OrderModuleBasePath, "/create", true, "创建订单", orderHandler.Create),
-		NewRouteSpec("order", http.MethodGet, OrderModuleBasePath, "/list", true, "订单列表", orderHandler.List),
-	}
-
-	orderMux := http.NewServeMux()
-	BindRouteSpecs(orderMux, specs)
-
-	protected := HGMiddlewarePackage.Chain(
-		orderMux,
-		UserJWTMiddlewarePackage.AuthMiddleware,
-	)
-
-	return HGMiddlewarePackage.Chain(
-		protected,
-		HGMiddlewarePackage.RequestIDMiddleware,
-		HGMiddlewarePackage.AccessLogMiddleware,
-		HGMiddlewarePackage.RecoverMiddleware,
-		HGMiddlewarePackage.JSONHeaderMiddleware,
+	return NewRouteGroup(
+		RouteGroupConfig{
+			BasePath:       OrderModuleBasePath,
+			Rules:          HGServerPackage.OrderMethodRules(),
+			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		},
+		[]RouteSpec{
+			NewRouteSpec("order", http.MethodPost, OrderModuleBasePath, "/create", true, "创建订单", orderHandler.Create),
+			NewRouteSpec("order", http.MethodGet, OrderModuleBasePath, "/list", true, "订单列表", orderHandler.List),
+		},
 	)
 }
 */

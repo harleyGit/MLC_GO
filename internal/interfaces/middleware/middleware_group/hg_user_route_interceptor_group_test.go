@@ -20,7 +20,7 @@ import (
 // TestUserMiddlewareGroup_ListMethodGuard 验证 /list 只允许 GET。
 // 这里不依赖真实数据库或 Redis，因为 MethodGuard 会先于业务 handler 生效。
 func TestUserMiddlewareGroup_ListMethodGuard(t *testing.T) {
-	handler := UserMiddlewareGroup(&UserHandlerPackage.UserHandler{})
+	handler := UserMiddlewareGroup(&UserHandlerPackage.HGUserHandler{})
 
 	req := httptest.NewRequest(http.MethodPost, "/list", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -36,7 +36,7 @@ func TestUserMiddlewareGroup_ListMethodGuard(t *testing.T) {
 
 // TestUserMiddlewareGroup_UpdateMethodGuard 验证 /update 只允许 PUT。
 func TestUserMiddlewareGroup_UpdateMethodGuard(t *testing.T) {
-	handler := UserMiddlewareGroup(&UserHandlerPackage.UserHandler{})
+	handler := UserMiddlewareGroup(&UserHandlerPackage.HGUserHandler{})
 
 	req := httptest.NewRequest(http.MethodPost, "/update", nil)
 	rec := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestUserMiddlewareGroup_UpdateMethodGuard(t *testing.T) {
 // 这里传入一个假的 Bearer token，让请求通过 MethodGuard 和 Header 检查，
 // 最终由 JWT 中间件返回 401，这样可以确认路由和鉴权链路都已接通。
 func TestUserMiddlewareGroup_ListRequireBearerToken(t *testing.T) {
-	handler := UserMiddlewareGroup(&UserHandlerPackage.UserHandler{})
+	handler := UserMiddlewareGroup(&UserHandlerPackage.HGUserHandler{})
 
 	req := httptest.NewRequest(http.MethodGet, "/list?cursor=0&pageSize=20", nil)
 	req.Header.Set("Content-Type", "application/json")
