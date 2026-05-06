@@ -1,68 +1,65 @@
-- [**‌工程启动**](#工程启动)
-	- [VSCode启动](#VSCode启动)
-	- [Intel电脑修改配置启动](#Intel电脑修改配置启动)
-	- [redis启动](#redis启动)
+- [**‌ 工程启动**](#工程启动)
+	- [VSCode 启动](#VSCode启动)
+	- [Intel 电脑修改配置启动](#Intel电脑修改配置启动)
+	- [终端查看MySQL表](#终端查看MySQL表)
+	- [redis 启动](#redis启动)
 - [**文件结构介绍**](#文件结构介绍)
 	- [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
 	- [协议规则](#协议规则)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
-	- [推荐几个可以写到简历上的Go方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
-	- [golang-gin-realworld-example-app工程](#golang-gin-realworld-example-app工程)
-	-  [go-gin-api全栈项目 ](#go-gin-api全栈项目)
-	-  [gin-vue-admin全栈平台 ](#gin-vue-admin全栈平台 )
-	-  [ferry工单系统Gorm（ORM工具）](#ferry工单系统Gorm（ORM工具）) 
-	-  [gin-gorm-restful-api](#gin-gorm-restful-api) 
-	-  [Go-Zero商城项目](#Go-Zero商城项目) 
-	-  [echo-restful-api](#echo-restful-api) 
-	-  [gorilla-mux-restful-api](#gorilla-mux-restful-api) 
-	-  [beego-restful-api](#beego-restful-api) 
-	-  [kratos-restful-api](#kratos-restful-api) 
-	-  [gin-swagger-restful-api](#gin-swagger-restful-api) 
-	-  [go-kit-restful-api](#go-kit-restful-api) 
-	-  [fiber-restful-api](#fiber-restful-api) 
-	-  [gin-gorm-jwt-restful-api](#gin-gorm-jwt-restful-api)
+	- [推荐几个可以写到简历上的 Go 方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
+	- [golang-gin-realworld-example-app 工程](#golang-gin-realworld-example-app工程)
+	- [go-gin-api 全栈项目 ](#go-gin-api全栈项目)
+	- [gin-vue-admin 全栈平台 ](#gin-vue-admin全栈平台)
+	- [ferry 工单系统 Gorm（ORM 工具）](#ferry工单系统Gorm（ORM工具）)
+	- [gin-gorm-restful-api](#gin-gorm-restful-api)
+	- [Go-Zero 商城项目](#Go-Zero商城项目)
+	- [echo-restful-api](#echo-restful-api)
+	- [gorilla-mux-restful-api](#gorilla-mux-restful-api)
+	- [beego-restful-api](#beego-restful-api)
+	- [kratos-restful-api](#kratos-restful-api)
+	- [gin-swagger-restful-api](#gin-swagger-restful-api)
+	- [go-kit-restful-api](#go-kit-restful-api)
+	- [fiber-restful-api](#fiber-restful-api)
+	- [gin-gorm-jwt-restful-api](#gin-gorm-jwt-restful-api)
 - [**框架**](#框架)
-	-  [NSQ源码阅读](#NSQ源码阅读)
-	-  [Gin框架](#Gin框架)  
-	-  [Echo框架](#Echo框架)
-	-  [GorillaMux路由库](#GorillaMux路由库) 
-	-  [Vegeta负载测试工具](#Vegeta负载测试工具) 
-	-  [Authboss库-添加认证与授权模块](#Authboss库-添加认证与授权模块) 
-	-  [GoKit库-网关和分布式追踪](#GoKit库-网关和分布式追踪) 
-	-  [Beego库](#Beego库) 
-	-  [Fiber库](#Fiber库) 
-	-  [go-restful库](#go-restful库) 
-	-  [Chi库](#Chi库)
-	-  [Viper配置管理库](#Viper配置管理库)
+	- [NSQ 源码阅读](#NSQ源码阅读)
+	- [Gin 框架](#Gin框架)
+	- [Echo 框架](#Echo框架)
+	- [GorillaMux 路由库](#GorillaMux路由库)
+	- [Vegeta 负载测试工具](#Vegeta负载测试工具)
+	- [Authboss 库-添加认证与授权模块](#Authboss库-添加认证与授权模块)
+	- [GoKit 库-网关和分布式追踪](#GoKit库-网关和分布式追踪)
+	- [Beego 库](#Beego库)
+	- [Fiber 库](#Fiber库)
+	- [go-restful 库](#go-restful库)
+	- [Chi 库](#Chi库)
+	- [Viper 配置管理库](#Viper配置管理库)
 - **资料**
-	- [浅读 Go 优秀开源项目源码—Gin框架](https://blog.linganmin.cn/posts/d6715893/)
-	- [rickiyang博客Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
-		- [gorm库练习](https://www.cnblogs.com/rickiyang/p/11074162.html)
-	- [维斯Echo(博客仔细,不错)-掘金](https://juejin.cn/user/369885757844285/posts)
+	- [浅读 Go 优秀开源项目源码—Gin 框架](https://blog.linganmin.cn/posts/d6715893/)
+	- [rickiyang 博客 Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
+	- [gorm 库练习](https://www.cnblogs.com/rickiyang/p/11074162.html)
+	- [维斯 Echo(博客仔细,不错)-掘金](https://juejin.cn/user/369885757844285/posts)
 	- [盘点 7 个优质开源的 Go 项目](https://juejin.cn/post/7092788846781267975)
 	- [标准的 Go 项目布局](https://juejin.cn/post/6944649692319842340)
-	- [awesome-go项目](https://github.com/avelino/awesome-go)
-		- [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
-		- [awesome-go中文介绍](https://github.com/jobbole/awesome-go-cn)
-		- [awesome-go中文介绍02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
-	- [超全golang面试题合集+golang学习指南+golang知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
+	- [awesome-go 项目](https://github.com/avelino/awesome-go)
+	- [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
+	- [awesome-go 中文介绍](https://github.com/jobbole/awesome-go-cn)
+	- [awesome-go 中文介绍 02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
+	- [超全 golang 面试题合集+golang 学习指南+golang 知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
 	- [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
 	- [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
 
-
-
-
-
 <br/><br/><br/>
 
-***
+---
 <br/>
 
 > <h1 id="工程启动">工程启动</h1>
 
-***
-<br/><br/><br/>
+<br/>
+
 > <h2 id="VSCode启动">VSCode启动</h2>
 
 在 **VS Code** 里按下面操作进行启动工程：
@@ -79,6 +76,7 @@
 - `🧪 Launch MLC_GO Root main.go (prod)`
 
 它们分别对应：
+
 - `debug`：本机开发
 - `pre`：本机模拟预发
 - `prod`：只检查生产配置
@@ -95,7 +93,8 @@
 
 你说的 IP、端口、密码不对，这个改法很简单，主要改这几类文件。
 
-***
+---
+
 <br/>
 
 **改 debug 环境**
@@ -116,7 +115,8 @@ REDIS_PORT=6379
 
 如果你本机 MySQL 不是 `3306`，或者密码不是 `hh109`，就在这里改。
 
-***
+---
+
 <br/>
 
 **改 pre 环境**
@@ -156,10 +156,12 @@ REDIS_PORT=6379
 - 它应该只做检查
 
 也就是说：
+
 - 本地模拟预发：`127.0.0.1 + 3308/6380 + compose`
 - 真实预发环境：远程 IP + 只检查不启动
 
-***
+---
+
 <br/>
 
 **改 prod 环境**
@@ -216,7 +218,8 @@ REDIS_PORT=6381
 
 一定要两边一致，不然脚本能拉起容器，但程序连不上。
 
-***
+---
+
 <br/>
 
 **改 VS Code 启动配置**
@@ -224,6 +227,7 @@ REDIS_PORT=6381
 [.vscode/launch.json](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/.vscode/launch.json:8)
 
 这里主要是：
+
 - `preLaunchTask`
 - `env.SERVER_ENV`
 - `args`
@@ -259,18 +263,19 @@ REDIS_PORT=6381
 如果你愿意，我下一步可以直接帮你做一件更省心的事：
 
 你把你真实想用的三套配置发我：
+
 - debug 的 MySQL/Redis 地址、端口、账号、密码
 - pre 的地址、端口、账号、密码
 - prod 的地址、端口、账号、密码
 
+---
 
-***
 <br/><br/><br/>
+
 > <h2 id="Intel电脑修改配置启动">Intel电脑修改配置启动</h2>
 
-
-**Intel电脑：**
-hg_debug.env文件：
+**Intel 电脑：**
+hg_debug.env 文件：
 
 ```sh
 MYSQL_PASSWORD=
@@ -278,19 +283,19 @@ MYSQL_PASSWORD=
 
 M2Pro
 
-hg_debug.env文件：
+hg_debug.env 文件：
 
 ```sh
 MYSQL_PASSWORD=hh109
 ```
 
-启动redis：
+启动 redis：
 
 ```sh
 redis-server
 ```
 
-启动mysql
+启动 mysql
 
 ```sh
 # M2Pro sql 启动
@@ -300,14 +305,71 @@ cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
 ./db.sh shell
 ```
 
-
 ```sh
 localhost:8080/auth/send_code?phone=17681317668
 ```
 
+***
+<br/><br/><br/>
+> <h2 id="终端查看MySQL表">终端查看MySQL表</h2>
+
+### [MySQL教程](https://www.runoob.com/mysql/mysql-administration.html)
+
+- mysql 启动：
+
+```sh
+sudo mysql.server start
+```
+
+<br/>
+- mysql 关闭: 
+
+```sh
+mysql.server stop
+```
+
+<br/>
+- 进入 mysql 指令环境: 
+
+```sh
+sudo mysql -u root -p
+```
+
+<br/>
+- 查看数据库: 
+
+```sh
+show databases;
+```
+
+<br/>
+- 使用 db_test 数据库: 
+
+```sh
+use db_test;
+```
+
+<br/>
+- 查看已有数据表: 
+
+```sh
+show tables;
+```
+
+<br/>
+- 数据表结构信息: 
+```sh
+show columns from 表名;
+```
+<br/>
+### gin 端口占用解决:
+
+- 查找占用 8080 端口的进程 PID: sudo lsof -i :8080
+- 终止进程（例如 PID 为 1234）: sudo kill -9 1234
+
+
 <br/><br/>
 > <h3 id="redis启动">redis启动</h3>
-
 
 ```sh
 # redis 启动
@@ -320,12 +382,10 @@ sudo mysql.server start
 mysql -u root -p
 ```
 
-
-
-
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="文件结构介绍">文件结构介绍</h1>
@@ -352,7 +412,7 @@ MLC_GO/
 
 - Dockerfile
 - MLC_GO_REMADE.md: 项目介绍
-- TestNotes: 测试练习Go语法
+- TestNotes: 测试练习 Go 语法
 - conf：用于存储配置文件
 - cover.out
 - coverage.html
@@ -387,15 +447,17 @@ go mod tidy
 │   ├── config.pre.yaml
 │   └── config.prod.yaml
 ```
-| 环境  | 常用标识              | 用途    |
-| --- | ----------------- | ----- |
-| 开发  | `debug` / `dev`   | 本地开发  |
+
+| 环境   | 常用标识          | 用途       |
+| ------ | ----------------- | ---------- |
+| 开发   | `debug` / `dev`   | 本地开发   |
 | 预发布 | `pre` / `staging` | 上线前验证 |
-| 正式  | `prod`            | 线上环境  |
+| 正式   | `prod`            | 线上环境   |
 
+---
 
-***
 <br/><br/><br/>
+
 > <h2 id="功能模块文件分布">功能模块文件分布</h2>
 
 ```sh
@@ -470,8 +532,7 @@ myapp/
 └─────────────────────────────────────────────────────────────┘
 ```
 
-> **说明：**
-> `internal/`:Go的约定，该目录下的代码只能**被本项目引用**，防止被外部项目import；
+> **说明：** > `internal/`:Go 的约定，该目录下的代码只能**被本项目引用**，防止被外部项目 import；
 > 分层架构：**`Handler → Service → Repository → Model + DB/Cache`**，职责分离，便于测试和维护
 
 ```txt
@@ -492,29 +553,29 @@ myapp/
 **设计说明：**
 
 - **1.按业务域（Domain）组织代码 → modules/**
-	- 每个核心业务（user, post, comment, message...）是一个独立子模块。
-	- 每个模块内部包含自己的 handler → service → repository → model（如果 model 复杂也可放 module 内）。
-	- 优点：
-	  - 高内聚：朋友圈的所有逻辑集中在一起，不污染用户模块。
-	  - 低耦合：修改朋友圈不影响用户注册逻辑。
-	  - 易于团队协作：不同人负责不同模块。
+  - 每个核心业务（user, post, comment, message...）是一个独立子模块。
+  - 每个模块内部包含自己的 handler → service → repository → model（如果 model 复杂也可放 module 内）。
+  - 优点：
+    - 高内聚：朋友圈的所有逻辑集中在一起，不污染用户模块。
+    - 低耦合：修改朋友圈不影响用户注册逻辑。
+    - 易于团队协作：不同人负责不同模块。
 
->📌 替代方案：有些人用 features/ 或 domains/，但 modules/ 更通用。
+> 📌 替代方案：有些人用 features/ 或 domains/，但 modules/ 更通用。
 
 <br/>
 
 - **2.Model 是否放在 modules/xxx/model/？**
-	- 如果模型简单且被多个模块共享（如 User 被 Post 引用），建议仍放在顶层 internal/models/。
-	- 如果模型高度专属某个模块（如 PostLike 只在 post 模块用），可放入 modules/post/model/。
+  - 如果模型简单且被多个模块共享（如 User 被 Post 引用），建议仍放在顶层 internal/models/。
+  - 如果模型高度专属某个模块（如 PostLike 只在 post 模块用），可放入 modules/post/model/。
 
 ✅ 推荐初期统一放 internal/models/，后期再按需拆分。
 
 <br/>
 
 - 3.**公共能力下沉到 pkg/**
-	- 认证中间件（解析 JWT、查 Redis 验证登录态）
-	- 密码哈希工具
-	- 分页工具、错误封装等
+  - 认证中间件（解析 JWT、查 Redis 验证登录态）
+  - 密码哈希工具
+  - 分页工具、错误封装等
 
 示例：`pkg/middleware/auth.go`
 
@@ -539,8 +600,8 @@ http.HandleFunc("/posts", middleware.AuthMiddleware(postHandler.CreatePost))
 <br/>
 
 - **4.据库迁移（Migrations）按功能拆分**
-	- 每个新功能对应一个或多个 migration 文件。
-	- 工具推荐：golang-migrate
+  - 每个新功能对应一个或多个 migration 文件。
+  - 工具推荐：golang-migrate
 
 ```sql
 -- migrations/000002_create_posts.up.sql
@@ -587,7 +648,7 @@ func (r *PostRepository) GetFeedByUserID(userID uint, limit, offset int) ([]mode
 
 <br/>
 
-` modules/post/service/post_service.go `
+`modules/post/service/post_service.go`
 
 ```go
 func (s *PostService) CreatePost(userID uint, content string) error {
@@ -603,7 +664,6 @@ func (s *PostService) CreatePost(userID uint, content string) error {
 
 `modules/post/handler/post_handler.go `
 
-
 ```go
 func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("userID").(uint) // 从 auth middleware 注入
@@ -618,51 +678,49 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 <br/>
 
 **✅ 总结：如何应对未来更多功能？**
-| 新功能       | 如何扩展目录                          |
+| 新功能 | 如何扩展目录 |
 |------------|----------------------------------|
-| 评论        | 新增 `modules/comment/`            |
-| 点赞        | 在 `post` 模块内加 `LikeService`，或新建 `modules/like/` |
-| 私信        | 新增 `modules/message/`            |
-| 文件上传     | 新增 `modules/storage/` + `pkg/upload/` |
-
-
-
+| 评论 | 新增 `modules/comment/` |
+| 点赞 | 在 `post` 模块内加 `LikeService`，或新建 `modules/like/` |
+| 私信 | 新增 `modules/message/` |
+| 文件上传 | 新增 `modules/storage/` + `pkg/upload/` |
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="文件规则">文件规则</h1>
-<br/>
+> <br/>
 
 > <h2 id="协议规则">协议规则</h2>
-**比如：**
+> **比如：**
 
 协议的方法前要加入**`协议名_+方法名`**：
 
 ```go
 
 type Writer interface {
-	Writer_read(text string) 
+	Writer_read(text string)
 }
 ```
 
-
-
 <br/><br/><br/><br/><br/><br/>
 
-***
+---
+
 <br/>
 ># <h1 ID="Golang开源项目汇总列表"> [Golang 开源项目汇总列表](https://github.com/hackstoic/golang-open-source-projects)</h1>
 <br/>
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
-># <h1 id="golang-gin-realworld-example-app工程">[golang-gin-realworld-example-app工程](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)</h1>
+> # <h1 id="golang-gin-realworld-example-app工程">[golang-gin-realworld-example-app 工程](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)</h1>
 
 **注册接口测试**
 
@@ -692,130 +750,140 @@ curl -X POST "http://localhost:8080/api/users/login" \
          "password": "mypassword1236789"
        }
      }'
-     
+
 {"user":{"username":"李白","email":"libai@qq.com","bio":"Software Developer Golang","image":"https://example.com/avatarPic.jpg","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NDI3ODQyOTUsImlkIjozfQ.Rkywy09E-iVMmKqyMVIBcEXZtcm4W3x1xatXL6WrxyY"}}
 ```
 
+> # <h1 id="go-gin-api全栈项目">[go-gin-api 全栈项目](https://github.com/xinliangnote/go-gin-api?tab=readme-ov-file)</h1>
 
-
-
-># <h1 id="go-gin-api全栈项目">[go-gin-api全栈项目](https://github.com/xinliangnote/go-gin-api?tab=readme-ov-file)</h1>
 - **简介**：基于 Gin 的模块化 API 框架，封装了 JWT 鉴权、日志管理、数据库操作等常用功能。
 - [文档](https://www.yuque.com/xinliangnote/go-gin-api/mb9ad8)
 - **特性**：
   - 提供代码生成器，快速生成 CRUD 接口。
   - 集成 Swagger 文档，支持自动化测试。
   - 适合团队协作，规范开发流程。
-- **项目地址**：[github.com/xinliangnote/go-gin-api](https://github.com/xinliangnote/go-gin-api)  
+- **项目地址**：[github.com/xinliangnote/go-gin-api](https://github.com/xinliangnote/go-gin-api)
 - **学习价值**：新手友好，适合学习 API 分层设计和工程化实践。
-
-
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
-> <h1 id="gin-vue-admin全栈平台">gin-vue-admin全栈平台</h1> 
+> <h1 id="gin-vue-admin全栈平台">gin-vue-admin全栈平台</h1>
+
 - **简介**：前后端分离的管理系统，后端使用 Gin 实现 RESTful API，前端基于 Vue3。
 - **特性**：
   - 支持动态路由、权限控制、文件上传等企业级功能。
   - 集成 ChatGPT 自动生成代码，提升开发效率。
   - 提供完整的 DevOps 工具链（如 CI/CD 配置）。
-- **项目地址**：[github.com/flipped-aurora/gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin)  
+- **项目地址**：[github.com/flipped-aurora/gin-vue-admin](https://github.com/flipped-aurora/gin-vue-admin)
 - **适用场景**：中后台管理系统开发，如 CRM、OA 系统。
-
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
-> <h1 id="ferry工单系统">ferry工单系统</h1> 
+> <h1 id="ferry工单系统">ferry工单系统</h1>
+
 - **简介**：基于 Gin 和 Vue 的工单管理系统，后端提供完整的 RESTful API 支持。
 - **特性**：
   - 支持自定义审批流程、权限分级。
   - 集成任务钩子和统计功能，适合企业内部流程管理。
-- **项目地址**：[github.com/lanyulei/ferry](https://github.com/lanyulei/ferry)  
+- **项目地址**：[github.com/lanyulei/ferry](https://github.com/lanyulei/ferry)
 - **学习价值**：了解复杂业务场景下的 API 设计。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Gorm（ORM工具）">Gorm（ORM 工具）</h1>
+
 - **简介**：Go 生态中最流行的 ORM 库，常与 RESTful API 结合操作数据库。
 - **特性**：
   - 支持事务、关联查询、软删除等高级功能。
   - 自动迁移数据库表结构，简化开发流程。
-- **项目地址**：[github.com/go-gorm/gorm](https://github.com/go-gorm/gorm)  
+- **项目地址**：[github.com/go-gorm/gorm](https://github.com/go-gorm/gorm)
 - **适用场景**：快速实现 CRUD 接口，如用户管理系统。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
-># <h1 id="gin-gorm-restful-api">[gin-gorm-restful-api](https://juejin.cn/post/7036011047391592485)</h1>
+> # <h1 id="gin-gorm-restful-api">[gin-gorm-restful-api](https://juejin.cn/post/7036011047391592485)</h1>
+
 - **Gin + GORM 项目**
 - **简介**: 使用 Gin 框架和 GORM 构建的 RESTful API 项目，结构清晰，模块化设计，适合初学者快速上手。
 - **特点**:
   - 清晰的目录结构（controller、service、model 等）。
   - 支持统一的 JSON 响应格式。
   - 使用 GORM 进行数据库操作，支持 MySQL、PostgreSQL 等。
-- **GitHub 地址**: [gin-gorm-restful-api](https://github.com/your-repo/gin-gorm-restful-api) 
+- **GitHub 地址**: [gin-gorm-restful-api](https://github.com/your-repo/gin-gorm-restful-api)
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Go-Zero商城项目">Go-Zero商城项目</h1>
+
 - **项目名称**: `go-zero-mall`
 - **简介**: 基于 Go-Zero 框架开发的商城 RESTful API 服务，包含用户、商品、订单等模块。
 - **特点**:
   - 使用 Go-Zero 的 `goctl` 工具自动生成代码。
   - 支持 Protobuf 定义 API 接口。
   - 模块化设计，适合中大型项目。
-- **GitHub 地址**: [go-zero-mall](https://github.com/your-repo/go-zero-mall) 
-
+- **GitHub 地址**: [go-zero-mall](https://github.com/your-repo/go-zero-mall)
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="echo-restful-api">echo-restful-api</h1>
-- **Echo框架示例**
+
+- **Echo 框架示例**
 - **简介**: 使用 Echo 框架构建的高性能 RESTful API 项目，适合需要高性能的场景。
 - **特点**:
   - 支持中间件（如日志、认证）。
   - 结构简单，易于扩展。
   - 提供 Swagger 文档支持。
-- **GitHub 地址**: [echo-restful-api](https://github.com/your-repo/echo-restful-api) 
+- **GitHub 地址**: [echo-restful-api](https://github.com/your-repo/echo-restful-api)
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="gorilla-mux-restful-api">gorilla-mux-restful-api</h1>
+
 - **Gorilla Mux 项目**
 - **简介**: 使用 Gorilla Mux 路由库构建的 RESTful API 项目，适合需要灵活路由配置的场景。
 - **特点**:
   - 支持复杂的路由匹配规则。
   - 中间件支持（如 CORS、日志）。
   - 适合中小型项目。
-- **GitHub 地址**: [gorilla-mux-restful-api](https://github.com/your-repo/gorilla-mux-restful-api) 
+- **GitHub 地址**: [gorilla-mux-restful-api](https://github.com/your-repo/gorilla-mux-restful-api)
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="beego-restful-api">beego-restful-api</h1>
-- **Beego框架示例**
+
+- **Beego 框架示例**
 - **简介**: 使用 Beego 框架构建的 RESTful API 项目，适合需要快速开发的场景。
 - **特点**:
   - 内置 ORM、缓存、日志等功能。
@@ -825,11 +893,13 @@ curl -X POST "http://localhost:8080/api/users/login" \
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="kratos-restful-api">kratos-restful-api</h1>
-- **Kratos微服务框架**
+
+- **Kratos 微服务框架**
 - **简介**: 基于 Bilibili 开源的 Kratos 框架构建的 RESTful API 项目，适合微服务架构。
 - **特点**:
   - 支持 gRPC 和 HTTP 双协议。
@@ -839,10 +909,12 @@ curl -X POST "http://localhost:8080/api/users/login" \
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="gin-swagger-restful-api">gin-swagger-restful-api</h1>
+
 - **Gin + Swagger 项目**
 - **简介**: 使用 Gin 框架和 Swagger 构建的 RESTful API 项目，提供完整的 API 文档支持。
 - **特点**:
@@ -851,15 +923,15 @@ curl -X POST "http://localhost:8080/api/users/login" \
   - 适合需要 API 文档化的项目。
 - **GitHub 地址**: [gin-swagger-restful-api](https://github.com/your-repo/gin-swagger-restful-api)
 
-
-
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="go-kit-restful-api">go-kit-restful-api</h1>
- - **Go-Kit 微服务示例**
+
+- **Go-Kit 微服务示例**
 - **简介**: 使用 Go-Kit 构建的微服务风格 RESTful API 项目，适合需要高可扩展性的场景。
 - **特点**:
   - 支持服务发现、负载均衡。
@@ -867,13 +939,14 @@ curl -X POST "http://localhost:8080/api/users/login" \
   - 适合分布式系统。
 - **GitHub 地址**: [go-kit-restful-api](https://github.com/your-repo/go-kit-restful-api)
 
-
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="fiber-restful-api">fiber-restful-api</h1>
+
 - **Fiber 框架示例**
 - **简介**: 使用 Fiber 框架构建的高性能 RESTful API 项目，适合需要极致性能的场景。
 - **特点**:
@@ -882,14 +955,14 @@ curl -X POST "http://localhost:8080/api/users/login" \
   - 适合中小型高性能项目。
 - **GitHub 地址**: [fiber-restful-api](https://github.com/your-repo/fiber-restful-api)
 
-
-
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="gin-gorm-jwt-restful-api">gin-gorm-jwt-restful-api</h1>
+
 - **Gin + GORM + JWT 项目**
 - **简介**: 使用 Gin、GORM 和 JWT 构建的 RESTful API 项目，包含用户认证功能。
 - **特点**:
@@ -898,21 +971,19 @@ curl -X POST "http://localhost:8080/api/users/login" \
   - 适合需要认证的 API 项目。
 - **GitHub 地址**: [gin-gorm-jwt-restful-api](https://github.com/your-repo/gin-gorm-jwt-restful-api)
 
-
-
-
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="框架">框架</h1>
-<br/>
-
+> <br/>
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="NSQ源码阅读">NSQ源码阅读</h1>
@@ -923,31 +994,33 @@ curl -X POST "http://localhost:8080/api/users/login" \
 
 ## 一、目标拆解：你能从 NSQ 学到什么？
 
-* Go 语言的 **工程化开发实践**（目录结构、模块划分、日志处理等）
-* **网络编程（TCP、HTTP）**
-* **并发模型（goroutine、channel）**
-* **消息队列原理与实现（发布/订阅、消息持久化、ack机制等）**
-* **系统设计理念**（模块解耦、配置热更新、服务注册等）
+- Go 语言的 **工程化开发实践**（目录结构、模块划分、日志处理等）
+- **网络编程（TCP、HTTP）**
+- **并发模型（goroutine、channel）**
+- **消息队列原理与实现（发布/订阅、消息持久化、ack 机制等）**
+- **系统设计理念**（模块解耦、配置热更新、服务注册等）
 
 ---
+
 <br/>
 
-** 二、学习前准备（0基础也能入门）**
+** 二、学习前准备（0 基础也能入门）**
 
 **1. 基础技能**
 
 先具备以下基础（可以边学 NSQ 边查）：
 
-* Go 基础语法、interface、goroutine、channel、select
-* Go 标准库：`net`, `http`, `os`, `sync`, `log`
-* Git 基础操作、源码 clone、`go build` 等
+- Go 基础语法、interface、goroutine、channel、select
+- Go 标准库：`net`, `http`, `os`, `sync`, `log`
+- Git 基础操作、源码 clone、`go build` 等
 
 > 学习推荐：
 
-* Go 入门教程：[https://tour.go-zh.org/](https://tour.go-zh.org/)
-* 实战 Go： [https://github.com/unknwon/go-fundamental-programming](https://github.com/unknwon/go-fundamental-programming)
+- Go 入门教程：[https://tour.go-zh.org/](https://tour.go-zh.org/)
+- 实战 Go： [https://github.com/unknwon/go-fundamental-programming](https://github.com/unknwon/go-fundamental-programming)
 
 ---
+
 <br/>
 
 **三、具体学习步骤（建议打印或收藏）**
@@ -989,8 +1062,8 @@ nsq/
 └── queue/          ← 消息队列底层存储实现（内存/磁盘）
 ```
 
-
 ---
+
 <br/>
 
 **✅ Step 2：了解整个系统架构（宏观理解）**
@@ -1021,16 +1094,15 @@ nsq/
 
 **关键组件：**
 
-* `nsqd`：核心组件，负责接收、存储、转发消息
-* `nsqlookupd`：服务发现中心，维护 topic 和 channel 映射
-* `nsqadmin`：Web UI 管理后台
+- `nsqd`：核心组件，负责接收、存储、转发消息
+- `nsqlookupd`：服务发现中心，维护 topic 和 channel 映射
+- `nsqadmin`：Web UI 管理后台
 
-| 组件             | 作用                                |
-| -------------- | --------------------------------- |
-| **nsqd**       | 消息服务的核心：接受生产者消息，投递给消费者            |
-| **nsqlookupd** | 服务发现：让消费者找到哪些 `nsqd` 有订阅的 topic   |
-| **nsqadmin**   | Web UI 控制面板：可监控 topic、channel、消息等 |
-
+| 组件           | 作用                                             |
+| -------------- | ------------------------------------------------ |
+| **nsqd**       | 消息服务的核心：接受生产者消息，投递给消费者     |
+| **nsqlookupd** | 服务发现：让消费者找到哪些 `nsqd` 有订阅的 topic |
+| **nsqadmin**   | Web UI 控制面板：可监控 topic、channel、消息等   |
 
 重点理解流程：
 
@@ -1063,11 +1135,12 @@ Producer
   ↓（将消息按 topic 投递到 channel）
  Consumer
 ```
+
 如果有多个 nsqd，则消费者通过 nsqlookupd 来发现可连接的节点。
 
 ---
-<br/>
 
+<br/>
 
 ### ✅ Step 3：阅读源码建议路线（从易到难）
 
@@ -1084,17 +1157,17 @@ Producer
 <br/>
 
 - **`nsqd` 的启动流程（main.go）** 文件查找：
- - apps/nsqd/main.go 是启动 nsqd 的标准入口，里面会调用 nsqd 包里的核心逻辑（比如 nsqd.New() 等）
- - 它是程序真正的 main 包所在位置：
-  - apps/nsqd/main.go：启动程序入口，负责命令行参数、配置初始化、日志初始化等
-  - nsqd/ 目录：包含 nsqd 的核心业务代码（消息处理、网络协议、存储等）
+- apps/nsqd/main.go 是启动 nsqd 的标准入口，里面会调用 nsqd 包里的核心逻辑（比如 nsqd.New() 等）
+- 它是程序真正的 main 包所在位置：
+- apps/nsqd/main.go：启动程序入口，负责命令行参数、配置初始化、日志初始化等
+- nsqd/ 目录：包含 nsqd 的核心业务代码（消息处理、网络协议、存储等）
 
 ---
 
 ### ✅ Step 4：使用调试 + 打日志的方式阅读源码
 
-* 使用 VS Code 或 Goland，设置断点调试（如在 `topic.PutMessage()`）
-* 插入日志，比如：
+- 使用 VS Code 或 Goland，设置断点调试（如在 `topic.PutMessage()`）
+- 插入日志，比如：
 
 ```go
 fmt.Println("PutMessage:", msg.ID)
@@ -1108,18 +1181,18 @@ fmt.Println("PutMessage:", msg.ID)
 
 每看懂一个文件，做以下输出：
 
-| 文件       | 作用        | 核心函数                       | 涉及模块/调用链                | 你的理解/总结 |
-| -------- | --------- | -------------------------- | ----------------------- | ------- |
-| topic.go | Topic对象逻辑 | `PutMessage`、`messagePump` | channel.go、diskqueue.go | xxx     |
+| 文件     | 作用           | 核心函数                    | 涉及模块/调用链          | 你的理解/总结 |
+| -------- | -------------- | --------------------------- | ------------------------ | ------------- |
+| topic.go | Topic 对象逻辑 | `PutMessage`、`messagePump` | channel.go、diskqueue.go | xxx           |
 
 ---
 
 ## 四、思路理解技巧
 
-* **看 main 函数**：程序从哪启动，哪些服务注册在哪个模块？
-* **找 interface 和 struct 实现**：如 `protocolV2` 是协议实现，了解其输入输出。
-* **画图辅助**：将结构体和调用链画成时序图、模块图，有助于理解。
-* **对照官方文档看代码**：[https://nsq.io/](https://nsq.io/)
+- **看 main 函数**：程序从哪启动，哪些服务注册在哪个模块？
+- **找 interface 和 struct 实现**：如 `protocolV2` 是协议实现，了解其输入输出。
+- **画图辅助**：将结构体和调用链画成时序图、模块图，有助于理解。
+- **对照官方文档看代码**：[https://nsq.io/](https://nsq.io/)
 
 ---
 
@@ -1129,10 +1202,10 @@ fmt.Println("PutMessage:", msg.ID)
 
 功能：
 
-* topic + channel 架构
-* TCP 接收消息
-* 消息广播到多个消费者
-* goroutine 实现并发处理
+- topic + channel 架构
+- TCP 接收消息
+- 消息广播到多个消费者
+- goroutine 实现并发处理
 
 你会更理解 “为什么 NSQ 要这么设计”。
 
@@ -1140,19 +1213,19 @@ fmt.Println("PutMessage:", msg.ID)
 
 ## 六、额外工具推荐
 
-| 工具                      | 用途          |
-| ----------------------- | ----------- |
-| Goland / VSCode         | IDE，方便调试    |
-| GoLand 插件：Go Call Graph | 可视化调用链      |
-| GoDoc / Sourcegraph     | 阅读注释和跳转函数定义 |
-| `richgo test` / delve   | 测试和调试       |
+| 工具                       | 用途                   |
+| -------------------------- | ---------------------- |
+| Goland / VSCode            | IDE，方便调试          |
+| GoLand 插件：Go Call Graph | 可视化调用链           |
+| GoDoc / Sourcegraph        | 阅读注释和跳转函数定义 |
+| `richgo test` / delve      | 测试和调试             |
 
 ---
 
 ## 七、社区交流和参考资料
 
-* [NSQ 源码阅读中文系列](https://github.com/denghongcai/nsq-source-code-learning)
-* GoCN、NSQ issue 区、知乎：搜“NSQ 源码解析”
+- [NSQ 源码阅读中文系列](https://github.com/denghongcai/nsq-source-code-learning)
+- GoCN、NSQ issue 区、知乎：搜“NSQ 源码解析”
 
 ---
 
@@ -1160,129 +1233,127 @@ fmt.Println("PutMessage:", msg.ID)
 
 每次阅读都要问：
 
-* **这个模块是干嘛的？**
-* **它解决了什么问题？**
-* **如果我写这个功能，我会怎么做？**
+- **这个模块是干嘛的？**
+- **它解决了什么问题？**
+- **如果我写这个功能，我会怎么做？**
 
 持续记录、总结、对比自己的思路，才是高效学习的关键。
 
 需要我帮你逐步分析 NSQ 某部分源码或画图讲解吗？我可以陪你一起读。
 
-
-
-
-
 > <h1 id="Gin框架">Gin框架</h1>
+
 - **简介**：高性能 HTTP 框架，轻量且易用，支持中间件、路由分组、参数绑定等功能，适合快速构建 RESTful API。
 - **特性**：
   - 集成验证器，支持请求参数自动校验。
   - 路由性能优化，底层基于 `httprouter`，处理速度极快。
   - 支持 Swagger 文档生成（需结合第三方库如 `swaggo`）。
-- **项目地址**：[github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)  
+- **项目地址**：[github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)
 - **案例参考**：常用于企业级 API 开发，如电商后端和微服务架构。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Echo框架">Echo框架</h1>
+
 - **简介**：高性能、可扩展的 Web 框架，支持 RESTful 路由设计，提供中间件、模板渲染等功能。
 - **特性**：
   - 内置 JSON 序列化、请求验证等实用工具。
   - 支持 WebSocket 和 gRPC 集成，适合复杂场景。
   - 官方维护活跃，社区资源丰富。
-- **项目地址**：[github.com/labstack/echo](https://github.com/labstack/echo)  
+- **项目地址**：[github.com/labstack/echo](https://github.com/labstack/echo)
 - **案例参考**：适用于高并发 API 服务，如实时数据接口。
-
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
-> <h1 id="GorillaMux路由库">Gorilla Mux（路由库）</h1> 
+> <h1 id="GorillaMux路由库">Gorilla Mux（路由库）</h1>
+
 - **简介**：灵活的路由库，支持 RESTful 路由匹配、中间件链式调用。
 - **特性**：
   - 强大的路径参数解析（如正则匹配）。
   - 兼容标准库 `net/http`，适合渐进式升级旧项目。
-- **项目地址**：[github.com/gorilla/mux](https://github.com/gorilla/mux)  
+- **项目地址**：[github.com/gorilla/mux](https://github.com/gorilla/mux)
 - **案例参考**：适用于需要精细控制路由逻辑的 API 服务。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Vegeta负载测试工具">Vegeta负载测试工具</h1>
-**性能优化**：结合 **Vegeta**（负载测试工具）对 API 进行压测。
-
-
-
+> **性能优化**：结合 **Vegeta**（负载测试工具）对 API 进行压测。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Authboss库">Authboss库-添加认证与授权模块</h1>
-**安全增强**：使用 **Authboss** 添加认证与授权模块。
-
+> **安全增强**：使用 **Authboss** 添加认证与授权模块。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="GoKit库-网关和分布式追踪">GoKit库-网关和分布式追踪</h1>
-- **微服务架构**：参考 **GoKit** 实现 API 网关和分布式追踪。
 
+- **微服务架构**：参考 **GoKit** 实现 API 网关和分布式追踪。
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Beego库">Beego库</h1>
-**Beego** 提供了一个完整的 MVC 框架，除了 RESTful API 支持外，还包括 ORM、定时任务等功能，适合构建大型项目。  
-  项目地址：[github.com/beego/beego/v2](https://github.com/beego/beego/v2) citeturn0search0
-
+> **Beego** 提供了一个完整的 MVC 框架，除了 RESTful API 支持外，还包括 ORM、定时任务等功能，适合构建大型项目。  
+>   项目地址：[github.com/beego/beego/v2](https://github.com/beego/beego/v2) citeturn0search0
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Fiber库">Fiber库</h1>
-**Fiber**灵感来源于 Express（Node.js 框架），追求极致性能和简洁 API，非常适合需要高并发和低延迟的 RESTful API 项目。  
-  项目地址：[github.com/gofiber/fiber](https://github.com/gofiber/fiber) citeturn0search0
-  
-  
-  
+> **Fiber**灵感来源于 Express（Node.js 框架），追求极致性能和简洁 API，非常适合需要高并发和低延迟的 RESTful API 项目。  
+>   项目地址：[github.com/gofiber/fiber](https://github.com/gofiber/fiber) citeturn0search0
+
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="go-restful库">go-restful库</h1>
-**go-restful**  这个项目提供了一套工具来快速构建 REST 风格的 Web 服务，并在设计上借鉴了 Google 风格。  
-  项目地址：[github.com/emicklei/go-restful](https://github.com/emicklei/go-restful) citeturn0search0
-
+> **go-restful**  这个项目提供了一套工具来快速构建 REST 风格的 Web 服务，并在设计上借鉴了 Google 风格。  
+>   项目地址：[github.com/emicklei/go-restful](https://github.com/emicklei/go-restful) citeturn0search0
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Chi库">Chi库</h1>
-**Chi**  一个轻量级且富有表现力的路由库，注重代码的可组合性与可读性，非常适合构建简单或中型 RESTful API。  
-   GitHub 地址：[github.com/go-chi/chi](https://github.com/go-chi/chi) citeturn0search0
-
-
+> **Chi**  一个轻量级且富有表现力的路由库，注重代码的可组合性与可读性，非常适合构建简单或中型 RESTful API。  
+>    GitHub 地址：[github.com/go-chi/chi](https://github.com/go-chi/chi) citeturn0search0
 
 <br/><br/><br/>
 
-***
+---
+
 <br/>
 
 > <h1 id="Viper配置管理库">Viper配置管理库</h1>
@@ -1290,8 +1361,8 @@ fmt.Println("PutMessage:", msg.ID)
 Viper 是 Go 语言中一个非常流行的配置管理库，用于处理应用程序的配置信息。它支持多种配置来源（如 JSON、YAML、TOML、环境变量、命令行参数、远程配置系统等），并能自动将它们合并成统一的配置视图。
 
 ---
-<br/>
 
+<br/>
 
 **Viper 的主要功能**
 
@@ -1364,16 +1435,15 @@ func main() {
 
 <br/>
 
-
 **其他常用方法**
 
-| 方法 | 说明 |
-|------|------|
-| `viper.SetDefault("key", value)` | 设置默认值 |
-| `viper.BindEnv("key")` | 绑定环境变量 |
-| `viper.GetBool/GetString/GetInt...` | 类型安全地获取值 |
-| `viper.Unmarshal(&struct)` | 将配置反序列化到结构体 |
-| `viper.WatchConfig()` | 监听配置文件变化 |
+| 方法                                | 说明                   |
+| ----------------------------------- | ---------------------- |
+| `viper.SetDefault("key", value)`    | 设置默认值             |
+| `viper.BindEnv("key")`              | 绑定环境变量           |
+| `viper.GetBool/GetString/GetInt...` | 类型安全地获取值       |
+| `viper.Unmarshal(&struct)`          | 将配置反序列化到结构体 |
+| `viper.WatchConfig()`               | 监听配置文件变化       |
 
 **绑定环境变量**
 
