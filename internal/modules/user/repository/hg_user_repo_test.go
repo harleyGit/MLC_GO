@@ -15,6 +15,7 @@ import (
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -29,12 +30,29 @@ func setupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Skipf("skip mysql integration test: %v", err)
+	}
 	return db
+}
+
+func skipIfTestDBUnavailable(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	errText := err.Error()
+	if strings.Contains(errText, "Access denied") || strings.Contains(errText, "Unknown database") || strings.Contains(errText, "connection refused") {
+		t.Skipf("skip mysql integration test: %v", err)
+	}
+	t.Fatal(err)
 }
 
 /* Insert + Get（NULL 字段测试） */
 func TestUserRepo_InsertAndGet(t *testing.T) {
 	db := setupTestDB(t)
+	defer db.Close()
 	repo := NewUserRepo(db)
 	ctx := context.Background()
 
@@ -47,7 +65,7 @@ func TestUserRepo_InsertAndGet(t *testing.T) {
 
 	err := repo.Insert(ctx, user)
 	if err != nil {
-		t.Fatal(err)
+		skipIfTestDBUnavailable(t, err)
 	}
 
 	got, err := repo.GetByID(ctx, user.ID)
@@ -67,6 +85,7 @@ func TestUserRepo_InsertAndGet(t *testing.T) {
 /* Patch 场景 */
 func TestUserRepo_Update(t *testing.T) {
 	db := setupTestDB(t)
+	defer db.Close()
 	repo := NewUserRepo(db)
 	ctx := context.Background()
 
@@ -76,7 +95,9 @@ func TestUserRepo_Update(t *testing.T) {
 		Salt:         sql.NullString{String: "salt", Valid: true},
 	}
 
-	_ = repo.Insert(ctx, user)
+	if err := repo.Insert(ctx, user); err != nil {
+		skipIfTestDBUnavailable(t, err)
+	}
 
 	user.Email = sql.NullString{String: "", Valid: true}
 

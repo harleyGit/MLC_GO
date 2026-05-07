@@ -13,12 +13,33 @@ import (
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"context"
 	"net/http"
 	"sort"
+	"time"
 )
 
 const routeCatalogPath = "/api/v1/routes"
 const routeCatalogGroupsPath = "/api/v1/routes/groups"
+
+const (
+	// healthzPath 是进程存活检查路径，只表示 HTTP 进程能响应请求。
+	healthzPath = "/healthz"
+	// readyzPath 是依赖就绪检查路径，表示实例是否可以承接业务流量。
+	readyzPath = "/readyz"
+	// defaultHealthCheckTimout 限制单次依赖检查耗时，避免探活请求拖住 goroutine。
+	defaultHealthCheckTimout = 2 * time.Second
+)
+
+// DependencyChecker 定义 readyz 依赖检查函数。
+// 设计成函数类型，是为了让根路由不直接依赖 Redis/MySQL 具体实现，保持 handler 层职责清晰。
+type DependencyChecker func(context.Context) error
+
+// HealthCheckConfig 定义根路由健康检查配置。
+type HealthCheckConfig struct {
+	// ReadyCheck 为 nil 时 /readyz 只返回 ready，主要用于旧入口和单元测试；生产入口会注入真实依赖检查。
+	ReadyCheck DependencyChecker
+}
 
 // HGRouteMount 定义一个模块路由挂载点，便于按模块扩展和统一管理前缀策略。
 type HGRouteMount struct {
@@ -32,8 +53,17 @@ type HGRouteMount struct {
 */
 // NewRootHandler 负责构建根路由，从模块注册表中获取所有模块并挂载。
 func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem) *http.ServeMux {
+	return NewRootHandlerWithHealth(routeCatalogs, HealthCheckConfig{})
+}
+
+// NewRootHandlerWithHealth 负责构建根路由，并注册 healthz/readyz 健康检查。
+//
+// 健康检查放在根路由层，而不是某个业务模块里，是因为它服务于部署系统和负载均衡，
+// 不属于 auth/user/test 任一业务域。这样新增业务模块时也不会影响探活路径。
+func NewRootHandlerWithHealth(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem, health HealthCheckConfig) *http.ServeMux {
 	// 根路由只负责挂载模块路由，具体路径由各模块定义，确保模块内路径清晰且不受外层变动影响。
 	rootMux := http.NewServeMux()
+	registerHealthRoutes(rootMux, health)
 
 	// 从注册表获取所有模块并挂载路由
 	mounts := make([]HGRouteMount, 0, 8)
@@ -68,6 +98,50 @@ func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem)
 	logRouteCatalog(catalog)
 
 	return rootMux
+}
+
+func registerHealthRoutes(rootMux *http.ServeMux, health HealthCheckConfig) {
+	// /healthz 不检查任何外部依赖，用于判断进程是否存活。
+	// 例如 Kubernetes livenessProbe 使用它，避免依赖短暂抖动导致容器被误杀。
+	rootMux.Handle(healthzPath, newHealthzHandler())
+	// /readyz 检查外部依赖，用于判断实例是否可以接收流量。
+	// 例如 Kubernetes readinessProbe 使用它，依赖异常时把实例从 service endpoints 中摘除。
+	rootMux.Handle(readyzPath, newReadyzHandler(health.ReadyCheck))
+}
+
+// newHealthzHandler 返回进程存活检查 handler。
+// 该接口故意不访问 Redis/MySQL，保证依赖故障时仍能确认进程是否活着，方便排障和重启策略判断。
+func newHealthzHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+			return
+		}
+		HGResponsePakcage.SuccessResult(w, r, map[string]string{"status": "ok"})
+	})
+}
+
+// newReadyzHandler 返回依赖就绪检查 handler。
+// 只允许 GET，避免探活接口被误用于写操作；依赖失败时返回 503，便于负载均衡摘流。
+func newReadyzHandler(check DependencyChecker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+			return
+		}
+		if check != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), defaultHealthCheckTimout)
+			defer cancel()
+			if err := check(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "service not ready")
+				return
+			}
+		}
+		HGResponsePakcage.SuccessResult(w, r, map[string]string{"status": "ready"})
+	})
 }
 
 // appendMetaRoutes 添加元数据路由（路由清单接口）。

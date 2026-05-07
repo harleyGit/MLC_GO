@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -41,6 +42,22 @@ var (
 	RDB *redis.Client
 )
 
+const (
+	// defaultRedisPoolSize 控制单实例 Redis 最大连接池大小。
+	// 高并发下 Redis 客户端会复用这些连接，避免每个请求都建立 TCP 连接。
+	defaultRedisPoolSize = 200
+	// defaultRedisMinIdleConns 保持一定数量的预热空闲连接，降低突发流量的建连延迟。
+	defaultRedisMinIdleConns = 20
+	// defaultRedisMaxRetries 限制自动重试次数，避免 Redis 抖动时请求被无限放大。
+	defaultRedisMaxRetries = 2
+	// defaultRedisDialTimeout 限制建连耗时，Redis 不可达时快速失败。
+	defaultRedisDialTimeout = 3 * time.Second
+	// defaultRedisReadTimeout 限制单次读取耗时，避免慢 Redis 响应拖住业务 goroutine。
+	defaultRedisReadTimeout = 2 * time.Second
+	// defaultRedisWriteTimeout 限制单次写入耗时，避免网络异常时写操作长时间阻塞。
+	defaultRedisWriteTimeout = 2 * time.Second
+)
+
 /* 比如：debug环境中，Go 程序启动，加载 config.debug.yaml变量 */
 func getRedisAddr() string {
 	redisHost := os.Getenv("REDIS_HOST")
@@ -54,6 +71,20 @@ func getRedisAddr() string {
 	}
 
 	return redisHost + ":" + redisPort
+}
+
+func newRedisClient() *redis.Client {
+	// Redis 客户端内部自带连接池，应用应该创建少量长期复用的 client，而不是每个请求创建。
+	// 这些参数均可通过环境变量覆盖，便于按机器规格、Redis 集群规格和副本数调优。
+	return redis.NewClient(&redis.Options{
+		Addr:         getRedisAddr(),
+		PoolSize:     getEnvInt("REDIS_POOL_SIZE", defaultRedisPoolSize),
+		MinIdleConns: getEnvInt("REDIS_MIN_IDLE_CONNS", defaultRedisMinIdleConns),
+		MaxRetries:   getEnvInt("REDIS_MAX_RETRIES", defaultRedisMaxRetries),
+		DialTimeout:  getEnvDuration("REDIS_DIAL_TIMEOUT", defaultRedisDialTimeout),
+		ReadTimeout:  getEnvDuration("REDIS_READ_TIMEOUT", defaultRedisReadTimeout),
+		WriteTimeout: getEnvDuration("REDIS_WRITE_TIMEOUT", defaultRedisWriteTimeout),
+	})
 }
 
 func WithContext(ctx context.Context) RedisOption {
@@ -103,11 +134,7 @@ func NewRedisServiceV2(opts ...RedisOption) *RedisService {
 	// TODO: 若是初始化用 context.Background(), 则后续调用比如用Get传入的是http的
 	// TODO: r *http.Request; r.Context()， 这样会不会冲突？
 	return &RedisService{
-		client: redis.NewClient(&redis.Options{
-			Addr: getRedisAddr(),
-			// Password: "", // no password set
-			// DB:       0,  // use default DB
-		}),
+		client:     newRedisClient(),
 		defaultCtx: options.ctx,
 	}
 }
@@ -137,11 +164,7 @@ func NewRedisService(ctx ...context.Context) *RedisService {
 		defaultCtx = context.Background()
 	}
 	redisServer := &RedisService{
-		client: redis.NewClient(&redis.Options{
-			Addr: getRedisAddr(),
-			// Password: "", // no password set
-			// DB:       0,  // use default DB
-		}),
+		client:     newRedisClient(),
 		defaultCtx: defaultCtx,
 	}
 
@@ -152,6 +175,75 @@ func NewRedisService(ctx ...context.Context) *RedisService {
 
 	RDB = redisServer.client // 全局变量赋值
 	return redisServer
+}
+
+// NewRedisServiceWithError 初始化 Redis 连接并返回错误，供服务入口统一处理启动失败。
+// 与旧 NewRedisService 不同，这里不直接 Fatal 退出进程，便于入口统一释放已初始化资源。
+func NewRedisServiceWithError(ctx ...context.Context) (*RedisService, error) {
+	var defaultCtx context.Context
+	if len(ctx) > 0 && ctx[0] != nil {
+		defaultCtx = ctx[0]
+	} else {
+		defaultCtx = context.Background()
+	}
+
+	redisServer := &RedisService{
+		client:     newRedisClient(),
+		defaultCtx: defaultCtx,
+	}
+
+	if err := redisServer.client.Ping(defaultCtx).Err(); err != nil {
+		return nil, err
+	}
+
+	RDB = redisServer.client
+	return redisServer, nil
+}
+
+// Close 关闭 Redis 客户端连接池，供服务优雅关闭时调用。
+// Redis client 持有连接池和后台状态，显式关闭可以避免测试泄漏和发布时资源残留。
+func (redisService *RedisService) Close() error {
+	if redisService == nil || redisService.client == nil {
+		return nil
+	}
+	return redisService.client.Close()
+}
+
+// PingContext 检查 Redis 连接是否可用，供 readyz 使用。
+// 使用调用方传入的 context，可以给 /readyz 设置独立超时，不让 Redis 抖动拖慢探活链路。
+func (redisService *RedisService) PingContext(ctx context.Context) error {
+	if redisService == nil || redisService.client == nil {
+		return redis.Nil
+	}
+	return redisService.client.Ping(ctx).Err()
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err == nil && parsed > 0 {
+		return parsed
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func newRedis(addr string, password string, db int) {

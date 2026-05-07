@@ -2,6 +2,8 @@ package HGHandlerPackage
 
 import (
 	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,6 +39,76 @@ func TestRegisterRootPrefixRoutes_ForwardWithStripPrefix(t *testing.T) {
 	}
 	if rec.Body.String() != "ok" {
 		t.Fatalf("expected body=%q, got=%q", "ok", rec.Body.String())
+	}
+}
+
+func TestHealthz_ReturnOK(t *testing.T) {
+	handler := newHealthzHandler()
+	req := httptest.NewRequest(http.MethodGet, healthzPath, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ok") {
+		t.Fatalf("response should contain ok, body=%s", rec.Body.String())
+	}
+}
+
+func TestHealthz_MethodGuard(t *testing.T) {
+	handler := newHealthzHandler()
+	req := httptest.NewRequest(http.MethodPost, healthzPath, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadyz_ReturnReady(t *testing.T) {
+	handler := newReadyzHandler(func(ctx context.Context) error {
+		return nil
+	})
+	req := httptest.NewRequest(http.MethodGet, readyzPath, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ready") {
+		t.Fatalf("response should contain ready, body=%s", rec.Body.String())
+	}
+}
+
+func TestReadyz_ReturnServiceUnavailable(t *testing.T) {
+	handler := newReadyzHandler(func(ctx context.Context) error {
+		return errors.New("dependency down")
+	})
+	req := httptest.NewRequest(http.MethodGet, readyzPath, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadyz_MethodGuard(t *testing.T) {
+	handler := newReadyzHandler(nil)
+	req := httptest.NewRequest(http.MethodPost, readyzPath, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status=%d, got=%d, body=%s", http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
 	}
 }
 

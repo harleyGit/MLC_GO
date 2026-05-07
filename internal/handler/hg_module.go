@@ -10,6 +10,7 @@ package HGHandlerPackage
 
 import (
 	"net/http"
+	"sync"
 )
 
 // HGModule 定义模块统一接口，每个业务模块需实现此接口。
@@ -23,19 +24,40 @@ type HGModule interface {
 }
 
 // moduleRegistry 已注册的模块实例。
-var moduleRegistry []HGModule
+//
+// 这里使用 RWMutex 的原因：模块注册表是包级全局变量，启动、测试、重复构建应用时都可能访问它。
+// 没有锁时，RegisterModule/ClearModules 与 GetRegisteredModules 并发执行会产生数据竞争。
+// 返回时复制 slice 快照，是为了避免调用方拿到内部 slice 后修改底层数组，破坏注册表一致性。
+var (
+	moduleRegistryMu sync.RWMutex
+	moduleRegistry   []HGModule
+)
 
 // RegisterModule 注册模块到全局注册表。
+// 写锁保证多个模块并发注册时 append 操作不会破坏 slice 内部状态。
 func RegisterModule(modules ...HGModule) {
+	moduleRegistryMu.Lock()
+	defer moduleRegistryMu.Unlock()
+
 	moduleRegistry = append(moduleRegistry, modules...)
 }
 
 // GetRegisteredModules 返回所有已注册模块。
+// 读锁允许多个读取方并发获取模块列表；返回副本隔离内部状态。
 func GetRegisteredModules() []HGModule {
-	return moduleRegistry
+	moduleRegistryMu.RLock()
+	defer moduleRegistryMu.RUnlock()
+
+	modules := make([]HGModule, len(moduleRegistry))
+	copy(modules, moduleRegistry)
+	return modules
 }
 
 // ClearModules 清空模块注册表（用于测试）。
+// 构建应用前清空注册表可以避免重复调用 buildMLCApplication 时出现重复挂载。
 func ClearModules() {
+	moduleRegistryMu.Lock()
+	defer moduleRegistryMu.Unlock()
+
 	moduleRegistry = nil
 }
