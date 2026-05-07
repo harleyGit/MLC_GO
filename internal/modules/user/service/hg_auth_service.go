@@ -12,10 +12,10 @@ import (
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	HGSMSCachePackage "MLC_GO/internal/modules/sms/cache"
-	UserCachePackage "MLC_GO/internal/modules/user/cache"
+	usercache "MLC_GO/internal/modules/user/cache"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
-	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	userrepository "MLC_GO/internal/modules/user/repository"
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
@@ -30,8 +30,8 @@ import (
 )
 
 type HGAuthService struct {
-	users        *UserRepositoryPackage.UserRepo
-	codes        *UserCachePackage.HGCodeCache
+	users        *userrepository.UserRepo
+	codes        *usercache.HGCodeCache
 	limiter      *HGSMSCachePackage.HGSMSRateLimiter
 	sms          *HGSMSPackage.HGPhoneSMSSender
 	redisService *PersistenceRedisPackage.RedisService
@@ -40,8 +40,8 @@ type HGAuthService struct {
 
 // NewAuthService 创建认证服务。
 func NewAuthService(
-	users *UserRepositoryPackage.UserRepo,
-	codes *UserCachePackage.HGCodeCache,
+	users *userrepository.UserRepo,
+	codes *usercache.HGCodeCache,
 	redisService *PersistenceRedisPackage.RedisService,
 ) *HGAuthService {
 	var rdb *redis.Client
@@ -317,7 +317,9 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 	if err != nil {
 		return nil, fmt.Errorf("生成 token 失败: %w", err)
 	}
-	s.codes.DeleteCode(ctx, phone)
+	if err := s.codes.DeleteCode(ctx, phone); err != nil {
+		logHG.DebugFInfo("DeleteCode err: %v", err)
+	}
 
 	return &UserDtoPackage.LoginResultDTO{
 		UserID:       user.ID,
@@ -347,7 +349,9 @@ func (s *HGAuthService) Login(ctx context.Context, d *UserDtoPackage.LoginDTO) (
 		}
 	}
 
-	s.codes.DeleteCode(ctx, d.Phone)
+	if err := s.codes.DeleteCode(ctx, d.Phone); err != nil {
+		logHG.DebugFInfo("DeleteCode err: %v", err)
+	}
 
 	return &UserDtoPackage.LoginResultDTO{
 		UserID: user.ID,

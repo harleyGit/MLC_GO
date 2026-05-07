@@ -10,7 +10,7 @@ package UserServicePackage
 
 import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
-	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	userrepository "MLC_GO/internal/modules/user/repository"
 	"context"
 	"database/sql"
 	"testing"
@@ -35,7 +35,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 func TestCreateUser_NullEmail(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	repo := UserRepositoryPackage.NewUserRepo(db)
+	repo := userrepository.NewUserRepo(db)
 	svc := NewUserService(repo, nil, nil)
 
 	phone := "13800000000"

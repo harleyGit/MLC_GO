@@ -24,10 +24,12 @@ const (
 	// 用户总数
 	UserTotalNumSQL = `SELECT COUNT(*) FROM users`
 
-	InsertUserInfoSQL        = `INSERT INTO users(email, phone, password_hash, salt) VALUES (?, ?, ?, ?)`
-	UpdateUserInfoSQL        = `UPDATE users SET email = ?, phone = ?, WHERE user_id = ?`
-	GetUserByIDSQL           = "SELECT user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
-	SelectUserInfoByPhoneSQL = `SELECT id, email, phone, password_hash, salt
+	InsertUserInfoSQL         = `INSERT INTO users(email, phone, password_hash, salt) VALUES (?, ?, ?, ?)`
+	UpdateUserInfoByIDSQL     = `UPDATE users SET email = ?, phone = ? WHERE id = ?`
+	UpdateUserInfoByUserIDSQL = `UPDATE users SET email = ?, phone = ? WHERE user_id = ?`
+	GetUserByIDSQL            = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE id = ?"
+	GetUserByUserIDSQL        = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
+	SelectUserInfoByPhoneSQL  = `SELECT id, user_id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
 	// 用户分页查询【在十万级别数据还可以，百万以上不行】
 	QueryUserPageSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at

@@ -5,7 +5,6 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	"MLC_GO/internal/pkg/logHG"
-	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
 )
@@ -17,11 +16,10 @@ func (s *UserService) GetUserList(
 	cursor int64,
 	size int,
 ) (HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO], error) {
-	if !UtilsPackage.IsEmpty(s.userCache) {
+	if s.userCache != nil {
 		cacheValue, err := s.userCache.GetUserListCache(ctx, cursor, size)
 		if err != nil {
 			logHG.DebugFInfo("GetUserListCache err: %v", err)
-			return HGResponsePakcage.HGPageResultModel[*UserDtoPackage.HGCreateUserDTO]{}, err
 		}
 		if cacheValue != nil {
 			return *cacheValue, nil
@@ -66,14 +64,14 @@ func (s *UserService) GetUserList(
 // getUserListTotal 获取用户总数，优先读取 Redis 缓存。
 // total 变更来自注册和资料更新等写操作，写成功后由 clearUserListCache 统一失效缓存。
 func (s *UserService) getUserListTotal(ctx context.Context) (int, error) {
-	if UtilsPackage.IsEmpty(s.userCache) {
+	if s.userCache == nil {
 		return s.repo.CountUsers(ctx)
 	}
 
 	total, err := s.userCache.GetUserListTotalCache(ctx)
 	if err != nil {
 		logHG.DebugFInfo("GetUserListTotalCache err: %v", err)
-		return 0, err
+		return s.repo.CountUsers(ctx)
 	}
 	if total > 0 {
 		return total, nil

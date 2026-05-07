@@ -2,16 +2,16 @@ package UserServicePackage
 
 import (
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
-	HGUserCachePackage "MLC_GO/internal/modules/user/cache"
-	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	usercache "MLC_GO/internal/modules/user/cache"
+	userrepository "MLC_GO/internal/modules/user/repository"
 	"errors"
 )
 
 // UserService 是用户域业务服务聚合器。
 // 按大厂常见写法，service 持有 repository/cache/基础服务依赖，具体业务方法按能力拆到 auth/profile/query 文件。
 type UserService struct {
-	repo         *UserRepositoryPackage.UserRepo       // repo 只负责 SQL 访问，不承载 HTTP 语义。
-	userCache    *HGUserCachePackage.HGUserCache       // userCache 只负责用户列表等 Redis 缓存读写。
+	repo         *userrepository.UserRepo              // repo 只负责 SQL 访问，不承载 HTTP 语义。
+	userCache    *usercache.HGUserCache                // userCache 只负责用户列表等 Redis 缓存读写。
 	redisService *PersistenceRedisPackage.RedisService // redisService 用于验证码、token 等需要 Redis 原生命令的业务能力。
 }
 
@@ -35,8 +35,8 @@ var (
 // NewUserService 创建用户业务服务。
 // 构造函数只保存依赖，不做网络访问和副作用，便于 module 装配和单元测试替换依赖。
 func NewUserService(
-	repo *UserRepositoryPackage.UserRepo,
-	userCache *HGUserCachePackage.HGUserCache,
+	repo *userrepository.UserRepo,
+	userCache *usercache.HGUserCache,
 	redisService *PersistenceRedisPackage.RedisService,
 ) *UserService {
 	return &UserService{

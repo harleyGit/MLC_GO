@@ -53,10 +53,15 @@ func (h *HGUserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
-// PathUser 按用户 ID 局部更新用户基础信息。
+// PathUser 按业务 user_id 局部更新用户基础信息。
 // 该方法保留现有行为用于兼容旧路由；新资料更新建议使用 UpdateProfile。
 func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
+	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
+	if userID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 user_id 参数")
+		return
+	}
 
 	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
@@ -64,7 +69,7 @@ func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.svc.PathUser(r.Context(), id, &d)
+	user, err := h.svc.PathUser(r.Context(), userID, &d)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

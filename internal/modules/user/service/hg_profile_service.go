@@ -48,20 +48,24 @@ func (s *UserService) GetByEmailOrPhone(ctx context.Context, account string) (*U
 	return s.repo.GetByEmailOrPhone(ctx, account)
 }
 
-// PathUser 按自增 ID 局部更新用户基础信息。
-// 保留该方法用于兼容历史调用；新资料更新优先使用 UpdateProfile 按 user_id 更新。
+// PathUser 按业务 user_id 局部更新用户基础信息。
+// 对外接口统一使用 user_id，避免前端误传数据库自增主键 id。
 func (s *UserService) PathUser(
 	ctx context.Context,
-	id int64,
+	userID string,
 	d *UserDtoPackage.HGCreateUserDTO,
 ) (*UserDtoPackage.HGCreateUserDTO, error) {
-	user, err := s.repo.GetByID(ctx, id)
+	if userID == "" {
+		return nil, errors.New("user_id 不能为空")
+	}
+
+	user, err := s.repo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	UserMapperPackage.PatchUserDTOToModel(d, user)
 
-	if err := s.repo.Update(ctx, user); err != nil {
+	if err := s.repo.UpdateByUserID(ctx, userID, user); err != nil {
 		return nil, err
 	}
 
@@ -89,7 +93,7 @@ func (s *UserService) UpdateProfile(
 		d.BirthDate = &normalizedDate
 	}
 
-	if err := s.repo.UpdateProfileByID(ctx, userID, d); err != nil {
+	if err := s.repo.UpdateProfileByUserID(ctx, userID, d); err != nil {
 		return nil, err
 	}
 	s.clearUserListCache(ctx)

@@ -4,9 +4,9 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
-	UserCachePackage "MLC_GO/internal/modules/user/cache"
+	usercache "MLC_GO/internal/modules/user/cache"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
-	UserRepositoryPackage "MLC_GO/internal/modules/user/repository"
+	userrepository "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 )
 
@@ -27,9 +27,9 @@ type UserModuleDeps struct {
 // 2. handler 不再知道 repository/cache 的存在，避免 HTTP 层污染业务和数据层。
 // 3. 后续增加依赖时，只改 assembly，不需要到多个 handler 构造函数里散改。
 type UserModuleComponents struct {
-	UserRepo     *UserRepositoryPackage.UserRepo
-	UserCache    *UserCachePackage.HGUserCache
-	CodeCache    *UserCachePackage.HGCodeCache
+	UserRepo     *userrepository.UserRepo
+	UserCache    *usercache.HGUserCache
+	CodeCache    *usercache.HGCodeCache
 	UserService  *UserServicePackage.UserService
 	TokenService *UserServicePackage.HGAuthService
 	AvatarSvc    *UserServicePackage.AvatarService
@@ -52,9 +52,9 @@ func NewUserModuleComponents(deps UserModuleDeps) *UserModuleComponents {
 	}
 
 	db := deps.SQLManager.GetSQLDB()
-	userRepo := UserRepositoryPackage.NewUserRepo(db)
-	userCache := UserCachePackage.NewUserCache(deps.RedisService)
-	codeCache := UserCachePackage.NewCodeCache(deps.RedisService)
+	userRepo := userrepository.NewUserRepo(db)
+	userCache := usercache.NewUserCache(deps.RedisService)
+	codeCache := usercache.NewCodeCache(deps.RedisService)
 
 	userService := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
 	tokenService := UserServicePackage.NewAuthService(userRepo, codeCache, deps.RedisService)

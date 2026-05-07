@@ -9,7 +9,7 @@
 
 *
 */
-package UserRepositoryPackage
+package repository
 
 import (
 	UserModelsPackage "MLC_GO/internal/modules/user/model"

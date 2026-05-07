@@ -3,10 +3,10 @@
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
  * @LastEditTime: 2026-03-01 22:29:27
- * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_respository.go
+ * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_repository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
-package UserRepositoryPackage
+package repository
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
@@ -21,24 +21,24 @@ import (
 	"time"
 )
 
+const userRepoQueryTimeout = 5 * time.Second
+
 /* UserRepo 继承  RepositoryPackage.HGBaseRepo */
 type UserRepo struct {
 	*RepositoryPackage.HGBaseRepo
 }
 
+// NewUserRepo 创建用户仓储，集中封装 users 表 SQL 访问。
 func NewUserRepo(db *sql.DB) *UserRepo {
+	if db == nil {
+		panic("user repository requires sql db")
+	}
 	return &UserRepo{HGBaseRepo: RepositoryPackage.NewBaseRepo(db)}
 }
 
-// TODO：若是插入后还需要操作其他表，因包裹在事务中【这个事务指的是啥】
-// 插入用户信息
+// Insert 插入用户基础认证信息，并回填自增主键 ID。
 func (r *UserRepo) Insert(ctx context.Context, u *UserModelsPackage.HGUserModel) error {
-	// ExecContext 用于执行一条“写操作”SQL，用于 插入、更新、删除操作
-	// TODO： 检查Phone和Email唯一性，上层操作判断
-
-	// 使用带超时的上下文，防止长时间阻塞
-	const queryTimeout = 5 * time.Second
-	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
 
 	res, err := r.Exec(
@@ -49,24 +49,16 @@ func (r *UserRepo) Insert(ctx context.Context, u *UserModelsPackage.HGUserModel)
 		u.PasswordHash,
 		u.Salt,
 	)
-	// TODO：可能失败，失败比如不支持数据库特性【这个特性值的是什么】？需要解决下
 	if err != nil {
-		// 检查是否是上下文取消错误
-		if errors.Is(err, context.Canceled) {
-			return fmt.Errorf("insert user operation was canceled: %w", err)
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("insert user operation timed out after %v: %w", queryTimeout, err)
-		}
-		// TODO: 若是失败需要回滚，比如：tx， err ：= r。db。GeginTx（ctx， nil）；
-		// TODO：res， err ：= tx.ExecContext（ctx， sql语句） tx.Rollback()
-		// TODO:可以保持事务一致性
-		return fmt.Errorf("failed to insert user: %w", err)
+		return wrapUserRepoWriteErr("insert user", err)
 	}
-	u.ID, _ = res.LastInsertId()
+	if u.ID, err = res.LastInsertId(); err != nil {
+		return fmt.Errorf("get inserted user id: %w", err)
+	}
 	return nil
 }
 
+// GetByPhone 根据手机号查询认证所需用户信息。
 func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*UserModelsPackage.HGUserModel, error) {
 	var u UserModelsPackage.HGUserModel
 	err := r.QueryRow(
@@ -75,6 +67,7 @@ func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*UserModelsPac
 		phone,
 	).Scan(
 		&u.ID,
+		&u.UserID,
 		&u.Email,
 		&u.Phone,
 		&u.PasswordHash,
@@ -84,6 +77,7 @@ func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*UserModelsPac
 	return &u, err
 }
 
+// GetByID 根据自增主键 ID 查询用户资料。
 func (r *UserRepo) GetByID(ctx context.Context, id int64) (*UserModelsPackage.HGUserModel, error) {
 	var u UserModelsPackage.HGUserModel
 	err := r.QueryRow(
@@ -91,6 +85,7 @@ func (r *UserRepo) GetByID(ctx context.Context, id int64) (*UserModelsPackage.HG
 		SQLQueriesPackage.GetUserByIDSQL,
 		id,
 	).Scan(
+		&u.ID,
 		&u.UserID,
 		&u.Username,
 		&u.Nickname,
@@ -110,9 +105,10 @@ func (r *UserRepo) GetByUserID(ctx context.Context, userID string) (*UserModelsP
 	var u UserModelsPackage.HGUserModel
 	err := r.QueryRow(
 		ctx,
-		SQLQueriesPackage.GetUserByIDSQL,
+		SQLQueriesPackage.GetUserByUserIDSQL,
 		userID,
 	).Scan(
+		&u.ID,
 		&u.UserID,
 		&u.Username,
 		&u.Nickname,
@@ -147,32 +143,43 @@ func (r *UserRepo) GetByEmailOrPhone(ctx context.Context, account string) (*User
 	return &u, err
 }
 
+// Update 按自增主键更新用户邮箱和手机号，仅用于内部主键明确的历史调用。
 func (r *UserRepo) Update(ctx context.Context, u *UserModelsPackage.HGUserModel) error {
-	// 使用带超时的上下文，防止长时间阻塞
-	const queryTimeout = 5 * time.Second
-	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
 
-	_, err := r.Exec(
+	res, err := r.Exec(
 		queryCtx,
-		SQLQueriesPackage.UpdateUserInfoSQL,
+		SQLQueriesPackage.UpdateUserInfoByIDSQL,
 		u.Email,
 		u.Phone,
-		u.UserID,
+		u.ID,
 	)
 	if err != nil {
-		// 检查是否是上下文取消错误
-		if errors.Is(err, context.Canceled) {
-			return fmt.Errorf("update user operation was canceled: %w", err)
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("update user operation timed out after %v: %w", queryTimeout, err)
-		}
-		return fmt.Errorf("failed to update user: %w", err)
+		return wrapUserRepoWriteErr("update user", err)
 	}
-	return nil
+	return ensureRowsAffected(res)
 }
 
+// UpdateByUserID 按业务 user_id 更新用户邮箱和手机号，供对外用户资料接口使用。
+func (r *UserRepo) UpdateByUserID(ctx context.Context, userID string, u *UserModelsPackage.HGUserModel) error {
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
+	defer cancel()
+
+	res, err := r.Exec(
+		queryCtx,
+		SQLQueriesPackage.UpdateUserInfoByUserIDSQL,
+		u.Email,
+		u.Phone,
+		userID,
+	)
+	if err != nil {
+		return wrapUserRepoWriteErr("update user by user_id", err)
+	}
+	return ensureRowsAffected(res)
+}
+
+// FindPage 使用 offset 分页查询用户列表，保留用于历史调用。
 func (r *UserRepo) FindPage(
 	ctx context.Context,
 	page, size int,
@@ -204,7 +211,7 @@ func (r *UserRepo) FindPage(
 	}
 	defer rows.Close()
 
-	var users []UserModelsPackage.HGUserModel
+	users := make([]UserModelsPackage.HGUserModel, 0, size)
 	for rows.Next() {
 		var u UserModelsPackage.HGUserModel
 		err := rows.Scan(
@@ -222,6 +229,9 @@ func (r *UserRepo) FindPage(
 			return nil, 0, err
 		}
 		users = append(users, u)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
 	}
 
 	return users, total, nil
@@ -297,6 +307,7 @@ func (r *UserRepo) FindByCursor(
 	return users, nextCursor, hasMore, nil
 }
 
+// CountUsers 查询用户总数，供列表分页响应和 total 缓存回源使用。
 func (r *UserRepo) CountUsers(ctx context.Context) (int, error) {
 	var total int
 	err := r.QueryRow(
@@ -310,8 +321,8 @@ func (r *UserRepo) CountUsers(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-// UpdateProfileByID 按传入字段动态更新用户资料，支持单字段或多字段修改。
-func (r *UserRepo) UpdateProfileByID(
+// UpdateProfileByUserID 按业务 user_id 动态更新用户资料，支持单字段或多字段修改。
+func (r *UserRepo) UpdateProfileByUserID(
 	ctx context.Context,
 	userID string,
 	d *UserDtoPackage.HGUpdateUserProfileReqDTO,
@@ -347,23 +358,29 @@ func (r *UserRepo) UpdateProfileByID(
 	query := fmt.Sprintf("UPDATE users SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
 	args = append(args, userID)
 
-	// 使用带超时的上下文，防止长时间阻塞
-	const queryTimeout = 5 * time.Second
-	queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
 
 	res, err := r.Exec(queryCtx, query, args...)
 	if err != nil {
-		// 检查是否是上下文取消错误
-		if errors.Is(err, context.Canceled) {
-			return fmt.Errorf("update profile operation was canceled: %w", err)
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("update profile operation timed out after %v: %w", queryTimeout, err)
-		}
-		return fmt.Errorf("failed to update profile: %w", err)
+		return wrapUserRepoWriteErr("update profile", err)
 	}
 
+	return ensureRowsAffected(res)
+}
+
+// UpdateProfileByID 兼容旧方法名；实际语义为按业务 user_id 更新资料。
+// Deprecated: 新代码使用 UpdateProfileByUserID，避免和自增主键 id 混淆。
+func (r *UserRepo) UpdateProfileByID(
+	ctx context.Context,
+	userID string,
+	d *UserDtoPackage.HGUpdateUserProfileReqDTO,
+) error {
+	return r.UpdateProfileByUserID(ctx, userID, d)
+}
+
+// ensureRowsAffected 将没有命中用户的更新统一转成 sql.ErrNoRows，便于 handler 映射 404。
+func ensureRowsAffected(res sql.Result) error {
 	affected, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
@@ -371,6 +388,16 @@ func (r *UserRepo) UpdateProfileByID(
 	if affected == 0 {
 		return sql.ErrNoRows
 	}
-
 	return nil
+}
+
+// wrapUserRepoWriteErr 统一包装写操作错误，保留 context 取消和超时语义。
+func wrapUserRepoWriteErr(operation string, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%s operation was canceled: %w", operation, err)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s operation timed out after %v: %w", operation, userRepoQueryTimeout, err)
+	}
+	return fmt.Errorf("failed to %s: %w", operation, err)
 }
