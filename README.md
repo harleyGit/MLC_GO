@@ -58,6 +58,28 @@
 
 > <h1 id="工程启动">工程启动</h1>
 
+```sh
+cmd/                         # 进程入口
+internal/
+├── app/                     # 应用启动、生命周期
+├── config/                  # 配置
+├── infrastructure/          # MySQL、Redis、MQ、第三方基础设施
+├── interfaces/              # HTTP/RPC 路由、中间件、presenter
+├── modules/                 # 业务模块
+│   └── user/
+│       ├── module/          # 模块装配
+│       ├── handler/         # HTTP/RPC 适配层
+│       ├── service/         # 业务编排层
+│       ├── repository/      # DB 访问层
+│       ├── cache/           # Redis 访问层
+│       ├── dto/             # 请求/响应 DTO
+│       ├── model/           # 数据模型
+│       ├── mapper/          # DTO/model 转换
+│       └── middleware/      # 模块私有中间件
+└── pkg/                     # 可复用内部工具
+
+```
+当前项目更适合采用“业务模块内分层 + 能力拆文件”，我已按这个方向改造 user 模块，没有做跨模块大迁移，避免破坏现有路由和启动链路。
 <br/>
 
 > <h2 id="VSCode启动">VSCode启动</h2>
