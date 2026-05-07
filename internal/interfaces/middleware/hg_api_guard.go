@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
@@ -19,6 +20,17 @@ import (
 )
 
 const apiGuardTag = "api_guard"
+
+const (
+	apiGuardMaxSignedBodyBytes = 1 << 20
+	methodGet                  = 1 << iota
+	methodPost
+	methodPut
+	methodDelete
+	methodPatch
+	methodOptions
+	methodHead
+)
 
 // region 数据结构定义
 
@@ -44,8 +56,14 @@ const (
 
 // APIGuard 存储 API 规则，支持版本化路由。
 type APIGuard struct {
-	rulesByVersion map[string]map[string]APIRule
-	legacyRules    map[string]APIRule
+	rulesByVersion map[string]map[string]compiledAPIRule
+	legacyRules    map[string]compiledAPIRule
+}
+
+// compiledAPIRule 是启动期预编译后的 API 规则，避免请求期反复遍历/查 map。
+type compiledAPIRule struct {
+	APIRule
+	methodMask uint16
 }
 
 // endregion
@@ -69,8 +87,8 @@ var rolePermissions = map[string]map[string]bool{
 // NewAPIGuard 创建 API 规则守卫。
 func NewAPIGuard(rules []APIRule) *APIGuard {
 	guard := &APIGuard{
-		rulesByVersion: make(map[string]map[string]APIRule),
-		legacyRules:    make(map[string]APIRule),
+		rulesByVersion: make(map[string]map[string]compiledAPIRule),
+		legacyRules:    make(map[string]compiledAPIRule),
 	}
 
 	for _, r := range rules {
@@ -79,12 +97,17 @@ func NewAPIGuard(rules []APIRule) *APIGuard {
 			version = defaultAPIVersion
 		}
 
-		if _, ok := guard.rulesByVersion[version]; !ok {
-			guard.rulesByVersion[version] = make(map[string]APIRule)
+		compiled := compiledAPIRule{
+			APIRule:    r,
+			methodMask: compileMethodMask(r.Methods),
 		}
 
-		guard.rulesByVersion[version][r.Path] = r
-		guard.legacyRules[r.Path] = r
+		if _, ok := guard.rulesByVersion[version]; !ok {
+			guard.rulesByVersion[version] = make(map[string]compiledAPIRule)
+		}
+
+		guard.rulesByVersion[version][r.Path] = compiled
+		guard.legacyRules[r.Path] = compiled
 	}
 
 	return guard
@@ -121,7 +144,7 @@ func (g *APIGuard) Middleware() Middleware {
 				return
 			}
 
-			if !rule.Methods[r.Method] {
+			if !rule.allowMethod(r.Method) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
 				logHG.ErrFInfo(`%s: Method校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
@@ -161,7 +184,7 @@ func (g *APIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 
 // region 内部方法
 
-func (g *APIGuard) lookupRule(version string, path string) (APIRule, bool) {
+func (g *APIGuard) lookupRule(version string, path string) (compiledAPIRule, bool) {
 	routesByPath, ok := g.rulesByVersion[version]
 	if !ok {
 		if version != defaultAPIVersion {
@@ -170,7 +193,7 @@ func (g *APIGuard) lookupRule(version string, path string) (APIRule, bool) {
 				return rule, ruleOK
 			}
 		}
-		return APIRule{}, false
+		return compiledAPIRule{}, false
 	}
 
 	rule, ok := routesByPath[path]
@@ -223,7 +246,7 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		strings.HasPrefix(contentType, "application/octet-stream")
 	if !isBinaryUpload {
 		var err error
-		body, err = readAndRestoreBody(r)
+		body, err = readAndRestoreBody(r, apiGuardMaxSignedBodyBytes)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "请求体读取失败")
@@ -308,39 +331,54 @@ func buildRequestSignature(
 	language string,
 	token string,
 ) []byte {
-	bodyHash := sha256.Sum256(body)
-	payload := strings.Join([]string{
-		r.Method,
-		r.URL.Path,
-		timestamp,
-		requestID,
-		deviceID,
-		clientType,
-		clientVersion,
-		version,
-		language,
-		hex.EncodeToString(bodyHash[:]),
-		token,
-	}, "\n")
-
 	mac := hmac.New(sha256.New, UserServicePackage.Secret)
-	mac.Write([]byte(payload))
+	writeSignaturePart(mac, r.Method)
+	writeSignaturePart(mac, r.URL.Path)
+	writeSignaturePart(mac, timestamp)
+	writeSignaturePart(mac, requestID)
+	writeSignaturePart(mac, deviceID)
+	writeSignaturePart(mac, clientType)
+	writeSignaturePart(mac, clientVersion)
+	writeSignaturePart(mac, version)
+	writeSignaturePart(mac, language)
+	writeSignaturePart(mac, hex.EncodeToString(hashBody(body)))
+	_, _ = mac.Write([]byte(token))
 
 	return mac.Sum(nil)
 }
 
-func readAndRestoreBody(r *http.Request) ([]byte, error) {
+func readAndRestoreBody(r *http.Request, limit int64) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
+	if limit > 0 && r.ContentLength > limit {
+		return nil, errors.New("request body too large")
+	}
 
-	body, err := io.ReadAll(r.Body)
+	reader := io.Reader(r.Body)
+	if limit > 0 {
+		reader = io.LimitReader(r.Body, limit+1)
+	}
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
+	}
+	if limit > 0 && int64(len(body)) > limit {
+		return nil, errors.New("request body too large")
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	return body, nil
+}
+
+func hashBody(body []byte) []byte {
+	bodyHash := sha256.Sum256(body)
+	return bodyHash[:]
+}
+
+func writeSignaturePart(mac hash.Hash, value string) {
+	_, _ = mac.Write([]byte(value))
+	_, _ = mac.Write([]byte("\n"))
 }
 
 func absInt64(v int64) int64 {
@@ -357,6 +395,9 @@ func absInt64(v int64) int64 {
 // HasPermission 判断角色是否拥有所需权限。
 func HasPermission(role string, perms []string) bool {
 	rolePerms := rolePermissions[role]
+	if rolePerms == nil {
+		return false
+	}
 	for _, p := range perms {
 		if rolePerms[p] {
 			return true
@@ -370,9 +411,12 @@ func HasPermission(role string, perms []string) bool {
 // region 兼容旧方法
 
 func MethodGuardMiddlewareV2(rules []APIRule) func(http.Handler) http.Handler {
-	ruleMap := make(map[string]APIRule)
+	ruleMap := make(map[string]compiledAPIRule)
 	for _, r := range rules {
-		ruleMap[r.Path] = r
+		ruleMap[r.Path] = compiledAPIRule{
+			APIRule:    r,
+			methodMask: compileMethodMask(r.Methods),
+		}
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -383,7 +427,7 @@ func MethodGuardMiddlewareV2(rules []APIRule) func(http.Handler) http.Handler {
 				return
 			}
 
-			if !rule.Methods[r.Method] {
+			if !rule.allowMethod(r.Method) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotFoundCode, "method not allowed")
 				return
@@ -401,7 +445,7 @@ func (g *APIGuard) MethodGuardMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if !rule.Methods[r.Method] {
+		if !rule.allowMethod(r.Method) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotFoundCode, "method not allowed")
 			return
@@ -411,3 +455,39 @@ func (g *APIGuard) MethodGuardMiddleware(next http.Handler) http.Handler {
 }
 
 // endregion
+
+func compileMethodMask(methods map[string]bool) uint16 {
+	var mask uint16
+	for method, allowed := range methods {
+		if !allowed {
+			continue
+		}
+		mask |= methodBit(method)
+	}
+	return mask
+}
+
+func (r compiledAPIRule) allowMethod(method string) bool {
+	return r.methodMask&methodBit(method) != 0
+}
+
+func methodBit(method string) uint16 {
+	switch method {
+	case http.MethodGet:
+		return methodGet
+	case http.MethodPost:
+		return methodPost
+	case http.MethodPut:
+		return methodPut
+	case http.MethodDelete:
+		return methodDelete
+	case http.MethodPatch:
+		return methodPatch
+	case http.MethodOptions:
+		return methodOptions
+	case http.MethodHead:
+		return methodHead
+	default:
+		return 0
+	}
+}

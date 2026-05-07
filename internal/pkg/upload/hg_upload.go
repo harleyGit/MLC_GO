@@ -2,13 +2,17 @@ package HGUploadPackage
 
 import (
 	"MLC_GO/internal/pkg/logHG"
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +24,9 @@ const (
 
 	// DefaultUploadDir 默认上传目录
 	DefaultUploadDir = "./uploads"
+
+	// maxDetectBytes 用于识别文件真实内容类型的最大读取字节数。
+	maxDetectBytes = 512
 
 	// 图片格式
 	ImageTypeJPG  = "jpg"
@@ -90,39 +97,29 @@ type UploadResult struct {
 
 // FileNameGenerator 文件名生成器。
 type FileNameGenerator struct {
-	mu      sync.Mutex
-	counter int64
+	counter uint64
 }
 
 // 全局文件名生成器。
 var globalGenerator = &FileNameGenerator{}
 
 // GenerateFileName 生成文件名：hg_模块名+年月日时分秒+序号.图片格式
-// 示例：hg_user_20260505183045_001.jpg
+// 示例：hg_user_20260505183045123456789_000001_ab12cd34ef56abcd.jpg
 func GenerateFileName(moduleName string, ext string) string {
 	generator := globalGenerator
-	generator.mu.Lock()
-	defer generator.mu.Unlock()
+	seq := atomic.AddUint64(&generator.counter, 1)
 
-	// 递增序号
-	generator.counter++
-	if generator.counter > 999 {
-		generator.counter = 1
-	}
-
-	// 格式化时间：年月日时分秒
+	// 纳秒时间、原子序号和随机后缀共同避免高并发下文件名冲突。
 	now := time.Now()
-	timeStr := now.Format("20060102150405")
-
-	// 格式化序号：3位数字，补零
-	seq := fmt.Sprintf("%03d", generator.counter)
+	timeStr := now.Format("20060102150405") + fmt.Sprintf("%09d", now.Nanosecond())
+	randomStr := newRandomHex(8)
 
 	// 清理模块名
-	moduleName = strings.ReplaceAll(moduleName, "/", "_")
-	moduleName = strings.ReplaceAll(moduleName, "\\", "_")
+	moduleName = sanitizePathPart(moduleName)
+	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
 
 	// 生成文件名
-	return fmt.Sprintf("hg_%s_%s_%s.%s", moduleName, timeStr, seq, ext)
+	return fmt.Sprintf("hg_%s_%s_%06d_%s.%s", moduleName, timeStr, seq%1000000, randomStr, ext)
 }
 
 // endregion
@@ -133,6 +130,8 @@ func GenerateFileName(moduleName string, ext string) string {
 type StorageDriver interface {
 	// Upload 上传文件，返回访问 URL。
 	Upload(data []byte, key string, contentType string) (string, error)
+	// UploadStream 流式上传文件，返回访问 URL。
+	UploadStream(reader io.Reader, key string, contentType string) (string, error)
 	// Delete 删除文件。
 	Delete(key string) error
 	// GetURL 获取文件访问 URL。
@@ -159,6 +158,11 @@ func NewLocalStorageDriver(baseURL, uploadDir string) *LocalStorageDriver {
 
 // Upload 上传文件到本地磁盘。
 func (d *LocalStorageDriver) Upload(data []byte, key string, contentType string) (string, error) {
+	return d.UploadStream(bytes.NewReader(data), key, contentType)
+}
+
+// UploadStream 流式上传文件到本地磁盘，避免并发上传时整文件常驻内存。
+func (d *LocalStorageDriver) UploadStream(reader io.Reader, key string, contentType string) (string, error) {
 	// 创建目录
 	dir := filepath.Dir(filepath.Join(d.uploadDir, key))
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -167,7 +171,14 @@ func (d *LocalStorageDriver) Upload(data []byte, key string, contentType string)
 
 	// 保存文件
 	filePath := filepath.Join(d.uploadDir, key)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return "", fmt.Errorf("open file failed: %w", err)
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(file, reader); err != nil {
+		_ = os.Remove(filePath)
 		return "", fmt.Errorf("write file failed: %w", err)
 	}
 
@@ -208,6 +219,12 @@ func NewOSSStorageDriver(config *OSSConfig) *OSSStorageDriver {
 // Upload 上传文件到 OSS。
 // 注意：这里只是示例，实际需要使用阿里云 OSS SDK
 func (d *OSSStorageDriver) Upload(data []byte, key string, contentType string) (string, error) {
+	return d.UploadStream(bytes.NewReader(data), key, contentType)
+}
+
+// UploadStream 上传文件流到 OSS。
+// 注意：这里只是示例，实际需要使用阿里云 OSS SDK
+func (d *OSSStorageDriver) UploadStream(reader io.Reader, key string, contentType string) (string, error) {
 	// TODO: 实际实现需要使用阿里云 OSS SDK
 	// client, err := oss.New(d.config.Endpoint, d.config.AccessKeyID, d.config.AccessKeySecret)
 	// if err != nil {
@@ -217,7 +234,7 @@ func (d *OSSStorageDriver) Upload(data []byte, key string, contentType string) (
 	// if err != nil {
 	//     return "", err
 	// }
-	// err = bucket.PutObject(key, bytes.NewReader(data), oss.ContentType(contentType))
+	// err = bucket.PutObject(key, reader, oss.ContentType(contentType))
 	// if err != nil {
 	//     return "", err
 	// }
@@ -304,17 +321,26 @@ func NewOSSUploader(config *OSSConfig) *Uploader {
 // UploadFromBytes 从二进制数据上传文件。
 func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (*UploadResult, error) {
 	// 1. 检查数据大小
+	if len(data) == 0 {
+		return nil, fmt.Errorf("data is empty")
+	}
 	if int64(len(data)) > u.config.MaxFileSize {
 		return nil, fmt.Errorf("data size %d exceeds max %d", len(data), u.config.MaxFileSize)
 	}
+
+	ext = normalizeExt(ext)
 
 	// 2. 检查文件类型
 	if !u.isAllowedType(ext) {
 		return nil, fmt.Errorf("file type %s not allowed", ext)
 	}
+	if err := validateImageContentType(data, ext); err != nil {
+		return nil, err
+	}
 
 	// 3. 生成文件名和对象键
 	fileName := GenerateFileName(moduleName, ext)
+	moduleName = sanitizePathPart(moduleName)
 	key := fmt.Sprintf("%s/%s", moduleName, fileName)
 
 	// 4. 确定 Content-Type
@@ -335,24 +361,80 @@ func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (
 	}, nil
 }
 
+// UploadFromReader 从流上传文件，调用方需传入已限制大小的 reader 和准确 size。
+func (u *Uploader) UploadFromReader(reader io.Reader, size int64, moduleName string, ext string) (*UploadResult, error) {
+	if reader == nil {
+		return nil, fmt.Errorf("reader is nil")
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
+	if size > u.config.MaxFileSize {
+		return nil, fmt.Errorf("file size %d exceeds max %d", size, u.config.MaxFileSize)
+	}
+
+	ext = normalizeExt(ext)
+	if !u.isAllowedType(ext) {
+		return nil, fmt.Errorf("file type %s not allowed", ext)
+	}
+
+	detectBuf := make([]byte, maxDetectBytes)
+	n, err := io.ReadFull(reader, detectBuf)
+	if err != nil {
+		if err != io.EOF && err != io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("read file failed: %w", err)
+		}
+	}
+	detectBuf = detectBuf[:n]
+	if err := validateImageContentType(detectBuf, ext); err != nil {
+		return nil, err
+	}
+
+	fileName := GenerateFileName(moduleName, ext)
+	moduleName = sanitizePathPart(moduleName)
+	key := fmt.Sprintf("%s/%s", moduleName, fileName)
+	contentType := getContentType(ext)
+	stream := io.MultiReader(bytes.NewReader(detectBuf), reader)
+
+	fileURL, err := u.storage.UploadStream(stream, key, contentType)
+	if err != nil {
+		return nil, fmt.Errorf("upload failed: %w", err)
+	}
+
+	return &UploadResult{
+		FileName: fileName,
+		FilePath: key,
+		FileURL:  fileURL,
+		FileSize: size,
+		IsNew:    true,
+	}, nil
+}
+
 // UploadSingle 上传单个文件。
 func (u *Uploader) UploadSingle(fileHeader *multipart.FileHeader, moduleName string) (*UploadResult, error) {
+	if fileHeader == nil {
+		return nil, fmt.Errorf("file header is nil")
+	}
+	if fileHeader.Size <= 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
+	if fileHeader.Size > u.config.MaxFileSize {
+		return nil, fmt.Errorf("file size %d exceeds max %d", fileHeader.Size, u.config.MaxFileSize)
+	}
+
+	// 获取文件扩展名
+	ext := normalizeExt(GetFileExt(fileHeader.Filename))
+	if !u.isAllowedType(ext) {
+		return nil, fmt.Errorf("file type %s not allowed", ext)
+	}
+
 	// 读取文件内容
 	src, err := fileHeader.Open()
 	if err != nil {
 		return nil, fmt.Errorf("open file failed: %w", err)
 	}
 	defer src.Close()
-
-	data, err := io.ReadAll(src)
-	if err != nil {
-		return nil, fmt.Errorf("read file failed: %w", err)
-	}
-
-	// 获取文件扩展名
-	ext := GetFileExt(fileHeader.Filename)
-
-	return u.UploadFromBytes(data, moduleName, ext)
+	return u.UploadFromReader(src, fileHeader.Size, moduleName, ext)
 }
 
 // DeleteFile 删除文件。
@@ -398,6 +480,71 @@ func GetFileExt(filename string) string {
 		return ""
 	}
 	return strings.TrimPrefix(ext, ".")
+}
+
+// normalizeExt 标准化文件扩展名，避免大小写和点号造成校验绕过。
+func normalizeExt(ext string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+}
+
+// sanitizePathPart 清理路径片段，避免模块名携带路径穿越字符。
+func sanitizePathPart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '_' || r == '-':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+
+	cleaned := strings.Trim(builder.String(), "_")
+	if cleaned == "" {
+		return "default"
+	}
+	return cleaned
+}
+
+// validateImageContentType 校验文件真实内容类型，避免只按扩展名放行伪图片。
+func validateImageContentType(data []byte, ext string) error {
+	if len(data) == 0 {
+		return fmt.Errorf("image data is empty")
+	}
+
+	contentType := http.DetectContentType(data)
+	expected := getContentType(ext)
+	if ext == ImageTypeJPG || ext == ImageTypeJPEG {
+		if contentType == "image/jpeg" {
+			return nil
+		}
+		return fmt.Errorf("image content type %s does not match extension %s", contentType, ext)
+	}
+	if contentType != expected {
+		return fmt.Errorf("image content type %s does not match extension %s", contentType, ext)
+	}
+	return nil
+}
+
+// newRandomHex 生成随机十六进制后缀；随机源异常时回退到纳秒时间，避免上传主流程中断。
+func newRandomHex(size int) string {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
 }
 
 // getContentType 根据扩展名获取 Content-Type。

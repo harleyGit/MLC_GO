@@ -4,7 +4,6 @@ import (
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
-	"hash/fnv"
 	"net/http"
 	"os"
 	"strconv"
@@ -95,20 +94,12 @@ func JSONHeaderInterceptor(next http.Handler) http.Handler {
 	return JSONHeaderMiddleware(next)
 }
 
-// RequestIDMiddleware 注入请求链路追踪 ID，并输出请求级耗时日志。
+// RequestIDMiddleware 注入请求链路追踪 ID，日志统一交给 AccessLogMiddleware 采样输出。
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tid := UtilsPackage.GenerateTID()
-		start := time.Now()
 		ctx := UtilsPackage.InjectTID(r.Context(), tid)
-		r = r.WithContext(ctx)
-
-		logHG.DebugFInfo("[TID=%s] --> %s %s", tid, r.Method, r.URL.Path)
-		defer func() {
-			logHG.DebugFInfo("[TID=%s] <-- %s %s (%v)", tid, r.Method, r.URL.Path, time.Since(start))
-		}()
-
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -164,11 +155,18 @@ func shouldWriteAccessLog(r *http.Request) bool {
 		key = r.Method + "|" + r.URL.Path + "|" + r.RemoteAddr
 	}
 
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(key))
-	bucket := float64(hasher.Sum32()%10000) / 10000.0
+	bucket := float64(fnv32aString(key)%10000) / 10000.0
 
 	return bucket < accessLogSampleRate
+}
+
+func fnv32aString(value string) uint32 {
+	var hash uint32 = 2166136261
+	for i := 0; i < len(value); i++ {
+		hash ^= uint32(value[i])
+		hash *= 16777619
+	}
+	return hash
 }
 
 // AccessLogMiddleware 记录请求方法、路径和耗时，作为基础访问日志中间件。

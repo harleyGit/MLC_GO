@@ -14,6 +14,8 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {
@@ -24,10 +26,15 @@ func setupTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Skipf("skip mysql integration test: %v", err)
+	}
 	return db
 }
 func TestCreateUser_NullEmail(t *testing.T) {
 	db := setupTestDB(t)
+	defer db.Close()
 	repo := UserRepositoryPackage.NewUserRepo(db)
 	svc := NewUserService(repo, nil, nil)
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"sync"
 )
@@ -67,6 +68,20 @@ func (s *AvatarService) getUserLock(userID string) *sync.Mutex {
 //  3. 更新 users 表的 avatar_url 字段
 //  4. 删除旧头像文件
 func (s *AvatarService) UploadAvatarFromBytes(ctx context.Context, userID string, imageData []byte, ext string) (*AvatarUploadResult, error) {
+	return s.uploadAvatar(ctx, userID, func() (*HGUploadPackage.UploadResult, error) {
+		return s.uploader.UploadFromBytes(imageData, "user", ext)
+	})
+}
+
+// UploadAvatarFromReader 从流上传用户头像，避免高并发下整文件常驻内存。
+func (s *AvatarService) UploadAvatarFromReader(ctx context.Context, userID string, reader io.Reader, size int64, ext string) (*AvatarUploadResult, error) {
+	return s.uploadAvatar(ctx, userID, func() (*HGUploadPackage.UploadResult, error) {
+		return s.uploader.UploadFromReader(reader, size, "user", ext)
+	})
+}
+
+// uploadAvatar 串联用户头像查询、上传、资料更新和旧文件清理流程。
+func (s *AvatarService) uploadAvatar(ctx context.Context, userID string, upload func() (*HGUploadPackage.UploadResult, error)) (*AvatarUploadResult, error) {
 	// 1. 获取用户锁，防止并发上传
 	lock := s.getUserLock(userID)
 	lock.Lock()
@@ -91,8 +106,8 @@ func (s *AvatarService) UploadAvatarFromBytes(ctx context.Context, userID string
 		}
 	}
 
-	// 4. 上传新头像（从二进制数据）
-	result, err := s.uploader.UploadFromBytes(imageData, "user", ext)
+	// 4. 上传新头像
+	result, err := upload()
 	if err != nil {
 		logHG.ErrFInfo("上传头像失败: %v", err)
 		return nil, ErrAvatarUploadFailed
@@ -125,23 +140,21 @@ func (s *AvatarService) UploadAvatarFromBytes(ctx context.Context, userID string
 
 // UploadAvatar 从 multipart 文件上传用户头像（兼容旧方式）。
 func (s *AvatarService) UploadAvatar(ctx context.Context, userID string, fileHeader *multipart.FileHeader) (*AvatarUploadResult, error) {
-	// 读取文件内容
+	if fileHeader == nil {
+		return nil, fmt.Errorf("文件为空")
+	}
+
+	// 打开文件流，避免 multipart 上传时整文件读入内存。
 	src, err := fileHeader.Open()
 	if err != nil {
 		return nil, fmt.Errorf("打开文件失败: %w", err)
 	}
 	defer src.Close()
 
-	// 读取全部内容
-	imageData := make([]byte, fileHeader.Size)
-	if _, err := src.Read(imageData); err != nil {
-		return nil, fmt.Errorf("读取文件失败: %w", err)
-	}
-
 	// 获取文件扩展名
 	ext := HGUploadPackage.GetFileExt(fileHeader.Filename)
 
-	return s.UploadAvatarFromBytes(ctx, userID, imageData, ext)
+	return s.UploadAvatarFromReader(ctx, userID, src, fileHeader.Size, ext)
 }
 
 // GetAvatarURL 获取用户头像 URL。

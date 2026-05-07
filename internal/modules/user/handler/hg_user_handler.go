@@ -35,7 +35,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -261,7 +260,7 @@ func sendVerifyCodeHandlerV2(w http.ResponseWriter, r *http.Request) {
 	key := PersistenceRedisPackage.GetRedisVerifyCodeKey(req.Account)
 	PersistenceRedisPackage.SetToRedis(key, code, 5*time.Minute) // 5分钟过期
 
-	logHG.DebugInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", req.Account, code)
+	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s， 5分钟过期", req.Account, code)
 
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "验证码已发送"})
 }
@@ -381,7 +380,7 @@ func loginHandlerV3(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !ok {
-		logHG.ErrInfo("用户信息Profile error: %v", ok)
+		logHG.ErrFInfo("用户信息Profile error: %v", ok)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "unauthorized")
 		return
 	}
@@ -431,7 +430,7 @@ func sendVerifyCodeHandler(w http.ResponseWriter, r *http.Request) {
 	code := utilsPackage.GenerateRandomNum(6)
 	verifyCodes[req.Account] = code
 
-	logHG.DebugInfo("验证码发送到 account %s:，验证码： %s", req.Account, code)
+	logHG.DebugFInfo("验证码发送到 account %s:，验证码： %s", req.Account, code)
 
 	PresentersPackage.WriteJSON(w, map[string]string{"message": "验证码已发送"})
 }
@@ -634,20 +633,18 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 读取二进制图片数据（最大 10MB）
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	imageData, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "读取图片数据失败")
-		return
-	}
-
-	if len(imageData) == 0 {
+	// 2. 限制二进制图片数据大小（最大 10MB）
+	if r.ContentLength <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "图片数据为空")
 		return
 	}
+	if r.ContentLength > 10<<20 {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "图片大小超过限制")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 
 	// 3. 获取图片格式（从 query 参数或 Content-Type 推断）
 	ext := r.URL.Query().Get("ext")
@@ -659,7 +656,7 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. 调用 Service 层上传头像
-	result, err := h.avatarSvc.UploadAvatarFromBytes(r.Context(), userID, imageData, ext)
+	result, err := h.avatarSvc.UploadAvatarFromReader(r.Context(), userID, r.Body, r.ContentLength, ext)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "上传头像失败: "+err.Error())
