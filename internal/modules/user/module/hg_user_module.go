@@ -68,14 +68,14 @@ func (m *HGAuthModule) Handler() http.Handler {
 
 // RegisterModules 注册用户相关模块，内部创建所有依赖。
 func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, smsSender HGSMSPackage.HGSender) {
-	handler := UserHandlerPackage.NewUserHandler(UserHandlerPackage.HGUserHandlerDeps{
+	components := NewUserModuleComponents(UserModuleDeps{
 		RedisService: redisService,
 		SQLManager:   sqlManager,
 		SMSSender:    smsSender,
 	})
 
 	HGHandlerPackage.RegisterModule(
-		NewAuthModule(handler), // HGAuthModule实现了hg_module.go中的接口
-		NewUserModule(handler),
+		NewAuthModule(components.Handler), // HGAuthModule实现了hg_module.go中的接口
+		NewUserModule(components.Handler),
 	)
 }

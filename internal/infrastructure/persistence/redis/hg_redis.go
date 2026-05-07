@@ -218,6 +218,15 @@ func (redisService *RedisService) PingContext(ctx context.Context) error {
 	return redisService.client.Ping(ctx).Err()
 }
 
+// Client 返回 Redis 底层客户端，只允许 service 层在必须使用 go-redis 原生命令时调用。
+// 常规业务读写应优先使用 RedisService 的封装方法，避免模块代码散落全局 RDB 依赖。
+func (redisService *RedisService) Client() *redis.Client {
+	if redisService == nil {
+		return nil
+	}
+	return redisService.client
+}
+
 func getEnvInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {
@@ -297,7 +306,39 @@ func (redisService *RedisService) GetFromRedisV2(key string, ctx ...context.Cont
 }
 
 func (redisService *RedisService) DeleteFromRedis(key string, ctx context.Context) error {
-	return DeleteFromRedis(key, WithContext(ctx))
+	if redisService == nil || redisService.client == nil {
+		return redis.Nil
+	}
+	return redisService.client.Del(ctx, key).Err()
+}
+
+// DeleteFromRedisByPattern 按 pattern 批量删除 key，统一使用注入的 Redis 客户端。
+// 高并发业务写操作后清理列表缓存时使用 SCAN 分批删除，避免 KEYS 阻塞 Redis。
+func (redisService *RedisService) DeleteFromRedisByPattern(pattern string, ctx context.Context) error {
+	if redisService == nil || redisService.client == nil {
+		return redis.Nil
+	}
+
+	var cursor uint64
+	for {
+		keys, nextCursor, err := redisService.client.Scan(ctx, cursor, pattern, 200).Result()
+		if err != nil {
+			return err
+		}
+
+		if len(keys) > 0 {
+			if err = redisService.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
 }
 
 func GetFromRedis(ctx context.Context, key string, opts ...RedisOption) (string, error) {

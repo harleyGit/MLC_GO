@@ -30,21 +30,30 @@ import (
 )
 
 type HGAuthService struct {
-	users   *UserRepositoryPackage.UserRepo
-	codes   *UserCachePackage.HGCodeCache
-	limiter *HGSMSCachePackage.HGSMSRateLimiter
-	sms     *HGSMSPackage.HGPhoneSMSSender
-	rdb     *redis.Client
+	users        *UserRepositoryPackage.UserRepo
+	codes        *UserCachePackage.HGCodeCache
+	limiter      *HGSMSCachePackage.HGSMSRateLimiter
+	sms          *HGSMSPackage.HGPhoneSMSSender
+	redisService *PersistenceRedisPackage.RedisService
+	rdb          *redis.Client
 }
 
 // NewAuthService 创建认证服务。
 func NewAuthService(
 	users *UserRepositoryPackage.UserRepo,
 	codes *UserCachePackage.HGCodeCache,
+	redisService *PersistenceRedisPackage.RedisService,
 ) *HGAuthService {
+	var rdb *redis.Client
+	if redisService != nil {
+		rdb = redisService.Client()
+	}
+
 	return &HGAuthService{
-		users: users,
-		codes: codes,
+		users:        users,
+		codes:        codes,
+		redisService: redisService,
+		rdb:          rdb,
 	}
 }
 
@@ -219,6 +228,15 @@ func RefreshToken(
 
 	// 6. 生成新的 Token Pair（继承设备信息和角色）
 	return GenerateTokens(ctx, rdb, claims.UserID, claims.Device, claims.Role)
+}
+
+// RefreshToken 通过注入的 Redis 客户端刷新 Token，避免 handler 直接依赖全局 RDB。
+// 业务规则沿用包级 RefreshToken：校验 refresh token、撤销旧 token、签发新 token pair。
+func (s *HGAuthService) RefreshToken(ctx context.Context, refreshTokenString string) (*TokenPair, error) {
+	if s == nil || s.rdb == nil {
+		return nil, errors.New("auth service redis dependency is nil")
+	}
+	return RefreshToken(ctx, s.rdb, refreshTokenString)
 }
 
 // Logout 用户登出，撤销所有 Token。

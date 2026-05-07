@@ -10,7 +10,8 @@ package UserAPIPackage
 
 import (
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
+	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	"MLC_GO/internal/pkg/logHG"
 	"log"
 	"net/http"
@@ -18,12 +19,13 @@ import (
 )
 
 func UserMainV2() {
-	_, err := PersistenceSQLPackage.NewSQLDB()
+	db, err := PersistenceSQLPackage.NewSQLManager()
 	if err != nil {
 		logHG.FatalFInfo("数据库初化失败，error：", err)
 	}
+	redisService := PersistenceRedisPackage.NewRedisService()
 
-	UserHandlerPackage.RegisterUserRoutesV2()
+	HGUserModulePackage.RegisterModules(redisService, db, nil)
 	srv := http.Server{
 		Addr:         ":8080",
 		ReadTimeout:  5 * time.Second,
