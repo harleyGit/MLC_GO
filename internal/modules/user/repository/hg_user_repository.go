@@ -43,7 +43,9 @@ func (r *UserRepo) Insert(ctx context.Context, u *UserModelsPackage.HGUserModel)
 
 	res, err := r.Exec(
 		queryCtx,
-		SQLQueriesPackage.InsertUserInfoSQL,
+		SQLQueriesPackage.InsertUserSQL,
+		u.UserID,
+		u.Username,
 		u.Email,
 		u.Phone,
 		u.PasswordHash,
