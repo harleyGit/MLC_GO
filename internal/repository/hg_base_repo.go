@@ -18,7 +18,7 @@ type HGBaseRepo struct {
 }
 
 func NewBaseRepo(db *sql.DB) *HGBaseRepo {
-	return  &HGBaseRepo{db:db}
+	return &HGBaseRepo{db: db}
 }
 
 func (r *HGBaseRepo) Exec(
@@ -45,4 +45,9 @@ func (r *HGBaseRepo) QueryContext(
 	args ...any,
 ) (*sql.Rows, error) {
 	return r.db.QueryContext(ctx, query, args...)
+}
+
+// BeginTx 创建数据库事务，供需要多表一致写入的 repository 方法复用。
+func (r *HGBaseRepo) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return r.db.BeginTx(ctx, opts)
 }

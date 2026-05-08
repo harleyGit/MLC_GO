@@ -43,6 +43,14 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			NeedAuth: true,
 		},
 		{
+			Path:    "/security",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPut: true,
+			},
+			NeedAuth: true,
+		},
+		{
 			Path:    "/avatar",
 			Version: "v1",
 			Methods: map[string]bool{

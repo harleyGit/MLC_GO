@@ -48,6 +48,20 @@ func TestUserMiddlewareGroup_UpdateMethodGuard(t *testing.T) {
 	}
 }
 
+// TestUserMiddlewareGroup_SecurityMethodGuard 验证 /security 只允许 PUT。
+func TestUserMiddlewareGroup_SecurityMethodGuard(t *testing.T) {
+	handler := UserMiddlewareGroup(&UserHandlerPackage.HGUserHandler{})
+
+	req := httptest.NewRequest(http.MethodPost, "/security", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
+	}
+}
+
 // TestUserMiddlewareGroup_ListRequireBearerToken 验证 /list 已经过 JWT 鉴权中间件。
 // 这里传入一个假的 Bearer token，让请求通过 MethodGuard 和 Header 检查，
 // 最终由 JWT 中间件返回 401，这样可以确认路由和鉴权链路都已接通。

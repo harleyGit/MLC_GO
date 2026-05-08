@@ -19,9 +19,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 const userRepoQueryTimeout = 5 * time.Second
+
+// ErrUserSecurityDuplicate 表示邮箱、手机、QQ 或微信号已被其他安全记录占用。
+var ErrUserSecurityDuplicate = errors.New("user security value duplicated")
 
 /* UserRepo 继承  RepositoryPackage.HGBaseRepo */
 type UserRepo struct {
@@ -381,6 +386,225 @@ func (r *UserRepo) UpdateProfileByID(
 	return r.UpdateProfileByUserID(ctx, userID, d)
 }
 
+// UpdateSecurityByUserID 按业务 user_id 更新账号安全信息，并同步 users 表认证字段。
+// user_security.user_id 关联 users.id，因此先锁定 users 行再写入安全表，保证多表数据一致。
+func (r *UserRepo) UpdateSecurityByUserID(
+	ctx context.Context,
+	userID string,
+	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
+	passwordHash *string,
+	salt *string,
+) error {
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
+	defer cancel()
+
+	tx, err := r.BeginTx(queryCtx, nil)
+	if err != nil {
+		return wrapUserRepoWriteErr("begin user security tx", err)
+	}
+	defer tx.Rollback()
+
+	security, err := getSecurityBaseForUpdate(queryCtx, tx, userID)
+	if err != nil {
+		return err
+	}
+	applySecurityValues(security, d, passwordHash, salt)
+
+	if err = updateUsersAuthFields(queryCtx, tx, userID, d, passwordHash, salt); err != nil {
+		return err
+	}
+
+	securityID, err := getUserSecurityIDForUpdate(queryCtx, tx, security.UserID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		if err = insertUserSecurity(queryCtx, tx, security); err != nil {
+			if isDuplicateUserSecurityUserID(err) {
+				if retryErr := updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); retryErr != nil {
+					return retryErr
+				}
+			} else {
+				return err
+			}
+		}
+	} else if securityID > 0 {
+		if err = updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); err != nil {
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return wrapUserRepoWriteErr("commit user security tx", err)
+	}
+
+	return nil
+}
+
+// getSecurityBaseForUpdate 锁定 users 行，并取 user_security 插入所需的默认认证字段。
+func getSecurityBaseForUpdate(
+	ctx context.Context,
+	tx *sql.Tx,
+	userID string,
+) (*UserModelsPackage.HGUserSecurityModel, error) {
+	security := &UserModelsPackage.HGUserSecurityModel{}
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT id, email, phone, password_hash, salt FROM users WHERE user_id = ? FOR UPDATE`,
+		userID,
+	).Scan(
+		&security.UserID,
+		&security.Email,
+		&security.Phone,
+		&security.PasswordHash,
+		&security.Salt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return security, nil
+}
+
+// updateUsersAuthFields 同步 users 表中仍被登录链路使用的邮箱、手机和密码字段。
+func updateUsersAuthFields(
+	ctx context.Context,
+	tx *sql.Tx,
+	userID string,
+	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
+	passwordHash *string,
+	salt *string,
+) error {
+	setClauses := make([]string, 0, 4)
+	args := make([]any, 0, 5)
+
+	if d.Email != nil {
+		setClauses = append(setClauses, "`email` = ?")
+		args = append(args, *d.Email)
+	}
+	if d.Phone != nil {
+		setClauses = append(setClauses, "`phone` = ?")
+		args = append(args, *d.Phone)
+	}
+	if passwordHash != nil && salt != nil {
+		setClauses = append(setClauses, "`password_hash` = ?", "`salt` = ?")
+		args = append(args, *passwordHash, *salt)
+	}
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
+	args = append(args, userID)
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return wrapUserSecurityWriteErr("update users auth fields", err)
+	}
+
+	return nil
+}
+
+// getUserSecurityIDForUpdate 查询并锁定当前用户的安全记录，未创建时返回 sql.ErrNoRows。
+func getUserSecurityIDForUpdate(ctx context.Context, tx *sql.Tx, userID int64) (int64, error) {
+	var securityID int64
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`,
+		userID,
+	).Scan(&securityID)
+
+	return securityID, err
+}
+
+// insertUserSecurity 创建用户安全记录，未修改的邮箱、手机和密码默认沿用 users 当前值。
+func insertUserSecurity(ctx context.Context, tx *sql.Tx, security *UserModelsPackage.HGUserSecurityModel) error {
+	_, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO user_security (user_id, email, phone, password_hash, salt, qq, wechat) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		security.UserID,
+		security.Email,
+		security.Phone,
+		security.PasswordHash,
+		security.Salt,
+		security.QQ,
+		security.Wechat,
+	)
+	if err != nil {
+		return wrapUserSecurityWriteErr("insert user security", err)
+	}
+
+	return nil
+}
+
+// updateUserSecurity 动态更新已有安全记录，只覆盖请求中显式传入的字段。
+func updateUserSecurity(
+	ctx context.Context,
+	tx *sql.Tx,
+	userID int64,
+	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
+	passwordHash *string,
+	salt *string,
+) error {
+	setClauses := make([]string, 0, 6)
+	args := make([]any, 0, 7)
+
+	if d.Email != nil {
+		setClauses = append(setClauses, "`email` = ?")
+		args = append(args, *d.Email)
+	}
+	if d.Phone != nil {
+		setClauses = append(setClauses, "`phone` = ?")
+		args = append(args, *d.Phone)
+	}
+	if passwordHash != nil && salt != nil {
+		setClauses = append(setClauses, "`password_hash` = ?", "`salt` = ?")
+		args = append(args, *passwordHash, *salt)
+	}
+	if d.QQ != nil {
+		setClauses = append(setClauses, "`qq` = ?")
+		args = append(args, *d.QQ)
+	}
+	if d.Wechat != nil {
+		setClauses = append(setClauses, "`wechat` = ?")
+		args = append(args, *d.Wechat)
+	}
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE user_security SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
+	args = append(args, userID)
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return wrapUserSecurityWriteErr("update user security", err)
+	}
+
+	return nil
+}
+
+// applySecurityValues 将请求字段应用到插入模型，保证新建 user_security 时字段完整。
+func applySecurityValues(
+	security *UserModelsPackage.HGUserSecurityModel,
+	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
+	passwordHash *string,
+	salt *string,
+) {
+	if d.Email != nil {
+		security.Email = sql.NullString{String: *d.Email, Valid: true}
+	}
+	if d.Phone != nil {
+		security.Phone = sql.NullString{String: *d.Phone, Valid: true}
+	}
+	if passwordHash != nil && salt != nil {
+		security.PasswordHash = sql.NullString{String: *passwordHash, Valid: true}
+		security.Salt = sql.NullString{String: *salt, Valid: true}
+	}
+	if d.QQ != nil {
+		security.QQ = sql.NullString{String: *d.QQ, Valid: true}
+	}
+	if d.Wechat != nil {
+		security.Wechat = sql.NullString{String: *d.Wechat, Valid: true}
+	}
+}
+
 // ensureRowsAffected 将没有命中用户的更新统一转成 sql.ErrNoRows，便于 handler 映射 404。
 func ensureRowsAffected(res sql.Result) error {
 	affected, err := res.RowsAffected()
@@ -402,4 +626,29 @@ func wrapUserRepoWriteErr(operation string, err error) error {
 		return fmt.Errorf("%s operation timed out after %v: %w", operation, userRepoQueryTimeout, err)
 	}
 	return fmt.Errorf("failed to %s: %w", operation, err)
+}
+
+// wrapUserSecurityWriteErr 将唯一键冲突转换成稳定业务错误，避免泄露底层 SQL 细节到 service。
+func wrapUserSecurityWriteErr(operation string, err error) error {
+	if isMySQLDuplicateKey(err) {
+		return fmt.Errorf("%w: %w", ErrUserSecurityDuplicate, err)
+	}
+
+	return wrapUserRepoWriteErr(operation, err)
+}
+
+// isMySQLDuplicateKey 判断 MySQL 唯一键冲突。
+func isMySQLDuplicateKey(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
+}
+
+// isDuplicateUserSecurityUserID 判断 user_security.user_id 唯一键冲突，用于并发插入兜底重试更新。
+func isDuplicateUserSecurityUserID(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if !errors.As(err, &mysqlErr) || mysqlErr.Number != 1062 {
+		return false
+	}
+
+	return strings.Contains(mysqlErr.Message, "uk_user_security_user_id")
 }

@@ -139,6 +139,7 @@ func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", nil),
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", nil),
 			NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", nil),
+			NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/security", true, "更新账号安全信息", nil),
 			NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/avatar", true, "头像操作（POST上传/GET获取）", nil),
 		}
 	}
@@ -147,6 +148,7 @@ func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/info", true, "获取当前用户信息", userHandler.Profile),
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/list", true, "获取用户分页列表", userHandler.GetUserList),
 		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", userHandler.UpdateProfile),
+		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/security", true, "更新账号安全信息", userHandler.UpdateSecurity),
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/avatar", true, "头像操作（POST上传/GET获取）", userHandler.Avatar),
 	}
 }
