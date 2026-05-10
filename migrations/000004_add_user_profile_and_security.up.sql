@@ -11,7 +11,7 @@ ALTER TABLE `users`
 -- 账号安全独立表：一个用户一条安全记录，支持绑定邮箱/手机/QQ/微信。
 CREATE TABLE IF NOT EXISTS `user_security`(
     `id` BIGINT UNSIGNED PRIMARY KEY NOT NULL AUTO_INCREMENT,
-    `user_id` BIGINT UNSIGNED NOT NULL COMMENT '关联 users.id',
+    `user_id` VARCHAR(255) NOT NULL COMMENT '关联 users.user_id',
     `email` VARCHAR(255) NULL COMMENT '邮箱',
     `phone` VARCHAR(32) NULL COMMENT '手机号',
     `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希值',
@@ -26,5 +26,5 @@ CREATE TABLE IF NOT EXISTS `user_security`(
     UNIQUE KEY `uk_user_security_phone` (`phone`),
     UNIQUE KEY `uk_user_security_qq` (`qq`),
     UNIQUE KEY `uk_user_security_wechat` (`wechat`),
-    CONSTRAINT `fk_user_security_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+    CONSTRAINT `fk_user_security_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户账号安全表';

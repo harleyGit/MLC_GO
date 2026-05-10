@@ -35,7 +35,7 @@ type HGUserModel struct {
 // HGUserSecurityModel 映射 user_security 表，用于账号安全信息写入。
 type HGUserSecurityModel struct {
 	ID           int64
-	UserID       int64
+	UserID       string
 	Email        sql.NullString
 	Phone        sql.NullString
 	PasswordHash sql.NullString

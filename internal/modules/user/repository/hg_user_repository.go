@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-03-01 22:29:27
+ * @LastEditTime: 2026-05-10 12:16:29
  * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_repository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -387,7 +387,7 @@ func (r *UserRepo) UpdateProfileByID(
 }
 
 // UpdateSecurityByUserID 按业务 user_id 更新账号安全信息，并同步 users 表认证字段。
-// user_security.user_id 关联 users.id，因此先锁定 users 行再写入安全表，保证多表数据一致。
+// user_security.user_id 关联 users.user_id，因此先锁定 users 行再写入安全表，保证多表数据一致。
 func (r *UserRepo) UpdateSecurityByUserID(
 	ctx context.Context,
 	userID string,
@@ -418,11 +418,11 @@ func (r *UserRepo) UpdateSecurityByUserID(
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		if err = insertUserSecurity(queryCtx, tx, security); err != nil {
-			if isDuplicateUserSecurityUserID(err) {
-				if retryErr := updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); retryErr != nil {
-					return retryErr
+		if errors.Is(err, sql.ErrNoRows) {
+			if err = insertUserSecurity(queryCtx, tx, security); err != nil {
+				if isDuplicateUserSecurityUserID(err) {
+					if retryErr := updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); retryErr != nil {
+						return retryErr
 				}
 			} else {
 				return err
@@ -440,7 +440,6 @@ func (r *UserRepo) UpdateSecurityByUserID(
 
 	return nil
 }
-
 // getSecurityBaseForUpdate 锁定 users 行，并取 user_security 插入所需的默认认证字段。
 func getSecurityBaseForUpdate(
 	ctx context.Context,
@@ -450,7 +449,7 @@ func getSecurityBaseForUpdate(
 	security := &UserModelsPackage.HGUserSecurityModel{}
 	err := tx.QueryRowContext(
 		ctx,
-		`SELECT id, email, phone, password_hash, salt FROM users WHERE user_id = ? FOR UPDATE`,
+		SQLQueriesPackage.SelectUserSecurityBaseForUpdateSQL,
 		userID,
 	).Scan(
 		&security.UserID,
@@ -504,11 +503,11 @@ func updateUsersAuthFields(
 }
 
 // getUserSecurityIDForUpdate 查询并锁定当前用户的安全记录，未创建时返回 sql.ErrNoRows。
-func getUserSecurityIDForUpdate(ctx context.Context, tx *sql.Tx, userID int64) (int64, error) {
+func getUserSecurityIDForUpdate(ctx context.Context, tx *sql.Tx, userID string) (int64, error) {
 	var securityID int64
 	err := tx.QueryRowContext(
 		ctx,
-		`SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`,
+		SQLQueriesPackage.SelectUserSecurityIDForUpdateSQL,
 		userID,
 	).Scan(&securityID)
 
@@ -519,7 +518,7 @@ func getUserSecurityIDForUpdate(ctx context.Context, tx *sql.Tx, userID int64) (
 func insertUserSecurity(ctx context.Context, tx *sql.Tx, security *UserModelsPackage.HGUserSecurityModel) error {
 	_, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO user_security (user_id, email, phone, password_hash, salt, qq, wechat) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		SQLQueriesPackage.InsertUserSecuritySQL,
 		security.UserID,
 		security.Email,
 		security.Phone,
@@ -539,7 +538,7 @@ func insertUserSecurity(ctx context.Context, tx *sql.Tx, security *UserModelsPac
 func updateUserSecurity(
 	ctx context.Context,
 	tx *sql.Tx,
-	userID int64,
+	userID string,
 	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
 	passwordHash *string,
 	salt *string,
