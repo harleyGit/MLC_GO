@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:54:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-11 09:28:40
+ * @LastEditTime: 2026-05-11 10:11:37
  * @FilePath: /MLC_GO/internal/infrastructure/persistence/mysql/queries/hg_sql_queries.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -16,41 +16,54 @@ const (
 
 // 用户模块
 const (
+	// InsertUserSQL 新增用户基础账号信息，写入业务 user_id、用户名、邮箱、手机号、密码哈希和盐。
 	InsertUserSQL = `
 	INSERT INTO users (user_id, user_name, email, phone, password_hash, salt) 
 	VALUES (?, ?, ?, ?, ?, ?)`
-	// 查询用户信息
+	// GetUserByEmailOrPhoneSQL 登录时按邮箱或手机号查找用户认证信息。
 	GetUserByEmailOrPhoneSQL = `SELECT user_id, user_name, email, phone, password_hash, salt 
 	FROM users 
 	WHERE email = ? OR phone = ?`
-	// 用户总数
-	UserTotalNumSQL           = `SELECT COUNT(*) FROM users`
-	InsertUserInfoSQL         = `INSERT INTO users(email, phone, password_hash, salt) VALUES (?, ?, ?, ?)`
-	UpdateUserInfoByIDSQL     = `UPDATE users SET email = ?, phone = ? WHERE id = ?`
+	// UserTotalNumSQL 统计 users 表总行数，供 offset 分页和 total 缓存回源使用。
+	UserTotalNumSQL = `SELECT COUNT(*) FROM users`
+	// InsertUserInfoSQL 仅插入邮箱、手机号、密码哈希和盐的历史 SQL，保留给旧调用兼容。
+	InsertUserInfoSQL = `INSERT INTO users(email, phone, password_hash, salt) VALUES (?, ?, ?, ?)`
+	// GetUserByIDSQL 按数据库自增主键 id 查询用户资料。
+	GetUserByIDSQL = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE id = ?"
+	// UpdateUserInfoByIDSQL 按数据库自增主键 id 更新用户邮箱和手机号。
+	UpdateUserInfoByIDSQL = `UPDATE users SET email = ?, phone = ? WHERE id = ?`
+	// UpdateUserInfoByUserIDSQL 按业务 user_id 更新用户邮箱和手机号，是对外用户接口优先使用的更新条件。
 	UpdateUserInfoByUserIDSQL = `UPDATE users SET email = ?, phone = ? WHERE user_id = ?`
-	GetUserByIDSQL            = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE id = ?"
-	GetUserByUserIDSQL        = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
-	SelectUserInfoByPhoneSQL  = `SELECT id, user_id, email, phone, password_hash, salt
+	// GetUserByUserIDSQL 按业务 user_id 查询用户资料。
+	GetUserByUserIDSQL = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
+	// SelectUserInfoByPhoneSQL 按手机号查询登录签发 token 所需的用户 id、业务 user_id 和密码字段。
+	SelectUserInfoByPhoneSQL = `SELECT id, user_id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
-	// 用户分页查询【在十万级别数据还可以，百万以上不行】
+	// QueryUserPageSQL 使用 LIMIT/OFFSET 做传统分页；数据量大或页码很深时会扫描较多行。
 	QueryUserPageSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ? OFFSET ?`
-	// 用户列表首屏查询，按主键倒序取最新数据。
+	// QueryUserPageFirstSQL 游标分页首屏查询，按 id 倒序取最新用户列表。
 	QueryUserPageFirstSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ?`
-	// 用户分页查询，使用游标查询优化，避免深分页 offset 扫描。
+	// QueryUserPageV2SQL 游标分页下一页查询，取 id 小于 cursor 的数据，避免深分页 offset 扫描。
 	QueryUserPageV2SQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users WHERE id < ? ORDER BY id DESC LIMIT ?`
-	GetUserByUsernameSQL  = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE username = ?"
+	// GetUserByUsernameSQL 按用户名查询认证信息；注意当前 SQL 使用 username 字段名，需与表结构保持一致。
+	GetUserByUsernameSQL = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE username = ?"
+	// UpdateUserPasswordSQL 按业务 user_id 更新密码哈希和盐。
 	UpdateUserPasswordSQL = "UPDATE users SET password_hash = ?, salt = ? WHERE user_id = ?"
-	DeleteUserSQL         = "DELETE FROM users WHERE user_id = ?"
+	// DeleteUserSQL 按业务 user_id 删除用户记录。
+	DeleteUserSQL = "DELETE FROM users WHERE user_id = ?"
 )
 
 // 安全模块
 const (
+	// SelectUserSecurityBaseForUpdateSQL 在事务内锁定 users 行，并读取初始化 user_security 所需的认证字段。
 	SelectUserSecurityBaseForUpdateSQL = `SELECT user_id, email, phone, password_hash, salt FROM users WHERE user_id = ? FOR UPDATE`
-	SelectUserSecurityIDForUpdateSQL   = `SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`
-	InsertUserSecuritySQL              = `INSERT INTO user_security (user_id, email, phone, password_hash, salt, qq, wechat) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	// SelectUserSecurityIDForUpdateSQL 在事务内锁定 user_security 行，用于判断安全记录是否已存在并防止并发写冲突。
+	SelectUserSecurityIDForUpdateSQL = `SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`
+	// InsertUserSecuritySQL 创建用户安全记录，保存邮箱、手机号、密码哈希、盐、QQ 和微信等安全资料。
+	InsertUserSecuritySQL = `INSERT INTO user_security (user_id, email, phone, password_hash, salt, qq, wechat) VALUES (?, ?, ?, ?, ?, ?, ?)`
 )
 
 // 朋友圈模块
