@@ -398,12 +398,14 @@ func (r *UserRepo) UpdateSecurityByUserID(
 	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
 
+	// 开启事务
 	tx, err := r.BeginTx(queryCtx, nil)
 	if err != nil {
 		return wrapUserRepoWriteErr("begin user security tx", err)
 	}
 	defer tx.Rollback()
 
+	// 锁住users表中要修改的那行数据
 	security, err := getSecurityBaseForUpdate(queryCtx, tx, userID)
 	if err != nil {
 		return err

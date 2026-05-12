@@ -26,5 +26,5 @@ CREATE TABLE IF NOT EXISTS `user_security`(
     UNIQUE KEY `uk_user_security_phone` (`phone`),
     UNIQUE KEY `uk_user_security_qq` (`qq`),
     UNIQUE KEY `uk_user_security_wechat` (`wechat`),
-    CONSTRAINT `fk_user_security_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+    CONSTRAINT `fk_user_security_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE -- 此处需要外键关联，否则无法删除用户,TODO: 待测试外键关联,外健影响性能，一般通过代码维护。
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户账号安全表';

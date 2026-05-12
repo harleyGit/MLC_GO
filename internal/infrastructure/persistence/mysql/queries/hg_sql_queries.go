@@ -58,7 +58,7 @@ const (
 
 // 安全模块
 const (
-	// SelectUserSecurityBaseForUpdateSQL 在事务内锁定 users 行，并读取初始化 user_security 所需的认证字段。
+	// SelectUserSecurityBaseForUpdateSQL 在事务内锁定 users 行，并读取初始化 user_security 所需的认证字段。 FOR UPDATE 给查出来的行加锁（排他锁/X锁）
 	SelectUserSecurityBaseForUpdateSQL = `SELECT user_id, email, phone, password_hash, salt FROM users WHERE user_id = ? FOR UPDATE`
 	// SelectUserSecurityIDForUpdateSQL 在事务内锁定 user_security 行，用于判断安全记录是否已存在并防止并发写冲突。
 	SelectUserSecurityIDForUpdateSQL = `SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`
