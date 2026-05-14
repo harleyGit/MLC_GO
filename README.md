@@ -1,59 +1,60 @@
 - [**‌ 工程启动**](#工程启动)
-	- [VSCode 启动](#VSCode启动)
-	- [Intel 电脑修改配置启动](#Intel电脑修改配置启动)
-	- [终端查看MySQL表](#终端查看MySQL表)
-	- [redis 启动](#redis启动)
+  - [VSCode 启动](#VSCode启动)
+  - [Intel 电脑修改配置启动](#Intel电脑修改配置启动)
+  - [终端查看 MySQL 表](#终端查看MySQL表)
+  - [redis 启动](#redis启动)
 - [**文件结构介绍**](#文件结构介绍)
-	- [功能模块文件分布](#功能模块文件分布)
+  - [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
-	- [协议规则](#协议规则)
+  - [协议规则](#协议规则)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
-	- [推荐几个可以写到简历上的 Go 方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
-	- [golang-gin-realworld-example-app 工程](#golang-gin-realworld-example-app工程)
-	- [go-gin-api 全栈项目 ](#go-gin-api全栈项目)
-	- [gin-vue-admin 全栈平台 ](#gin-vue-admin全栈平台)
-	- [ferry 工单系统 Gorm（ORM 工具）](#ferry工单系统Gorm（ORM工具）)
-	- [gin-gorm-restful-api](#gin-gorm-restful-api)
-	- [Go-Zero 商城项目](#Go-Zero商城项目)
-	- [echo-restful-api](#echo-restful-api)
-	- [gorilla-mux-restful-api](#gorilla-mux-restful-api)
-	- [beego-restful-api](#beego-restful-api)
-	- [kratos-restful-api](#kratos-restful-api)
-	- [gin-swagger-restful-api](#gin-swagger-restful-api)
-	- [go-kit-restful-api](#go-kit-restful-api)
-	- [fiber-restful-api](#fiber-restful-api)
-	- [gin-gorm-jwt-restful-api](#gin-gorm-jwt-restful-api)
+  - [推荐几个可以写到简历上的 Go 方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
+  - [golang-gin-realworld-example-app 工程](#golang-gin-realworld-example-app工程)
+  - [go-gin-api 全栈项目 ](#go-gin-api全栈项目)
+  - [gin-vue-admin 全栈平台 ](#gin-vue-admin全栈平台)
+  - [ferry 工单系统 Gorm（ORM 工具）](#ferry工单系统Gorm（ORM工具）)
+  - [gin-gorm-restful-api](#gin-gorm-restful-api)
+  - [Go-Zero 商城项目](#Go-Zero商城项目)
+  - [echo-restful-api](#echo-restful-api)
+  - [gorilla-mux-restful-api](#gorilla-mux-restful-api)
+  - [beego-restful-api](#beego-restful-api)
+  - [kratos-restful-api](#kratos-restful-api)
+  - [gin-swagger-restful-api](#gin-swagger-restful-api)
+  - [go-kit-restful-api](#go-kit-restful-api)
+  - [fiber-restful-api](#fiber-restful-api)
+  - [gin-gorm-jwt-restful-api](#gin-gorm-jwt-restful-api)
 - [**框架**](#框架)
-	- [NSQ 源码阅读](#NSQ源码阅读)
-	- [Gin 框架](#Gin框架)
-	- [Echo 框架](#Echo框架)
-	- [GorillaMux 路由库](#GorillaMux路由库)
-	- [Vegeta 负载测试工具](#Vegeta负载测试工具)
-	- [Authboss 库-添加认证与授权模块](#Authboss库-添加认证与授权模块)
-	- [GoKit 库-网关和分布式追踪](#GoKit库-网关和分布式追踪)
-	- [Beego 库](#Beego库)
-	- [Fiber 库](#Fiber库)
-	- [go-restful 库](#go-restful库)
-	- [Chi 库](#Chi库)
-	- [Viper 配置管理库](#Viper配置管理库)
+  - [NSQ 源码阅读](#NSQ源码阅读)
+  - [Gin 框架](#Gin框架)
+  - [Echo 框架](#Echo框架)
+  - [GorillaMux 路由库](#GorillaMux路由库)
+  - [Vegeta 负载测试工具](#Vegeta负载测试工具)
+  - [Authboss 库-添加认证与授权模块](#Authboss库-添加认证与授权模块)
+  - [GoKit 库-网关和分布式追踪](#GoKit库-网关和分布式追踪)
+  - [Beego 库](#Beego库)
+  - [Fiber 库](#Fiber库)
+  - [go-restful 库](#go-restful库)
+  - [Chi 库](#Chi库)
+  - [Viper 配置管理库](#Viper配置管理库)
 - **资料**
-	- [浅读 Go 优秀开源项目源码—Gin 框架](https://blog.linganmin.cn/posts/d6715893/)
-	- [rickiyang 博客 Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
-	- [gorm 库练习](https://www.cnblogs.com/rickiyang/p/11074162.html)
-	- [维斯 Echo(博客仔细,不错)-掘金](https://juejin.cn/user/369885757844285/posts)
-	- [盘点 7 个优质开源的 Go 项目](https://juejin.cn/post/7092788846781267975)
-	- [标准的 Go 项目布局](https://juejin.cn/post/6944649692319842340)
-	- [awesome-go 项目](https://github.com/avelino/awesome-go)
-	- [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
-	- [awesome-go 中文介绍](https://github.com/jobbole/awesome-go-cn)
-	- [awesome-go 中文介绍 02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
-	- [超全 golang 面试题合集+golang 学习指南+golang 知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
-	- [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
-	- [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
+  - [浅读 Go 优秀开源项目源码—Gin 框架](https://blog.linganmin.cn/posts/d6715893/)
+  - [rickiyang 博客 Go-具体很详细](https://www.cnblogs.com/rickiyang/category/1487722.html)
+  - [gorm 库练习](https://www.cnblogs.com/rickiyang/p/11074162.html)
+  - [维斯 Echo(博客仔细,不错)-掘金](https://juejin.cn/user/369885757844285/posts)
+  - [盘点 7 个优质开源的 Go 项目](https://juejin.cn/post/7092788846781267975)
+  - [标准的 Go 项目布局](https://juejin.cn/post/6944649692319842340)
+  - [awesome-go 项目](https://github.com/avelino/awesome-go)
+  - [Awesome Github REPO](https://github.com/Wechat-ggGitHub/Awesome-GitHub-Repo)
+  - [awesome-go 中文介绍](https://github.com/jobbole/awesome-go-cn)
+  - [awesome-go 中文介绍 02](https://github.com/hyper0x/awesome-go-China/blob/master/zh_CN/README.md)
+  - [超全 golang 面试题合集+golang 学习指南+golang 知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
+  - [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
+  - [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
 
 <br/><br/><br/>
 
 ---
+
 <br/>
 
 > <h1 id="工程启动">工程启动</h1>
@@ -79,6 +80,7 @@ internal/
 └── pkg/                     # 可复用内部工具
 
 ```
+
 当前项目更适合采用“业务模块内分层 + 能力拆文件”，我已按这个方向改造 user 模块，没有做跨模块大迁移，避免破坏现有路由和启动链路。
 <br/>
 
@@ -331,11 +333,13 @@ cd /Users/harleyhuang/HGFiles/GitHub/GoProject/src/MLC_GO/scripts
 localhost:8080/auth/send_code?phone=17681317668
 ```
 
-***
+---
+
 <br/><br/><br/>
+
 > <h2 id="终端查看MySQL表">终端查看MySQL表</h2>
 
-### [MySQL教程](https://www.runoob.com/mysql/mysql-administration.html)
+### [MySQL 教程](https://www.runoob.com/mysql/mysql-administration.html)
 
 - mysql 启动：
 
@@ -344,35 +348,35 @@ sudo mysql.server start
 ```
 
 <br/>
-- mysql 关闭: 
+- mysql 关闭:
 
 ```sh
 mysql.server stop
 ```
 
 <br/>
-- 进入 mysql 指令环境: 
+- 进入 mysql 指令环境:
 
 ```sh
 sudo mysql -u root -p
 ```
 
 <br/>
-- 查看数据库: 
+- 查看数据库:
 
 ```sh
 show databases;
 ```
 
 <br/>
-- 使用 db_test 数据库: 
+- 使用 db_test 数据库:
 
 ```sh
 use db_test;
 ```
 
 <br/>
-- 查看已有数据表: 
+- 查看已有数据表:
 
 ```sh
 show tables;
@@ -384,13 +388,29 @@ show tables;
 show columns from 表名;
 ```
 <br/>
+
 ### gin 端口占用解决:
 
 - 查找占用 8080 端口的进程 PID: sudo lsof -i :8080
 - 终止进程（例如 PID 为 1234）: sudo kill -9 1234
 
+<br/>
+
+### 执行 `migrations`文件夹下的 `xxx.up.sql` 文件,在终端：
+
+```sh
+# xxx.sql 文件里已经有使用具体的某个数据库，如：USE HG_MLC_DB;
+mysql -uroot -p < xxx.sql.up.sql
+
+
+# 若是xxx.sql 某有指明使用哪个数据库使用
+mysql -uroot -p HG_MLC_DB < xxx.sql.up.sql
+```
+
+但是通常使用 ** migrate 工具** 是最主流的，可以使用这个。
 
 <br/><br/>
+
 > <h3 id="redis启动">redis启动</h3>
 
 ```sh
