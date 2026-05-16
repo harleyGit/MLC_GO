@@ -2,9 +2,11 @@ package UserServicePackage
 
 import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
+	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	userrepository "MLC_GO/internal/modules/user/repository"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 )
@@ -60,6 +62,47 @@ func (s *UserService) UpdateSecurity(
 		Wechat:          d.Wechat,
 		PasswordUpdated: d.Password != nil,
 	}, nil
+}
+
+// GetSecurityInfo 获取当前用户账号安全表完整字段。
+func (s *UserService) GetSecurityInfo(ctx context.Context, userID string) (*UserDtoPackage.HGUserSecurityInfoRespDTO, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, errors.New("user_id 不能为空")
+	}
+
+	security, err := s.repo.GetSecurityByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userSecurityModelToDTO(security), nil
+}
+
+func userSecurityModelToDTO(security *UserModelsPackage.HGUserSecurityModel) *UserDtoPackage.HGUserSecurityInfoRespDTO {
+	if security == nil {
+		return nil
+	}
+
+	return &UserDtoPackage.HGUserSecurityInfoRespDTO{
+		ID:           security.ID,
+		UserID:       security.UserID,
+		Email:        nullStringPtr(security.Email),
+		Phone:        nullStringPtr(security.Phone),
+		PasswordHash: nullStringPtr(security.PasswordHash),
+		Salt:         nullStringPtr(security.Salt),
+		QQ:           nullStringPtr(security.QQ),
+		Wechat:       nullStringPtr(security.Wechat),
+		CreatedAt:    nullStringPtr(security.CreatedAt),
+		UpdatedAt:    nullStringPtr(security.UpdatedAt),
+	}
+}
+
+func nullStringPtr(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+
+	return &v.String
 }
 
 // normalizeSecurityRequest 统一清理账号安全字段，避免空白字符串写入唯一索引字段。

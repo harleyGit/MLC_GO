@@ -49,3 +49,28 @@ func (h *HGUserHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
 
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
+
+// GetSecurityInfo 返回当前用户账号安全表完整字段。
+func (h *HGUserHandler) GetSecurityInfo(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUpdateUserID(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		return
+	}
+
+	resp, err := h.svc.GetSecurityInfo(r.Context(), userID)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			w.WriteHeader(http.StatusNotFound)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "账号安全信息不存在")
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "获取账号安全信息失败")
+		}
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}

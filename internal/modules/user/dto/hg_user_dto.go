@@ -108,3 +108,17 @@ type HGUpdateUserSecurityRespDTO struct {
 	Wechat          *string `json:"wechat,omitempty"`
 	PasswordUpdated bool    `json:"password_updated"`
 }
+
+// HGUserSecurityInfoRespDTO 定义账号安全表完整字段查询响应。
+type HGUserSecurityInfoRespDTO struct {
+	ID           int64   `json:"id"`
+	UserID       string  `json:"user_id"`
+	Email        *string `json:"email,omitempty"`
+	Phone        *string `json:"phone,omitempty"`
+	PasswordHash *string `json:"password_hash,omitempty"`
+	Salt         *string `json:"salt,omitempty"`
+	QQ           *string `json:"qq,omitempty"`
+	Wechat       *string `json:"wechat,omitempty"`
+	CreatedAt    *string `json:"created_at,omitempty"`
+	UpdatedAt    *string `json:"updated_at,omitempty"`
+}

@@ -64,6 +64,9 @@ const (
 	SelectUserSecurityIDForUpdateSQL = `SELECT id FROM user_security WHERE user_id = ? FOR UPDATE`
 	// InsertUserSecuritySQL 创建用户安全记录，保存邮箱、手机号、密码哈希、盐、QQ 和微信等安全资料。
 	InsertUserSecuritySQL = `INSERT INTO user_security (user_id, email, phone, password_hash, salt, qq, wechat) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	// SelectUserSecurityByUserIDSQL 按业务 user_id 读取账号安全表全部字段。
+	SelectUserSecurityByUserIDSQL = `SELECT id, user_id, email, phone, password_hash, salt, qq, wechat, created_at, updated_at
+	FROM user_security WHERE user_id = ?`
 )
 
 // 朋友圈模块

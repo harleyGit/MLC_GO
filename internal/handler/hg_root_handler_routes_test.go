@@ -23,6 +23,7 @@ func TestBuildRouteCatalogContainsFullPaths(t *testing.T) {
 		"GET /api/v1/auth/send_code",
 		"GET /api/v1/profile/info",
 		"GET /api/v1/profile/list",
+		"GET /api/v1/profile/account",
 		"PUT /api/v1/profile/security",
 	}
 

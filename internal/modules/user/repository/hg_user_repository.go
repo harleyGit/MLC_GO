@@ -420,11 +420,11 @@ func (r *UserRepo) UpdateSecurityByUserID(
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-		if errors.Is(err, sql.ErrNoRows) {
-			if err = insertUserSecurity(queryCtx, tx, security); err != nil {
-				if isDuplicateUserSecurityUserID(err) {
-					if retryErr := updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); retryErr != nil {
-						return retryErr
+	if errors.Is(err, sql.ErrNoRows) {
+		if err = insertUserSecurity(queryCtx, tx, security); err != nil {
+			if isDuplicateUserSecurityUserID(err) {
+				if retryErr := updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); retryErr != nil {
+					return retryErr
 				}
 			} else {
 				return err
@@ -442,6 +442,36 @@ func (r *UserRepo) UpdateSecurityByUserID(
 
 	return nil
 }
+
+// GetSecurityByUserID 按业务 user_id 读取 user_security 表完整字段。
+func (r *UserRepo) GetSecurityByUserID(ctx context.Context, userID string) (*UserModelsPackage.HGUserSecurityModel, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
+	defer cancel()
+
+	security := &UserModelsPackage.HGUserSecurityModel{}
+	err := r.QueryRow(
+		queryCtx,
+		SQLQueriesPackage.SelectUserSecurityByUserIDSQL,
+		userID,
+	).Scan(
+		&security.ID,
+		&security.UserID,
+		&security.Email,
+		&security.Phone,
+		&security.PasswordHash,
+		&security.Salt,
+		&security.QQ,
+		&security.Wechat,
+		&security.CreatedAt,
+		&security.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return security, nil
+}
+
 // getSecurityBaseForUpdate 锁定 users 行，并取 user_security 插入所需的默认认证字段。
 func getSecurityBaseForUpdate(
 	ctx context.Context,
