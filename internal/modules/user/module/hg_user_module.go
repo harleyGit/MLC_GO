@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-05-05 17:49:12
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-05 21:49:05
+ * @LastEditTime: 2026-05-15 11:38:56
  * @FilePath: /MLC_GO/internal/modules/user/module/hg_user_module.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -54,14 +54,16 @@ func NewAuthModule(handler *UserHandlerPackage.HGUserHandler) *HGAuthModule {
 	return &HGAuthModule{handler: handler}
 }
 
+/* 模块名称，用于日志和路由清单。- HGModule接口 */
 func (m *HGAuthModule) Name() string {
 	return "auth"
 }
 
+/* 模块的 API 前缀路径。- HGModule接口 */
 func (m *HGAuthModule) BasePath() string {
 	return HGMiddlewareGroupPackage.AuthModuleBasePath
 }
-
+/* 模块的 HTTP Handler，包含 JWT 鉴权中间件。- HGModule接口 */
 func (m *HGAuthModule) Handler() http.Handler {
 	return HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(m.handler)
 }

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-05-05 16:58:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-05 21:47:11
+ * @LastEditTime: 2026-05-15 11:12:32
  * @FilePath: /MLC_GO/internal/handler/hg_module.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -30,7 +30,7 @@ type HGModule interface {
 // 返回时复制 slice 快照，是为了避免调用方拿到内部 slice 后修改底层数组，破坏注册表一致性。
 var (
 	moduleRegistryMu sync.RWMutex
-	moduleRegistry   []HGModule
+	moduleRegistry   []HGModule // 切片。类型是HGModule
 )
 
 // RegisterModule 注册模块到全局注册表。
@@ -39,6 +39,7 @@ func RegisterModule(modules ...HGModule) {
 	moduleRegistryMu.Lock()
 	defer moduleRegistryMu.Unlock()
 
+	// 把 modules 里面的所有元素，追加到 moduleRegistry 这个切片中
 	moduleRegistry = append(moduleRegistry, modules...)
 }
 
