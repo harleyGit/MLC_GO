@@ -32,7 +32,7 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 			h := r.Header.Get("Authorization")
 			if !strings.HasPrefix(h, "Bearer ") {
 				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 
@@ -42,7 +42,7 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 			token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 			if token == "" {
 				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 			claims := &UserServicePackage.HGClaims{}
@@ -78,12 +78,12 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 						"\n UTC time:" + now.UTC().Format("2006-01-02 15:04:05")
 
 				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc + desc)
+				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc+desc)
 				return
 			}
 			if err := validateAccessClaims(r, claims); err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 

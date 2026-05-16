@@ -20,12 +20,12 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		token := r.Header.Get("Authorization")
 		if token == "" {
 			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		if _, err := PersistenceRedisPackage.GetFromRedis(nil, "token:"+token); err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		next(w, r)
@@ -38,14 +38,14 @@ func TokenAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		token := r.Header.Get("Authorization")
 		if token == "" {
 			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 
 		_, err := PersistenceRedisPackage.RDB.Get(r.Context(), "token:"+token).Result()
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
 		next(w, r)

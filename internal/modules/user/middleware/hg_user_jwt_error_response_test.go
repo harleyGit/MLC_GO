@@ -83,8 +83,8 @@ func assertStandardTokenInvalidBody(t *testing.T, body []byte) {
 		t.Fatalf("unmarshal response failed: %v, body=%s", err, string(body))
 	}
 
-	if resp.Code != 404003 {
-		t.Fatalf("expected code=404003, got=%d, body=%s", resp.Code, string(body))
+	if resp.Code != 101001 {
+		t.Fatalf("expected code=101001, got=%d, body=%s", resp.Code, string(body))
 	}
 	if resp.Message != "Token无效" {
 		t.Fatalf("expected message=Token无效, got=%s, body=%s", resp.Message, string(body))

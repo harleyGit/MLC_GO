@@ -118,7 +118,8 @@ func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	tokenPair, err := h.tokenService.RefreshToken(r.Context(), req.RefreshToken)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "刷新 Token 失败: "+err.Error())
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "刷新 Token 失败: "+err.Error())
 		return
 	}
 

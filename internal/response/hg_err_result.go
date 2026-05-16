@@ -27,7 +27,6 @@ const (
 	// 业务错误
 	UserNotFoundCode  HGErrorCode = 404001
 	UserRegisterFail  HGErrorCode = 404002
-	TokenInvalidCode  HGErrorCode = 404003
 	OrderNotFoundCode HGErrorCode = 405002
 	UserListFailCode  HGErrorCode = 405003 //用户列表错误
 

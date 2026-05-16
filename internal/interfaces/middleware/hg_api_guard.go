@@ -229,13 +229,13 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 
 	if needAuth && UtilsPackage.IsEmpty(token) {
 		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UnauthorizedCode, "Authorization不能为空")
+		HGResponsePakcage.FailTokenInvalid(w, r, "Authorization不能为空")
 		return nil
 	}
 
 	if err := verifyTimestamp(timestamp); err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.TokenInvalidCode, "timestamp无效或已过期")
+		HGResponsePakcage.FailTokenInvalid(w, r, "timestamp无效或已过期")
 		return nil
 	}
 
@@ -255,7 +255,9 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 	}
 
 	if err := verifySignature(r, body, signature, timestamp, requestID, deviceID, clientType, clientVersion, version, language, token); err != nil {
-		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.TokenInvalidCode)
+		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.UnauthorizedCode)
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "signature无效")
 		return nil
 	}
 

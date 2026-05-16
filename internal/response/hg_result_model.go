@@ -245,6 +245,12 @@ func FailResult[T any](w http.ResponseWriter, r *http.Request, code HGErrorCode,
 	writeResult(resp, w)
 }
 
+// FailTokenInvalid 统一 token 失效响应语义：HTTP 层由调用方写 401，业务码统一返回 UnauthorizedCode。
+// 约束：响应结构保持不变，只收敛鉴权失败业务码，便于前端统一按 401 处理。
+func FailTokenInvalid(w http.ResponseWriter, r *http.Request, msg string) {
+	FailResult[string](w, r, UnauthorizedCode, msg)
+}
+
 /* 统一·JOSN 输出方法 */
 // Deprecated: 使用 SuccessResult 方法，因为该方法无法定制化
 func WriteJSON(
