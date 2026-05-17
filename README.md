@@ -59,6 +59,15 @@
 
 # [接口文档URL](https://app.apifox.com/project/8272891)
 
+```sh
+很多团队会：
+
+数据库由 DBA / docker-init / k8s-init 创建
+migrate 只做 schema migration
+
+这样最稳定。
+```
+
 
 > <h1 id="工程启动">工程启动</h1>
 

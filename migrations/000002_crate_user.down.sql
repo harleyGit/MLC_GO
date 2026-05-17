@@ -1,1 +1,4 @@
 USE HG_MLC_DB;
+
+-- 删除表
+DROP TABLE IF EXISTS `users`;
