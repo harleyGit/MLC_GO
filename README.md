@@ -1,8 +1,12 @@
+>#  [接口文档URL](https://app.apifox.com/project/8272891)
 - [**‌ 工程启动**](#工程启动)
   - [VSCode 启动](#VSCode启动)
   - [Intel 电脑修改配置启动](#Intel电脑修改配置启动)
   - [终端查看 MySQL 表](#终端查看MySQL表)
   - [redis 启动](#redis启动)
+- [表分布](#表分布)
+	- [用户模块](#用户模块)
+	- [视频模块](#视频模块)
 - [**文件结构介绍**](#文件结构介绍)
   - [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
@@ -50,23 +54,13 @@
   - [超全 golang 面试题合集+golang 学习指南+golang 知识图谱+成长路线](https://github.com/xiaobaiTech/golangFamily?tab=readme-ov-file)
   - [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
   - [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
+- [优化建议](#优化建议)
 
 <br/><br/><br/>
 
 ---
 
 <br/>
-
-# [接口文档URL](https://app.apifox.com/project/8272891)
-
-```sh
-很多团队会：
-
-数据库由 DBA / docker-init / k8s-init 创建
-migrate 只做 schema migration
-
-这样最稳定。
-```
 
 
 > <h1 id="工程启动">工程启动</h1>
@@ -434,6 +428,34 @@ sudo mysql.server start
 
 # Intel sql启动 密码：回车即可
 mysql -u root -p
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="表分布">表分布</h1>
+
+
+***
+<br/><br/><br/>
+> <h2 id="用户模块">用户模块</h2>
+
+
+***
+<br/><br/><br/>
+> <h2 id="视频模块">视频模块</h2>
+
+```sh
+--   1. video_submissions      稿件主表（一次投稿）
+--   2. video_files            视频文件表（每个视频/分P）
+--   3. video_tags             视频标签关联表
+--   4. video_scheduled_publish 定时发布表
+--   5. video_commercial_promotion 商业推广表
+--   6. video_chapters        视频章节表
+--   7. video_subtitles       视频字幕表
 ```
 
 <br/><br/><br/>
@@ -1528,4 +1550,61 @@ var config Config
 if err := viper.Unmarshal(&config); err != nil {
 	log.Fatalf("Unable to decode config: %v", err)
 }
+```
+
+
+<br/><br/><br/>
+
+***
+<br/>
+
+> <h1 id="优化建议">优化建议</h1>
+
+```sh
+很多团队会：
+
+数据库由 DBA / docker-init / k8s-init 创建
+migrate 只做 schema migration
+
+这样最稳定。
+```
+
+<br/>
+
+后续将下面添加进skill，增加sql表的性能：
+
+```sql
+中修改不要增加外键避免后期因为分库分表、性能造成影响，请修改
+
+：避免后期分库分表、跨库关联、写入性能、删除级联、DDL 迁移等问题。
+业务关系仍然通过字段和索引保留，后续由 service/repository 层保证数据一致性，更适合高并发和可拆分架构。
+```
+
+<br/>
+
+视频上传达到百万请求想要的条件
+
+```sh
+百万级并发说明
+这次已经补上了大厂上传系统的关键组件接口：
+Redis session
+Redis 限流
+Redis 幂等
+异步任务发布接口
+有界队列保护
+流式 multipart 上传
+但是要真正达到百万级上传请求并发，仍需要生产架构支撑：
+对象存储直传
+CDN/边缘上传加速
+MQ 集群
+转码/审核 worker 集群
+Redis Cluster
+MySQL 分库分表或元数据分片
+全链路压测与容量评估
+当前代码已经把 Go 业务服务从“直接同步做所有事”推进到“元数据 + Redis 状态 + 异步任务”的结构，但还没有把大文件流量从 Go 服务迁移到对象存储直传，所以不能真实宣称已达到百万级大文件上传并发。
+后续优化建议
+1. 实现 Publisher 的 RocketMQ/Kafka 版本，替换 MemoryPublisher。
+2. 增加读取 SaveSubmitResult 的逻辑，重复提交时直接返回上次结果。
+3. 把上传文件改成对象存储直传，Go 只发临时凭证和保存回调 metadata。
+4. 使用 k6 编写真实压测脚本，覆盖 /upload、/draft、/submit，记录 P50/P95/P99、Redis QPS、DB QPS、磁盘 I/O 和内存
 ```
