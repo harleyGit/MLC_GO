@@ -110,6 +110,35 @@ func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
+func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	return []HGMiddlewarePackage.HGAPIRule{
+		{
+			Path:    "/upload",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/draft",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/submit",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: true,
+		},
+	}
+}
+
 func MethdRules() []HGMiddlewarePackage.HGAPIRule {
 
 	return []HGMiddlewarePackage.HGAPIRule{

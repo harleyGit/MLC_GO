@@ -22,7 +22,7 @@
 
 按类型追加：
 - Go：`.ai_agents/02-go-rules.md`
-- API / Handler / Service：`.ai_agents/03-api-rules.md`
+- API / Handler / Service / DTO / Request / Response：`.ai_agents/03-api-rules.md`
 - Repository / DAO / DB / SQL / ORM：`.ai_agents/04-data-rules.md`
 - Shell / Bash：补足流程、分支、失败处理注释
 

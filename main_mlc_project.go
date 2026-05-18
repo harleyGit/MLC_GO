@@ -10,6 +10,7 @@ import (
 	HGLoggerPackage "MLC_GO/internal/logger"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	"MLC_GO/internal/pkg/logHG"
 	"context"
 	"errors"
@@ -27,10 +28,10 @@ const (
 	// 防止慢连接/慢请求头长期占用 goroutine 和文件描述符，是公网 HTTP 服务的基础防护。
 	mlcServerReadHeaderTimeout = 2 * time.Second
 	// mlcServerReadTimeout 限制读取完整请求（含 body）的最长时间。
-	// 对普通 JSON API 来说，过长读取通常意味着客户端过慢或异常请求，应尽快释放资源。
-	mlcServerReadTimeout = 5 * time.Second
-	// mlcServerWriteTimeout 限制响应写出时间，避免慢客户端长期占用服务端 worker。
-	mlcServerWriteTimeout = 10 * time.Second
+	// 视频上传会读取较大的 multipart body，不能沿用普通 JSON API 的秒级超时。
+	mlcServerReadTimeout = 15 * time.Minute
+	// mlcServerWriteTimeout 限制响应写出时间，给上传完成后的写库和响应保留窗口。
+	mlcServerWriteTimeout = 15 * time.Minute
 	// mlcServerIdleTimeout 控制 keep-alive 空闲连接保留时间，兼顾连接复用和资源释放。
 	mlcServerIdleTimeout = 60 * time.Second
 	// mlcServerMaxHeaderBytes 限制请求头大小，防止超大 header 造成内存放大和解析成本飙升。
@@ -130,6 +131,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 新增模块只需在此处调用 RegisterModules 即可。
 	HGHandlerPackage.ClearModules()
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
+	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	HGTestHandlerPackage.RegisterModules()
 
 	// 3. 收集所有模块的路由清单
@@ -248,6 +250,8 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.AuthRouteCatalog()...)
 	// 收集 user 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
+	// 收集 video_upload 模块路由清单
+	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	// 收集 test 模块路由清单
 	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
 

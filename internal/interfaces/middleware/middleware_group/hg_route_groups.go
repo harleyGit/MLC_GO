@@ -4,14 +4,16 @@ import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGServerPackage "MLC_GO/server"
 	"net/http"
 )
 
 // region 模块路径常量
 const (
-	AuthModuleBasePath        = "/api/v1/auth"    // 认证模块基础路径
-	UserProfileModuleBasePath = "/api/v1/profile" // 用户信息模块基础路径
+	AuthModuleBasePath        = "/api/v1/auth"         // 认证模块基础路径
+	UserProfileModuleBasePath = "/api/v1/profile"      // 用户信息模块基础路径
+	VideoUploadModuleBasePath = "/api/v1/video_upload" // 视频投稿模块基础路径
 )
 
 // endregion
@@ -152,6 +154,41 @@ func userRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/update", true, "更新用户资料", userHandler.UpdateProfile),
 		NewRouteSpec("profile", http.MethodPut, UserProfileModuleBasePath, "/security", true, "更新账号安全信息", userHandler.UpdateSecurity),
 		NewRouteSpec("profile", http.MethodGet, UserProfileModuleBasePath, "/avatar", true, "头像操作（POST上传/GET获取）", userHandler.Avatar),
+	}
+}
+
+// endregion
+
+// region VideoUpload 路由组
+
+func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(
+		RouteGroupConfig{
+			BasePath:       VideoUploadModuleBasePath,
+			Rules:          HGServerPackage.VideoUploadMethodRules(),
+			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		},
+		videoUploadRoutes(videoUploadHandler),
+	)
+}
+
+func VideoUploadRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(videoUploadRoutes(nil))
+}
+
+func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []RouteSpec {
+	if videoUploadHandler == nil {
+		return []RouteSpec{
+			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", nil),
+			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", nil),
+			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", nil),
+		}
+	}
+
+	return []RouteSpec{
+		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", videoUploadHandler.UploadVideo),
+		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", videoUploadHandler.SaveDraft),
+		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", videoUploadHandler.Submit),
 	}
 }
 

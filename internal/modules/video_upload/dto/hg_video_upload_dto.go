@@ -1,0 +1,129 @@
+package VideoUploadDtoPackage
+
+// UploadVideoResponse 是单个视频文件上传成功后的响应。
+// 前端会把这里返回的 submissionId/videoId 写入页面状态，后续保存草稿或提交审核时再带回来。
+type UploadVideoResponse struct {
+	// SubmissionID 稿件业务 ID；同一次多 P 投稿下的多个视频共享同一个 submissionId。
+	SubmissionID string `json:"submissionId"`
+	// VideoID 视频业务 ID；用于后续更新该视频的标题、封面、分区、标签等配置。
+	VideoID string `json:"videoId"`
+	// FileName 用户上传时的原始文件名，用于页面展示和问题排查。
+	FileName string `json:"fileName"`
+	// FilePath 服务端保存后的访问路径；当前为本地 uploads 路径，后续可替换成对象存储 key。
+	FilePath string `json:"filePath"`
+	// FileURL 给前端直接预览/展示用的 URL；当前和 FilePath 保持一致。
+	FileURL string `json:"fileUrl"`
+	// FileSize 视频文件大小，单位字节。
+	FileSize int64 `json:"fileSize"`
+	// MimeType 上传请求里携带的 MIME 类型，例如 video/mp4。
+	MimeType string `json:"mimeType"`
+	// MD5 文件内容摘要，用于重复上传识别、排查和后续秒传能力预留。
+	MD5 string `json:"md5"`
+	// PartNumber 分 P 序号，从 1 开始。
+	PartNumber uint32 `json:"partNumber"`
+}
+
+// SaveSubmissionRequest 是保存草稿和提交审核共用的稿件请求体。
+// Status 不由前端决定，handler 会根据 /draft 或 /submit 路由覆盖为 draft/reviewing。
+type SaveSubmissionRequest struct {
+	// SubmissionID 稿件业务 ID，必须来自上传接口返回值。
+	SubmissionID string `json:"submissionId"`
+	// Title 稿件标题，默认取第一个视频标题，最长 80 字。
+	Title string `json:"title"`
+	// CoverURL 稿件封面 URL；可以来自视频帧截图或前端已有封面地址。
+	CoverURL string `json:"coverUrl"`
+	// Category 稿件分区，默认取第一个视频分区。
+	Category string `json:"category"`
+	// VideoType 稿件类型：自制/转载。
+	VideoType string `json:"videoType"`
+	// SourceURL 转载来源 URL；当 VideoType 为“转载”时业务上必填。
+	SourceURL string `json:"sourceUrl"`
+	// Description 稿件简介。
+	Description string `json:"description"`
+	// AllowSecondaryCreation 是否允许二创。
+	AllowSecondaryCreation bool `json:"allowSecondaryCreation"`
+	// Watermark 是否为本次投稿添加水印。
+	Watermark bool `json:"watermark"`
+	// Visibility 可见范围：public 公开，private 仅自己可见。
+	Visibility string `json:"visibility"`
+	// Declaration 创作声明，例如 ai/danger/entertainment/uncomfortable/consume/personal。
+	Declaration string `json:"declaration"`
+	// CardConfig 个性化卡片配置，使用 JSON 方便后续扩展卡片类型和展示参数。
+	CardConfig map[string]interface{} `json:"cardConfig"`
+	// DolbyAudio 是否启用杜比音效。
+	DolbyAudio bool `json:"dolbyAudio"`
+	// HiresAudio 是否启用 Hi-Res 无损音质。
+	HiresAudio bool `json:"hiResAudio"`
+	// CloseDanmaku 是否关闭弹幕。
+	CloseDanmaku bool `json:"closeDanmaku"`
+	// CloseComment 是否关闭评论。
+	CloseComment bool `json:"closeComment"`
+	// FeaturedComment 是否开启精选评论。
+	FeaturedComment bool `json:"featuredComment"`
+	// DynamicDescription 粉丝动态描述，最长 233 字。
+	DynamicDescription string `json:"dynamicDescription"`
+	// HideFromProfile 是否在个人空间-投稿中隐藏。
+	HideFromProfile bool `json:"hideFromProfile"`
+	// Status 稿件状态；由 handler 写入，service 只校验允许 draft/reviewing。
+	Status string `json:"status"`
+	// Schedule 定时发布配置；未开启时可以为空或 enabled=false。
+	Schedule *ScheduleRequest `json:"schedule"`
+	// Commercial 商业推广配置；未开启时可以为空或 enabled=false。
+	Commercial *CommercialRequest `json:"commercial"`
+	// Videos 本次稿件包含的视频/分 P 配置列表。
+	Videos []VideoConfigRequest `json:"videos"`
+}
+
+// VideoConfigRequest 描述单个视频/分 P 的独立投稿配置。
+// 这些字段最终写入 video_files 和 video_tags。
+type VideoConfigRequest struct {
+	// VideoID 上传接口返回的视频业务 ID。
+	VideoID string `json:"videoId"`
+	// PartNumber 分 P 序号，从 1 开始；为空时 service 会按数组顺序补齐。
+	PartNumber uint32 `json:"partNumber"`
+	// Title 单个视频标题，最长 80 字。
+	Title string `json:"title"`
+	// CoverURL 单个视频封面 URL。
+	CoverURL string `json:"coverUrl"`
+	// VideoType 视频类型：自制/转载。
+	VideoType string `json:"videoType"`
+	// SourceURL 转载来源 URL。
+	SourceURL string `json:"sourceUrl"`
+	// Category 视频分区。
+	Category string `json:"category"`
+	// Description 视频简介。
+	Description string `json:"description"`
+	// Tags 视频标签，至少 1 个，最多 7 个。
+	Tags []string `json:"tags"`
+}
+
+// ScheduleRequest 描述稿件级定时发布配置。
+type ScheduleRequest struct {
+	// Enabled 是否开启定时发布。
+	Enabled bool `json:"enabled"`
+	// ScheduledTime 前端 datetime-local 或 RFC3339 时间字符串。
+	ScheduledTime string `json:"scheduledTime"`
+}
+
+// CommercialRequest 描述稿件级商业推广配置。
+// 需求约束为单稿件仅支持一种商业推广信息。
+type CommercialRequest struct {
+	// Enabled 是否填写商业推广信息。
+	Enabled bool `json:"enabled"`
+	// PromotionType 推广类型，例如手机游戏、通用行业、PC网络游戏。
+	PromotionType string `json:"promotionType"`
+	// PromotionName 推广名称。
+	PromotionName string `json:"promotionName"`
+	// PromotionForm 推广形式，例如口播、贴片、Logo、二维码。
+	PromotionForm string `json:"promotionForm"`
+}
+
+// SaveSubmissionResponse 是保存草稿或提交审核后的统一响应。
+type SaveSubmissionResponse struct {
+	// SubmissionID 稿件业务 ID。
+	SubmissionID string `json:"submissionId"`
+	// Status 保存后的稿件状态：draft 或 reviewing。
+	Status string `json:"status"`
+	// VideoCount 本次稿件包含的视频数量。
+	VideoCount int `json:"videoCount"`
+}
