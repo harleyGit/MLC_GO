@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -16,18 +17,7 @@ const (
 	rateLimitWindow       = time.Minute
 	userUploadMinuteLimit = 120
 	ipUploadMinuteLimit   = 600
-	sessionKeyPrefix      = "video_upload:session:"
-	userRateKeyPrefix     = "video_upload:rate:user:"
-	ipRateKeyPrefix       = "video_upload:rate:ip:"
-	submitLockKeyPrefix   = "video_upload:submit_lock:"
-	submitResultKeyPrefix = "video_upload:submit_result:"
-	rateLimitLuaScript    = `
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then
-  redis.call('EXPIRE', KEYS[1], ARGV[2])
-end
-return current
-`
+	rateLimitRequestCost  = 1
 )
 
 var (
@@ -92,33 +82,50 @@ func (c *Cache) SaveSubmitResult(ctx context.Context, userID string, submissionI
 	}, submitIdempotencyTTL, ctx)
 }
 
+// checkLimit 对单个 Redis key 执行令牌桶限流。
+// Eval 会把 Lua 脚本发送到 Redis 服务端执行，Redis 执行脚本时具备原子性：脚本执行期间不会插入其他命令。
+// 参数说明：
+// - ctx：沿用请求上下文，调用方取消或超时时 Redis 命令也能退出。
+// - TokenBucketRateLimitLuaScript：要在 Redis 服务端执行的令牌桶 Lua 脚本，集中定义在 Redis 基础设施包。
+// - []string{key}：传给 Lua 的 KEYS，脚本里通过 KEYS[1] 读取。
+// - capacity：传给 Lua 的 ARGV[1]，桶容量，决定允许的最大短时 burst。
+// - refillRate：传给 Lua 的 ARGV[2]，每秒补充多少 token。
+// - now_ms：传给 Lua 的 ARGV[3]，当前毫秒时间戳。
+// - requested：传给 Lua 的 ARGV[4]，本次请求消耗 token 数。
+// - ttl：传给 Lua 的 ARGV[5]，桶状态多久不用后自动过期。
+// 示例：用户 1 分钟限 120 次时，refillRate=2 token/s；请求突刺会消耗桶内 token，耗尽后只能按 2 次/秒继续通过。
 func (c *Cache) checkLimit(ctx context.Context, key string, limit int64) error {
-	count, err := c.client.Eval(ctx, rateLimitLuaScript, []string{key}, limit, int(rateLimitWindow.Seconds())).Int64()
+	capacity := limit
+	refillRate := float64(limit) / rateLimitWindow.Seconds()
+	nowMillis := time.Now().UnixMilli()
+	ttlSeconds := int(math.Ceil(rateLimitWindow.Seconds() * 2))
+
+	allowed, err := c.client.Eval(ctx, PersistenceRedisPackage.TokenBucketRateLimitLuaScript, []string{key}, capacity, refillRate, nowMillis, rateLimitRequestCost, ttlSeconds).Int64()
 	if err != nil {
 		return err
 	}
-	if count > limit {
+	if allowed != 1 {
 		return ErrRateLimited
 	}
 	return nil
 }
 
 func sessionKey(userID string, submissionID string) string {
-	return fmt.Sprintf("%s%s:%s", sessionKeyPrefix, userID, submissionID)
+	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSessionKeyPrefix, userID, submissionID)
 }
 
 func userRateKey(userID string) string {
-	return fmt.Sprintf("%s%s", userRateKeyPrefix, userID)
+	return fmt.Sprintf("%s%s", PersistenceRedisPackage.VideoUploadUserRateKeyPrefix, userID)
 }
 
 func ipRateKey(ip string) string {
-	return fmt.Sprintf("%s%s", ipRateKeyPrefix, ip)
+	return fmt.Sprintf("%s%s", PersistenceRedisPackage.VideoUploadIPRateKeyPrefix, ip)
 }
 
 func submitLockKey(userID string, submissionID string) string {
-	return fmt.Sprintf("%s%s:%s", submitLockKeyPrefix, userID, submissionID)
+	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitLockKeyPrefix, userID, submissionID)
 }
 
 func submitResultKey(userID string, submissionID string) string {
-	return fmt.Sprintf("%s%s:%s", submitResultKeyPrefix, userID, submissionID)
+	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitResultKeyPrefix, userID, submissionID)
 }

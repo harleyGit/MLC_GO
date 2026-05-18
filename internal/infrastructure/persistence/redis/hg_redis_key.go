@@ -47,6 +47,12 @@ const (
 
 	LoginCodeKey      = "login:code:"
 	LoginMultiportKey = "token:" //token+多端登录控制key
+
+	VideoUploadSessionKeyPrefix      = "video_upload:session:"
+	VideoUploadUserRateKeyPrefix     = "video_upload:rate:user:"
+	VideoUploadIPRateKeyPrefix       = "video_upload:rate:ip:"
+	VideoUploadSubmitLockKeyPrefix   = "video_upload:submit_lock:"
+	VideoUploadSubmitResultKeyPrefix = "video_upload:submit_result:"
 )
 
 /* lua脚本 */
