@@ -1,7 +1,7 @@
 USE HG_MLC_DB;
 
 -- ============================================
--- 000006: 视频投稿业务表
+-- 000005: 视频投稿业务表
 -- ============================================
 -- 包含以下表：
 --   1. video_submissions      稿件主表（一次投稿）
@@ -9,6 +9,8 @@ USE HG_MLC_DB;
 --   3. video_tags             视频标签关联表
 --   4. video_scheduled_publish 定时发布表
 --   5. video_commercial_promotion 商业推广表
+--   6. video_chapters        视频章节表
+--   7. video_subtitles       视频字幕表
 -- ============================================
 
 
@@ -30,8 +32,14 @@ CREATE TABLE IF NOT EXISTS `video_submissions`(
     `watermark` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否添加水印: 0否 1是（仅本次上传有效）',
     `visibility` VARCHAR(16) NOT NULL DEFAULT 'public' COMMENT '可见范围: public公开/private仅自己',
     `declaration` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '创作声明（如: ai/danger/entertainment/uncomfortable/consume/personal）',
+    `card_config` JSON NULL COMMENT '个性化卡片配置（JSON）',
     `dolby_audio` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '杜比音效: 0否 1是',
     `hires_audio` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Hi-Res无损音质: 0否 1是',
+    `close_danmaku` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否关闭弹幕: 0否 1是',
+    `close_comment` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否关闭评论: 0否 1是',
+    `featured_comment` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否开启精选评论: 0否 1是',
+    `dynamic_description` VARCHAR(233) NOT NULL DEFAULT '' COMMENT '粉丝动态描述，最多233字',
+    `hide_from_profile` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否在个人空间-投稿中隐藏: 0否 1是',
     `video_count` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '包含的视频文件数量',
     `total_duration` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '总时长（秒）',
     `total_size` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '总文件大小（字节）',
@@ -46,8 +54,7 @@ CREATE TABLE IF NOT EXISTS `video_submissions`(
     KEY `idx_user_id` (`user_id`),
     KEY `idx_status` (`status`),
     KEY `idx_category` (`category`),
-    KEY `idx_created_at` (`created_at`),
-    CONSTRAINT `fk_video_submissions_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+    KEY `idx_created_at` (`created_at`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频稿件主表';
 
 
@@ -83,12 +90,11 @@ CREATE TABLE IF NOT EXISTS `video_files`(
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     UNIQUE KEY `uk_video_id` (`video_id`),
+    UNIQUE KEY `uk_submission_part_number` (`submission_id`, `part_number`),
     KEY `idx_submission_id` (`submission_id`),
     KEY `idx_user_id` (`user_id`),
     KEY `idx_upload_status` (`upload_status`),
-    KEY `idx_md5` (`md5`),
-    CONSTRAINT `fk_video_files_submission_id` FOREIGN KEY (`submission_id`) REFERENCES `video_submissions`(`submission_id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_video_files_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+    KEY `idx_md5` (`md5`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频文件表（分P）';
 
 
@@ -103,8 +109,7 @@ CREATE TABLE IF NOT EXISTS `video_tags`(
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
     UNIQUE KEY `uk_video_tag` (`video_id`, `tag_name`),
-    KEY `idx_tag_name` (`tag_name`),
-    CONSTRAINT `fk_video_tags_video_id` FOREIGN KEY (`video_id`) REFERENCES `video_files`(`video_id`) ON DELETE CASCADE
+    KEY `idx_tag_name` (`tag_name`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频标签关联表';
 
 
@@ -126,9 +131,7 @@ CREATE TABLE IF NOT EXISTS `video_scheduled_publish`(
 
     UNIQUE KEY `uk_scheduled_submission` (`submission_id`),
     KEY `idx_scheduled_time_status` (`scheduled_time`, `status`),
-    KEY `idx_user_id` (`user_id`),
-    CONSTRAINT `fk_scheduled_publish_submission_id` FOREIGN KEY (`submission_id`) REFERENCES `video_submissions`(`submission_id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_scheduled_publish_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+    KEY `idx_user_id` (`user_id`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='定时发布表';
 
 
@@ -147,9 +150,7 @@ CREATE TABLE IF NOT EXISTS `video_commercial_promotion`(
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     UNIQUE KEY `uk_commercial_submission` (`submission_id`),
-    KEY `idx_user_id` (`user_id`),
-    CONSTRAINT `fk_commercial_submission_id` FOREIGN KEY (`submission_id`) REFERENCES `video_submissions`(`submission_id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_commercial_user_id` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+    KEY `idx_user_id` (`user_id`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商业推广配置表';
 
 
@@ -166,8 +167,8 @@ CREATE TABLE IF NOT EXISTS `video_chapters`(
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    KEY `idx_video_id` (`video_id`),
-    CONSTRAINT `fk_chapters_video_id` FOREIGN KEY (`video_id`) REFERENCES `video_files`(`video_id`) ON DELETE CASCADE
+    UNIQUE KEY `uk_video_start_time` (`video_id`, `start_time`),
+    KEY `idx_video_id` (`video_id`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频章节表';
 
 
@@ -183,6 +184,6 @@ CREATE TABLE IF NOT EXISTS `video_subtitles`(
     `file_name` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '原始文件名',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
-    KEY `idx_video_id` (`video_id`),
-    CONSTRAINT `fk_subtitles_video_id` FOREIGN KEY (`video_id`) REFERENCES `video_files`(`video_id`) ON DELETE CASCADE
+    UNIQUE KEY `uk_video_language` (`video_id`, `language`),
+    KEY `idx_video_id` (`video_id`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频字幕表';
