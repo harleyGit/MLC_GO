@@ -23,7 +23,7 @@ set -e
 ### ==== 基础配置（后期可以改为环境变量）=====
 # 定义变量，存储连接 MySQL 所需的信息
 MYSQL_USER="root"
-MYSQL_PASSWORD= #"hh109" # "" #Intel电脑sql没有密码，M2Pro密码是hh109
+MYSQL_PASSWORD="hh109" # "" #Intel电脑sql没有密码，M2Pro密码是hh109
 MYSQL_HOST="127.0.0.1"
 MYSQL_PORT="3306"
 MYSQL_DB="HG_MLC_DB"
