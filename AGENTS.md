@@ -1,76 +1,18 @@
 # AGENTS.md
 
-> 入口文件，通用规则。模型差异化配置见 `.agent_runtime.json`。
+入口索引，具体规则见 `.agent_runtime.json` 与 `.ai_agents/*.md`。
 
-## 配置
-
-| 文件 | 作用 |
-|------|------|
-| `.agent_runtime.json` | 模型配置、加载规则、行为差异 |
-| `.ai_agents/*.md` | 共享规则模块 |
-
-## 默认加载
-
-所有任务默认加载：
-- `AGENTS.md`
-- `.ai_agents/00-core.md`
-- `.ai_agents/01-style.md`
-- `.ai_agents/05-validation.md`
-- `.ai_agents/06-output.md`
-- `.ai_agents/07-forbidden.md`
-- `.ai_agents/08-performance.md`
-
-按类型追加：
-- Go：`.ai_agents/02-go-rules.md`
-- API / Handler / Service / DTO / Request / Response：`.ai_agents/03-api-rules.md`
-- Repository / DAO / DB / SQL / ORM：`.ai_agents/04-data-rules.md`
-- Shell / Bash：补足流程、分支、失败处理注释
+## 加载
+- 基础：`00-core`、`01-style`、`05-validation`、`06-output`、`07-forbidden`、`08-performance`
+- Go：追加 `02-go-rules`
+- API / Handler / Service / DTO：追加 `03-api-rules`
+- Repository / DAO / DB / SQL / ORM：追加 `04-data-rules`
 
 ## 优先级
-
 1. 用户要求
-2. 当用户提出“大厂标准”“百万级并发”“高并发”“大流量”“生产级”等要求时，稳定性、容量边界、限流/削峰、幂等、异步化、资源成本和可验证性视为最高工程约束，不能只做最小可运行版本
-3. `.agent_runtime.json` 中模型特定配置
-4. 本文件
-5. `.ai_agents/00-core.md`
-6. 其他 `.ai_agents/*.md`
-7. 项目现有实现
+2. 明确高并发/生产级要求时，`08-performance` 为最高工程约束
+3. `.agent_runtime.json` 模型配置
+4. 本文件与 `.ai_agents/*.md`
+5. 项目现有实现
 
-冲突时优先：更主流、更稳定的方案。
-
-## 工作流
-
-1. 先读任务、规则、上下文、调用链和相似实现
-2. 优先复用现有实现，若现有实现无法完成，可以进行功能拓展补充
-3. SQL / 数据 / 高并发 / 安全相关改动按对应模块规则执行
-4. 涉及高并发或百万级请求时，必须主动做容量与边界推演：临界突刺、热点 key、重复提交、超时取消、资源放大、队列堆积、DB/Redis/MQ 压力、降级策略
-5. 完成后格式化、自检、尽量编译/测试，并真实说明验证结果
-
-## 代码原则
-
-- 按千万级高并发后端工程处理，默认按生产级核心链路处理，优先选择可扩展、可观测、可限流、可降级、可验证的方案
-- 命名延续 Go API 风格
-- 优先主流稳定架构和常用优秀设计模式
-- 发现不适合千万级高并发或不符合大厂标准的实现：直接在当前任务内修正；只有涉及大重构、公共接口破坏或新增重大依赖时才先询问
-- 未验证的结果不得说已通过
-
-## 风险控制
-
-默认不做：
-- 改公共接口、字段名、tag
-- 引第三方依赖
-- 改事务、幂等、重试、回滚
-- 改响应结构或错误语义
-- 输出密码、Token、密钥、用户隐私数据等敏感信息
-
-## 临时文件
-
-- 不把缓存、日志、二进制写入工程目录
-- 优先用系统临时目录或工程外目录
-
-## 收尾
-
-- 自检
-- 格式化
-- 尽量编译/测试
-- 真实说明改动与验证
+冲突时优先主流、稳定、低风险方案。
