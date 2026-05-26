@@ -8,7 +8,7 @@
   },
   "shared_rules": {
     "base": ["AGENTS.md", ".ai_agents/00-core.md", ".ai_agents/01-style.md"],
-    "guard": [".ai_agents/05-validation.md", ".ai_agents/06-output.md", ".ai_agents/07-forbidden.md", ".ai_agents/08-performance.md"],
+    "validation": [".ai_agents/05-validation.md", ".ai_agents/06-output.md", ".ai_agents/07-forbidden.md", ".ai_agents/08-performance.md"],
     "go": [".ai_agents/02-go-rules.md"],
     "api": [".ai_agents/03-api-rules.md"],
     "data": [".ai_agents/04-data-rules.md"]
