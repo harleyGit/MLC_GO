@@ -56,4 +56,21 @@ redis.call('EXPIRE', KEYS[1], ttl_seconds)
 
 return allowed
 `
+
+	// ReleaseSubmitLockLuaScript 是安全释放锁的 Lua 脚本。
+	// 先校验锁的 value 是否匹配，匹配才删除，防止误删其他请求持有的锁。
+	// KEYS[1]：锁的 key。
+	// ARGV[1]：锁的 value（UUID），用于校验是否为当前请求持有的锁。
+	// 执行逻辑：
+	// 1. 使用 GET 命令获取锁的当前 value。
+	// 2. 与传入的 ARGV[1] 进行比较。
+	// 3. 如果匹配，说明是当前请求持有的锁，执行 DEL 命令删除。
+	// 4. 如果不匹配，说明锁已过期或被其他请求持有，返回 0。
+	// 为什么用 Lua：校验和删除必须原子执行；拆成 GET + DEL 两条命令会被并发请求穿插，导致误删。
+	ReleaseSubmitLockLuaScript = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+else
+    return 0
+end`
 )

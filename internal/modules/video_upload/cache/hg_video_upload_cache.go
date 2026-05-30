@@ -19,15 +19,6 @@ const (
 	userUploadMinuteLimit = 120
 	ipUploadMinuteLimit   = 600
 	rateLimitRequestCost  = 1
-
-	// releaseSubmitLockLua 是安全释放锁的 Lua 脚本。
-	// 先校验锁的 value 是否匹配，匹配才删除，防止误删其他请求持有的锁。
-	releaseSubmitLockLua = `
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-    return redis.call("DEL", KEYS[1])
-else
-    return 0
-end`
 )
 
 var (
@@ -97,7 +88,7 @@ func (c *Cache) ReleaseSubmitLock(ctx context.Context, userID string, submission
 		return nil
 	}
 	// 使用 Lua 脚本安全释放锁
-	result, err := c.client.Eval(ctx, releaseSubmitLockLua, []string{submitLockKey(userID, submissionID)}, lockValue).Int64()
+	result, err := c.client.Eval(ctx, PersistenceRedisPackage.ReleaseSubmitLockLuaScript, []string{submitLockKey(userID, submissionID)}, lockValue).Int64()
 	if err != nil {
 		return err
 	}
