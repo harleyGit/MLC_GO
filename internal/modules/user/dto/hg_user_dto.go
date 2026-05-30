@@ -12,7 +12,10 @@
 
 package UserDtoPackage
 
-import HGResponsePakcage "MLC_GO/internal/response"
+import (
+	HGResponsePakcage "MLC_GO/internal/response"
+	hg_time "MLC_GO/internal/pkg/hg_time"
+)
 
 // 创建用户（POST）
 // TODO: 定一个基类结构体，有 Code和message，然dto有这2个变量，方便在协议返回。否则这样写死了
@@ -47,11 +50,11 @@ func (HGCreateUserDTO) ResponseMessage() string {
 
 // HGUpdateUserProfileReqDTO 定义用户资料更新请求，字段均可选，支持单字段或多字段更新。
 type HGUpdateUserProfileReqDTO struct {
-	Nickname  *string `json:"nickname,omitempty"`
-	Signature *string `json:"signature,omitempty"`
-	Gender    *int    `json:"gender,omitempty"`
-	BirthDate *string `json:"birth_date,omitempty"`
-	AvatarURL *string `json:"avatar_url,omitempty"`
+	Nickname  *string            `json:"nickname,omitempty"`
+	Signature *string            `json:"signature,omitempty"`
+	Gender    *int               `json:"gender,omitempty"`
+	BirthDate *hg_time.ClientTime `json:"birth_date,omitempty"`
+	AvatarURL *string            `json:"avatar_url,omitempty"`
 }
 
 // HasAnyField 判断更新请求是否至少包含一个可更新字段。
@@ -69,12 +72,12 @@ func (d *HGUpdateUserProfileReqDTO) HasAnyField() bool {
 
 // HGUpdateUserProfileRespDTO 定义用户资料更新成功后的返回结构。
 type HGUpdateUserProfileRespDTO struct {
-	UserID    string  `json:"user_id"`
-	Nickname  *string `json:"nickname,omitempty"`
-	Signature *string `json:"signature,omitempty"`
-	Gender    *int    `json:"gender,omitempty"`
-	BirthDate *string `json:"birth_date,omitempty"`
-	AvatarURL *string `json:"avatar_url,omitempty"`
+	UserID    string             `json:"user_id"`
+	Nickname  *string            `json:"nickname,omitempty"`
+	Signature *string            `json:"signature,omitempty"`
+	Gender    *int               `json:"gender,omitempty"`
+	BirthDate *hg_time.ClientTime `json:"birth_date,omitempty"`
+	AvatarURL *string            `json:"avatar_url,omitempty"`
 }
 
 // HGUpdateUserSecurityReqDTO 定义账号安全信息更新请求，字段均可选，支持一次修改多个字段。

@@ -4,11 +4,10 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
+	hg_time "MLC_GO/internal/pkg/hg_time"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"errors"
-	"strings"
-	"time"
 )
 
 // CreateUser 创建用户并写入数据库，负责密码加盐哈希和 DTO 到 model 的转换。
@@ -86,11 +85,11 @@ func (s *UserService) UpdateProfile(
 		return nil, ErrProfileGenderInvalid
 	}
 	if d.BirthDate != nil {
-		normalizedDate, err := normalizeBirthDate(*d.BirthDate)
+		normalizedDate, err := hg_time.NormalizeBirthDate(*d.BirthDate)
 		if err != nil {
 			return nil, err
 		}
-		d.BirthDate = &normalizedDate
+		d.BirthDate = &hg_time.ClientTime{Value: normalizedDate, Format: "date"}
 	}
 
 	if err := s.repo.UpdateProfileByUserID(ctx, userID, d); err != nil {
@@ -106,22 +105,4 @@ func (s *UserService) UpdateProfile(
 		BirthDate: d.BirthDate,
 		AvatarURL: d.AvatarURL,
 	}, nil
-}
-
-// normalizeBirthDate 统一规范出生日期格式，支持 YYYY-MM-DD 与 YYYY-MM 输入。
-// 月份输入统一补齐为当月 1 日，保证数据库中日期格式稳定。
-func normalizeBirthDate(raw string) (string, error) {
-	birthDate := strings.TrimSpace(raw)
-	if birthDate == "" {
-		return "", ErrProfileBirthDateInvalid
-	}
-
-	if parsedDate, err := time.Parse("2006-01-02", birthDate); err == nil {
-		return parsedDate.Format("2006-01-02"), nil
-	}
-	if parsedMonth, err := time.Parse("2006-01", birthDate); err == nil {
-		return parsedMonth.Format("2006-01") + "-01", nil
-	}
-
-	return "", ErrProfileBirthDateInvalid
 }

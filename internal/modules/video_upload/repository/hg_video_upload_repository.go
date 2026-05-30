@@ -1,8 +1,9 @@
 package VideoUploadRepositoryPackage
 
 import (
-	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
+	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
+	hg_time "MLC_GO/internal/pkg/hg_time"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -130,12 +131,12 @@ func (r *Repository) replaceTags(ctx context.Context, videoID string, tags []str
 
 // saveSchedule 保存或删除稿件级定时发布配置。
 func (r *Repository) saveSchedule(ctx context.Context, userID string, submissionID string, schedule *VideoUploadDtoPackage.ScheduleRequest) error {
-	if schedule == nil || !schedule.Enabled {
+	if schedule == nil || !schedule.Enabled || schedule.ScheduledTime == nil {
 		_, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteScheduledPublishSQL, submissionID, userID)
 		return err
 	}
 
-	scheduledTime, err := parseClientTime(schedule.ScheduledTime)
+	scheduledTime, err := hg_time.ParseClientTime(*schedule.ScheduledTime)
 	if err != nil {
 		return err
 	}
@@ -177,12 +178,4 @@ func submitTime(status string) interface{} {
 		return time.Now().UTC()
 	}
 	return nil
-}
-
-// parseClientTime 兼容浏览器 datetime-local 和 RFC3339 两种时间格式。
-func parseClientTime(value string) (time.Time, error) {
-	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-		return parsed, nil
-	}
-	return time.ParseInLocation("2006-01-02T15:04", value, time.Local)
 }

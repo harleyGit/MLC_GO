@@ -355,7 +355,7 @@ func (r *UserRepo) UpdateProfileByUserID(
 	}
 	if d.BirthDate != nil {
 		setClauses = append(setClauses, "`birth_month` = ?")
-		args = append(args, *d.BirthDate)
+		args = append(args, d.BirthDate.Value)
 	}
 	if d.AvatarURL != nil {
 		setClauses = append(setClauses, "`avatar_url` = ?")

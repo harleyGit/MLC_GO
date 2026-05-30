@@ -1,5 +1,7 @@
 package VideoUploadDtoPackage
 
+import hg_time "MLC_GO/internal/pkg/hg_time"
+
 // UploadVideoResponse 是单个视频文件上传成功后的响应。
 // 前端会把这里返回的 submissionId/videoId 写入页面状态，后续保存草稿或提交审核时再带回来。
 type UploadVideoResponse struct {
@@ -101,8 +103,8 @@ type VideoConfigRequest struct {
 type ScheduleRequest struct {
 	// Enabled 是否开启定时发布。
 	Enabled bool `json:"enabled"`
-	// ScheduledTime 前端 datetime-local 或 RFC3339 时间字符串。
-	ScheduledTime string `json:"scheduledTime"`
+	// ScheduledTime 客户端显式标记格式和时区的定时发布时间。
+	ScheduledTime *hg_time.ClientTime `json:"scheduledTime"`
 }
 
 // CommercialRequest 描述稿件级商业推广配置。
