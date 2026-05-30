@@ -5,9 +5,11 @@ import (
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadTaskPackage "MLC_GO/internal/modules/video_upload/task"
+	HGUploadPackage "MLC_GO/internal/pkg/upload"
 	"bytes"
 	"context"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -46,12 +48,19 @@ type Service struct {
 	cache     *VideoUploadCachePackage.Cache
 	publisher VideoUploadTaskPackage.Publisher
 	baseURL   string // 服务基础 URL，用于拼接文件绝对访问地址
+	uploader  *HGUploadPackage.Uploader
 }
 
 // NewService 创建视频投稿服务。
 // baseURL 用于拼接文件绝对访问地址，如 http://localhost:8080。
 func NewService(repo *VideoUploadRepositoryPackage.Repository, cache *VideoUploadCachePackage.Cache, publisher VideoUploadTaskPackage.Publisher, baseURL string) *Service {
-	return &Service{repo: repo, cache: cache, publisher: publisher, baseURL: strings.TrimRight(baseURL, "/")}
+	return &Service{
+		repo:      repo,
+		cache:     cache,
+		publisher: publisher,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		uploader:  HGUploadPackage.NewUploaderWithBaseURL(baseURL),
+	}
 }
 
 // Init 初始化服务，确保数据库索引存在。
@@ -430,4 +439,35 @@ func (s *Service) getVideoListTotal(ctx context.Context) (int, error) {
 	}
 
 	return total, nil
+}
+
+// SaveCoverImage 解析 base64 data URL 并保存为封面图片文件。
+// 复用 HGUploadPackage.Uploader（与头像上传同一套存储驱动），返回可直接在浏览器访问的绝对 URL。
+func (s *Service) SaveCoverImage(ctx context.Context, userID string, dataURL string) (string, error) {
+	commaIdx := strings.Index(dataURL, ",")
+	if commaIdx < 0 || !strings.HasPrefix(dataURL, "data:") {
+		return "", errors.New("无效的图片 data URL")
+	}
+
+	meta := dataURL[:commaIdx]
+	raw := dataURL[commaIdx+1:]
+
+	ext := "jpg"
+	if strings.Contains(meta, "image/png") {
+		ext = "png"
+	} else if strings.Contains(meta, "image/webp") {
+		ext = "webp"
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return "", errors.New("base64 解码失败")
+	}
+
+	result, err := s.uploader.UploadFromBytes(decoded, "cover", ext)
+	if err != nil {
+		return "", fmt.Errorf("封面上传失败: %w", err)
+	}
+
+	return result.FileURL, nil
 }

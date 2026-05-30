@@ -247,6 +247,36 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// UploadCover 接收 base64 编码的封面图，保存为文件并返回访问 URL。
+// 请求体 JSON：{ "image": "data:image/jpeg;base64,..." }
+// 响应 JSON：{ "code": 0, "data": { "url": "http://host/uploads/cover/xxx.jpg" } }
+func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Image string `json:"image"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Image == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 image 字段")
+		return
+	}
+
+	url, err := h.service.SaveCoverImage(r.Context(), userID, req.Image)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"url": url})
+}
+
 /* 客户端 IP 地址 */
 func clientIP(r *http.Request) string {
 	// 从 HTTP Header 读取 X-Forwarded-For: clientIP, proxy1, proxy2,这是标准代理链路 IP 记录头
