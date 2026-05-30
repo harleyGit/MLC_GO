@@ -84,7 +84,23 @@ func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
 			NeedAuth: false,
 		},
 		{
+			Path:    "/send_email_code",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: false,
+		},
+		{
 			Path:    "/register",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
+		{
+			Path:    "/register_with_email",
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPost: true,
