@@ -303,7 +303,7 @@ func (s *HGAuthService) LoginV2(ctx context.Context, phone, code string) (*UserD
 	if err != nil {
 		return nil, errors.New("验证码错误")
 	}
-	if decodeRedisStringValue(real) != code {
+	if DecodeRedisStringValue(real) != code {
 		return nil, errors.New("验证码错误")
 	}
 
@@ -334,7 +334,7 @@ func (s *HGAuthService) Login(ctx context.Context, d *UserDtoPackage.LoginDTO) (
 	if err != nil {
 		return nil, errors.New("验证码错误")
 	}
-	if decodeRedisStringValue(code) != d.Code {
+	if DecodeRedisStringValue(code) != d.Code {
 		return nil, errors.New("验证码错误")
 	}
 	user, err := s.users.GetByPhone(ctx, d.Phone)

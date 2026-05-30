@@ -29,7 +29,7 @@ func (s *UserService) Register(ctx context.Context, registerModel UserDtoPackage
 	if err != nil {
 		return err
 	}
-	if decodeRedisStringValue(v) != registerModel.Code {
+	if DecodeRedisStringValue(v) != registerModel.Code {
 		return errors.New("验证码错误 or 已过期")
 	}
 
@@ -120,7 +120,7 @@ func (s *UserService) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 		if err != nil {
 			return nil, ErrCodeInvalid
 		}
-		if decodeRedisStringValue(val) != *req.Code {
+		if DecodeRedisStringValue(val) != *req.Code {
 			return nil, ErrCodeInvalid
 		}
 		// 验证码为一次性凭证，验证成功后立即删除，降低重放风险。
@@ -142,7 +142,7 @@ func (s *UserService) Login(ctx context.Context, req *LoginRequest) (*LoginRespo
 }
 
 // SendCode 生成并缓存验证码。
-// Redis 中字符串值可能被 JSON 序列化，读取比较时必须使用 decodeRedisStringValue 做兼容。
+// Redis 中字符串值可能被 JSON 序列化，读取比较时必须使用 DecodeRedisStringValue 做兼容。
 func (s *UserService) SendCode(ctx context.Context, phone string) (string, error) {
 	if phone == "" {
 		return "", errors.New("手机号不能为空")
@@ -156,6 +156,47 @@ func (s *UserService) SendCode(ctx context.Context, phone string) (string, error
 
 	logHG.DebugFInfo("验证码发送到 phone %s:，验证码： %s， 1分钟过期", phone, code)
 	return code, nil
+}
+
+// SendEmailCode 生成并缓存邮箱验证码。
+// 高并发设计：使用独立 Redis key 前缀隔离邮箱验证码，避免与手机验证码冲突；验证码一次性消费。
+func (s *UserService) SendEmailCode(ctx context.Context, email string) (string, error) {
+	if email == "" {
+		return "", errors.New("邮箱不能为空")
+	}
+
+	code := utilsPackage.GenerateRandomNum(6)
+	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
+	if err := s.redisService.SetToRedisV2(key, code, time.Minute*5, ctx); err != nil {
+		return "", errors.New("redis error")
+	}
+
+	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 5分钟过期", email, code)
+	return code, nil
+}
+
+// VerifyEmailCode 验证邮箱验证码。
+// 高并发设计：验证码一次性消费，验证成功后立即删除，降低重放风险。
+func (s *UserService) VerifyEmailCode(ctx context.Context, email, code string) error {
+	if email == "" {
+		return errors.New("邮箱不能为空")
+	}
+	if code == "" {
+		return errors.New("验证码不能为空")
+	}
+
+	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
+	v, err := s.redisService.GetFromRedisV2(key, ctx)
+	if err != nil {
+		return errors.New("验证码错误或已过期")
+	}
+	if DecodeRedisStringValue(v) != code {
+		return errors.New("验证码错误或已过期")
+	}
+
+	// 验证码一次性消费，验证成功后立即删除
+	s.redisService.DeleteFromRedis(key, ctx)
+	return nil
 }
 
 // SendResetPasswordCode 发送忘记密码验证码。
@@ -212,7 +253,7 @@ func (s *UserService) ResetPassword(ctx context.Context, req *UserDtoPackage.Res
 	if err != nil {
 		return ErrCodeInvalid
 	}
-	if decodeRedisStringValue(val) != req.Code {
+	if DecodeRedisStringValue(val) != req.Code {
 		return ErrCodeInvalid
 	}
 
@@ -235,9 +276,9 @@ func (s *UserService) ResetPassword(ctx context.Context, req *UserDtoPackage.Res
 	return nil
 }
 
-// decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
+// DecodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
 // 例如 SetToRedisV2("123456") 实际可能保存为 JSON 字符串 `"123456"`，比较验证码前必须解码。
-func decodeRedisStringValue(v string) string {
+func DecodeRedisStringValue(v string) string {
 	var result string
 	if err := json.Unmarshal([]byte(v), &result); err == nil {
 		return result

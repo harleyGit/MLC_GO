@@ -77,6 +77,12 @@ func GetRedisVerifyCodeKey(value string) string {
 	// TODO: 这个需要改进下，因为该验证码用于注册，不是登录后面修改下
 	return fmt.Sprintf("%s%s", AuthCodePhoneLimitKey, value)
 }
+
+// GetRedisEmailVerifyCodeKey 生成邮箱验证码的 Redis key。
+// 使用独立前缀隔离邮箱验证码，避免与手机验证码冲突。
+func GetRedisEmailVerifyCodeKey(email string) string {
+	return fmt.Sprintf("auth:email:code:%s", email)
+}
 func GetCacheKey(prefix string, value string) string {
 	return fmt.Sprintf("%s%s", prefix, value)
 }

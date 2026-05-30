@@ -63,6 +63,66 @@ func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, map[string]string{"phone": phone, "message": "验证码已发送", "verifyCode": code})
 }
 
+// SendEmailCode 发送邮箱验证码。
+// 高并发设计：使用独立 Redis key 前缀隔离邮箱验证码，避免与手机验证码冲突；验证码一次性消费。
+func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 email 参数")
+		return
+	}
+
+	code, err := h.svc.SendEmailCode(r.Context(), email)
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		return
+	}
+
+	// TODO: 调用邮件发送服务发送验证码
+	// 这里暂时返回验证码，实际生产环境需要调用邮件服务
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"email": email, "message": "验证码已发送", "verifyCode": code})
+}
+
+// RegisterWithEmail 处理邮箱注册请求。
+// 高并发设计：复用现有注册流程，邮箱验证码独立 Redis key，避免与手机验证码冲突。
+func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request) {
+	var req UserDtoPackage.RegisterReqModel
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		return
+	}
+
+	if req.Email == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "邮箱不能为空")
+		return
+	}
+
+	if req.Code == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码不能为空")
+		return
+	}
+
+	if req.Password == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "密码不能为空")
+		return
+	}
+
+	// 验证邮箱验证码
+	if err := h.svc.VerifyEmailCode(r.Context(), req.Email, req.Code); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码错误或已过期")
+		return
+	}
+
+	// 调用注册服务
+	if err := h.svc.Register(r.Context(), req); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, "注册失败: "+err.Error())
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, req)
+}
+
 // Login 处理用户登录，支持验证码和密码两种方式。
 // 设备指纹在 HTTP 层提取，认证规则和 token 签发统一交给 service，避免 handler 写业务判断。
 func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
