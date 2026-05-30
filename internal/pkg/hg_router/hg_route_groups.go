@@ -1,4 +1,4 @@
-package HGMiddlewareGroupPackage
+package HGRouterPackage
 
 import (
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"

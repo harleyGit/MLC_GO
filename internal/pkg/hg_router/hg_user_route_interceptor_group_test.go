@@ -1,4 +1,4 @@
-package HGMiddlewareGroupPackage
+package HGRouterPackage
 
 import (
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
