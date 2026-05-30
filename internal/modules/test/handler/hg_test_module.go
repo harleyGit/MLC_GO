@@ -1,7 +1,7 @@
 package HGTestHandlerPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	"net/http"
 
 	HGHandlerPackage "MLC_GO/internal/handler"

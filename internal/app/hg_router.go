@@ -1,7 +1,7 @@
 package HGAppPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	"net/http"
 )
 

@@ -1,4 +1,4 @@
-package PkgMiddlewarePackage
+package HGMiddlewarePackage
 
 import (
 	"encoding/json"

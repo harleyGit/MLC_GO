@@ -9,7 +9,7 @@
 package HGUserModulePackage
 
 import (
-	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	"net/http"

@@ -1,8 +1,8 @@
 package HGTestHandlerPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
-	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"

@@ -4,7 +4,7 @@ import (
 	HGHandlerPackage "MLC_GO/internal/handler"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
-	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	"net/http"
 )

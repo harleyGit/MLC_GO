@@ -9,8 +9,8 @@
 package HGHandlerPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
-	HGMiddlewareGroupPackage "MLC_GO/internal/interfaces/middleware/middleware_group"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"

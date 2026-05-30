@@ -9,7 +9,7 @@
 package HGServerPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	"net/http"
 )
 
@@ -178,7 +178,14 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPost: true,
-				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/roles/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
 			},
 			NeedAuth: true,
 		},
@@ -187,7 +194,14 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPost: true,
-				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/users/roles/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
 			},
 			NeedAuth: true,
 		},
@@ -196,7 +210,14 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPost: true,
-				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/menus/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
 			},
 			NeedAuth: true,
 		},
@@ -205,7 +226,14 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodPost: true,
-				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/roles/permissions/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
 			},
 			NeedAuth: true,
 		},
@@ -218,7 +246,7 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			NeedAuth: true,
 		},
 		{
-			Path:    "/files",
+			Path:    "/files/list",
 			Version: "v1",
 			Methods: map[string]bool{
 				http.MethodGet: true,
