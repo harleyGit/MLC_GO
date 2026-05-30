@@ -114,8 +114,8 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 调用注册服务
-	if err := h.svc.Register(r.Context(), req); err != nil {
+	// 调用邮箱注册服务
+	if err := h.svc.RegisterWithEmail(r.Context(), req); err != nil {
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, "注册失败: "+err.Error())
 		return
 	}

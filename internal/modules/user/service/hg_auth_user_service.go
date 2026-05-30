@@ -33,6 +33,24 @@ func (s *UserService) Register(ctx context.Context, registerModel UserDtoPackage
 		return errors.New("验证码错误 or 已过期")
 	}
 
+	return s.createUser(ctx, registerModel)
+}
+
+// RegisterWithEmail 负责邮箱注册用户落库与注册后缓存清理。
+// 邮箱验证码校验由 handler 层 VerifyEmailCode 完成，此处只做用户创建。
+func (s *UserService) RegisterWithEmail(ctx context.Context, registerModel UserDtoPackage.RegisterReqModel) error {
+	if s == nil || s.repo == nil || s.redisService == nil {
+		return errors.New("user service dependency is nil")
+	}
+	if registerModel.Email == "" || registerModel.Code == "" || registerModel.Password == "" {
+		return errors.New("邮箱、验证码和密码不能为空")
+	}
+
+	return s.createUser(ctx, registerModel)
+}
+
+// createUser 统一处理用户创建逻辑，手机注册和邮箱注册共用。
+func (s *UserService) createUser(ctx context.Context, registerModel UserDtoPackage.RegisterReqModel) error {
 	salt := utilsPackage.GenerateRandomNum(8)
 	hashStr := utilsPackage.HashPassword(registerModel.Password, salt)
 	userID := UtilsPackage.GenerateUserID()
@@ -46,17 +64,16 @@ func (s *UserService) Register(ctx context.Context, registerModel UserDtoPackage
 		Username:     utilsPackage.StrPtrToNullStr(&userName),
 		PasswordHash: utilsPackage.StrPtrToNullStr(&hashStr),
 		Salt:         utilsPackage.StrPtrToNullStr(&salt),
-		Phone:        UtilsPackage.StrPtrToNullStr(&registerModel.Phone),
+	}
+	if registerModel.Phone != "" {
+		u.Phone = UtilsPackage.StrPtrToNullStr(&registerModel.Phone)
 	}
 	if registerModel.Email != "" {
 		u.Email = UtilsPackage.StrPtrToNullStr(&registerModel.Email)
 	}
 
-	if err = s.repo.Insert(ctx, u); err != nil {
+	if err := s.repo.Insert(ctx, u); err != nil {
 		return err
-	}
-	if delErr := s.redisService.DeleteFromRedis(key, ctx); delErr != nil {
-		logHG.DebugFInfo("Delete register verify code cache err: %v", delErr)
 	}
 	s.clearUserListCache(ctx)
 	return nil
@@ -167,11 +184,11 @@ func (s *UserService) SendEmailCode(ctx context.Context, email string) (string, 
 
 	code := utilsPackage.GenerateRandomNum(6)
 	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
-	if err := s.redisService.SetToRedisV2(key, code, time.Minute*5, ctx); err != nil {
+	if err := s.redisService.SetToRedisV2(key, code, time.Minute, ctx); err != nil {
 		return "", errors.New("redis error")
 	}
 
-	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 5分钟过期", email, code)
+	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 1分钟过期", email, code)
 	return code, nil
 }
 
