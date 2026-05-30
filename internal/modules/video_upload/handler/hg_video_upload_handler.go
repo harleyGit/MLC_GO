@@ -202,23 +202,31 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 
 /* 客户端 IP 地址 */
 func clientIP(r *http.Request) string {
+	// 从 HTTP Header 读取 X-Forwarded-For: clientIP, proxy1, proxy2,这是标准代理链路 IP 记录头
+	// 为什么有多个 IP？ 因为请求路径可能是：Client → Nginx → API Gateway → Go服务,所以变成 X-Forwarded-For: 真实客户端IP, NginxIP, GatewayIP
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
+		// 获取的ip，比如：X-Forwarded-For: 1.2.3.4, 10.0.0.1, 10.0.0.2
 		ips := strings.Split(xff, ",")
+		// 1.2.3.4
 		ip := strings.TrimSpace(ips[0])
 		if ip != "" {
 			return ip
 		}
 	}
 
+	// 如果没有 XFF，再看 X-Real-IP， X-Real-IP通常单个 IP
 	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 		return ip
 	}
 
+	// 这是 Go HTTP 的原始连接地址，比如： 192.168.1.10:54321 或 [::1]:54321
+	// 使用 net.SplitHostPort 安全地分离主机和端口，支持 IPv6 地址
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host
 	}
 
+	// 如果解析失败，返回原始地址（可能是没有端口的格式）
 	return r.RemoteAddr
 }
