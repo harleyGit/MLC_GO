@@ -2,6 +2,7 @@ package HGMiddlewareGroupPackage
 
 import (
 	HGMiddlewarePackage "MLC_GO/internal/interfaces/middleware"
+	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
@@ -14,6 +15,7 @@ const (
 	AuthModuleBasePath        = "/api/v1/auth"         // 认证模块基础路径
 	UserProfileModuleBasePath = "/api/v1/profile"      // 用户信息模块基础路径
 	VideoUploadModuleBasePath = "/api/v1/video_upload" // 视频投稿模块基础路径
+	OpsModuleBasePath         = "/api/v1/ops"          // 运维管理模块基础路径
 )
 
 // endregion
@@ -197,6 +199,58 @@ func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", videoUploadHandler.Submit),
 		NewRouteSpec("video_upload", http.MethodGet, VideoUploadModuleBasePath, "/list", true, "获取视频列表", videoUploadHandler.GetVideoList),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/cover", true, "上传封面图", videoUploadHandler.UploadCover),
+	}
+}
+
+// endregion
+
+// region Ops 路由组
+
+// NewOpsRouteGroup 注册运维管理模块路由（需要认证）。
+func NewOpsRouteGroup(opsHandler *OpsHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(
+		RouteGroupConfig{
+			BasePath:       OpsModuleBasePath,
+			Rules:          HGServerPackage.OpsMethodRules(),
+			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		},
+		opsRoutes(opsHandler),
+	)
+}
+
+// OpsRouteCatalog 返回 ops 模块完整可调用路径清单。
+func OpsRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(opsRoutes(nil))
+}
+
+// opsRoutes 返回 ops 模块完整路由定义。
+func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
+	if opsHandler == nil {
+		return []RouteSpec{
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles", true, "获取角色列表", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles", true, "获取用户角色", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/menus", true, "创建菜单", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/menus", true, "获取菜单列表", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/permissions", true, "分配角色权限", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/permissions", true, "获取角色权限", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/files/upload", true, "上传文件", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/files", true, "获取文件列表", nil),
+		}
+	}
+
+	return []RouteSpec{
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", opsHandler.CreateRole),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles", true, "获取角色列表", opsHandler.GetRoleList),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", opsHandler.AssignUserRoles),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles", true, "获取用户角色", opsHandler.GetUserRoles),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/menus", true, "创建菜单", opsHandler.CreateMenu),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/menus", true, "获取菜单列表", opsHandler.GetMenuList),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/permissions", true, "分配角色权限", opsHandler.AssignRolePermissions),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/permissions", true, "获取角色权限", opsHandler.GetRolePermissions),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/files/upload", true, "上传文件", opsHandler.UploadFile),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/files", true, "获取文件列表", opsHandler.GetFileList),
 	}
 }
 

@@ -171,6 +171,63 @@ func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
+func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	return []HGMiddlewarePackage.HGAPIRule{
+		{
+			Path:    "/roles",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/users/roles",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/menus",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/roles/permissions",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+				http.MethodGet:  true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/files/upload",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/files",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: true,
+		},
+	}
+}
+
 func MethdRules() []HGMiddlewarePackage.HGAPIRule {
 
 	return []HGMiddlewarePackage.HGAPIRule{

@@ -10,6 +10,7 @@ import (
 	HGLoggerPackage "MLC_GO/internal/logger"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	"MLC_GO/internal/pkg/logHG"
 	"context"
@@ -133,6 +134,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
+	// 注册运维管理模块
+	OpsModulePackage.RegisterModules(redisService, sqlManager)
 	HGTestHandlerPackage.RegisterModules()
 
 	// 3. 收集所有模块的路由清单
@@ -253,6 +256,8 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
+	// 收集 ops 模块路由清单
+	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
 	// 收集 test 模块路由清单
 	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
 
