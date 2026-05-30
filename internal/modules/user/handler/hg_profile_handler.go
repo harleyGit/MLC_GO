@@ -6,6 +6,7 @@ import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
+	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -121,7 +122,7 @@ func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // Profile 返回当前登录用户资料。
 // 用户身份由 JWT 中间件提前解析并写入 context，handler 不重复解析 token。
 func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
-	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
+	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
 		logHG.ErrFInfo("用户信息Profile error: %v", ok)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -129,7 +130,7 @@ func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userDTO, err := h.svc.GetUserByID(r.Context(), claims.UserID)
+	userDTO, err := h.svc.GetUserByID(r.Context(), userID)
 	if err != nil {
 		logHG.ErrFInfo("用户信息Profile error: %v", err)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在"+err.Error())
