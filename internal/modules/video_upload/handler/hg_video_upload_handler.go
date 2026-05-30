@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -199,17 +200,25 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 	}
 }
 
+/* 客户端 IP 地址 */
 func clientIP(r *http.Request) string {
-	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
-		parts := strings.Split(forwardedFor, ",")
-		return strings.TrimSpace(parts[0])
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		ips := strings.Split(xff, ",")
+		ip := strings.TrimSpace(ips[0])
+		if ip != "" {
+			return ip
+		}
 	}
-	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
-		return realIP
+
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
 	}
-	host := r.RemoteAddr
-	if index := strings.LastIndex(host, ":"); index > 0 {
-		return host[:index]
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
-	return host
+
+	return r.RemoteAddr
 }
