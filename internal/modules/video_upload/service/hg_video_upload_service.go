@@ -5,12 +5,14 @@ import (
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadTaskPackage "MLC_GO/internal/modules/video_upload/task"
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,9 +61,11 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 	if fileSize > maxVideoUploadSize {
 		return nil, ErrVideoFileTooLarge
 	}
-	if !isVideoFile(fileName, mimeType) {
+	isVideo, fileReader := isVideoFile(fileName, mimeType, file)
+	if !isVideo {
 		return nil, ErrVideoTypeInvalid
 	}
+	file = fileReader
 	if submissionID == "" {
 		submissionID = newBusinessID("submission")
 	} else if s.cache != nil {
@@ -277,12 +281,49 @@ func normalizeAndValidateSubmission(req *VideoUploadDtoPackage.SaveSubmissionReq
 	return nil
 }
 
-// isVideoFile 通过 Content-Type 和扩展名双重判断视频类型。
+// isVideoFile 通过文件头（Magic Number）和扩展名双重判断视频类型。
 // 浏览器或代理可能丢失 Content-Type，因此扩展名作为兼容兜底。
-func isVideoFile(fileName string, mimeType string) bool {
-	if strings.HasPrefix(mimeType, "video/") {
-		return true
+// 返回值：是否为视频文件，以及可能被消费了头部数据的 reader（调用方需继续使用返回的 reader）。
+func isVideoFile(fileName string, mimeType string, file io.Reader) (bool, io.Reader) {
+	// 优先使用文件头检测，这是最可靠的方式
+	// 读取前512字节用于内容类型检测
+	buf := make([]byte, 512)
+	n, err := io.ReadAtLeast(file, buf, 4) // 至少读取4字节才能有效检测
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		// 读取失败，回退到扩展名检测
+		return isVideoFileByExt(fileName), file
 	}
+	if n == 0 {
+		// 空文件，回退到扩展名检测
+		return isVideoFileByExt(fileName), file
+	}
+
+	// 使用 http.DetectContentType 检测文件内容类型
+	// 该函数会读取文件头中的 Magic Number 来识别文件类型
+	contentType := http.DetectContentType(buf[:n])
+	if strings.HasPrefix(contentType, "video/") {
+		// 检测到视频类型，将读取的数据和剩余数据重新组合
+		remainingReader := io.MultiReader(bytes.NewReader(buf[:n]), file)
+		return true, remainingReader
+	}
+
+	// 文件头检测不是视频，回退到扩展名检测
+	// 有些视频格式可能无法通过文件头识别，或者文件头被修改
+	if isVideoFileByExt(fileName) {
+		// 扩展名是视频格式，但文件头不是，可能是伪造的文件
+		// 这里我们仍然返回 true，因为扩展名匹配
+		remainingReader := io.MultiReader(bytes.NewReader(buf[:n]), file)
+		return true, remainingReader
+	}
+
+	// 既不是视频文件头，也不是视频扩展名
+	remainingReader := io.MultiReader(bytes.NewReader(buf[:n]), file)
+	return false, remainingReader
+}
+
+// isVideoFileByExt 通过文件扩展名判断是否为视频文件。
+// 作为文件头检测的补充，处理文件头无法识别的情况。
+func isVideoFileByExt(fileName string) bool {
 	ext := strings.ToLower(filepath.Ext(fileName))
 	switch ext {
 	case ".mp4", ".mov", ".avi", ".flv", ".mkv", ".webm", ".m4v":

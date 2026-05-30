@@ -3,8 +3,8 @@ package VideoUploadHandlerPackage
 import (
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadServicePackage "MLC_GO/internal/modules/video_upload/service"
-	HGResponsePakcage "MLC_GO/internal/response"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
+	HGResponsePakcage "MLC_GO/internal/response"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,8 +17,23 @@ import (
 )
 
 const (
-	maxMultipartHeaderBytes = 2 << 20
-	maxUploadRequestBytes   = int64(4<<30) + maxMultipartHeaderBytes
+	/*
+		为什么要额外加 2MB
+
+		因为 multipart 解析时：
+			boundary
+			form-data header
+			filename / content-type
+			多字段结构
+
+		这些都在 header 层
+
+		👉 不加的话可能出现：
+				body 没超，但 header 爆了
+				parser OOM（解析器内存炸）
+	*/
+	maxMultipartHeaderBytes = 2 << 20                                // 2MB
+	maxUploadRequestBytes   = int64(4<<30) + maxMultipartHeaderBytes // 4GB + 2MB，确保整个请求大小受控，防止恶意上传过大文件
 )
 
 // Handler 是 video_upload 模块的 HTTP 入口。
@@ -51,6 +66,8 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 
 	// 大视频上传不能使用 ParseMultipartForm，否则 net/http 会把超过内存阈值的内容写入系统临时文件，
 	// 在高并发大文件场景会形成额外磁盘放大。这里直接流式读取 multipart part 并写入目标存储。
+	// 限制 HTTP 请求 Body 的最大可读取大小，防止大包上传导致内存/磁盘/DoS 风险
+	// 传入w可以在超限时 Go 会自动帮你写 HTTP 响应，默认返回：413 Request Entity Too Large
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes)
 	file, fileName, fileSize, mimeType, fields, err := readUploadMultipart(r)
 	if err != nil {
@@ -58,10 +75,17 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
 		return
 	}
+	// file.(io.CLoser)看看file时候支持CLose()
+	// 关闭文件流，防止资源泄漏；注意这里的 file 可能是 multipart.Part 或其他实现了 io.Reader 的类型，只有当它实现了 io.Closer 时才调用 Close。
 	if closer, ok := file.(io.Closer); ok {
+		// 函数结束时释放资源
+		// multipart内部会维护：TCP连接、缓冲区、临时资源
+		// 不关闭可能导致：fd泄漏、连接无法复用
 		defer closer.Close()
 	}
+	// 解析分片号
 	partNumber, _ := strconv.ParseUint(fields["partNumber"], 10, 32)
+	// 上传视频文件并创建/追加稿件分 P，service 内部会处理文件保存、数据库记录和业务校验等逻辑。
 	resp, err := h.service.UploadVideo(r.Context(), userID, file, fileName, fileSize, mimeType, strings.TrimSpace(fields["submissionId"]), uint32(partNumber))
 	if err != nil {
 		status, code := mapUploadError(err)
@@ -75,6 +99,8 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 
 // readUploadMultipart 以流式方式读取上传请求，避免把大文件缓存到内存或系统临时目录。
 // 当前前端会先 append file，再 append submissionId/partNumber；为兼容字段顺序，这里同时支持从 URL query 兜底读取字段。
+// 返回值包括：视频文件流、文件名、文件大小、MIME 类型（文件类型）、其他字段（表单字段，如 submissionId/partNumber）和错误信息。
+// TODO：这里只适合单个文件上传，当前端支持多文件上传时需要改成一次性读取所有字段，避免字段顺序导致的兼容问题。
 func readUploadMultipart(r *http.Request) (io.Reader, string, int64, string, map[string]string, error) {
 	contentType := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
@@ -170,8 +196,6 @@ func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Reques
 
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
-
-
 
 // mapUploadError 把上传业务错误映射为 HTTP 状态码和统一业务码。
 func mapUploadError(err error) (int, HGResponsePakcage.HGErrorCode) {
