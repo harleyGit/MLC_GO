@@ -131,6 +131,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 新增模块只需在此处调用 RegisterModules 即可。
 	HGHandlerPackage.ClearModules()
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
+	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	HGTestHandlerPackage.RegisterModules()
 

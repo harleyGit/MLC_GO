@@ -1,11 +1,10 @@
 package VideoUploadHandlerPackage
 
 import (
-	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
-	UserServicePackage "MLC_GO/internal/modules/user/service"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadServicePackage "MLC_GO/internal/modules/video_upload/service"
 	HGResponsePakcage "MLC_GO/internal/response"
+	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -36,7 +35,7 @@ func NewHandler(service *VideoUploadServicePackage.Service) *Handler {
 // 请求字段：file 必填，submissionId 可选，partNumber 可选。
 // submissionId 为空时会创建新稿件；不为空时表示向已有稿件追加分 P。
 func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
-	userID, ok := currentUserID(r)
+	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
 		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
@@ -145,7 +144,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 // saveSubmissionWithStatus 统一处理草稿保存和投稿审核，差异只在目标状态。
 // 这样可以避免两个接口出现字段解析、校验和响应语义不一致。
 func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Request, status string) {
-	userID, ok := currentUserID(r)
+	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
 		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
@@ -171,15 +170,7 @@ func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Reques
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
-// currentUserID 从 JWT 中间件写入的 context 中提取当前登录用户。
-// 视频投稿必须绑定用户，handler 层不允许使用前端传入 user_id，避免越权写入。
-func currentUserID(r *http.Request) (string, bool) {
-	claims, ok := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
-	if !ok || claims == nil || strings.TrimSpace(claims.UserID) == "" {
-		return "", false
-	}
-	return strings.TrimSpace(claims.UserID), true
-}
+
 
 // mapUploadError 把上传业务错误映射为 HTTP 状态码和统一业务码。
 func mapUploadError(err error) (int, HGResponsePakcage.HGErrorCode) {
