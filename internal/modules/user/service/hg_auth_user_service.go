@@ -184,11 +184,11 @@ func (s *UserService) SendEmailCode(ctx context.Context, email string) (string, 
 
 	code := utilsPackage.GenerateRandomNum(6)
 	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
-	if err := s.redisService.SetToRedisV2(key, code, time.Minute, ctx); err != nil {
+	if err := s.redisService.SetToRedisV2(key, code, time.Minute*5, ctx); err != nil {
 		return "", errors.New("redis error")
 	}
 
-	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 1分钟过期", email, code)
+	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 5分钟过期", email, code)
 	return code, nil
 }
 
