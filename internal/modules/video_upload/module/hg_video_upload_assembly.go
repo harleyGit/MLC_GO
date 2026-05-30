@@ -1,6 +1,7 @@
 package VideoUploadModulePackage
 
 import (
+	ConfigPackage "MLC_GO/internal/config"
 	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
@@ -8,6 +9,7 @@ import (
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadServicePackage "MLC_GO/internal/modules/video_upload/service"
 	VideoUploadTaskPackage "MLC_GO/internal/modules/video_upload/task"
+	"fmt"
 )
 
 // ModuleDeps 声明 video_upload 模块依赖的基础设施。
@@ -40,7 +42,8 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	repo := VideoUploadRepositoryPackage.NewRepository(deps.SQLManager.GetSQLDB())
 	cache := VideoUploadCachePackage.NewCache(deps.RedisService)
 	taskPub := VideoUploadTaskPackage.NewMemoryPublisher()
-	service := VideoUploadServicePackage.NewService(repo, cache, taskPub)
+	baseURL := fmt.Sprintf("http://localhost:%s", ConfigPackage.GetServerPort())
+	service := VideoUploadServicePackage.NewService(repo, cache, taskPub, baseURL)
 	handler := VideoUploadHandlerPackage.NewHandler(service)
 
 	return &ModuleComponents{

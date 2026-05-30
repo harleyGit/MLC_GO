@@ -228,6 +228,77 @@ WHERE status IN ('reviewing', 'published')`
 	CreateVideoSubmissionStatusTimeIndexSQL = `
 CREATE INDEX IF NOT EXISTS idx_video_submissions_status_submit_time
 ON video_submissions (status, submit_time DESC)`
+
+	// GetVideoListByCursorFirstSQL 游标分页首页查询。
+	// 使用 (status, submit_time DESC) 联合索引覆盖排序，避免 filesort。
+	// 多查一条用于判断是否还有下一页。
+	GetVideoListByCursorFirstSQL = `
+SELECT
+    vs.submission_id,
+    vs.user_id,
+    vs.title,
+    vs.cover_url,
+    vs.category,
+    vs.video_type,
+    vs.description,
+    vs.visibility,
+    vs.status,
+    vs.video_count,
+    vs.total_size,
+    vs.submit_time,
+    vs.created_at,
+    vf.video_id,
+    vf.file_path,
+    vf.file_name,
+    vf.file_size,
+    vf.mime_type,
+    vf.part_number
+FROM video_submissions vs
+INNER JOIN (
+    SELECT submission_id
+    FROM video_submissions
+    WHERE status IN ('reviewing', 'published')
+    ORDER BY submit_time DESC, submission_id DESC
+    LIMIT ?
+) AS vs_page ON vs.submission_id = vs_page.submission_id
+LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
+ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+
+	// GetVideoListByCursorSQL 游标分页翻页查询。
+	// 使用 (submit_time, submission_id) 复合游标定位，避免 OFFSET 扫描。
+	// submit_time 相同时用 submission_id 保证分页结果稳定不丢不重。
+	GetVideoListByCursorSQL = `
+SELECT
+    vs.submission_id,
+    vs.user_id,
+    vs.title,
+    vs.cover_url,
+    vs.category,
+    vs.video_type,
+    vs.description,
+    vs.visibility,
+    vs.status,
+    vs.video_count,
+    vs.total_size,
+    vs.submit_time,
+    vs.created_at,
+    vf.video_id,
+    vf.file_path,
+    vf.file_name,
+    vf.file_size,
+    vf.mime_type,
+    vf.part_number
+FROM video_submissions vs
+INNER JOIN (
+    SELECT submission_id
+    FROM video_submissions
+    WHERE status IN ('reviewing', 'published')
+      AND (submit_time < ? OR (submit_time = ? AND submission_id < ?))
+    ORDER BY submit_time DESC, submission_id DESC
+    LIMIT ?
+) AS vs_page ON vs.submission_id = vs_page.submission_id
+LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
+ORDER BY vs.submit_time DESC, vs.submission_id DESC`
 )
 
 // 聊天模块

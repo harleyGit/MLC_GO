@@ -45,11 +45,13 @@ type Service struct {
 	repo      *VideoUploadRepositoryPackage.Repository
 	cache     *VideoUploadCachePackage.Cache
 	publisher VideoUploadTaskPackage.Publisher
+	baseURL   string // 服务基础 URL，用于拼接文件绝对访问地址
 }
 
 // NewService 创建视频投稿服务。
-func NewService(repo *VideoUploadRepositoryPackage.Repository, cache *VideoUploadCachePackage.Cache, publisher VideoUploadTaskPackage.Publisher) *Service {
-	return &Service{repo: repo, cache: cache, publisher: publisher}
+// baseURL 用于拼接文件绝对访问地址，如 http://localhost:8080。
+func NewService(repo *VideoUploadRepositoryPackage.Repository, cache *VideoUploadCachePackage.Cache, publisher VideoUploadTaskPackage.Publisher, baseURL string) *Service {
+	return &Service{repo: repo, cache: cache, publisher: publisher, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 // Init 初始化服务，确保数据库索引存在。
@@ -112,8 +114,10 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 
 	// 得到MD5值，hex.EncodeToString 将 hash.Sum(nil) 计算出的 MD5 二进制结果编码为十六进制字符串，得到最终的文件 MD5 值。
 	fileMD5 := hex.EncodeToString(hash.Sum(nil))
-	// 生成访问的URL，当前直接使用本地路径，后续替换成对象存储 URL 时只需修改这里的生成逻辑。
-	fileURL := "/" + filepath.ToSlash(storagePath)
+	// 生成访问的URL，拼接完整绝对地址，可直接在浏览器访问。
+	// 后续替换成对象存储 URL 时只需修改这里的生成逻辑。
+	relativePath := "/" + filepath.ToSlash(storagePath)
+	fileURL := s.baseURL + relativePath
 	// 生成文件标题
 	fileTitle := trimExt(fileName)
 
@@ -358,24 +362,72 @@ func trimExt(fileName string) string {
 }
 
 // GetVideoList 获取已提交审核的视频列表。
-// 支持分页查询，返回视频列表和总数。
-func (s *Service) GetVideoList(ctx context.Context, page, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, error) {
-	if page < 1 {
-		page = 1
-	}
+// 支持游标分页（亿级数据量优化）：首次调用传空 cursor，后续使用响应中的 nextCursor 翻页。
+// total 通过 Redis 缓存（TTL 60s），避免每次请求都执行 COUNT(*) 全表扫描。
+func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, error) {
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 
-	videos, total, err := s.repo.GetVideoList(ctx, page, pageSize)
+	total, err := s.getVideoListTotal(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	if total == 0 {
+		return &VideoUploadDtoPackage.GetVideoListResponse{
+			Total:    0,
+			PageSize: pageSize,
+			HasMore:  false,
+			Videos:   []VideoUploadDtoPackage.VideoListItem{},
+		}, nil
+	}
+
+	videos, err := s.repo.GetVideoListByCursor(ctx, cursor, pageSize+1)
+	if err != nil {
+		return nil, err
+	}
+
+	hasMore := len(videos) > pageSize
+	if hasMore {
+		videos = videos[:pageSize]
+	}
+
+	var nextCursor string
+	if hasMore && len(videos) > 0 {
+		nextCursor = videos[len(videos)-1].SubmitTime + "|" + videos[len(videos)-1].SubmissionID
+	}
+
 	return &VideoUploadDtoPackage.GetVideoListResponse{
-		Total:    total,
-		Page:     page,
-		PageSize: pageSize,
-		Videos:   videos,
+		Total:      total,
+		PageSize:   pageSize,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+		Videos:     videos,
 	}, nil
+}
+
+// getVideoListTotal 获取视频总数，优先从 Redis 缓存读取。
+// 缓存未命中时查库并回写缓存（TTL 60s），避免亿级数据量下每次请求都执行 COUNT(*)。
+func (s *Service) getVideoListTotal(ctx context.Context) (int, error) {
+	const videoListTotalCacheKey = "video_upload:list:total"
+	const videoListTotalCacheTTL = 60 * time.Second
+
+	if s.cache != nil {
+		total, err := s.cache.GetInt(ctx, videoListTotalCacheKey)
+		if err == nil && total >= 0 {
+			return total, nil
+		}
+	}
+
+	total, err := s.repo.GetVideoListTotal(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	if s.cache != nil {
+		_ = s.cache.SetInt(ctx, videoListTotalCacheKey, total, videoListTotalCacheTTL)
+	}
+
+	return total, nil
 }

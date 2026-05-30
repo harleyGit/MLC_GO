@@ -152,3 +152,17 @@ func submitLockKey(userID string, submissionID string) string {
 func submitResultKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitResultKeyPrefix, userID, submissionID)
 }
+
+// GetInt 从 Redis 获取整数值，key 不存在时返回 -1。
+func (c *Cache) GetInt(ctx context.Context, key string) (int, error) {
+	val, err := c.client.Get(ctx, key).Int()
+	if errors.Is(err, redis.Nil) {
+		return -1, nil
+	}
+	return val, err
+}
+
+// SetInt 向 Redis 写入整数值并设置 TTL。
+func (c *Cache) SetInt(ctx context.Context, key string, value int, ttl time.Duration) error {
+	return c.client.Set(ctx, key, value, ttl).Err()
+}

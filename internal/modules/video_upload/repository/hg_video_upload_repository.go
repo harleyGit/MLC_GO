@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -180,28 +181,52 @@ func submitTime(status string) interface{} {
 	return nil
 }
 
-// GetVideoList 获取已提交审核的视频列表。
-// 返回视频列表和总数，用于前端展示已投稿的视频。
-// 使用延迟关联优化深分页，避免千万级数据量下 OFFSET 扫描过多行。
+// GetVideoList 获取已提交审核的视频列表（offset 分页，兼容旧调用）。
 func (r *Repository) GetVideoList(ctx context.Context, page, pageSize int) ([]VideoUploadDtoPackage.VideoListItem, int, error) {
-	var total int
-	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetVideoListTotalSQL).Scan(&total)
+	total, err := r.GetVideoListTotal(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-
 	if total == 0 {
 		return []VideoUploadDtoPackage.VideoListItem{}, 0, nil
 	}
-
 	offset := (page - 1) * pageSize
-	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.GetVideoListSQL, pageSize, offset)
+	videos, err := r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListSQL, pageSize, offset)
+	return videos, total, err
+}
+
+// GetVideoListTotal 获取已提交审核的视频总数。
+func (r *Repository) GetVideoListTotal(ctx context.Context) (int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetVideoListTotalSQL).Scan(&total)
+	return total, err
+}
+
+// GetVideoListByCursor 使用游标分页获取视频列表，避免亿级数据量下 OFFSET 深分页扫描。
+// cursor 格式为 "submitTime|submissionID"，首次调用传空字符串。
+// 多查一条用于判断是否还有下一页。
+func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, limit int) ([]VideoUploadDtoPackage.VideoListItem, error) {
+	if cursor == "" {
+		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
+	}
+
+	parts := strings.SplitN(cursor, "|", 2)
+	if len(parts) != 2 {
+		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
+	}
+
+	return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorSQL, limit, parts[0], parts[1])
+}
+
+// queryVideoList 执行视频列表查询并扫描结果，消除重复代码。
+func (r *Repository) queryVideoList(ctx context.Context, query string, args ...interface{}) ([]VideoUploadDtoPackage.VideoListItem, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	videos := make([]VideoUploadDtoPackage.VideoListItem, 0, pageSize)
+	videos := make([]VideoUploadDtoPackage.VideoListItem, 0, 20)
 	for rows.Next() {
 		var item VideoUploadDtoPackage.VideoListItem
 		var submitTime, createdAt sql.NullTime
@@ -209,7 +234,7 @@ func (r *Repository) GetVideoList(ctx context.Context, page, pageSize int) ([]Vi
 		var fileSize sql.NullInt64
 		var partNumber sql.NullInt32
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&item.SubmissionID,
 			&item.UserID,
 			&item.Title,
@@ -229,9 +254,8 @@ func (r *Repository) GetVideoList(ctx context.Context, page, pageSize int) ([]Vi
 			&fileSize,
 			&mimeType,
 			&partNumber,
-		)
-		if err != nil {
-			return nil, 0, err
+		); err != nil {
+			return nil, err
 		}
 
 		if coverURL.Valid {
@@ -266,10 +290,10 @@ func (r *Repository) GetVideoList(ctx context.Context, page, pageSize int) ([]Vi
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	return videos, total, nil
+	return videos, nil
 }
 
 // EnsureVideoListIndex 确保视频列表查询所需的索引存在。

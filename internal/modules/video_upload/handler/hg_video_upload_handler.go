@@ -225,7 +225,7 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 }
 
 // GetVideoList 获取已提交审核的视频列表。
-// 支持分页查询，返回视频列表和总数。
+// 支持游标分页，首次调用不传 cursor，后续使用响应中的 nextCursor 翻页。
 func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
@@ -234,10 +234,10 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	cursor := r.URL.Query().Get("cursor")
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
 
-	resp, err := h.service.GetVideoList(r.Context(), page, pageSize)
+	resp, err := h.service.GetVideoList(r.Context(), cursor, pageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())

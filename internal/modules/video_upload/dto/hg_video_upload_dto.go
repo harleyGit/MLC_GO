@@ -1,6 +1,10 @@
 package VideoUploadDtoPackage
 
-import hg_time "MLC_GO/internal/pkg/hg_time"
+import (
+	"encoding/json"
+
+	hg_time "MLC_GO/internal/pkg/hg_time"
+)
 
 // UploadVideoResponse 是单个视频文件上传成功后的响应。
 // 前端会把这里返回的 submissionId/videoId 写入页面状态，后续保存草稿或提交审核时再带回来。
@@ -38,7 +42,7 @@ type SaveSubmissionRequest struct {
 	Category string `json:"category"`
 	// VideoType 稿件类型：自制/转载。
 	VideoType string `json:"videoType"`
-	// SourceURL 转载来源 URL；当 VideoType 为“转载”时业务上必填。
+	// SourceURL 转载来源 URL；当 VideoType 为"转载"时业务上必填。
 	SourceURL string `json:"sourceUrl"`
 	// Description 稿件简介。
 	Description string `json:"description"`
@@ -107,6 +111,36 @@ type ScheduleRequest struct {
 	ScheduledTime *hg_time.ClientTime `json:"scheduledTime"`
 }
 
+// UnmarshalJSON 自定义反序列化，兼容前端传空字符串 "" 或 null 的场景。
+// 前端 form 表单清空时 scheduledTime 会传 ""，但 Go 结构体期望对象或 null。
+// 使用 rawMessage 逐字段处理，scheduledTime 单独容错。
+func (s *ScheduleRequest) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" || string(data) == `""` {
+		return nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if v, ok := raw["enabled"]; ok {
+		_ = json.Unmarshal(v, &s.Enabled)
+	}
+
+	if v, ok := raw["scheduledTime"]; ok {
+		str := string(v)
+		if str != "null" && str != `""` {
+			var ct hg_time.ClientTime
+			if err := json.Unmarshal(v, &ct); err == nil {
+				s.ScheduledTime = &ct
+			}
+		}
+	}
+
+	return nil
+}
+
 // CommercialRequest 描述稿件级商业推广配置。
 // 需求约束为单稿件仅支持一种商业推广信息。
 type CommercialRequest struct {
@@ -132,20 +166,22 @@ type SaveSubmissionResponse struct {
 
 // GetVideoListRequest 获取视频列表的请求参数。
 type GetVideoListRequest struct {
-	// Page 页码，从 1 开始。
-	Page int `json:"page"`
+	// Cursor 翻页游标，首次调用传空，后续使用响应中的 NextCursor。
+	Cursor string `json:"cursor"`
 	// PageSize 每页数量，默认 20，最大 100。
 	PageSize int `json:"pageSize"`
 }
 
 // GetVideoListResponse 获取视频列表的响应。
 type GetVideoListResponse struct {
-	// Total 视频总数。
+	// Total 视频总数（Redis 缓存，60s 刷新一次）。
 	Total int `json:"total"`
-	// Page 当前页码。
-	Page int `json:"page"`
 	// PageSize 每页数量。
 	PageSize int `json:"pageSize"`
+	// HasMore 是否还有下一页。
+	HasMore bool `json:"hasMore"`
+	// NextCursor 下一页游标，传入下次请求的 Cursor 字段；为空表示没有更多数据。
+	NextCursor string `json:"nextCursor,omitempty"`
 	// Videos 视频列表。
 	Videos []VideoListItem `json:"videos"`
 }
