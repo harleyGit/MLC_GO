@@ -10,7 +10,7 @@
 package HGMiddlewarePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"net/http"
 )

@@ -1,7 +1,7 @@
 package OpsCachePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 )
 
 // Cache 定义运维管理缓存

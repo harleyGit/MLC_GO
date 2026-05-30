@@ -1,7 +1,7 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	"MLC_GO/internal/pkg/logHG"

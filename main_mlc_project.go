@@ -1,13 +1,13 @@
 package main
 
 import (
-	ConfigPackage "MLC_GO/internal/config"
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGHandlerPackage "MLC_GO/internal/handler"
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
-	HGLoggerPackage "MLC_GO/internal/logger"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"

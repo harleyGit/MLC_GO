@@ -1,9 +1,9 @@
 package VideoUploadModulePackage
 
 import (
-	ConfigPackage "MLC_GO/internal/config"
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	ConfigPackage "MLC_GO/internal/pkg/config"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"

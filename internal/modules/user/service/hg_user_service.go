@@ -1,7 +1,7 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	usercache "MLC_GO/internal/modules/user/cache"
 	userrepository "MLC_GO/internal/modules/user/repository"
 	"errors"

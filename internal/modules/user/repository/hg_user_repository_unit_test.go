@@ -1,7 +1,7 @@
 package repository
 
 import (
-	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"strings"
 	"testing"
 )

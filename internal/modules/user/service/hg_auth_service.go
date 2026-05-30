@@ -9,7 +9,7 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	HGSMSCachePackage "MLC_GO/internal/modules/sms/cache"
 	usercache "MLC_GO/internal/modules/user/cache"

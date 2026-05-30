@@ -9,8 +9,8 @@
 package UserAPIPackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	"MLC_GO/internal/pkg/logHG"
 	"log"

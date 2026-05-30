@@ -2,9 +2,9 @@ package OpsModulePackage
 
 import (
 	HGHandlerPackage "MLC_GO/internal/handler"
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	"net/http"
 )

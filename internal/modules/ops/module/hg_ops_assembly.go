@@ -1,8 +1,8 @@
 package OpsModulePackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	OpsCachePackage "MLC_GO/internal/modules/ops/cache"
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"

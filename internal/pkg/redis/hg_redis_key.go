@@ -3,7 +3,7 @@
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
  * @LastEditTime: 2026-05-19 09:38:14
-* @FilePath: /MLC_GO/internal/infrastructure/persistence/redis/hg_redis_key.go
+* @FilePath: /MLC_GO/internal/pkg/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
 package PersistenceRedisPackage

@@ -9,7 +9,7 @@
 package PersistenceRedisPackage
 
 import (
-	HGLoggerPackage "MLC_GO/internal/logger"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"MLC_GO/internal/pkg/logHG"
 	"context"
 	"encoding/json"

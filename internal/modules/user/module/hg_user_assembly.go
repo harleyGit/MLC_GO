@@ -1,8 +1,8 @@
 package HGUserModulePackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	usercache "MLC_GO/internal/modules/user/cache"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"

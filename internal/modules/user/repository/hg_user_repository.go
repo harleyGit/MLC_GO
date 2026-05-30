@@ -9,7 +9,7 @@
 package repository
 
 import (
-	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	RepositoryPackage "MLC_GO/internal/repository"

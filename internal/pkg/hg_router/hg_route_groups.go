@@ -6,7 +6,7 @@ import (
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
-	HGServerPackage "MLC_GO/server"
+	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 

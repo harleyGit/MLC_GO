@@ -10,7 +10,7 @@ package HGHandlerPackage
 
 import (
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"

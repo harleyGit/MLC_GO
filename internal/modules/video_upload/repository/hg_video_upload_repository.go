@@ -1,7 +1,7 @@
 package VideoUploadRepositoryPackage
 
 import (
-	SQLQueriesPackage "MLC_GO/internal/infrastructure/persistence/mysql/queries"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	hg_time "MLC_GO/internal/pkg/hg_time"
 	"context"

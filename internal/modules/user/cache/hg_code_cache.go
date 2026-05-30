@@ -9,7 +9,7 @@
 package cache
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"encoding/json"
 	"errors"

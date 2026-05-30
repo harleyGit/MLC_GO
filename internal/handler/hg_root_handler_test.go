@@ -1,7 +1,7 @@
 package HGHandlerPackage
 
 import (
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	"context"
 	"errors"
 	"net/http"

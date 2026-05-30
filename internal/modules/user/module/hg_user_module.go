@@ -9,14 +9,14 @@
 package HGUserModulePackage
 
 import (
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/middleware/middleware_group"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	"net/http"
 
 	HGHandlerPackage "MLC_GO/internal/handler"
-	PersistenceSQLPackage "MLC_GO/internal/infrastructure/persistence/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 )
 
 // HGUserModule 实现 HGModule 接口，需要登录的用户路由。

@@ -1,7 +1,7 @@
 package VideoUploadCachePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/infrastructure/persistence/redis"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"errors"
 	"fmt"
