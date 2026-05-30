@@ -73,7 +73,114 @@ const (
 const ()
 
 // 视频模块
-const ()
+const (
+	// InsertOrUpdateVideoSubmissionSQL 创建或更新稿件记录。
+	// 第一个分 P 会创建 video_submissions；后续分 P 复用 submission_id 并累加数量和大小。
+	InsertOrUpdateVideoSubmissionSQL = `
+INSERT INTO video_submissions (
+    submission_id, user_id, title, video_count, total_size, status
+) VALUES (?, ?, ?, 1, ?, 'draft')
+ON DUPLICATE KEY UPDATE
+    video_count = video_count + 1,
+    total_size = total_size + VALUES(total_size),
+    updated_at = CURRENT_TIMESTAMP`
+
+	// InsertOrUpdateVideoFileSQL 创建或更新视频文件记录。
+	// 上传完成后写入文件信息，包括路径、大小、MD5 等。
+	InsertOrUpdateVideoFileSQL = `
+INSERT INTO video_files (
+    video_id, submission_id, user_id, part_number, title, file_name, file_path,
+    file_size, mime_type, md5, upload_status, upload_progress, transcode_status
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 100.00, 'pending')
+ON DUPLICATE KEY UPDATE
+    title = VALUES(title),
+    file_name = VALUES(file_name),
+    file_path = VALUES(file_path),
+    file_size = VALUES(file_size),
+    mime_type = VALUES(mime_type),
+    md5 = VALUES(md5),
+    upload_status = 'completed',
+    upload_progress = 100.00,
+    updated_at = CURRENT_TIMESTAMP`
+
+	// SaveSubmissionSQL 保存完整稿件配置。
+	// 因为本模块不使用外键，所有写入都带 userID/submissionID 限定，避免误更新其他用户数据。
+	SaveSubmissionSQL = `
+INSERT INTO video_submissions (
+    submission_id, user_id, title, cover_url, category, video_type, source_url, description,
+    allow_secondary_creation, watermark, visibility, declaration, card_config, dolby_audio,
+    hires_audio, close_danmaku, close_comment, featured_comment, dynamic_description,
+    hide_from_profile, video_count, total_size, status, submit_time
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    title = VALUES(title),
+    cover_url = VALUES(cover_url),
+    category = VALUES(category),
+    video_type = VALUES(video_type),
+    source_url = VALUES(source_url),
+    description = VALUES(description),
+    allow_secondary_creation = VALUES(allow_secondary_creation),
+    watermark = VALUES(watermark),
+    visibility = VALUES(visibility),
+    declaration = VALUES(declaration),
+    card_config = VALUES(card_config),
+    dolby_audio = VALUES(dolby_audio),
+    hires_audio = VALUES(hires_audio),
+    close_danmaku = VALUES(close_danmaku),
+    close_comment = VALUES(close_comment),
+    featured_comment = VALUES(featured_comment),
+    dynamic_description = VALUES(dynamic_description),
+    hide_from_profile = VALUES(hide_from_profile),
+    video_count = VALUES(video_count),
+    total_size = VALUES(total_size),
+    status = VALUES(status),
+    submit_time = VALUES(submit_time),
+    updated_at = CURRENT_TIMESTAMP`
+
+	// GetSubmissionTotalsSQL 根据已上传的视频文件重新计算稿件总数和总大小。
+	// 这样前端不需要可信地上报 video_count/total_size，避免被篡改。
+	GetSubmissionTotalsSQL = `
+SELECT COUNT(*), COALESCE(SUM(file_size), 0)
+FROM video_files
+WHERE submission_id = ? AND user_id = ?`
+
+	// UpdateVideoFileConfigSQL 更新单个分 P 的表单配置。
+	UpdateVideoFileConfigSQL = `
+UPDATE video_files
+SET part_number = ?, title = ?, cover_url = ?, video_type = ?, source_url = ?, category = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+WHERE video_id = ? AND submission_id = ? AND user_id = ?`
+
+	// DeleteVideoTagsByVideoIDSQL 删除视频的所有标签。
+	DeleteVideoTagsByVideoIDSQL = `DELETE FROM video_tags WHERE video_id = ?`
+
+	// InsertVideoTagSQL 插入视频标签。
+	InsertVideoTagSQL = `INSERT INTO video_tags (video_id, tag_name) VALUES (?, ?)`
+
+	// DeleteScheduledPublishSQL 删除稿件的定时发布配置。
+	DeleteScheduledPublishSQL = `DELETE FROM video_scheduled_publish WHERE submission_id = ? AND user_id = ?`
+
+	// InsertOrUpdateScheduledPublishSQL 创建或更新定时发布配置。
+	InsertOrUpdateScheduledPublishSQL = `
+INSERT INTO video_scheduled_publish (submission_id, user_id, scheduled_time, status)
+VALUES (?, ?, ?, 'pending')
+ON DUPLICATE KEY UPDATE
+    scheduled_time = VALUES(scheduled_time),
+    status = 'pending',
+    updated_at = CURRENT_TIMESTAMP`
+
+	// DeleteCommercialPromotionSQL 删除稿件的商业推广配置。
+	DeleteCommercialPromotionSQL = `DELETE FROM video_commercial_promotion WHERE submission_id = ? AND user_id = ?`
+
+	// InsertOrUpdateCommercialPromotionSQL 创建或更新商业推广配置。
+	InsertOrUpdateCommercialPromotionSQL = `
+INSERT INTO video_commercial_promotion (submission_id, user_id, promotion_type, promotion_name, promotion_form)
+VALUES (?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    promotion_type = VALUES(promotion_type),
+    promotion_name = VALUES(promotion_name),
+    promotion_form = VALUES(promotion_form),
+    updated_at = CURRENT_TIMESTAMP`
+)
 
 // 聊天模块
 const ()

@@ -83,6 +83,7 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 
 	dateDir := time.Now().Format("20060102")
 	storageDir := filepath.Join(videoUploadRoot, userID, dateDir)
+	// 创建 storageDir 目录及其所有不存在的父目录，目录权限设置为 rwxr-xr-x(0755)；如果创建失败（权限不足、磁盘异常等），则进入错误处理逻辑。
 	if err := os.MkdirAll(storageDir, 0755); err != nil {
 		return nil, err
 	}
@@ -96,13 +97,18 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 	defer dst.Close()
 
 	// 写文件时同步计算 MD5，避免上传完成后再次读盘扫描大文件。
-	hash := md5.New()
+	// 非常经典的文件保存+MD5计算+文件信息生成流程
+	hash := md5.New()	// 创建MD5计算器，此时 hash -> 等待接受数据 -> 计算MD5值
+	// 同时写文件和计算MD5，io.MultiWriter(dst, hash) 创建一个同时写入 dst 和 hash 的 writer，保证文件内容被写入磁盘的同时也被 hash 计算器接收，避免重复读取文件内容。
 	if _, err = io.Copy(io.MultiWriter(dst, hash), file); err != nil {
 		return nil, err
 	}
 
+	// 得到MD5值，hex.EncodeToString 将 hash.Sum(nil) 计算出的 MD5 二进制结果编码为十六进制字符串，得到最终的文件 MD5 值。
 	fileMD5 := hex.EncodeToString(hash.Sum(nil))
+	// 生成访问的URL，当前直接使用本地路径，后续替换成对象存储 URL 时只需修改这里的生成逻辑。
 	fileURL := "/" + filepath.ToSlash(storagePath)
+	// 生成文件标题
 	fileTitle := trimExt(fileName)
 
 	if err = s.repo.CreateUploadedVideo(ctx, VideoUploadRepositoryPackage.UploadedVideo{
@@ -285,7 +291,7 @@ func normalizeAndValidateSubmission(req *VideoUploadDtoPackage.SaveSubmissionReq
 // 浏览器或代理可能丢失 Content-Type，因此扩展名作为兼容兜底。
 // 返回值：是否为视频文件，以及可能被消费了头部数据的 reader（调用方需继续使用返回的 reader）。
 func isVideoFile(fileName string, mimeType string, file io.Reader) (bool, io.Reader) {
-	// 优先使用文件头检测，这是最可靠的方式
+	// 优先使用文件头检测，这是最可靠的方式.防止有些人本来是.exe文件修改成.mp4来上传
 	// 读取前512字节用于内容类型检测
 	buf := make([]byte, 512)
 	n, err := io.ReadAtLeast(file, buf, 4) // 至少读取4字节才能有效检测
