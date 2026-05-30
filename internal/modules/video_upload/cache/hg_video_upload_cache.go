@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,6 +19,15 @@ const (
 	userUploadMinuteLimit = 120
 	ipUploadMinuteLimit   = 600
 	rateLimitRequestCost  = 1
+
+	// releaseSubmitLockLua 是安全释放锁的 Lua 脚本。
+	// 先校验锁的 value 是否匹配，匹配才删除，防止误删其他请求持有的锁。
+	releaseSubmitLockLua = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+else
+    return 0
+end`
 )
 
 var (
@@ -65,13 +75,35 @@ func (c *Cache) CheckUploadRateLimit(ctx context.Context, userID string, ip stri
 
 // AcquireSubmitLock 获取稿件提交幂等锁。
 // 同一个用户同一个 submissionId 在短时间内只能有一个保存/提交请求进入写库链路。
-func (c *Cache) AcquireSubmitLock(ctx context.Context, userID string, submissionID string) (bool, error) {
-	return c.client.SetNX(ctx, submitLockKey(userID, submissionID), "1", submitIdempotencyTTL).Result()
+// 返回锁标识（UUID），用于安全释放锁；如果获取失败返回空字符串。
+func (c *Cache) AcquireSubmitLock(ctx context.Context, userID string, submissionID string) (string, error) {
+	// 生成 UUID 作为锁的标识，防止误删其他请求持有的锁
+	lockValue := uuid.NewString()
+	ok, err := c.client.SetNX(ctx, submitLockKey(userID, submissionID), lockValue, submitIdempotencyTTL).Result()
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", nil
+	}
+	return lockValue, nil
 }
 
-// ReleaseSubmitLock 释放提交幂等锁。
-func (c *Cache) ReleaseSubmitLock(ctx context.Context, userID string, submissionID string) error {
-	return c.client.Del(ctx, submitLockKey(userID, submissionID)).Err()
+// ReleaseSubmitLock 安全释放提交幂等锁。
+// 使用 Lua 脚本校验锁的 value 是否匹配，匹配才删除，防止误删其他请求持有的锁。
+func (c *Cache) ReleaseSubmitLock(ctx context.Context, userID string, submissionID string, lockValue string) error {
+	// 如果锁标识为空，说明没有获取到锁，直接返回
+	if lockValue == "" {
+		return nil
+	}
+	// 使用 Lua 脚本安全释放锁
+	result, err := c.client.Eval(ctx, releaseSubmitLockLua, []string{submitLockKey(userID, submissionID)}, lockValue).Int64()
+	if err != nil {
+		return err
+	}
+	// 如果 result 为 0，说明锁的 value 不匹配或已过期，忽略
+	_ = result
+	return nil
 }
 
 // SaveSubmitResult 缓存提交结果，后续可用于前端重复点击时快速返回上一次结果。

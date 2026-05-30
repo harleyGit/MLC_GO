@@ -171,10 +171,11 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 	if err := normalizeAndValidateSubmission(&req); err != nil {
 		return nil, err
 	}
-	if err := s.acquireSubmitLock(ctx, userID, req.SubmissionID); err != nil {
+	lockValue, err := s.acquireSubmitLock(ctx, userID, req.SubmissionID)
+	if err != nil {
 		return nil, err
 	}
-	defer s.releaseSubmitLock(context.WithoutCancel(ctx), userID, req.SubmissionID)
+	defer s.releaseSubmitLock(context.WithoutCancel(ctx), userID, req.SubmissionID, lockValue)
 
 	if err := s.repo.SaveSubmission(ctx, userID, req); err != nil {
 		return nil, err
@@ -190,23 +191,23 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 	}, nil
 }
 
-func (s *Service) acquireSubmitLock(ctx context.Context, userID string, submissionID string) error {
+func (s *Service) acquireSubmitLock(ctx context.Context, userID string, submissionID string) (string, error) {
 	if s.cache == nil {
-		return nil
+		return "", nil
 	}
-	locked, err := s.cache.AcquireSubmitLock(ctx, userID, submissionID)
+	lockValue, err := s.cache.AcquireSubmitLock(ctx, userID, submissionID)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !locked {
-		return ErrSubmitDuplicated
+	if lockValue == "" {
+		return "", ErrSubmitDuplicated
 	}
-	return nil
+	return lockValue, nil
 }
 
-func (s *Service) releaseSubmitLock(ctx context.Context, userID string, submissionID string) {
+func (s *Service) releaseSubmitLock(ctx context.Context, userID string, submissionID string, lockValue string) {
 	if s.cache != nil {
-		_ = s.cache.ReleaseSubmitLock(ctx, userID, submissionID)
+		_ = s.cache.ReleaseSubmitLock(ctx, userID, submissionID, lockValue)
 	}
 }
 
