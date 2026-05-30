@@ -92,6 +92,8 @@ func authRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", nil),
 			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", nil),
 			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/refresh", false, "刷新 Token", nil),
+			NewRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_reset_code", false, "发送忘记密码验证码", nil),
+			NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/reset_password", false, "忘记密码重置", nil),
 		}
 	}
 
@@ -100,6 +102,8 @@ func authRoutes(userHandler *UserHandlerPackage.HGUserHandler) []RouteSpec {
 		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/register", false, "用户注册", userHandler.RegisterHandlerV3),
 		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/login", false, "用户登录", userHandler.Login),
 		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/refresh", false, "刷新 Token", userHandler.RefreshToken),
+		NewRouteSpec("auth", http.MethodGet, AuthModuleBasePath, "/send_reset_code", false, "发送忘记密码验证码", userHandler.SendResetPasswordCode),
+		NewRouteSpec("auth", http.MethodPost, AuthModuleBasePath, "/reset_password", false, "忘记密码重置", userHandler.ResetPassword),
 	}
 }
 

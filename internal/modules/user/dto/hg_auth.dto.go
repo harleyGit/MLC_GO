@@ -31,3 +31,11 @@ type RegisterReqModel struct {
 	Code     string `json:"code"`
 	Password string `json:"password"`
 }
+
+// ResetPasswordReqModel 忘记密码请求结构体。
+// Phone 和 Code 用于身份验证，NewPassword 为用户新设置的密码。
+type ResetPasswordReqModel struct {
+	Phone       string `json:"phone"`
+	Code        string `json:"code"`
+	NewPassword string `json:"new_password"`
+}

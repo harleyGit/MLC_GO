@@ -158,6 +158,83 @@ func (s *UserService) SendCode(ctx context.Context, phone string) (string, error
 	return code, nil
 }
 
+// SendResetPasswordCode 发送忘记密码验证码。
+// 使用独立的 Redis key（AuthResetPasswordCodeKey），与注册/登录验证码隔离，避免互相覆盖。
+func (s *UserService) SendResetPasswordCode(ctx context.Context, phone string) (string, error) {
+	if phone == "" {
+		return "", errors.New("手机号不能为空")
+	}
+
+	// 检查用户是否存在
+	if _, err := s.repo.GetByEmailOrPhone(ctx, phone); err != nil {
+		return "", ErrUserNotFound
+	}
+
+	code := utilsPackage.GenerateRandomNum(6)
+	key := PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthResetPasswordCodeKey, phone)
+	if err := s.redisService.SetToRedisV2(key, code, time.Minute*5, ctx); err != nil {
+		return "", errors.New("redis error")
+	}
+
+	logHG.DebugFInfo("忘记密码验证码发送到 phone %s:，验证码： %s， 5分钟过期", phone, code)
+	return code, nil
+}
+
+// ResetPassword 忘记密码：通过手机验证码验证身份后重置密码。
+// 流程：校验参数 → 查找用户 → 校验验证码 → 生成新密码哈希 → 事务更新密码 → 清理缓存。
+// 高并发设计：验证码一次性消费、密码更新走事务保证原子性、复用现有 UpdateSecurityByUserID 避免重复代码。
+func (s *UserService) ResetPassword(ctx context.Context, req *UserDtoPackage.ResetPasswordReqModel) error {
+	if s == nil || s.repo == nil || s.redisService == nil {
+		return errors.New("user service dependency is nil")
+	}
+	if req.Phone == "" {
+		return errors.New("手机号不能为空")
+	}
+	if req.Code == "" {
+		return errors.New("验证码不能为空")
+	}
+	if req.NewPassword == "" {
+		return errors.New("新密码不能为空")
+	}
+	if len(req.NewPassword) < 6 {
+		return errors.New("密码长度不能少于6位")
+	}
+
+	// 查找用户是否存在
+	userModel, err := s.repo.GetByEmailOrPhone(ctx, req.Phone)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	// 校验忘记密码验证码
+	cacheKey := PersistenceRedisPackage.GetCacheKey(PersistenceRedisPackage.AuthResetPasswordCodeKey, req.Phone)
+	val, err := s.redisService.GetFromRedisV2(cacheKey, ctx)
+	if err != nil {
+		return ErrCodeInvalid
+	}
+	if decodeRedisStringValue(val) != req.Code {
+		return ErrCodeInvalid
+	}
+
+	// 验证码一次性消费，验证成功后立即删除
+	s.redisService.DeleteFromRedis(cacheKey, ctx)
+
+	// 生成新密码哈希
+	salt := utilsPackage.GenerateRandomNum(8)
+	hashedPassword := utilsPackage.HashPassword(req.NewPassword, salt)
+
+	// 复用 UpdateSecurityByUserID 事务更新密码，保证 users + user_security 两表一致性
+	securityDTO := &UserDtoPackage.HGUpdateUserSecurityReqDTO{
+		Password: &req.NewPassword,
+	}
+	if err := s.repo.UpdateSecurityByUserID(ctx, userModel.UserID.String, securityDTO, &hashedPassword, &salt); err != nil {
+		return fmt.Errorf("重置密码失败: %w", err)
+	}
+
+	s.clearUserListCache(ctx)
+	return nil
+}
+
 // decodeRedisStringValue 兼容 Redis 中字符串值被 JSON 序列化后带引号的场景。
 // 例如 SetToRedisV2("123456") 实际可能保存为 JSON 字符串 `"123456"`，比较验证码前必须解码。
 func decodeRedisStringValue(v string) string {

@@ -107,6 +107,22 @@ func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
 			},
 			NeedAuth: false,
 		},
+		{
+			Path:    "/send_reset_code",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: false,
+		},
+		{
+			Path:    "/reset_password",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: false,
+		},
 	}
 }
 

@@ -98,6 +98,62 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// SendResetPasswordCode 发送忘记密码验证码。
+// 使用独立验证码通道，与注册/登录验证码隔离，避免互相覆盖。
+func (h *HGUserHandler) SendResetPasswordCode(w http.ResponseWriter, r *http.Request) {
+	phone := r.URL.Query().Get("phone")
+	if phone == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 phone 参数")
+		return
+	}
+
+	code, err := h.svc.SendResetPasswordCode(r.Context(), phone)
+	if err != nil {
+		if err == UserServicePackage.ErrUserNotFound {
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			return
+		}
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		return
+	}
+
+	if err := h.smsSender.Send(phone, code); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "发送短信失败")
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"phone": phone, "message": "验证码已发送", "verifyCode": code})
+}
+
+// ResetPassword 处理忘记密码请求。
+// 通过手机验证码验证用户身份后重置密码，handler 只解析 JSON 并调用 service。
+func (h *HGUserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req UserDtoPackage.ResetPasswordReqModel
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
+		return
+	}
+
+	if err := h.svc.ResetPassword(r.Context(), &req); err != nil {
+		switch err {
+		case UserServicePackage.ErrUserNotFound:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+		case UserServicePackage.ErrCodeInvalid:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码无效或已过期")
+		default:
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ResetPasswordFailCode, "重置密码失败: "+err.Error())
+		}
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"message": "密码重置成功"})
+}
+
 // RefreshToken 刷新 Access Token。
 // token 校验、Redis 状态检查和重放防护属于认证 service，不允许 handler 直接访问 Redis 客户端。
 func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {

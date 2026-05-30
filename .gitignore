@@ -1,3 +1,9 @@
 MLC_GO
+mlc_server
+*.exe
+*.o
+*.a
+*.so
+*.dylib
 uploads/
 .aider*

@@ -25,10 +25,11 @@ const (
 	MethodNotFoundCode HGErrorCode = 100000405
 
 	// 业务错误
-	UserNotFoundCode  HGErrorCode = 404001
-	UserRegisterFail  HGErrorCode = 404002
-	OrderNotFoundCode HGErrorCode = 405002
-	UserListFailCode  HGErrorCode = 405003 //用户列表错误
+	UserNotFoundCode     HGErrorCode = 404001
+	UserRegisterFail     HGErrorCode = 404002
+	OrderNotFoundCode    HGErrorCode = 405002
+	UserListFailCode     HGErrorCode = 405003 //用户列表错误
+	ResetPasswordFailCode HGErrorCode = 404003 // 忘记密码失败
 
 	// 系统错误
 	InternalErrorCode HGErrorCode = 500001

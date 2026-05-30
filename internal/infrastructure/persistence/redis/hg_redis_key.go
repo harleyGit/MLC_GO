@@ -35,9 +35,10 @@ const (
 )
 
 const (
-	AuthCodePhoneLimitKey   = "auth:code:limit:phone:"  // TODO：要改为注册发送的验证码Key
-	AuthLoginVerifyCodekKey = "auth:login:verify:code:" // 登录验证码Key：手机、邮箱
-	AuthCodeIPLimitKey      = "auth:code:limit:phone:"
+	AuthCodePhoneLimitKey      = "auth:code:limit:phone:"  // TODO：要改为注册发送的验证码Key
+	AuthLoginVerifyCodekKey    = "auth:login:verify:code:" // 登录验证码Key：手机、邮箱
+	AuthResetPasswordCodeKey   = "auth:reset:password:code:" // 忘记密码验证码Key：手机、邮箱
+	AuthCodeIPLimitKey         = "auth:code:limit:phone:"
 	AuthTokenKey            = "auth:token:"
 	AuthRefreshKey          = "auth:refresh:"
 
