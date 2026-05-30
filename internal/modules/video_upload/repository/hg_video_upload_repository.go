@@ -179,3 +179,102 @@ func submitTime(status string) interface{} {
 	}
 	return nil
 }
+
+// GetVideoList 获取已提交审核的视频列表。
+// 返回视频列表和总数，用于前端展示已投稿的视频。
+// 使用延迟关联优化深分页，避免千万级数据量下 OFFSET 扫描过多行。
+func (r *Repository) GetVideoList(ctx context.Context, page, pageSize int) ([]VideoUploadDtoPackage.VideoListItem, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetVideoListTotalSQL).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if total == 0 {
+		return []VideoUploadDtoPackage.VideoListItem{}, 0, nil
+	}
+
+	offset := (page - 1) * pageSize
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.GetVideoListSQL, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	videos := make([]VideoUploadDtoPackage.VideoListItem, 0, pageSize)
+	for rows.Next() {
+		var item VideoUploadDtoPackage.VideoListItem
+		var submitTime, createdAt sql.NullTime
+		var coverURL, videoID, filePath, fileName, mimeType sql.NullString
+		var fileSize sql.NullInt64
+		var partNumber sql.NullInt32
+
+		err := rows.Scan(
+			&item.SubmissionID,
+			&item.UserID,
+			&item.Title,
+			&coverURL,
+			&item.Category,
+			&item.VideoType,
+			&item.Description,
+			&item.Visibility,
+			&item.Status,
+			&item.VideoCount,
+			&item.TotalSize,
+			&submitTime,
+			&createdAt,
+			&videoID,
+			&filePath,
+			&fileName,
+			&fileSize,
+			&mimeType,
+			&partNumber,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		if coverURL.Valid {
+			item.CoverURL = coverURL.String
+		}
+		if videoID.Valid {
+			item.VideoID = videoID.String
+		}
+		if filePath.Valid {
+			item.FilePath = filePath.String
+		}
+		if fileName.Valid {
+			item.FileName = fileName.String
+		}
+		if fileSize.Valid {
+			item.FileSize = fileSize.Int64
+		}
+		if mimeType.Valid {
+			item.MimeType = mimeType.String
+		}
+		if partNumber.Valid {
+			item.PartNumber = uint32(partNumber.Int32)
+		}
+		if submitTime.Valid {
+			item.SubmitTime = submitTime.Time.Format(time.RFC3339)
+		}
+		if createdAt.Valid {
+			item.CreatedAt = createdAt.Time.Format(time.RFC3339)
+		}
+
+		videos = append(videos, item)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return videos, total, nil
+}
+
+// EnsureVideoListIndex 确保视频列表查询所需的索引存在。
+// 在服务启动时调用，创建 (status, submit_time) 联合索引以优化查询性能。
+func (r *Repository) EnsureVideoListIndex(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.CreateVideoSubmissionStatusTimeIndexSQL)
+	return err
+}

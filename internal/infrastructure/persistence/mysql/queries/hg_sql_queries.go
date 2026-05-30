@@ -180,6 +180,54 @@ ON DUPLICATE KEY UPDATE
     promotion_name = VALUES(promotion_name),
     promotion_form = VALUES(promotion_form),
     updated_at = CURRENT_TIMESTAMP`
+
+	// GetVideoListSQL 获取已提交审核的视频列表。
+	// 使用延迟关联优化深分页，先查主键再回表，避免千万级数据量下 OFFSET 扫描过多行。
+	// 索引要求：video_submissions 表需要 (status, submit_time) 联合索引。
+	GetVideoListSQL = `
+SELECT
+    vs.submission_id,
+    vs.user_id,
+    vs.title,
+    vs.cover_url,
+    vs.category,
+    vs.video_type,
+    vs.description,
+    vs.visibility,
+    vs.status,
+    vs.video_count,
+    vs.total_size,
+    vs.submit_time,
+    vs.created_at,
+    vf.video_id,
+    vf.file_path,
+    vf.file_name,
+    vf.file_size,
+    vf.mime_type,
+    vf.part_number
+FROM video_submissions vs
+INNER JOIN (
+    SELECT submission_id
+    FROM video_submissions
+    WHERE status IN ('reviewing', 'published')
+    ORDER BY submit_time DESC
+    LIMIT ? OFFSET ?
+) AS vs_page ON vs.submission_id = vs_page.submission_id
+LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
+ORDER BY vs.submit_time DESC`
+
+	// GetVideoListTotalSQL 获取已提交审核的视频总数。
+	// 使用近似值优化：当数据量超过一定阈值时，可改用 SHOW TABLE STATUS 或缓存。
+	GetVideoListTotalSQL = `
+SELECT COUNT(*)
+FROM video_submissions
+WHERE status IN ('reviewing', 'published')`
+
+	// CreateVideoSubmissionStatusTimeIndexSQL 创建视频稿件状态和提交时间联合索引。
+	// 用于优化 GetVideoListSQL 的查询性能。
+	CreateVideoSubmissionStatusTimeIndexSQL = `
+CREATE INDEX IF NOT EXISTS idx_video_submissions_status_submit_time
+ON video_submissions (status, submit_time DESC)`
 )
 
 // 聊天模块

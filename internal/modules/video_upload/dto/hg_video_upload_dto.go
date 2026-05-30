@@ -129,3 +129,65 @@ type SaveSubmissionResponse struct {
 	// VideoCount 本次稿件包含的视频数量。
 	VideoCount int `json:"videoCount"`
 }
+
+// GetVideoListRequest 获取视频列表的请求参数。
+type GetVideoListRequest struct {
+	// Page 页码，从 1 开始。
+	Page int `json:"page"`
+	// PageSize 每页数量，默认 20，最大 100。
+	PageSize int `json:"pageSize"`
+}
+
+// GetVideoListResponse 获取视频列表的响应。
+type GetVideoListResponse struct {
+	// Total 视频总数。
+	Total int `json:"total"`
+	// Page 当前页码。
+	Page int `json:"page"`
+	// PageSize 每页数量。
+	PageSize int `json:"pageSize"`
+	// Videos 视频列表。
+	Videos []VideoListItem `json:"videos"`
+}
+
+// VideoListItem 视频列表项，包含稿件级信息和第一个分 P 的视频文件信息。
+type VideoListItem struct {
+	// SubmissionID 稿件业务 ID。
+	SubmissionID string `json:"submissionId"`
+	// UserID 作者用户 ID。
+	UserID string `json:"userId"`
+	// Title 稿件标题。
+	Title string `json:"title"`
+	// CoverURL 稿件封面 URL。
+	CoverURL string `json:"coverUrl"`
+	// Category 稿件分区。
+	Category string `json:"category"`
+	// VideoType 稿件类型：自制/转载。
+	VideoType string `json:"videoType"`
+	// Description 稿件简介。
+	Description string `json:"description"`
+	// Visibility 可见范围：public/private。
+	Visibility string `json:"visibility"`
+	// Status 稿件状态：draft/reviewing/published。
+	Status string `json:"status"`
+	// VideoCount 稿件包含的视频数量。
+	VideoCount int `json:"videoCount"`
+	// TotalSize 稿件总大小，单位字节。
+	TotalSize int64 `json:"totalSize"`
+	// SubmitTime 提交审核时间。
+	SubmitTime string `json:"submitTime"`
+	// CreatedAt 创建时间。
+	CreatedAt string `json:"createdAt"`
+	// VideoID 第一个分 P 的视频 ID。
+	VideoID string `json:"videoId"`
+	// FilePath 视频文件访问路径。
+	FilePath string `json:"filePath"`
+	// FileName 原始文件名。
+	FileName string `json:"fileName"`
+	// FileSize 视频文件大小，单位字节。
+	FileSize int64 `json:"fileSize"`
+	// MimeType 视频 MIME 类型。
+	MimeType string `json:"mimeType"`
+	// PartNumber 分 P 序号。
+	PartNumber uint32 `json:"partNumber"`
+}

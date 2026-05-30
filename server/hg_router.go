@@ -136,6 +136,14 @@ func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			},
 			NeedAuth: true,
 		},
+		{
+			Path:    "/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: true,
+		},
 	}
 }
 

@@ -224,6 +224,29 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 	}
 }
 
+// GetVideoList 获取已提交审核的视频列表。
+// 支持分页查询，返回视频列表和总数。
+func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
+	_, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+
+	resp, err := h.service.GetVideoList(r.Context(), page, pageSize)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
 /* 客户端 IP 地址 */
 func clientIP(r *http.Request) string {
 	// 从 HTTP Header 读取 X-Forwarded-For: clientIP, proxy1, proxy2,这是标准代理链路 IP 记录头

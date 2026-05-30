@@ -182,6 +182,7 @@ func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", nil),
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", nil),
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", nil),
+			NewRouteSpec("video_upload", http.MethodGet, VideoUploadModuleBasePath, "/list", true, "获取视频列表", nil),
 		}
 	}
 
@@ -189,6 +190,7 @@ func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", videoUploadHandler.UploadVideo),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", videoUploadHandler.SaveDraft),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", videoUploadHandler.Submit),
+		NewRouteSpec("video_upload", http.MethodGet, VideoUploadModuleBasePath, "/list", true, "获取视频列表", videoUploadHandler.GetVideoList),
 	}
 }
 

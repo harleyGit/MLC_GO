@@ -52,6 +52,12 @@ func NewService(repo *VideoUploadRepositoryPackage.Repository, cache *VideoUploa
 	return &Service{repo: repo, cache: cache, publisher: publisher}
 }
 
+// Init 初始化服务，确保数据库索引存在。
+// 应在服务启动时调用一次。
+func (s *Service) Init(ctx context.Context) error {
+	return s.repo.EnsureVideoListIndex(ctx)
+}
+
 // UploadVideo 保存单个视频文件并写入上传完成记录。
 // 多 P 投稿通过复用 submissionID 实现：第一个视频创建稿件，后续视频追加到同一 submission。
 func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader, fileName string, fileSize int64, mimeType string, submissionID string, partNumber uint32) (*VideoUploadDtoPackage.UploadVideoResponse, error) {
@@ -349,4 +355,27 @@ func newBusinessID(prefix string) string {
 func trimExt(fileName string) string {
 	ext := filepath.Ext(fileName)
 	return strings.TrimSuffix(fileName, ext)
+}
+
+// GetVideoList 获取已提交审核的视频列表。
+// 支持分页查询，返回视频列表和总数。
+func (s *Service) GetVideoList(ctx context.Context, page, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	videos, total, err := s.repo.GetVideoList(ctx, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &VideoUploadDtoPackage.GetVideoListResponse{
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+		Videos:   videos,
+	}, nil
 }
