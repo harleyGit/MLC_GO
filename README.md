@@ -761,6 +761,549 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 | 私信 | 新增 `modules/message/` |
 | 文件上传 | 新增 `modules/storage/` + `pkg/upload/` |
 
+
+
+
+***
+<br/><br/><br/>
+> <h2 id="大厂常见的DDD+CleanArchitecture+微服务预留结构">大厂常见的 DDD + Clean Architecture + 微服务预留结构</h2>
+
+大厂常见的 **DDD + Clean Architecture + 微服务预留结构**。
+
+---
+<br/>
+
+## 推荐目录结构（单体应用阶段）
+
+```text
+project/
+│
+├── cmd/
+│   └── api/
+│       └── main.go
+│
+├── configs/
+│   ├── config.yaml
+│   ├── config.dev.yaml
+│   ├── config.test.yaml
+│   └── config.prod.yaml
+│
+├── internal/
+│
+│   ├── user/
+│   │   ├── controller/
+│   │   ├── service/
+│   │   ├── repository/
+│   │   ├── model/
+│   │   ├── dto/
+│   │   ├── converter/
+│   │   └── event/
+│   │
+│   ├── auth/
+│   │   ├── controller/
+│   │   ├── service/
+│   │   ├── repository/
+│   │   ├── model/
+│   │   └── dto/
+│   │
+│   ├── product/
+│   │
+│   ├── category/
+│   │
+│   ├── inventory/
+│   │
+│   ├── cart/
+│   │
+│   ├── order/
+│   │
+│   ├── payment/
+│   │
+│   ├── coupon/
+│   │
+│   ├── logistics/
+│   │
+│   ├── notification/
+│   │
+│   └── analytics/
+│
+├── pkg/
+│
+│   ├── jwt/
+│   ├── contextx/
+│   ├── logger/
+│   ├── redis/
+│   ├── mysql/
+│   ├── kafka/
+│   ├── rocketmq/
+│   ├── elasticsearch/
+│   ├── snowflake/
+│   ├── validator/
+│   ├── response/
+│   ├── middleware/
+│   ├── tracing/
+│   ├── metrics/
+│   ├── cache/
+│   ├── lock/
+│   ├── rate_limit/
+│   ├── crypto/
+│   └── utils/
+│
+├── api/
+│   ├── openapi/
+│   ├── swagger/
+│   └── postman/
+│
+├── migrations/
+│
+├── deployments/
+│   ├── docker/
+│   ├── kubernetes/
+│   └── helm/
+│
+├── scripts/
+│
+├── docs/
+│
+├── test/
+│
+└── third_party/
+```
+
+***
+<br/>
+
+
+## 核心模块解释
+
+---
+
+### cmd程序入口
+
+```text
+cmd/
+└── api/
+    └── main.go
+```
+
+只做启动。
+
+```go
+func main() {
+    InitConfig()
+    InitMysql()
+    InitRedis()
+    InitKafka()
+    StartHTTPServer()
+}
+```
+
+不要写业务。
+
+<br/>
+
+### configs**配置中心**
+
+```text
+configs/
+├── config.dev.yaml
+├── config.test.yaml
+└── config.prod.yaml
+```
+
+例如：
+
+```yaml
+mysql:
+  host: xxx
+
+redis:
+  addr: xxx
+
+jwt:
+  secret: xxx
+```
+
+<br/>
+
+### internal真正的业务代码。
+
+**user模块**
+
+```text
+user/
+│
+├── controller/
+│   └── user_controller.go
+│
+├── service/
+│   └── user_service.go
+│
+├── repository/
+│   └── user_repository.go
+│
+├── model/
+│   └── user.go
+│
+├── dto/
+│   ├── request.go
+│   └── response.go
+│
+├── converter/
+│   └── user_converter.go
+│
+└── event/
+    └── user_event.go
+```
+
+<br/>
+
+**controller**
+
+HTTP层
+
+```go
+POST /user/login
+GET /user/profile
+```
+
+只负责：
+
+```go
+接收参数
+调用service
+返回结果
+```
+
+<br/>
+
+### service业务逻辑层
+
+```go
+func Login()
+func Register()
+func ResetPassword()
+```
+
+例如：
+
+```go
+验证密码
+生成JWT
+写Redis
+发送MQ
+```
+
+<br/>
+
+### repository数据访问层
+
+```go
+FindByEmail()
+FindByUserID()
+CreateUser()
+```
+
+只写 SQL。
+
+<br/>
+
+**model** 数据库实体
+
+```go
+type User struct {
+    ID int64
+    UserID string
+    Nickname string
+}
+```
+
+<br/>
+
+**dto前后端交互对象**
+
+```go
+type LoginReq struct {
+    Email string
+}
+```
+
+```go
+type LoginResp struct {
+    Token string
+}
+```
+
+<br/>
+
+**converter** 转换层
+
+```sh
+DTO → Model
+
+Model → DTO
+```
+<br/>
+
+**event** 领域事件
+
+```go
+UserCreated
+UserDeleted
+UserLogin
+```
+
+后面接 Kafka。
+
+<br/>
+
+**pkg公共基础设施**
+
+**jwt**
+
+```text
+pkg/jwt
+├── claims.go
+├── parser.go
+└── generator.go
+```
+
+<br/>
+
+**contextx统一获取：**
+
+```go
+GetUserID(ctx)
+GetTraceID(ctx)
+GetLang(ctx)
+```
+<br/>
+
+**logger日志系统,通常：**
+
+```go
+Uber Zap
+```
+
+<br/>
+
+**redis**
+
+```go
+Get()
+Set()
+Del()
+```
+
+统一封装。
+
+<br/>
+
+**mysql**数据库连接池
+
+```go
+gorm.Open()
+```
+
+或者：
+
+```go
+sqlx.Connect()
+```
+
+<br/>
+
+**kafka**消息队列
+
+```go
+Producer
+Consumer
+```
+
+<br/>
+
+**lock分布式锁**
+
+```go
+AcquireLock()
+ReleaseLock()
+```
+
+底层：
+
+```go
+Redis
+```
+
+<br/>
+
+**rate_limit限流**
+
+```go
+Token Bucket
+Sliding Window
+```
+
+<br/>
+
+**cache**缓存组件
+
+```go
+Cache Aside
+```
+
+<br/>
+
+**tracing链路追踪,一般：**
+
+```text
+OpenTelemetry
+Jaeger
+```
+
+<br/>
+
+**metrics监控指标,一般：**
+
+```text
+Prometheus
+Grafana
+```
+<br/>
+
+
+### **migrations**,数据库迁移
+
+```text
+migrations/
+
+000001_init.up.sql
+000001_init.down.sql
+
+000002_user.up.sql
+000002_user.down.sql
+```
+
+你最近接触的就是这里。
+
+<br/>
+
+
+### deployments部署
+
+<br/>
+
+### Docker
+
+```text
+Dockerfile
+docker-compose.yml
+```
+
+<br/>
+
+### Kubernetes
+
+```text
+deployment.yaml
+service.yaml
+ingress.yaml
+```
+
+<br/>
+
+### docs设计文档
+
+```text
+架构设计.md
+数据库设计.md
+接口设计.md
+```
+
+<br/>
+
+### 千万级并发还要增加什么？
+
+当用户达到：
+
+```text
+100万+
+1000万+
+```
+
+时目录还会继续扩展：
+
+```text
+internal/
+├── search/
+├── recommendation/
+├── risk_control/
+├── audit/
+├── scheduler/
+├── workflow/
+├── task/
+├── message/
+└── ai/
+```
+
+基础设施增加：
+
+```text
+pkg/
+├── kafka/
+├── rocketmq/
+├── elasticsearch/
+├── clickhouse/
+├── canal/
+├── etcd/
+├── nacos/
+├── sentinel/
+└── grpc/
+```
+
+---
+<br/>
+
+### 如果是你当前的 GO 工程
+
+结合你之前提到的：
+
+* 用户系统
+* JWT
+* Redis
+* MySQL
+* RocketMQ/Kafka
+* Docker部署
+* 后续微服务
+
+我建议第一版直接采用：
+
+```text
+internal/
+├── auth/
+├── user/
+├── device/
+├── product/
+├── order/
+└── notification/
+
+pkg/
+├── jwt/
+├── contextx/
+├── logger/
+├── mysql/
+├── redis/
+├── middleware/
+├── response/
+├── validator/
+├── cache/
+├── lock/
+└── mq/
+```
+
+这个结构足够支撑从 0 到百万级用户，并且未来拆分成独立微服务时基本不需要大规模重构。真正的“千万级并发”更多依赖于架构（负载均衡、缓存、MQ、数据库分库分表、Kubernetes、链路追踪等），而不仅仅是目录结构。
+
+
+
 <br/><br/><br/>
 
 ---
@@ -768,8 +1311,10 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 <br/>
 
 > <h1 id="文件规则">文件规则</h1>
-> <br/>
 
+
+
+<br/><br/><br/>
 > <h2 id="协议规则">协议规则</h2>
 > **比如：**
 
@@ -782,21 +1327,19 @@ type Writer interface {
 }
 ```
 
-<br/><br/><br/><br/><br/><br/>
+<br/>
 
 ---
-
-<br/>
+<br/><br/><br/><br/><br/>
 ># <h1 ID="Golang开源项目汇总列表"> [Golang 开源项目汇总列表](https://github.com/hackstoic/golang-open-source-projects)</h1>
 <br/>
 
-<br/><br/><br/>
+<br/>
 
 ---
 
-<br/>
-
-> # <h1 id="golang-gin-realworld-example-app工程">[golang-gin-realworld-example-app 工程](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)</h1>
+<br/><br/><br/>
+># <h1 id="golang-gin-realworld-example-app工程">[golang-gin-realworld-example-app 工程](https://github.com/gothinkster/golang-gin-realworld-example-app/tree/master)</h1>
 
 **注册接口测试**
 
