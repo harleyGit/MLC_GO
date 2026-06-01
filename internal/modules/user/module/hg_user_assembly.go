@@ -27,13 +27,14 @@ type UserModuleDeps struct {
 // 2. handler 不再知道 repository/cache 的存在，避免 HTTP 层污染业务和数据层。
 // 3. 后续增加依赖时，只改 assembly，不需要到多个 handler 构造函数里散改。
 type UserModuleComponents struct {
-	UserRepo     *userrepository.UserRepo
-	UserCache    *usercache.HGUserCache
-	CodeCache    *usercache.HGCodeCache
-	UserService  *UserServicePackage.UserService
-	TokenService *UserServicePackage.HGAuthService
-	AvatarSvc    *UserServicePackage.AvatarService
-	Handler      *UserHandlerPackage.HGUserHandler
+	UserRepo        *userrepository.UserRepo
+	UserCache        *usercache.HGUserCache
+	CodeCache        *usercache.HGCodeCache
+	UserService      *UserServicePackage.UserService
+	TokenService     *UserServicePackage.HGAuthService
+	AvatarSvc        *UserServicePackage.AvatarService
+	ClickCaptchaSvc  *UserServicePackage.ClickCaptchaService
+	Handler          *UserHandlerPackage.HGUserHandler
 }
 
 // NewUserModuleComponents 负责组装 user 模块内部依赖。
@@ -59,21 +60,24 @@ func NewUserModuleComponents(deps UserModuleDeps) *UserModuleComponents {
 	userService := UserServicePackage.NewUserService(userRepo, userCache, deps.RedisService)
 	tokenService := UserServicePackage.NewAuthService(userRepo, codeCache, deps.RedisService)
 	avatarSvc := UserServicePackage.NewAvatarService(userService)
+	clickCaptchaSvc := UserServicePackage.NewClickCaptchaService(deps.RedisService)
 
 	handler := UserHandlerPackage.NewUserHandler(UserHandlerPackage.HGUserHandlerDeps{
-		UserService:  userService,
-		TokenService: tokenService,
-		AvatarSvc:    avatarSvc,
-		SMSSender:    deps.SMSSender,
+		UserService:     userService,
+		TokenService:    tokenService,
+		AvatarSvc:       avatarSvc,
+		SMSSender:       deps.SMSSender,
+		ClickCaptchaSvc: clickCaptchaSvc,
 	})
 
 	return &UserModuleComponents{
-		UserRepo:     userRepo,
-		UserCache:    userCache,
-		CodeCache:    codeCache,
-		UserService:  userService,
-		TokenService: tokenService,
-		AvatarSvc:    avatarSvc,
-		Handler:      handler,
+		UserRepo:        userRepo,
+		UserCache:        userCache,
+		CodeCache:        codeCache,
+		UserService:      userService,
+		TokenService:     tokenService,
+		AvatarSvc:        avatarSvc,
+		ClickCaptchaSvc:  clickCaptchaSvc,
+		Handler:          handler,
 	}
 }

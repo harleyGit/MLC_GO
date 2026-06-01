@@ -22,6 +22,75 @@ type RefreshTokenResponse struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+// ClickCaptchaVerifyBody 是验证点选验证码的 HTTP 请求体。
+type ClickCaptchaVerifyBody struct {
+	CaptchaID string                            `json:"captchaId"`
+	Points    []UserServicePackage.ClickCaptchaPoint `json:"points"`
+}
+
+// GetClickCaptcha 获取点选验证码图片。
+// 返回验证码 ID、图片 Base64 数据和需要点选的字符序列。
+func (h *HGUserHandler) GetClickCaptcha(w http.ResponseWriter, r *http.Request) {
+	if h.clickCaptchaSvc == nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		return
+	}
+
+	resp, err := h.clickCaptchaSvc.GenerateCaptcha(r.Context())
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "生成验证码失败: "+err.Error())
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
+// VerifyClickCaptcha 验证点选验证码。
+// 验证通过后返回 verifyToken，用于后续发送短信/邮箱验证码。
+func (h *HGUserHandler) VerifyClickCaptcha(w http.ResponseWriter, r *http.Request) {
+	if h.clickCaptchaSvc == nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		return
+	}
+
+	var req ClickCaptchaVerifyBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		return
+	}
+
+	if req.CaptchaID == "" {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "captchaId 不能为空")
+		return
+	}
+
+	if len(req.Points) == 0 {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "点选坐标不能为空")
+		return
+	}
+
+	verifyReq := &UserServicePackage.ClickCaptchaVerifyRequest{
+		CaptchaID: req.CaptchaID,
+		Points:    req.Points,
+	}
+
+	resp, err := h.clickCaptchaSvc.VerifyCaptcha(r.Context(), verifyReq)
+	if err != nil {
+		if err == UserServicePackage.ErrCaptchaNotFound {
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码已过期，请重新获取")
+			return
+		}
+		if err == UserServicePackage.ErrCaptchaInvalid {
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码验证失败，请重新点选")
+			return
+		}
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证失败: "+err.Error())
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
 // RegisterHandlerV3 处理用户注册请求。
 // handler 只解析 JSON 并调用 service.Register，验证码校验、密码加密、落库和缓存清理由 service 完成。
 func (h *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
