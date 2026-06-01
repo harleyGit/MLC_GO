@@ -24,7 +24,7 @@ type RefreshTokenResponse struct {
 
 // ClickCaptchaVerifyBody 是验证点选验证码的 HTTP 请求体。
 type ClickCaptchaVerifyBody struct {
-	CaptchaID string                            `json:"captchaId"`
+	CaptchaID string                                 `json:"captchaId"`
 	Points    []UserServicePackage.ClickCaptchaPoint `json:"points"`
 }
 
@@ -118,6 +118,14 @@ func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// verifyToken 是点选验证码验证通过后生成的一次性凭证。
+	// 发送短信验证码是高成本、易被刷的外部 I/O 行为，必须先验证该 token，避免攻击者直接刷 send_code。
+	// token 校验通过后会在 service 中删除，因此同一个点选验证码结果不能重复换取多个短信验证码。
+	verifyToken := r.URL.Query().Get("verifyToken")
+	if ok := h.validateClickCaptchaToken(w, r, verifyToken); !ok {
+		return
+	}
+
 	code, err := h.svc.SendCode(r.Context(), phone)
 	if err != nil {
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
@@ -141,6 +149,13 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 邮箱验证码同样走点选验证码前置校验，避免绕过弹窗直接刷邮件发送接口。
+	// 这里和 SendCode 共用 validateClickCaptchaToken，保证手机和邮箱验证码入口安全语义一致。
+	verifyToken := r.URL.Query().Get("verifyToken")
+	if ok := h.validateClickCaptchaToken(w, r, verifyToken); !ok {
+		return
+	}
+
 	code, err := h.svc.SendEmailCode(r.Context(), email)
 	if err != nil {
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
@@ -150,6 +165,30 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 	// TODO: 调用邮件发送服务发送验证码
 	// 这里暂时返回验证码，实际生产环境需要调用邮件服务
 	HGResponsePakcage.SuccessResult(w, r, map[string]string{"email": email, "message": "验证码已发送", "verifyCode": code})
+}
+
+// validateClickCaptchaToken 校验点选验证码通过后生成的一次性 token。
+// 返回 true 表示当前请求可以继续发送短信/邮箱验证码；返回 false 时本函数已经写入 HTTP 响应，调用方应立即 return。
+// 这个 helper 放在 handler 层，是因为它负责 HTTP 参数校验和 HTTP 错误响应；真正的 token 查询、删除和 TTL 语义仍由 service 层负责。
+func (h *HGUserHandler) validateClickCaptchaToken(w http.ResponseWriter, r *http.Request, verifyToken string) bool {
+	if h.clickCaptchaSvc == nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		return false
+	}
+
+	// ValidateVerifyToken 会读取 Redis 中 auth:click_captcha_token:<token>，存在则删除并返回 true。
+	// 删除动作使 token 具备一次性消费语义，避免并发或重复点击导致同一 token 被多次使用。
+	valid, err := h.clickCaptchaSvc.ValidateVerifyToken(r.Context(), verifyToken)
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码校验失败: "+err.Error())
+		return false
+	}
+	if !valid {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请先完成点选验证码")
+		return false
+	}
+
+	return true
 }
 
 // RegisterWithEmail 处理邮箱注册请求。
