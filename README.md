@@ -11,6 +11,7 @@
   - [功能模块文件分布](#功能模块文件分布)
 - [**文件规则**](#文件规则)
   - [协议规则](#协议规则)
+  - [大厂常见的DDD + Clean Architecture + 微服务预留结构](#大厂常见的DDD+CleanArchitecture+微服务预留结构)
 - [Golang 开源项目汇总列表](#Golang开源项目汇总列表)
   - [推荐几个可以写到简历上的 Go 方向优质开源项目（需花点心思研究）](https://juejin.cn/post/7038967716459315208)
   - [golang-gin-realworld-example-app 工程](#golang-gin-realworld-example-app工程)
