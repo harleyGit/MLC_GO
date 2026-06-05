@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 21:01:35
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-02-07 21:41:12
+ * @LastEditTime: 2026-06-05 22:39:01
  * @FilePath: /MLC_GO/internal/interfaces/response/hg_result_model.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -209,8 +209,8 @@ func NewPageResponse[T any](items []T, opts ...HGPageOption) HGPageResultModel[T
 func SuccessResult[T any](w http.ResponseWriter, r *http.Request, data T) {
 
 	result := HGResultModel[T]{
-		Code:      OKCode,
-		Message:   "success💯",
+		Code:      HGSuccess.Code,
+		Message:   HGSuccess.Message,
 		Result:    data,
 		TID:       UtilsPackage.GetTID(r.Context()),
 		Timestamp: time.Now().UnixMilli(),
@@ -222,8 +222,8 @@ func SuccessResult[T any](w http.ResponseWriter, r *http.Request, data T) {
 func SuccessPageResult[T any](w http.ResponseWriter, r *http.Request, data T) {
 
 	result := HGResultModel[T]{
-		Code:      OKCode,
-		Message:   "success💯",
+		Code:      HGSuccess.Code,
+		Message:   HGSuccess.Message,
 		Result:    data,
 		TID:       UtilsPackage.GetTID(r.Context()),
 		Timestamp: time.Now().UnixMilli(),
@@ -232,11 +232,12 @@ func SuccessPageResult[T any](w http.ResponseWriter, r *http.Request, data T) {
 	writeResult(result, w)
 }
 
-func FailResult[T any](w http.ResponseWriter, r *http.Request, code HGErrorCode, msg string) {
+func FailResult[T any](w http.ResponseWriter, r *http.Request, err HGErrorResult) {
 
 	var zero T
-	resp := HGResultModel[T]{Code: code,
-		Message:   msg,
+	resp := HGResultModel[T]{
+		Code:      err.Code,
+		Message:   err.Message,
 		Result:    zero,
 		TID:       UtilsPackage.GetTID(r.Context()),
 		Timestamp: time.Now().UnixMilli(),
@@ -248,7 +249,7 @@ func FailResult[T any](w http.ResponseWriter, r *http.Request, code HGErrorCode,
 // FailTokenInvalid 统一 token 失效响应语义：HTTP 层由调用方写 401，业务码统一返回 UnauthorizedCode。
 // 约束：响应结构保持不变，只收敛鉴权失败业务码，便于前端统一按 401 处理。
 func FailTokenInvalid(w http.ResponseWriter, r *http.Request, msg string) {
-	FailResult[string](w, r, UnauthorizedCode, msg)
+	FailResult[string](w, r, HGErrorResult{UnauthorizedCode, msg})
 }
 
 /* 统一·JOSN 输出方法 */

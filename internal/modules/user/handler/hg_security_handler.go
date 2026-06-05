@@ -16,14 +16,14 @@ func (h *HGUserHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 
 	var req UserDtoPackage.HGUpdateUserSecurityReqDTO
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
@@ -32,17 +32,17 @@ func (h *HGUserHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			w.WriteHeader(http.StatusNotFound)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在"})
 		case errors.Is(err, UserServicePackage.ErrSecurityNoField),
 			errors.Is(err, UserServicePackage.ErrSecurityFieldEmpty):
 			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		case errors.Is(err, UserServicePackage.ErrSecurityDuplicate):
 			w.WriteHeader(http.StatusConflict)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "更新账号安全信息失败")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "更新账号安全信息失败"})
 		}
 		return
 	}
@@ -55,7 +55,7 @@ func (h *HGUserHandler) GetSecurityInfo(w http.ResponseWriter, r *http.Request) 
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 
@@ -64,10 +64,10 @@ func (h *HGUserHandler) GetSecurityInfo(w http.ResponseWriter, r *http.Request) 
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			w.WriteHeader(http.StatusNotFound)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "账号安全信息不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "账号安全信息不存在"})
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "获取账号安全信息失败")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "获取账号安全信息失败"})
 		}
 		return
 	}

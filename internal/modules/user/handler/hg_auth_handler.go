@@ -32,13 +32,13 @@ type ClickCaptchaVerifyBody struct {
 // 返回验证码 ID、图片 Base64 数据和需要点选的字符序列。
 func (h *HGUserHandler) GetClickCaptcha(w http.ResponseWriter, r *http.Request) {
 	if h.clickCaptchaSvc == nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码服务未初始化"})
 		return
 	}
 
 	resp, err := h.clickCaptchaSvc.GenerateCaptcha(r.Context())
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "生成验证码失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "生成验证码失败: "+err.Error()})
 		return
 	}
 
@@ -49,23 +49,23 @@ func (h *HGUserHandler) GetClickCaptcha(w http.ResponseWriter, r *http.Request) 
 // 验证通过后返回 verifyToken，用于后续发送短信/邮箱验证码。
 func (h *HGUserHandler) VerifyClickCaptcha(w http.ResponseWriter, r *http.Request) {
 	if h.clickCaptchaSvc == nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码服务未初始化"})
 		return
 	}
 
 	var req ClickCaptchaVerifyBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "请求体格式错误"})
 		return
 	}
 
 	if req.CaptchaID == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "captchaId 不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "captchaId 不能为空"})
 		return
 	}
 
 	if len(req.Points) == 0 {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "点选坐标不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "点选坐标不能为空"})
 		return
 	}
 
@@ -77,14 +77,14 @@ func (h *HGUserHandler) VerifyClickCaptcha(w http.ResponseWriter, r *http.Reques
 	resp, err := h.clickCaptchaSvc.VerifyCaptcha(r.Context(), verifyReq)
 	if err != nil {
 		if err == UserServicePackage.ErrCaptchaNotFound {
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码已过期，请重新获取")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码已过期，请重新获取"})
 			return
 		}
 		if err == UserServicePackage.ErrCaptchaInvalid {
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码验证失败，请重新点选")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码验证失败，请重新点选"})
 			return
 		}
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证失败: "+err.Error()})
 		return
 	}
 
@@ -97,12 +97,12 @@ func (h *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request
 	var req UserDtoPackage.RegisterReqModel
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "请求体格式错误"})
 		return
 	}
 
 	if err := h.svc.Register(r.Context(), req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, "注册失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: "+err.Error()})
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request
 func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 	phone := r.URL.Query().Get("phone")
 	if phone == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 phone 参数")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "缺少 phone 参数"})
 		return
 	}
 
@@ -128,12 +128,12 @@ func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 
 	code, err := h.svc.SendCode(r.Context(), phone)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: err.Error()})
 		return
 	}
 
 	if err := h.smsSender.Send(phone, code); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "发送短信失败")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "发送短信失败"})
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
 	if email == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 email 参数")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "缺少 email 参数"})
 		return
 	}
 
@@ -158,7 +158,7 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 
 	code, err := h.svc.SendEmailCode(r.Context(), email)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: err.Error()})
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 // 这个 helper 放在 handler 层，是因为它负责 HTTP 参数校验和 HTTP 错误响应；真正的 token 查询、删除和 TTL 语义仍由 service 层负责。
 func (h *HGUserHandler) validateClickCaptchaToken(w http.ResponseWriter, r *http.Request, verifyToken string) bool {
 	if h.clickCaptchaSvc == nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码服务未初始化")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码服务未初始化"})
 		return false
 	}
 
@@ -180,11 +180,11 @@ func (h *HGUserHandler) validateClickCaptchaToken(w http.ResponseWriter, r *http
 	// 删除动作使 token 具备一次性消费语义，避免并发或重复点击导致同一 token 被多次使用。
 	valid, err := h.clickCaptchaSvc.ValidateVerifyToken(r.Context(), verifyToken)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "验证码校验失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码校验失败: "+err.Error()})
 		return false
 	}
 	if !valid {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请先完成点选验证码")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "请先完成点选验证码"})
 		return false
 	}
 
@@ -197,34 +197,34 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 	var req UserDtoPackage.RegisterReqModel
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "请求体格式错误"})
 		return
 	}
 
 	if req.Email == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "邮箱不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "邮箱不能为空"})
 		return
 	}
 
 	if req.Code == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码不能为空"})
 		return
 	}
 
 	if req.Password == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "密码不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "密码不能为空"})
 		return
 	}
 
 	// 验证邮箱验证码
 	if err := h.svc.VerifyEmailCode(r.Context(), req.Email, req.Code); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码错误或已过期")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码错误或已过期"})
 		return
 	}
 
 	// 调用邮箱注册服务
 	if err := h.svc.RegisterWithEmail(r.Context(), req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserRegisterFail, "注册失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: "+err.Error()})
 		return
 	}
 
@@ -241,7 +241,7 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	var req UserServicePackage.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
 		return
 	}
 	req.Device = PkGDevicePackage.Fingerprint(r)
@@ -250,15 +250,15 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err {
 		case UserServicePackage.ErrUserNotFound:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFoundCode, Message: "用户不存在"})
 		case UserServicePackage.ErrPasswordIncorrect:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "密码不正确")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "密码不正确"})
 		case UserServicePackage.ErrCodeInvalid:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码无效或已过期")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码无效或已过期"})
 		case UserServicePackage.ErrPhoneOrEmailRequired:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "手机号或邮箱必填")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "手机号或邮箱必填"})
 		default:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "登录失败: "+err.Error())
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "登录失败: "+err.Error()})
 		}
 		return
 	}
@@ -271,22 +271,22 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) SendResetPasswordCode(w http.ResponseWriter, r *http.Request) {
 	phone := r.URL.Query().Get("phone")
 	if phone == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 phone 参数")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "缺少 phone 参数"})
 		return
 	}
 
 	code, err := h.svc.SendResetPasswordCode(r.Context(), phone)
 	if err != nil {
 		if err == UserServicePackage.ErrUserNotFound {
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFoundCode, Message: "用户不存在"})
 			return
 		}
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: err.Error()})
 		return
 	}
 
 	if err := h.smsSender.Send(phone, code); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "发送短信失败")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "发送短信失败"})
 		return
 	}
 
@@ -303,18 +303,18 @@ func (h *HGUserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	var req UserDtoPackage.ResetPasswordReqModel
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
 		return
 	}
 
 	if err := h.svc.ResetPassword(r.Context(), &req); err != nil {
 		switch err {
 		case UserServicePackage.ErrUserNotFound:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFoundCode, Message: "用户不存在"})
 		case UserServicePackage.ErrCodeInvalid:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "验证码无效或已过期")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码无效或已过期"})
 		default:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ResetPasswordFailCode, "重置密码失败: "+err.Error())
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.ResetPasswordFailCode, Message: "重置密码失败: "+err.Error()})
 		}
 		return
 	}
@@ -332,11 +332,11 @@ func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	var req RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "JSON 解析失败: "+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
 		return
 	}
 	if req.RefreshToken == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "refreshToken 不能为空")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "refreshToken 不能为空"})
 		return
 	}
 

@@ -60,7 +60,7 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.CheckUploadRateLimit(r.Context(), userID, clientIP(r)); err != nil {
 		status, code := mapUploadError(err)
 		w.WriteHeader(status)
-		HGResponsePakcage.FailResult[string](w, r, code, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
 		return
 	}
 
@@ -72,7 +72,7 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	file, fileName, fileSize, mimeType, fields, err := readUploadMultipart(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 	// file.(io.CLoser)看看file时候支持CLose()
@@ -90,7 +90,7 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, code := mapUploadError(err)
 		w.WriteHeader(status)
-		HGResponsePakcage.FailResult[string](w, r, code, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
 		return
 	}
 
@@ -181,7 +181,7 @@ func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Reques
 	var req VideoUploadDtoPackage.SaveSubmissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 	req.Status = status
@@ -190,7 +190,7 @@ func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		statusCode, code := mapSaveError(err)
 		w.WriteHeader(statusCode)
-		HGResponsePakcage.FailResult[string](w, r, code, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
 		return
 	}
 
@@ -203,11 +203,11 @@ func mapUploadError(err error) (int, HGResponsePakcage.HGErrorCode) {
 	case errors.Is(err, VideoUploadServicePackage.ErrVideoFileEmpty),
 		errors.Is(err, VideoUploadServicePackage.ErrVideoFileTooLarge),
 		errors.Is(err, VideoUploadServicePackage.ErrVideoTypeInvalid):
-		return http.StatusBadRequest, HGResponsePakcage.InvalidParamCode
+		return http.StatusBadRequest, HGResponsePakcage.InvalidParam.Code
 	case errors.Is(err, VideoUploadServicePackage.ErrUploadRateLimited):
-		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParamCode
+		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParam.Code
 	default:
-		return http.StatusInternalServerError, HGResponsePakcage.InternalErrorCode
+		return http.StatusInternalServerError, HGResponsePakcage.InternalError.Code
 	}
 }
 
@@ -216,11 +216,11 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 	switch {
 	case errors.Is(err, VideoUploadServicePackage.ErrSubmissionInvalid),
 		errors.Is(err, VideoUploadServicePackage.ErrVideoConfigInvalid):
-		return http.StatusBadRequest, HGResponsePakcage.InvalidParamCode
+		return http.StatusBadRequest, HGResponsePakcage.InvalidParam.Code
 	case errors.Is(err, VideoUploadServicePackage.ErrSubmitDuplicated):
-		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParamCode
+		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParam.Code
 	default:
-		return http.StatusInternalServerError, HGResponsePakcage.InternalErrorCode
+		return http.StatusInternalServerError, HGResponsePakcage.InternalError.Code
 	}
 }
 
@@ -240,7 +240,7 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.GetVideoList(r.Context(), cursor, pageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -263,14 +263,14 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Image == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 image 字段")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 image 字段"})
 		return
 	}
 
 	url, err := h.service.SaveCoverImage(r.Context(), userID, req.Image)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 

@@ -139,21 +139,21 @@ func (g *APIGuard) Middleware() Middleware {
 			rule, ok := g.lookupRule(version, r.URL.Path)
 			if !ok {
 				http.NotFound(w, r)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.NotFoundCode, "interface not found")
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestURI.Code, Message: "interface not found"})
 				logHG.ErrFInfo(`%s: 未找到接口规则，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
 
 			if !rule.allowMethod(r.Method) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotAllowCode, "method not allowed")
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 				logHG.ErrFInfo(`%s: Method校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
 
 			ctx := g.checkoutHeader(w, r, rule.NeedAuth)
 			if ctx == nil {
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "header valid fail")
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: "header valid fail"})
 				logHG.ErrFInfo(`%s: Header校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
@@ -165,7 +165,7 @@ func (g *APIGuard) Middleware() Middleware {
 				}
 				if !HasPermission(role, rule.Permissions) {
 					w.WriteHeader(http.StatusForbidden)
-					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ForbiddenCode, "权限校验失败")
+					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "权限校验失败"})
 					return
 				}
 			}
@@ -223,7 +223,7 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		UtilsPackage.IsEmpty(signature) {
 
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, HGResponsePakcage.RequestHeaderFailDesc)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: HGResponsePakcage.RequestHeaderFailDesc})
 		return nil
 	}
 
@@ -249,13 +249,13 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		body, err = readAndRestoreBody(r, apiGuardMaxSignedBodyBytes)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RuequestHeaderNotOk, "请求体读取失败")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: "请求体读取失败"})
 			return nil
 		}
 	}
 
 	if err := verifySignature(r, body, signature, timestamp, requestID, deviceID, clientType, clientVersion, version, language, token); err != nil {
-		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.UnauthorizedCode)
+		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.Unauthorized.Code)
 		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "signature无效")
 		return nil
@@ -431,7 +431,7 @@ func MethodGuardMiddlewareV2(rules []APIRule) func(http.Handler) http.Handler {
 
 			if !rule.allowMethod(r.Method) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotFoundCode, "method not allowed")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -449,7 +449,7 @@ func (g *APIGuard) MethodGuardMiddleware(next http.Handler) http.Handler {
 
 		if !rule.allowMethod(r.Method) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.MethodNotFoundCode, "method not allowed")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 			return
 		}
 		next.ServeHTTP(w, r)

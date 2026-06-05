@@ -45,8 +45,7 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				HGResponsePakcage.FailResult[any](w, r,
-					HGResponsePakcage.InternalErrorCode,
-					"panic",
+					HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "panic"},
 				)
 			}
 		}()

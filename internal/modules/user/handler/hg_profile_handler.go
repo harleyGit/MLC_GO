@@ -47,7 +47,7 @@ func (h *HGUserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.svc.GetUserList(r.Context(), cursor, size)
 	if err != nil {
-		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.UserListFailCode, err.Error())
+		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserListFailed.Code, Message: err.Error()})
 		return
 	}
 
@@ -60,7 +60,7 @@ func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少 user_id 参数")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 user_id 参数"})
 		return
 	}
 
@@ -85,14 +85,14 @@ func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 
 	var req UserDtoPackage.HGUpdateUserProfileReqDTO
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
@@ -101,17 +101,17 @@ func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			w.WriteHeader(http.StatusNotFound)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在"})
 			return
 		case errors.Is(err, UserServicePackage.ErrProfileNoField),
 			errors.Is(err, UserServicePackage.ErrProfileGenderInvalid),
 			errors.Is(err, UserServicePackage.ErrProfileBirthDateInvalid):
 			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, err.Error())
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 			return
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, "更新用户资料失败")
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "更新用户资料失败"})
 			return
 		}
 	}
@@ -133,7 +133,7 @@ func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	userDTO, err := h.svc.GetUserByID(r.Context(), userID)
 	if err != nil {
 		logHG.ErrFInfo("用户信息Profile error: %v", err)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.UserNotFoundCode, "用户不存在"+err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在" + err.Error()})
 		return
 	}
 

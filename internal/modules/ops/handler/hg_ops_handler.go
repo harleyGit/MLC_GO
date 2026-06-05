@@ -33,14 +33,14 @@ func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 	var req OpsDtoPackage.CreateRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.CreateRole(r.Context(), userID, req)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.GetRoleList(r.Context(), page, pageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -81,14 +81,14 @@ func (h *Handler) AssignUserRoles(w http.ResponseWriter, r *http.Request) {
 	var req OpsDtoPackage.AssignUserRolesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	err := h.service.AssignUserRoles(r.Context(), userID, req)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -107,14 +107,14 @@ func (h *Handler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("userId")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少用户ID")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少用户ID"})
 		return
 	}
 
 	resp, err := h.service.GetUserRoles(r.Context(), userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -133,14 +133,14 @@ func (h *Handler) CreateMenu(w http.ResponseWriter, r *http.Request) {
 	var req OpsDtoPackage.CreateMenuRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.CreateMenu(r.Context(), userID, req)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h *Handler) GetMenuList(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.GetMenuList(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -178,14 +178,14 @@ func (h *Handler) AssignRolePermissions(w http.ResponseWriter, r *http.Request) 
 	var req OpsDtoPackage.AssignRolePermissionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "请求体格式错误")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	err := h.service.AssignRolePermissions(r.Context(), userID, req)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -204,14 +204,14 @@ func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
 	roleID := r.URL.Query().Get("roleId")
 	if roleID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少角色ID")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少角色ID"})
 		return
 	}
 
 	resp, err := h.service.GetRolePermissions(r.Context(), roleID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -230,14 +230,14 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	// 解析multipart表单
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "文件过大")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "文件过大"})
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParamCode, "缺少文件")
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少文件"})
 		return
 	}
 	defer file.Close()
@@ -245,7 +245,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.UploadFile(r.Context(), userID, file, header.Filename, header.Size, header.Header.Get("Content-Type"))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
@@ -267,7 +267,7 @@ func (h *Handler) GetFileList(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.GetFileList(r.Context(), page, pageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InternalErrorCode, err.Error())
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 
