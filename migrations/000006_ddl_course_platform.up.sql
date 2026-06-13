@@ -12,7 +12,7 @@
 
 -- 权限清单表
 -- 存储系统所有权限定义，支持菜单和操作两种类型
-CREATE TABLE `permission` (
+CREATE TABLE IF NOT EXISTS `permission` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '权限ID，主键自增',
   `code` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '权限编码，唯一标识一个权限',
   `type` tinyint NOT NULL COMMENT '权限类型: 1=菜单权限 2=操作权限',
@@ -33,7 +33,7 @@ CREATE TABLE `permission` (
 
 -- 管理员表
 -- 存储后台管理员账号信息
-CREATE TABLE `admin_user` (
+CREATE TABLE IF NOT EXISTS `admin_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '管理员ID，主键自增',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员姓名',
   `nick_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员昵称',
@@ -57,7 +57,7 @@ CREATE TABLE `admin_user` (
 
 -- 角色表
 -- 存储后台角色定义，供 admin_user_role 和 role_permission 关联使用
-CREATE TABLE `role` (
+CREATE TABLE IF NOT EXISTS `role` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '角色ID，主键自增',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '角色名称',
   `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '角色描述',
@@ -73,7 +73,7 @@ CREATE TABLE `role` (
 
 -- 角色权限关联表
 -- 存储角色与权限的对应关系
-CREATE TABLE `role_permission` (
+CREATE TABLE IF NOT EXISTS `role_permission` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `role_id` bigint NOT NULL COMMENT '角色ID',
   `permission_id` bigint NOT NULL COMMENT '权限ID',
@@ -87,7 +87,7 @@ CREATE TABLE `role_permission` (
 
 -- 管理员角色关联表
 -- 存储管理员与角色的对应关系
-CREATE TABLE `admin_user_role` (
+CREATE TABLE IF NOT EXISTS `admin_user_role` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `admin_user_id` bigint NOT NULL COMMENT '管理员ID',
   `role_id` bigint NOT NULL COMMENT '角色ID',
@@ -105,7 +105,7 @@ CREATE TABLE `admin_user_role` (
 
 -- 用户主表
 -- 存储用户基本信息，作为用户中心的核心表
-CREATE TABLE `user` (
+CREATE TABLE IF NOT EXISTS `user` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '用户ID，全局唯一',
   `nick_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '用户昵称',
   `sex` tinyint NOT NULL COMMENT '性别: 0=其他 1=男 2=女',
@@ -121,7 +121,7 @@ CREATE TABLE `user` (
 
 -- 微信用户表
 -- 存储微信用户信息，与user表关联
-CREATE TABLE `wechat_user` (
+CREATE TABLE IF NOT EXISTS `wechat_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID，自增',
   `user_id` bigint NOT NULL COMMENT '关联user表的用户ID',
   `union_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '微信union_id，跨应用唯一标识',
@@ -136,7 +136,7 @@ CREATE TABLE `wechat_user` (
 
 -- 应用用户表
 -- 存储用户在不同应用(公众号、小程序)的身份信息
-CREATE TABLE `app_user` (
+CREATE TABLE IF NOT EXISTS `app_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID，自增',
   `user_id` bigint NOT NULL COMMENT '关联user表的用户ID',
   `app_code` int NOT NULL COMMENT '应用编码: 1000=公众号 1001=小程序',
@@ -156,7 +156,7 @@ CREATE TABLE `app_user` (
 
 -- 课程商品表
 -- 存储课程商品信息，包括价格、服务时长等
-CREATE TABLE `course_goods` (
+CREATE TABLE IF NOT EXISTS `course_goods` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '商品ID，主键自增',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '商品名称',
   `cover_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '封面图资源key',
@@ -176,7 +176,7 @@ CREATE TABLE `course_goods` (
 
 -- 课程目录表
 -- 存储课程的章节目录结构
-CREATE TABLE `course_catalog` (
+CREATE TABLE IF NOT EXISTS `course_catalog` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '目录ID，主键自增',
   `parent_id` bigint NOT NULL DEFAULT '-1' COMMENT '父目录ID，-1表示顶级目录',
   `level` int NOT NULL DEFAULT '1' COMMENT '目录层级',
@@ -191,7 +191,7 @@ CREATE TABLE `course_catalog` (
 
 -- 课程课时表
 -- 存储具体课时信息，包括视频、详情、作业等
-CREATE TABLE `course_lessons` (
+CREATE TABLE IF NOT EXISTS `course_lessons` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '课时ID，主键自增',
   `goods_id` bigint NOT NULL COMMENT '所属商品ID',
   `catalog_id` bigint NOT NULL COMMENT '所属目录ID',
@@ -211,7 +211,7 @@ CREATE TABLE `course_lessons` (
 
 -- 用户课程商品关联表
 -- 记录用户购买的课程商品及服务有效期
-CREATE TABLE `user_course_goods` (
+CREATE TABLE IF NOT EXISTS `user_course_goods` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
   `order_id` bigint NOT NULL COMMENT '订单ID',
@@ -232,7 +232,7 @@ CREATE TABLE `user_course_goods` (
 
 -- 订单主表
 -- 存储订单核心信息，包括金额、状态、支付等
-CREATE TABLE `orders` (
+CREATE TABLE IF NOT EXISTS `orders` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '订单ID，主键自增',
   `order_no` char(18) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单编号，18位唯一编号',
   `user_id` bigint NOT NULL COMMENT '下单用户ID',
@@ -269,7 +269,7 @@ CREATE TABLE `orders` (
 
 -- 订单商品明细表
 -- 存储订单包含的商品信息
-CREATE TABLE `order_items` (
+CREATE TABLE IF NOT EXISTS `order_items` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id` bigint NOT NULL COMMENT '订单ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
@@ -289,7 +289,7 @@ CREATE TABLE `order_items` (
 
 -- 短信模板表
 -- 存储短信模板配置，支持不同场景和平台
-CREATE TABLE `sms_template` (
+CREATE TABLE IF NOT EXISTS `sms_template` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '模板ID，主键自增',
   `scene_code` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '场景编码，唯一标识',
   `sign_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '短信签名',
@@ -311,7 +311,7 @@ CREATE TABLE `sms_template` (
 
 -- 云存储资源文件表
 -- 记录上传到云存储的文件信息
-CREATE TABLE `resource_upload_files` (
+CREATE TABLE IF NOT EXISTS `resource_upload_files` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `scene` char(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '业务场景编码',
   `file_key` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '文件云存储唯一key',
