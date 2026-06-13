@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-30 22:26:42
+ * @LastEditTime: 2026-06-08 15:06:31
 * @FilePath: /MLC_GO/internal/pkg/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -35,12 +35,12 @@ const (
 )
 
 const (
-	AuthCodePhoneLimitKey      = "auth:code:limit:phone:"  // TODO：要改为注册发送的验证码Key
-	AuthLoginVerifyCodekKey    = "auth:login:verify:code:" // 登录验证码Key：手机、邮箱
-	AuthResetPasswordCodeKey   = "auth:reset:password:code:" // 忘记密码验证码Key：手机、邮箱
-	AuthCodeIPLimitKey         = "auth:code:limit:phone:"
-	AuthTokenKey            = "auth:token:"
-	AuthRefreshKey          = "auth:refresh:"
+	AuthCodePhoneLimitKey    = "auth:code:limit:phone:"    // TODO：要改为注册发送的验证码Key
+	AuthLoginVerifyCodekKey  = "auth:login:verify:code:"   // 登录验证码Key：手机、邮箱
+	AuthResetPasswordCodeKey = "auth:reset:password:code:" // 忘记密码验证码Key：手机、邮箱
+	AuthCodeIPLimitKey       = "auth:code:limit:phone:"
+	AuthTokenKey             = "auth:token:"
+	AuthRefreshKey           = "auth:refresh:"
 
 	UserListKey        = "user:list:cursor:%d:size:%d" // user:list:{cursor}:{size} 获取注册用户列表的Key
 	UserListPatternKey = "user:list:cursor:*:size:*"   // 删除用户列表分页缓存时使用
@@ -49,9 +49,10 @@ const (
 	LoginCodeKey      = "login:code:"
 	LoginMultiportKey = "token:" //token+多端登录控制key
 
-	VideoUploadSessionKeyPrefix      = "video_upload:session:"
-	VideoUploadUserRateKeyPrefix     = "video_upload:rate:user:"
-	VideoUploadIPRateKeyPrefix       = "video_upload:rate:ip:"
+	VideoUploadSessionKeyPrefix  = "video_upload:session:"
+	VideoUploadUserRateKeyPrefix = "video_upload:rate:user:"
+	VideoUploadIPRateKeyPrefix   = "video_upload:rate:ip:"
+	// 提交任务锁，防止用户重复提交任务【视频上传草稿】
 	VideoUploadSubmitLockKeyPrefix   = "video_upload:submit_lock:"
 	VideoUploadSubmitResultKeyPrefix = "video_upload:submit_result:"
 )

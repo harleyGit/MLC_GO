@@ -48,11 +48,22 @@ type MemoryPublisher struct {
 }
 
 // NewMemoryPublisher 创建默认内存任务队列并启动 worker。
+//
+// 设计思路：
+//   - 使用带缓冲的 channel 作为任务队列，容量为 4096，既能缓冲大量任务，又不会无限占用内存
+//   - 创建 done channel 用于优雅停止 worker 协程
+//   - 启动独立的 goroutine 运行 run() 方法，持续消费队列中的任务
+//
+// 使用场景：
+//   - 本地开发、单实例部署时使用
+//   - 生产环境建议替换为 RocketMQ/Kafka 实现
 func NewMemoryPublisher() *MemoryPublisher {
 	p := &MemoryPublisher{
-		queue: make(chan Task, defaultQueueSize),
-		done:  make(chan struct{}),
+		queue: make(chan Task, defaultQueueSize), // 有界队列，防止内存溢出
+		done:  make(chan struct{}),               // 停止信号 channel
 	}
+	// 启动 worker 协程，持续消费队列中的任务
+	// 这是一个独立的 goroutine，不会阻塞当前函数
 	go p.run()
 	return p
 }
@@ -77,13 +88,25 @@ func (p *MemoryPublisher) Close() error {
 	return nil
 }
 
+// run 是 worker 协程的主循环，负责从队列中消费任务并执行。
+//
+// 工作机制：
+//   - 使用 select 多路复用，同时监听两个 channel：
+//     1. queue: 有新任务时，取出并调用 handle() 处理
+//     2. done: 收到停止信号时，退出循环，worker 协程结束
+//   - 当两个 channel 都没有数据时，select 会阻塞等待
+//   - 优先处理 queue 中的任务，保证任务及时消费
+//
+// 生命周期：
+//   - 随 NewMemoryPublisher() 启动
+//   - 随 Close() 调用结束
 func (p *MemoryPublisher) run() {
 	for {
 		select {
-		case task := <-p.queue:
-			p.handle(task)
-		case <-p.done:
-			return
+		case task := <-p.queue: // 从队列中取出任务
+			p.handle(task) // 处理任务
+		case <-p.done: // 收到停止信号
+			return // 退出循环，worker 协程结束
 		}
 	}
 }

@@ -52,6 +52,7 @@ func (c *Cache) SaveUploadSession(ctx context.Context, userID string, submission
 
 // TouchUploadSession 延长上传会话生命周期，适合多 P 连续上传场景。
 func (c *Cache) TouchUploadSession(ctx context.Context, userID string, submissionID string) error {
+	// 给 Redis 的 Key 设置过期时间（TTL），到时间后 Redis 自动删除该 Key
 	return c.client.Expire(ctx, sessionKey(userID, submissionID), uploadSessionTTL).Err()
 }
 
@@ -70,6 +71,7 @@ func (c *Cache) CheckUploadRateLimit(ctx context.Context, userID string, ip stri
 func (c *Cache) AcquireSubmitLock(ctx context.Context, userID string, submissionID string) (string, error) {
 	// 生成 UUID 作为锁的标识，防止误删其他请求持有的锁
 	lockValue := uuid.NewString()
+	// 用于分布式锁，SetNX 只有在 key 不存在时才设置成功，成功时返回 true；如果 key 已存在，说明已有请求持有锁，返回 false。
 	ok, err := c.client.SetNX(ctx, submitLockKey(userID, submissionID), lockValue, submitIdempotencyTTL).Result()
 	if err != nil {
 		return "", err
@@ -118,10 +120,10 @@ func (c *Cache) SaveSubmitResult(ctx context.Context, userID string, submissionI
 // - ttl：传给 Lua 的 ARGV[5]，桶状态多久不用后自动过期。
 // 示例：用户 1 分钟限 120 次时，refillRate=2 token/s；请求突刺会消耗桶内 token，耗尽后只能按 2 次/秒继续通过。
 func (c *Cache) checkLimit(ctx context.Context, key string, limit int64) error {
-	capacity := limit
-	refillRate := float64(limit) / rateLimitWindow.Seconds()
-	nowMillis := time.Now().UnixMilli()
-	ttlSeconds := int(math.Ceil(rateLimitWindow.Seconds() * 2))
+	capacity := limit                                           //令牌桶最大容量 = 120
+	refillRate := float64(limit) / rateLimitWindow.Seconds()    //每秒补充2个token; rateLimitWindow 是一分钟，加上Seconds() 就是60秒，120/60=2
+	nowMillis := time.Now().UnixMilli()                         //获取当前时间戳（毫秒）。
+	ttlSeconds := int(math.Ceil(rateLimitWindow.Seconds() * 2)) // rateLimitWindow.Seconds()1分钟是60秒，乘以2就是120秒，向上取整就是120秒，也就是2分钟。这个 TTL 是为了在没有请求时自动清理 Redis 中的限流状态，避免占用过多内存。
 
 	allowed, err := c.client.Eval(ctx, PersistenceRedisPackage.TokenBucketRateLimitLuaScript, []string{key}, capacity, refillRate, nowMillis, rateLimitRequestCost, ttlSeconds).Int64()
 	if err != nil {
