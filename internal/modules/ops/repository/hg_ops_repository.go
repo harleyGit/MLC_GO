@@ -3,11 +3,19 @@ package OpsRepositoryPackage
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Repository 定义运维管理数据访问接口
 type Repository struct {
-	db *sql.DB
+	db                 *sql.DB
+	adminEmailOnce     sync.Once
+	adminEmailExists   bool
+	adminEmailCheckErr error
 }
 
 // NewRepository 创建运维管理数据访问实例
@@ -17,26 +25,244 @@ func NewRepository(db *sql.DB) *Repository {
 
 // CreateRole 创建角色
 func (r *Repository) CreateRole(ctx context.Context, name, description string) (string, error) {
-	// TODO: 实现创建角色逻辑
-	return "", nil
+	res, err := r.db.ExecContext(ctx, "INSERT INTO `role` (`name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, 1, NOW(), NOW())", name, description)
+	if err != nil {
+		return "", err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(id, 10), nil
 }
 
-// GetRoleList 获取角色列表
-func (r *Repository) GetRoleList(ctx context.Context, page, pageSize int) ([]map[string]interface{}, int64, error) {
-	// TODO: 实现获取角色列表逻辑
-	return nil, 0, nil
+// GetRoleList 获取角色列表。
+// 千万级表约束：
+// - 使用 idx_status_id(status,id) 复合索引，查询条件固定为 status=1，并按 id 倒序做游标翻页。
+// - cursor=0 表示第一页；cursor>0 时查询 id < cursor，避免 OFFSET 深分页扫描和回表丢弃大量行。
+// - 不执行 COUNT(*)，Total 返回 -1 表示大表场景不做实时总数统计，避免统计锁竞争和 Buffer Pool 压力。
+// - 每次最多取 pageSize+1 条判断 hasMore，业务返回仍限制为 pageSize 条。
+func (r *Repository) GetRoleList(ctx context.Context, cursor int64, pageSize int) ([]map[string]interface{}, int64, bool, error) {
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+	queryLimit := pageSize + 1
+	querySQL := "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 ORDER BY `id` DESC LIMIT ?"
+	args := []interface{}{queryLimit}
+	if cursor > 0 {
+		querySQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+		args = []interface{}{cursor, queryLimit}
+	}
+
+	rows, err := r.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+
+	list := make([]map[string]interface{}, 0, queryLimit)
+	for rows.Next() {
+		var id int64
+		var name, description string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &name, &description, &createdAt); err != nil {
+			return nil, 0, false, err
+		}
+		list = append(list, map[string]interface{}{
+			"id":          strconv.FormatInt(id, 10),
+			"idInt":       id,
+			"name":        name,
+			"description": description,
+			"createdAt":   createdAt.Format(time.RFC3339),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, false, err
+	}
+	hasMore := len(list) > pageSize
+	if hasMore {
+		list = list[:pageSize]
+	}
+	return list, -1, hasMore, nil
+}
+
+// SearchAdminUsers 按管理员 ID、姓名、昵称、邮箱、手机号搜索管理员。
+// 千万级表约束：
+// - id 使用主键等值查询；mobile 使用唯一索引 idx_mobile 的前缀 LIKE；name/nick_name 使用 idx_name/idx_nick_name 的前缀 LIKE。
+// - email 是新迁移字段：当前库可能尚未执行加列迁移，所以先检测列是否存在；存在时才纳入 idx_email 前缀搜索和 SELECT 字段。
+// - 不支持 "%keyword%" 包含查询，避免 BTree 索引失效导致全表扫描。
+// - 强制 limit 最大 20，且不额外执行 COUNT(*)，避免后台搜索接口在高并发下返回大结果集或触发大范围统计。
+func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit int) ([]map[string]interface{}, int64, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return []map[string]interface{}{}, 0, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+
+	conditions := []string{"`is_delete` = 0"}
+	args := make([]interface{}, 0, 5)
+	hasEmail := r.hasAdminUserEmailColumn(ctx)
+	likePrefix := keyword + "%"
+	if id, err := strconv.ParseInt(keyword, 10, 64); err == nil && id > 0 {
+		conditions = append(conditions, "`id` = ?")
+		args = append(args, id)
+	} else if hasEmail {
+		conditions = append(conditions, "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)")
+		args = append(args, likePrefix, likePrefix, likePrefix, likePrefix)
+	} else {
+		conditions = append(conditions, "(`name` LIKE ? OR `nick_name` LIKE ? OR `mobile` LIKE ?)")
+		args = append(args, likePrefix, likePrefix, likePrefix)
+	}
+
+	whereSQL := strings.Join(conditions, " AND ")
+	selectSQL := "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user`"
+	if hasEmail {
+		selectSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
+	}
+	querySQL := fmt.Sprintf("%s WHERE %s ORDER BY `id` DESC LIMIT ?", selectSQL, whereSQL)
+	queryArgs := append(args, limit)
+	rows, err := r.db.QueryContext(ctx, querySQL, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	list := make([]map[string]interface{}, 0, limit)
+	for rows.Next() {
+		var id int64
+		var name, nickName, mobile string
+		var email sql.NullString
+		var status int
+		if hasEmail {
+			if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
+				return nil, 0, err
+			}
+		} else {
+			if err := rows.Scan(&id, &name, &nickName, &mobile, &status); err != nil {
+				return nil, 0, err
+			}
+		}
+		list = append(list, map[string]interface{}{
+			"id":       strconv.FormatInt(id, 10),
+			"name":     name,
+			"nickName": nickName,
+			"email":    email.String,
+			"mobile":   mobile,
+			"status":   status,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return list, int64(len(list)), nil
+}
+
+func (r *Repository) hasAdminUserEmailColumn(ctx context.Context) bool {
+	r.adminEmailOnce.Do(func() {
+		var exists int
+		// 这里查询的是 MySQL 的元数据表 INFORMATION_SCHEMA.COLUMNS，不是扫描业务表 admin_user。
+		// 作用：判断当前连接的数据库中，admin_user 表是否已经存在 email 字段。
+		// SQL 含义：
+		// - INFORMATION_SCHEMA.COLUMNS：MySQL 内置的数据字典表，记录每个库、每张表、每个字段的结构信息。
+		// - TABLE_SCHEMA = DATABASE()：只检查当前连接正在使用的数据库，避免同一 MySQL 实例里其他库的同名表干扰判断。
+		// - TABLE_NAME = 'admin_user'：只检查运营管理员表。
+		// - COLUMN_NAME = 'email'：只判断 email 字段是否存在。
+		// - COUNT(*)：字段存在时返回 1，不存在时返回 0。
+		//
+		// 为什么要这样做：email 是后续补充的迁移字段，部分环境可能还没执行 ALTER TABLE。
+		// 如果直接 SELECT `email` 或 WHERE `email` LIKE ?，旧库会报 MySQL 1054 Unknown column。
+		// 先检测字段是否存在，再动态决定 SearchAdminUsers 是否拼接 email 查询，可以让旧库继续按 id/name/nick_name/mobile 搜索。
+		//
+		// 千万级表约束：这个检查只访问系统元数据，不读取 admin_user 业务数据；并且用 sync.Once 缓存结果，
+		// 每个 Repository 实例最多执行一次，避免高并发搜索时反复访问 INFORMATION_SCHEMA。
+		// 注意：如果服务运行中手工新增 email 字段，需要重启服务后 sync.Once 缓存才会刷新。
+		r.adminEmailCheckErr = r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_user' AND COLUMN_NAME = 'email'").Scan(&exists)
+		r.adminEmailExists = r.adminEmailCheckErr == nil && exists > 0
+	})
+	return r.adminEmailExists
 }
 
 // AssignUserRoles 分配用户角色
 func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs []string) error {
-	// TODO: 实现分配用户角色逻辑
-	return nil
+	adminUserID, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil || adminUserID <= 0 {
+		return fmt.Errorf("invalid userID")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 千万级关联表约束：admin_user_role 通过唯一索引 (admin_user_id, role_id) 命中指定管理员；
+	// 单个管理员角色数很小，采用同一事务内先删后批量插入，保证提交后关联集合完整替换。
+	if _, err := tx.ExecContext(ctx, "DELETE FROM `admin_user_role` WHERE `admin_user_id` = ?", adminUserID); err != nil {
+		return err
+	}
+
+	if len(roleIDs) == 0 {
+		return tx.Commit()
+	}
+
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?, ?, NOW(), 0)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	seen := make(map[int64]struct{}, len(roleIDs))
+	for _, roleIDText := range roleIDs {
+		roleID, err := strconv.ParseInt(roleIDText, 10, 64)
+		if err != nil || roleID <= 0 {
+			return fmt.Errorf("invalid roleID")
+		}
+		if _, ok := seen[roleID]; ok {
+			continue
+		}
+		seen[roleID] = struct{}{}
+		if _, err := stmt.ExecContext(ctx, adminUserID, roleID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetUserRoles 获取用户角色
 func (r *Repository) GetUserRoles(ctx context.Context, userID string) ([]map[string]interface{}, error) {
-	// TODO: 实现获取用户角色逻辑
-	return nil, nil
+	adminUserID, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil || adminUserID <= 0 {
+		return nil, fmt.Errorf("invalid userID")
+	}
+
+	rows, err := r.db.QueryContext(ctx, "SELECT r.`id`, r.`name`, r.`description`, r.`create_at` FROM `admin_user_role` aur INNER JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 WHERE aur.`admin_user_id` = ? ORDER BY r.`id` DESC", adminUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := make([]map[string]interface{}, 0, 8)
+	for rows.Next() {
+		var id int64
+		var name, description string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &name, &description, &createdAt); err != nil {
+			return nil, err
+		}
+		list = append(list, map[string]interface{}{
+			"id":          strconv.FormatInt(id, 10),
+			"name":        name,
+			"description": description,
+			"createdAt":   createdAt.Format(time.RFC3339),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 // CreateMenu 创建菜单

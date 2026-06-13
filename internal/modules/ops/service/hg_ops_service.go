@@ -1,12 +1,23 @@
 package OpsServicePackage
 
 import (
+	OpsCachePackage "MLC_GO/internal/modules/ops/cache"
 	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
-	OpsCachePackage "MLC_GO/internal/modules/ops/cache"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"strings"
+)
+
+const (
+	defaultOpsPageSize       = 20
+	maxOpsPageSize           = 100
+	defaultAdminSearchLimit  = 10
+	maxAdminSearchLimit      = 20
+	maxAdminSearchKeywordLen = 64
 )
 
 // Service 定义运维管理业务逻辑
@@ -23,26 +34,113 @@ func NewService(repo *OpsRepositoryPackage.Repository, cache *OpsCachePackage.Ca
 
 // CreateRole 创建角色
 func (s *Service) CreateRole(ctx context.Context, userID string, req OpsDtoPackage.CreateRoleRequest) (*OpsDtoPackage.CreateRoleResponse, error) {
-	// TODO: 实现创建角色逻辑
-	return nil, nil
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("角色名称不能为空")
+	}
+	description := strings.TrimSpace(req.Description)
+	id, err := s.repo.CreateRole(ctx, name, description)
+	if err != nil {
+		return nil, err
+	}
+	return &OpsDtoPackage.CreateRoleResponse{ID: id, Name: name, Description: description}, nil
 }
 
-// GetRoleList 获取角色列表
-func (s *Service) GetRoleList(ctx context.Context, page, pageSize int) (*OpsDtoPackage.RoleListResponse, error) {
-	// TODO: 实现获取角色列表逻辑
-	return nil, nil
+// GetRoleList 获取角色列表。
+// 千万级表约束：角色列表使用 cursor 翻页，cursor 是上一页最后一条角色 id；cursor=0 表示首页。
+// Service 只限制 pageSize 上限并透传 cursor，不提供实时 total，避免 Repository 执行 COUNT/OFFSET。
+func (s *Service) GetRoleList(ctx context.Context, cursor int64, pageSize int) (*OpsDtoPackage.RoleListResponse, error) {
+	if cursor < 0 {
+		cursor = 0
+	}
+	if pageSize <= 0 {
+		pageSize = defaultOpsPageSize
+	}
+	if pageSize > maxOpsPageSize {
+		pageSize = maxOpsPageSize
+	}
+	items, total, hasMore, err := s.repo.GetRoleList(ctx, cursor, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	list := make([]OpsDtoPackage.RoleItem, 0, len(items))
+	nextCursor := ""
+	for _, item := range items {
+		list = append(list, OpsDtoPackage.RoleItem{
+			ID:          toString(item["id"]),
+			Name:        toString(item["name"]),
+			Description: toString(item["description"]),
+			CreatedAt:   toString(item["createdAt"]),
+		})
+		nextCursor = toString(item["id"])
+	}
+	return &OpsDtoPackage.RoleListResponse{Total: total, List: list, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+// SearchAdminUsers 搜索可分配角色的管理员。
+// 千万级表约束：Service 层限制关键词长度和返回条数，Repository 层只做主键/唯一键/前缀索引查询，避免无界模糊查询拖垮 admin_user 表。
+func (s *Service) SearchAdminUsers(ctx context.Context, keyword string, limit int) (*OpsDtoPackage.AdminUserSearchResponse, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return &OpsDtoPackage.AdminUserSearchResponse{Total: 0, List: []OpsDtoPackage.AdminUserItem{}}, nil
+	}
+	if len([]rune(keyword)) > maxAdminSearchKeywordLen {
+		return nil, errors.New("搜索关键词过长")
+	}
+	if limit <= 0 {
+		limit = defaultAdminSearchLimit
+	}
+	if limit > maxAdminSearchLimit {
+		limit = maxAdminSearchLimit
+	}
+	items, total, err := s.repo.SearchAdminUsers(ctx, keyword, limit)
+	if err != nil {
+		return nil, err
+	}
+	list := make([]OpsDtoPackage.AdminUserItem, 0, len(items))
+	for _, item := range items {
+		list = append(list, OpsDtoPackage.AdminUserItem{
+			ID:       toString(item["id"]),
+			Name:     toString(item["name"]),
+			NickName: toString(item["nickName"]),
+			Email:    toString(item["email"]),
+			Mobile:   toString(item["mobile"]),
+			Status:   toInt(item["status"]),
+		})
+	}
+	return &OpsDtoPackage.AdminUserSearchResponse{Total: total, List: list}, nil
 }
 
 // AssignUserRoles 分配用户角色
 func (s *Service) AssignUserRoles(ctx context.Context, userID string, req OpsDtoPackage.AssignUserRolesRequest) error {
-	// TODO: 实现分配用户角色逻辑
-	return nil
+	if strings.TrimSpace(req.UserID) == "" {
+		return errors.New("缺少用户ID")
+	}
+	if len(req.RoleIDs) == 0 {
+		return errors.New("请至少选择一个角色")
+	}
+	if len(req.RoleIDs) > 50 {
+		return errors.New("单次分配角色数量过多")
+	}
+	return s.repo.AssignUserRoles(ctx, req.UserID, req.RoleIDs)
 }
 
 // GetUserRoles 获取用户角色
 func (s *Service) GetUserRoles(ctx context.Context, userID string) (*OpsDtoPackage.UserRoleResponse, error) {
-	// TODO: 实现获取用户角色逻辑
-	return nil, nil
+	items, err := s.repo.GetUserRoles(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	roles := make([]OpsDtoPackage.RoleItem, 0, len(items))
+	for _, item := range items {
+		roles = append(roles, OpsDtoPackage.RoleItem{
+			ID:          toString(item["id"]),
+			Name:        toString(item["name"]),
+			Description: toString(item["description"]),
+			CreatedAt:   toString(item["createdAt"]),
+		})
+	}
+	return &OpsDtoPackage.UserRoleResponse{UserID: userID, Roles: roles}, nil
 }
 
 // CreateMenu 创建菜单
@@ -79,4 +177,32 @@ func (s *Service) UploadFile(ctx context.Context, userID string, file io.Reader,
 func (s *Service) GetFileList(ctx context.Context, page, pageSize int) (*OpsDtoPackage.FileListResponse, error) {
 	// TODO: 实现获取文件列表逻辑
 	return nil, nil
+}
+
+func toString(v interface{}) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case []byte:
+		return string(val)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(val)
+	}
+}
+
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case int32:
+		return int(val)
+	case uint8:
+		return int(val)
+	default:
+		return 0
+	}
 }

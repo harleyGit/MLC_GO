@@ -29,5 +29,6 @@ DROP TABLE IF EXISTS `user`;
 -- 删除权限体系模块表（先删关联表，再删主表）
 DROP TABLE IF EXISTS `admin_user_role`;
 DROP TABLE IF EXISTS `role_permission`;
+DROP TABLE IF EXISTS `role`;
 DROP TABLE IF EXISTS `admin_user`;
 DROP TABLE IF EXISTS `permission`;

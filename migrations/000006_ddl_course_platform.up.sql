@@ -37,6 +37,7 @@ CREATE TABLE `admin_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '管理员ID，主键自增',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员姓名',
   `nick_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员昵称',
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '邮箱，用于搜索和通知',
   `mobile` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '手机号，用于登录',
   `lark_open_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '飞书OpenID，用于飞书登录',
   `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '登录密码，加密存储',
@@ -48,9 +49,27 @@ CREATE TABLE `admin_user` (
   `sex` tinyint NOT NULL DEFAULT '3' COMMENT '性别: 1=男 2=女 3=其他',
   `is_delete` tinyint NOT NULL DEFAULT '0' COMMENT '软删除标记: 0=正常 1=已删除',
   PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `idx_email` (`email`) USING BTREE COMMENT '邮箱唯一索引',
   UNIQUE KEY `idx_mobile` (`mobile`) USING BTREE COMMENT '手机号唯一索引',
-  KEY `idx_name` (`name`) USING BTREE COMMENT '姓名索引'
+  KEY `idx_name` (`name`) USING BTREE COMMENT '姓名索引',
+  KEY `idx_nick_name` (`nick_name`) USING BTREE COMMENT '昵称索引，用于后台管理员搜索'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='管理员表 - 存储后台管理员信息';
+
+-- 角色表
+-- 存储后台角色定义，供 admin_user_role 和 role_permission 关联使用
+CREATE TABLE `role` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '角色ID，主键自增',
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '角色名称',
+  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '角色描述',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
+  `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `create_by` bigint NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `update_by` bigint NOT NULL DEFAULT '0' COMMENT '更新人ID',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uidx_name` (`name`) USING BTREE COMMENT '角色名称唯一索引',
+  KEY `idx_status_id` (`status`,`id`) USING BTREE COMMENT '角色列表分页索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='角色表 - 存储后台角色定义';
 
 -- 角色权限关联表
 -- 存储角色与权限的对应关系

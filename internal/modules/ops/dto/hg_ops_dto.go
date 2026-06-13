@@ -16,8 +16,10 @@ type CreateRoleResponse struct {
 
 // RoleListResponse 角色列表响应
 type RoleListResponse struct {
-	Total int64         `json:"total"`
-	List  []RoleItem    `json:"list"`
+	Total      int64      `json:"total"`
+	List       []RoleItem `json:"list"`
+	NextCursor string     `json:"nextCursor"`
+	HasMore    bool       `json:"hasMore"`
 }
 
 // RoleItem 角色项
@@ -28,10 +30,27 @@ type RoleItem struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// AdminUserSearchResponse 管理员搜索响应。
+// 说明：admin_user 表当前没有 email 字段，Email 先保留为空字符串，便于前端统一展示列结构。
+type AdminUserSearchResponse struct {
+	Total int64           `json:"total"`
+	List  []AdminUserItem `json:"list"`
+}
+
+// AdminUserItem 管理员搜索结果项。
+type AdminUserItem struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	NickName string `json:"nickName"`
+	Email    string `json:"email"`
+	Mobile   string `json:"mobile"`
+	Status   int    `json:"status"`
+}
+
 // AssignUserRolesRequest 分配用户角色请求
 type AssignUserRolesRequest struct {
-	UserID   string   `json:"userId"`
-	RoleIDs  []string `json:"roleIds"`
+	UserID  string   `json:"userId"`
+	RoleIDs []string `json:"roleIds"`
 }
 
 // UserRoleResponse 用户角色响应
@@ -84,9 +103,9 @@ type AssignRolePermissionsRequest struct {
 
 // RolePermissionResponse 角色权限响应
 type RolePermissionResponse struct {
-	RoleID      string     `json:"roleId"`
-	MenuIDs     []string   `json:"menuIds"`
-	Permissions []string   `json:"permissions"`
+	RoleID      string   `json:"roleId"`
+	MenuIDs     []string `json:"menuIds"`
+	Permissions []string `json:"permissions"`
 }
 
 // UploadFileResponse 上传文件响应

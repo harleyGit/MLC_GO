@@ -56,13 +56,34 @@ func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
 
-	resp, err := h.service.GetRoleList(r.Context(), page, pageSize)
+	resp, err := h.service.GetRoleList(r.Context(), cursor, pageSize)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
+// SearchAdminUsers 搜索可分配角色的管理员。
+func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
+	_, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	keyword := r.URL.Query().Get("keyword")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	resp, err := h.service.SearchAdminUsers(r.Context(), keyword, limit)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
 		return
 	}
 
