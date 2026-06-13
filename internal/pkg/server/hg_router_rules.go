@@ -222,6 +222,22 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			NeedAuth: true,
 		},
 		{
+			Path:    "/admins/candidates",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: true,
+		},
+		{
+			Path:    "/admins",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodPost: true,
+			},
+			NeedAuth: true,
+		},
+		{
 			Path:    "/users/search",
 			Version: "v1",
 			Methods: map[string]bool{

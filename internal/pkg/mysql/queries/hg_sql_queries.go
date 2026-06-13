@@ -97,6 +97,22 @@ const (
 	// 仅在 hasAdminUserEmailColumn 检测到 admin_user.email 存在后使用；email 可命中 idx_email 前缀搜索。
 	SelectOpsAdminUserWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
 
+	// SelectOpsAdminUserListFirstWithoutEmailSQL 获取管理员首页列表，不引用 email 字段。
+	// 千万级表约束：使用 is_delete 过滤和 id 倒序 cursor 分页，建议 admin_user 具备 (is_delete,id) 复合索引；不使用 COUNT/OFFSET。
+	SelectOpsAdminUserListFirstWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserListByCursorWithoutEmailSQL 获取管理员下一页列表，不引用 email 字段。
+	// cursor 是上一页最后一条 admin_user.id；WHERE is_delete=0 AND id<? 避免深分页扫描和大量回表丢弃。
+	SelectOpsAdminUserListByCursorWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserListFirstWithEmailSQL 获取管理员首页列表，包含 email 字段。
+	// 仅在 admin_user.email 字段存在时使用；分页策略与无 email 版本一致，不做实时总数统计。
+	SelectOpsAdminUserListFirstWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserListByCursorWithEmailSQL 获取管理员下一页列表，包含 email 字段。
+	// cursor 采用自增主键 id，ORDER BY id DESC 保证分页稳定；建议建立 (is_delete,id) 索引支撑大表查询。
+	SelectOpsAdminUserListByCursorWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+
 	// OpsAdminUserActiveConditionSQL 管理员搜索的基础条件。
 	// is_delete=0 必须始终存在，避免搜索结果包含软删除管理员。
 	OpsAdminUserActiveConditionSQL = "`is_delete` = 0"
@@ -112,6 +128,54 @@ const (
 	// OpsAdminUserKeywordWithEmailConditionSQL 管理员关键词搜索条件，包含 email。
 	// email 字段存在时启用；name/nick_name/email/mobile 均使用前缀 LIKE，避免索引失效。
 	OpsAdminUserKeywordWithEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)"
+
+	// SelectOpsAdminCandidateByIDSQL 按 users.id 精确搜索添加管理员候选。
+	// 命中 users 主键；用于纯数字关键词的最高选择性查询，避免 OR 条件导致优化器误判扫描范围。
+	SelectOpsAdminCandidateByIDSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `id` = ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminCandidateByUserIDPrefixSQL 按 users.user_id 前缀搜索候选。
+	// 命中 users.user_id 唯一索引前缀；禁止 %keyword% 包含查询，避免千万级 users 表全表扫描。
+	SelectOpsAdminCandidateByUserIDPrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `user_id` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminCandidateByUserNamePrefixSQL 按 users.user_name 前缀搜索候选。
+	// 命中 users.user_name 唯一索引前缀；单字段查询后由 Repository 合并去重，避免多字段 OR 放大扫描。
+	SelectOpsAdminCandidateByUserNamePrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `user_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminCandidateByEmailPrefixSQL 按 users.email 前缀搜索候选。
+	// 命中 users.email/uk_email 唯一索引前缀；仅返回有限候选，不执行 COUNT/OFFSET。
+	SelectOpsAdminCandidateByEmailPrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `email` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminCandidateByPhonePrefixSQL 按 users.phone 前缀搜索候选。
+	// 命中 users.phone/uk_phone 唯一索引前缀；手机号搜索是添加管理员最常用路径之一。
+	SelectOpsAdminCandidateByPhonePrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// InsertOpsAdminFromUserWithEmailSQL 从 users 主键提升为 admin_user，适用于 admin_user.email 已迁移的环境。
+	// 写入使用 INSERT ... SELECT，字段来源由后端按 users.id 读取；email/mobile 唯一键防止并发重复添加。
+	InsertOpsAdminFromUserWithEmailSQL = "INSERT INTO `admin_user` (`name`, `nick_name`, `email`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), NULLIF(`email`, ''), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
+
+	// InsertOpsAdminFromUserWithoutEmailSQL 从 users 主键提升为 admin_user，兼容 admin_user.email 尚未迁移的环境。
+	// 不引用 admin_user.email，避免旧库报 MySQL 1054 Unknown column；mobile 唯一键仍负责并发重复提交保护。
+	InsertOpsAdminFromUserWithoutEmailSQL = "INSERT INTO `admin_user` (`name`, `nick_name`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
+
+	// SelectOpsAdminByMobileWithEmailSQL 按手机号读取管理员，包含 email 字段。
+	// 命中 admin_user.idx_mobile 唯一索引，用于插入重复时返回已存在管理员信息。
+	SelectOpsAdminByMobileWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAdminByMobileWithoutEmailSQL 按手机号读取管理员，不引用 email 字段。
+	// 兼容旧库 admin_user.email 缺失场景，仍命中 admin_user.idx_mobile 唯一索引。
+	SelectOpsAdminByMobileWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAdminByIDWithEmailSQL 按 admin_user.id 读取管理员，包含 email 字段。
+	// 命中主键，用于添加管理员成功后返回完整管理员信息。
+	SelectOpsAdminByIDWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAdminByIDWithoutEmailSQL 按 admin_user.id 读取管理员，不引用 email 字段。
+	// 兼容旧库 admin_user.email 缺失场景，命中主键。
+	SelectOpsAdminByIDWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsUserPhoneByIDSQL 按 users.id 读取手机号。
+	// 命中 users 主键，用于 admin_user 唯一键冲突时回查已存在管理员。
+	SelectOpsUserPhoneByIDSQL = "SELECT COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)) FROM `users` WHERE `id` = ?"
 
 	// SelectOpsTableColumnExistsSQL 检查当前库表字段是否存在。
 	// 查询 MySQL 元数据 INFORMATION_SCHEMA.COLUMNS，不扫描业务表；用于兼容灰度迁移期间字段可能缺失的环境。

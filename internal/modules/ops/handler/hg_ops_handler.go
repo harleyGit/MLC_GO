@@ -69,6 +69,28 @@ func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// GetAdminUserList 获取管理员列表。
+func (h *Handler) GetAdminUserList(w http.ResponseWriter, r *http.Request) {
+	_, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+
+	resp, err := h.service.GetAdminUserList(r.Context(), cursor, pageSize)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
 // SearchAdminUsers 搜索可分配角色的管理员。
 func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
@@ -84,6 +106,53 @@ func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
+// SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
+func (h *Handler) SearchAdminCandidates(w http.ResponseWriter, r *http.Request) {
+	_, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	keyword := r.URL.Query().Get("keyword")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	resp, err := h.service.SearchAdminCandidates(r.Context(), keyword, limit)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
+// AddAdmin 添加管理员。
+func (h *Handler) AddAdmin(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	var req OpsDtoPackage.AddAdminRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		return
+	}
+
+	resp, err := h.service.AddAdmin(r.Context(), userID, req)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
 		return
 	}
 

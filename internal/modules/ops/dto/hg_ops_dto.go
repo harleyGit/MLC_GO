@@ -37,6 +37,50 @@ type AdminUserSearchResponse struct {
 	List  []AdminUserItem `json:"list"`
 }
 
+// AdminUserListResponse 管理员列表响应。
+// 调用场景：运维后台管理员列表页默认展示；使用 admin_user.id cursor 分页，Total=-1 表示不做实时 COUNT。
+type AdminUserListResponse struct {
+	Total      int64           `json:"total"`
+	List       []AdminUserItem `json:"list"`
+	NextCursor string          `json:"nextCursor"`
+	HasMore    bool            `json:"hasMore"`
+}
+
+// AdminCandidateSearchResponse 添加管理员候选用户搜索响应。
+// 调用场景：运维后台添加管理员时，先从注册用户 users 表搜索候选，再确认提升为 admin_user。
+type AdminCandidateSearchResponse struct {
+	Total int64                `json:"total"`
+	List  []AdminCandidateItem `json:"list"`
+}
+
+// AdminCandidateItem 添加管理员候选用户项。
+// 字段来源：users 表，ID 对应 users.id；UserID 对应业务 users.user_id。
+type AdminCandidateItem struct {
+	ID       string `json:"id"`
+	UserID   string `json:"userId"`
+	UserName string `json:"userName"`
+	NickName string `json:"nickName"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+}
+
+// AddAdminRequest 添加管理员请求。
+// UserID 对应候选用户 users.id，后端按该主键读取用户资料并写入 admin_user，避免前端传入可篡改的管理员字段。
+type AddAdminRequest struct {
+	UserID string `json:"userId"`
+}
+
+// AddAdminResponse 添加管理员响应。
+// ID 是新创建或已存在的 admin_user.id。
+type AddAdminResponse struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	NickName string `json:"nickName"`
+	Email    string `json:"email"`
+	Mobile   string `json:"mobile"`
+	Status   int    `json:"status"`
+}
+
 // AdminUserItem 管理员搜索结果项。
 type AdminUserItem struct {
 	ID       string `json:"id"`

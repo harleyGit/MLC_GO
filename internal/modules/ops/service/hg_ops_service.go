@@ -77,6 +77,38 @@ func (s *Service) GetRoleList(ctx context.Context, cursor int64, pageSize int) (
 	return &OpsDtoPackage.RoleListResponse{Total: total, List: list, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
+// GetAdminUserList 获取管理员列表。
+// 千万级表约束：列表页使用 admin_user.id cursor 翻页，Service 只校验 cursor/pageSize，不提供实时 total。
+func (s *Service) GetAdminUserList(ctx context.Context, cursor int64, pageSize int) (*OpsDtoPackage.AdminUserListResponse, error) {
+	if cursor < 0 {
+		cursor = 0
+	}
+	if pageSize <= 0 {
+		pageSize = defaultOpsPageSize
+	}
+	if pageSize > maxOpsPageSize {
+		pageSize = maxOpsPageSize
+	}
+	items, total, hasMore, err := s.repo.GetAdminUserList(ctx, cursor, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	list := make([]OpsDtoPackage.AdminUserItem, 0, len(items))
+	nextCursor := ""
+	for _, item := range items {
+		list = append(list, OpsDtoPackage.AdminUserItem{
+			ID:       toString(item["id"]),
+			Name:     toString(item["name"]),
+			NickName: toString(item["nickName"]),
+			Email:    toString(item["email"]),
+			Mobile:   toString(item["mobile"]),
+			Status:   toInt(item["status"]),
+		})
+		nextCursor = toString(item["id"])
+	}
+	return &OpsDtoPackage.AdminUserListResponse{Total: total, List: list, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
 // SearchAdminUsers 搜索可分配角色的管理员。
 // 千万级表约束：Service 层限制关键词长度和返回条数，Repository 层只做主键/唯一键/前缀索引查询，避免无界模糊查询拖垮 admin_user 表。
 func (s *Service) SearchAdminUsers(ctx context.Context, keyword string, limit int) (*OpsDtoPackage.AdminUserSearchResponse, error) {
@@ -109,6 +141,60 @@ func (s *Service) SearchAdminUsers(ctx context.Context, keyword string, limit in
 		})
 	}
 	return &OpsDtoPackage.AdminUserSearchResponse{Total: total, List: list}, nil
+}
+
+// SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
+// 千万级表约束：只允许有限长度关键词和有限返回条数，Repository 仅做主键/唯一键/前缀索引查询。
+func (s *Service) SearchAdminCandidates(ctx context.Context, keyword string, limit int) (*OpsDtoPackage.AdminCandidateSearchResponse, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return &OpsDtoPackage.AdminCandidateSearchResponse{Total: 0, List: []OpsDtoPackage.AdminCandidateItem{}}, nil
+	}
+	if len([]rune(keyword)) > maxAdminSearchKeywordLen {
+		return nil, errors.New("搜索关键词过长")
+	}
+	if limit <= 0 {
+		limit = defaultAdminSearchLimit
+	}
+	if limit > maxAdminSearchLimit {
+		limit = maxAdminSearchLimit
+	}
+	items, total, err := s.repo.SearchAdminCandidates(ctx, keyword, limit)
+	if err != nil {
+		return nil, err
+	}
+	list := make([]OpsDtoPackage.AdminCandidateItem, 0, len(items))
+	for _, item := range items {
+		list = append(list, OpsDtoPackage.AdminCandidateItem{
+			ID:       toString(item["id"]),
+			UserID:   toString(item["userId"]),
+			UserName: toString(item["userName"]),
+			NickName: toString(item["nickName"]),
+			Email:    toString(item["email"]),
+			Phone:    toString(item["phone"]),
+		})
+	}
+	return &OpsDtoPackage.AdminCandidateSearchResponse{Total: total, List: list}, nil
+}
+
+// AddAdmin 将注册用户添加为管理员。
+func (s *Service) AddAdmin(ctx context.Context, operatorID string, req OpsDtoPackage.AddAdminRequest) (*OpsDtoPackage.AddAdminResponse, error) {
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		return nil, errors.New("缺少用户ID")
+	}
+	item, err := s.repo.AddAdminFromUser(ctx, operatorID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &OpsDtoPackage.AddAdminResponse{
+		ID:       toString(item["id"]),
+		Name:     toString(item["name"]),
+		NickName: toString(item["nickName"]),
+		Email:    toString(item["email"]),
+		Mobile:   toString(item["mobile"]),
+		Status:   toInt(item["status"]),
+	}, nil
 }
 
 // AssignUserRoles 分配用户角色

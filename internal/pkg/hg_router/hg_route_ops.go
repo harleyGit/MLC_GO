@@ -12,6 +12,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		return []RouteSpec{
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/list", true, "获取管理员列表", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/candidates", true, "搜索添加管理员候选用户", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/admins", true, "添加管理员", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/search", true, "搜索管理员用户", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles/list", true, "获取用户角色", nil),
@@ -27,6 +30,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 	return []RouteSpec{
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", opsHandler.CreateRole),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", opsHandler.GetRoleList),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/list", true, "获取管理员列表", opsHandler.GetAdminUserList),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/candidates", true, "搜索添加管理员候选用户", opsHandler.SearchAdminCandidates),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/admins", true, "添加管理员", opsHandler.AddAdmin),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/search", true, "搜索管理员用户", opsHandler.SearchAdminUsers),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", opsHandler.AssignUserRoles),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles/list", true, "获取用户角色", opsHandler.GetUserRoles),

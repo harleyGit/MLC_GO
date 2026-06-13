@@ -4,11 +4,14 @@ import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // Repository 定义运维管理数据访问接口
@@ -75,6 +78,68 @@ func (r *Repository) GetRoleList(ctx context.Context, cursor int64, pageSize int
 			"name":        name,
 			"description": description,
 			"createdAt":   createdAt.Format(time.RFC3339),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, false, err
+	}
+	hasMore := len(list) > pageSize
+	if hasMore {
+		list = list[:pageSize]
+	}
+	return list, -1, hasMore, nil
+}
+
+// GetAdminUserList 获取管理员列表。
+// 千万级表约束：使用 admin_user.id 倒序 cursor 分页，cursor=0 表示首页，cursor>0 查询 id<cursor。
+// 不执行 COUNT(*) 和 OFFSET；每次多取 1 条判断 hasMore。建议 admin_user 建立 (is_delete,id) 复合索引支撑软删除过滤和稳定排序。
+func (r *Repository) GetAdminUserList(ctx context.Context, cursor int64, pageSize int) ([]map[string]interface{}, int64, bool, error) {
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+	queryLimit := pageSize + 1
+	hasEmail := r.hasAdminUserEmailColumn(ctx)
+	querySQL := SQLQueriesPackage.SelectOpsAdminUserListFirstWithoutEmailSQL
+	args := []interface{}{queryLimit}
+	if cursor > 0 {
+		querySQL = SQLQueriesPackage.SelectOpsAdminUserListByCursorWithoutEmailSQL
+		args = []interface{}{cursor, queryLimit}
+	}
+	if hasEmail {
+		querySQL = SQLQueriesPackage.SelectOpsAdminUserListFirstWithEmailSQL
+		if cursor > 0 {
+			querySQL = SQLQueriesPackage.SelectOpsAdminUserListByCursorWithEmailSQL
+		}
+	}
+
+	rows, err := r.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+
+	list := make([]map[string]interface{}, 0, queryLimit)
+	for rows.Next() {
+		var id int64
+		var name, nickName, mobile string
+		var email sql.NullString
+		var status int
+		if hasEmail {
+			if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
+				return nil, 0, false, err
+			}
+		} else {
+			if err := rows.Scan(&id, &name, &nickName, &mobile, &status); err != nil {
+				return nil, 0, false, err
+			}
+		}
+		list = append(list, map[string]interface{}{
+			"id":       strconv.FormatInt(id, 10),
+			"name":     name,
+			"nickName": nickName,
+			"email":    email.String,
+			"mobile":   mobile,
+			"status":   status,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -158,6 +223,175 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 		return nil, 0, err
 	}
 	return list, int64(len(list)), nil
+}
+
+// SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
+// 千万级表约束：避免多字段 OR；按 users.id 主键和 user_id/user_name/email/phone 唯一索引分别小范围查询，再在内存合并去重。
+func (r *Repository) SearchAdminCandidates(ctx context.Context, keyword string, limit int) ([]map[string]interface{}, int64, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return []map[string]interface{}{}, 0, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+
+	list := make([]map[string]interface{}, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	appendRows := func(rows *sql.Rows) error {
+		defer rows.Close()
+		for rows.Next() {
+			item, err := scanAdminCandidateRow(rows)
+			if err != nil {
+				return err
+			}
+			id := item["id"].(string)
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			list = append(list, item)
+			if len(list) >= limit {
+				break
+			}
+		}
+		return rows.Err()
+	}
+
+	if id, err := strconv.ParseInt(keyword, 10, 64); err == nil && id > 0 {
+		rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsAdminCandidateByIDSQL, id, limit)
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := appendRows(rows); err != nil {
+			return nil, 0, err
+		}
+	}
+	if len(list) >= limit {
+		return list, int64(len(list)), nil
+	}
+
+	likePrefix := keyword + "%"
+	queries := []string{
+		SQLQueriesPackage.SelectOpsAdminCandidateByUserIDPrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminCandidateByUserNamePrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminCandidateByEmailPrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminCandidateByPhonePrefixSQL,
+	}
+	for _, querySQL := range queries {
+		if len(list) >= limit {
+			break
+		}
+		rows, err := r.db.QueryContext(ctx, querySQL, likePrefix, limit-len(list))
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := appendRows(rows); err != nil {
+			return nil, 0, err
+		}
+	}
+	return list, int64(len(list)), nil
+}
+
+func scanAdminCandidateRow(rows *sql.Rows) (map[string]interface{}, error) {
+	var id int64
+	var userID, userName, nickName, email, phone sql.NullString
+	if err := rows.Scan(&id, &userID, &userName, &nickName, &email, &phone); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"id":       strconv.FormatInt(id, 10),
+		"userId":   userID.String,
+		"userName": userName.String,
+		"nickName": nickName.String,
+		"email":    email.String,
+		"phone":    phone.String,
+	}, nil
+}
+
+// AddAdminFromUser 将注册用户添加为管理员。
+// 写入路径使用 users.id 主键定位候选用户，admin_user 的 email/mobile 唯一索引负责并发重复提交保护。
+func (r *Repository) AddAdminFromUser(ctx context.Context, operatorID, userID string) (map[string]interface{}, error) {
+	userIDInt, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
+	if err != nil || userIDInt <= 0 {
+		return nil, fmt.Errorf("invalid userID")
+	}
+	operatorIDInt, _ := strconv.ParseInt(strings.TrimSpace(operatorID), 10, 64)
+
+	insertSQL := SQLQueriesPackage.InsertOpsAdminFromUserWithoutEmailSQL
+	if r.hasAdminUserEmailColumn(ctx) {
+		insertSQL = SQLQueriesPackage.InsertOpsAdminFromUserWithEmailSQL
+	}
+
+	res, err := r.db.ExecContext(ctx, insertSQL, operatorIDInt, operatorIDInt, userIDInt)
+	if err != nil {
+		if isDuplicateKeyError(err) {
+			return r.getAdminByUserPhone(ctx, userIDInt)
+		}
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	if id <= 0 {
+		return nil, fmt.Errorf("用户不存在")
+	}
+	return r.getAdminByID(ctx, id)
+}
+
+func (r *Repository) getAdminByUserPhone(ctx context.Context, userID int64) (map[string]interface{}, error) {
+	var mobile string
+	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsUserPhoneByIDSQL, userID).Scan(&mobile); err != nil {
+		return nil, err
+	}
+	return r.getAdminByMobile(ctx, mobile)
+}
+
+func (r *Repository) getAdminByMobile(ctx context.Context, mobile string) (map[string]interface{}, error) {
+	querySQL := SQLQueriesPackage.SelectOpsAdminByMobileWithoutEmailSQL
+	if r.hasAdminUserEmailColumn(ctx) {
+		querySQL = SQLQueriesPackage.SelectOpsAdminByMobileWithEmailSQL
+	}
+	return r.scanAdminRow(r.db.QueryRowContext(ctx, querySQL, mobile), r.hasAdminUserEmailColumn(ctx))
+}
+
+func (r *Repository) getAdminByID(ctx context.Context, adminID int64) (map[string]interface{}, error) {
+	hasEmail := r.hasAdminUserEmailColumn(ctx)
+	querySQL := SQLQueriesPackage.SelectOpsAdminByIDWithoutEmailSQL
+	if hasEmail {
+		querySQL = SQLQueriesPackage.SelectOpsAdminByIDWithEmailSQL
+	}
+	return r.scanAdminRow(r.db.QueryRowContext(ctx, querySQL, adminID), hasEmail)
+}
+
+func (r *Repository) scanAdminRow(row *sql.Row, hasEmail bool) (map[string]interface{}, error) {
+	var id int64
+	var name, nickName, mobileValue string
+	var email sql.NullString
+	var status int
+	if hasEmail {
+		if err := row.Scan(&id, &name, &nickName, &email, &mobileValue, &status); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := row.Scan(&id, &name, &nickName, &mobileValue, &status); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]interface{}{
+		"id":       strconv.FormatInt(id, 10),
+		"name":     name,
+		"nickName": nickName,
+		"email":    email.String,
+		"mobile":   mobileValue,
+		"status":   status,
+	}, nil
+}
+
+func isDuplicateKeyError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return err != nil && (errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 || strings.Contains(err.Error(), "Duplicate entry"))
 }
 
 func (r *Repository) hasAdminUserEmailColumn(ctx context.Context) bool {
