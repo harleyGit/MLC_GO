@@ -72,6 +72,64 @@ const (
 // 朋友圈模块
 const ()
 
+// 运维模块
+const (
+	// InsertOpsRoleSQL 创建角色。
+	// 写入 role 表的最小字段集合；status 固定为 1，create_at/update_at 由数据库当前时间生成。
+	// 索引/约束要求：role.name 需要唯一索引 uidx_name，避免并发创建同名角色。
+	InsertOpsRoleSQL = "INSERT INTO `role` (`name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, 1, NOW(), NOW())"
+
+	// SelectOpsRoleListFirstSQL 获取角色首页列表。
+	// 千万级表约束：使用 idx_status_id(status,id) 复合索引，固定 status=1 并按 id 倒序取 pageSize+1 条。
+	// 不使用 COUNT(*)，不使用 OFFSET；多取 1 条仅用于判断 hasMore，避免深分页扫描和实时统计压力。
+	SelectOpsRoleListFirstSQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsRoleListByCursorSQL 获取角色下一页列表。
+	// cursor 是上一页最后一条 role.id；WHERE status=1 AND id < ? 可继续命中 idx_status_id(status,id)。
+	// 该写法是大表 cursor 分页，避免 LIMIT/OFFSET 在千万级数据下扫描并丢弃大量行。
+	SelectOpsRoleListByCursorSQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserWithoutEmailSQL 搜索管理员基础字段，不引用 email。
+	// 兼容旧库：部分环境 admin_user 尚未执行 email 加列迁移，使用该 SELECT 可避免 MySQL 1054 Unknown column。
+	SelectOpsAdminUserWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user`"
+
+	// SelectOpsAdminUserWithEmailSQL 搜索管理员基础字段，包含 email。
+	// 仅在 hasAdminUserEmailColumn 检测到 admin_user.email 存在后使用；email 可命中 idx_email 前缀搜索。
+	SelectOpsAdminUserWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
+
+	// OpsAdminUserActiveConditionSQL 管理员搜索的基础条件。
+	// is_delete=0 必须始终存在，避免搜索结果包含软删除管理员。
+	OpsAdminUserActiveConditionSQL = "`is_delete` = 0"
+
+	// OpsAdminUserIDConditionSQL 管理员 ID 精确搜索条件。
+	// 命中 admin_user 主键 id，适合千万级数据下的高选择性查询。
+	OpsAdminUserIDConditionSQL = "`id` = ?"
+
+	// OpsAdminUserKeywordWithoutEmailConditionSQL 管理员关键词搜索条件，不包含 email。
+	// 使用前缀 LIKE，例如 keyword%，可利用 name/nick_name/mobile 对应 BTree 索引；禁止 %keyword% 包含查询。
+	OpsAdminUserKeywordWithoutEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `mobile` LIKE ?)"
+
+	// OpsAdminUserKeywordWithEmailConditionSQL 管理员关键词搜索条件，包含 email。
+	// email 字段存在时启用；name/nick_name/email/mobile 均使用前缀 LIKE，避免索引失效。
+	OpsAdminUserKeywordWithEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)"
+
+	// SelectOpsTableColumnExistsSQL 检查当前库表字段是否存在。
+	// 查询 MySQL 元数据 INFORMATION_SCHEMA.COLUMNS，不扫描业务表；用于兼容灰度迁移期间字段可能缺失的环境。
+	SelectOpsTableColumnExistsSQL = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+
+	// DeleteOpsAdminUserRolesSQL 删除指定管理员的旧角色集合。
+	// 事务内执行；WHERE admin_user_id=? 命中 admin_user_role 唯一索引前缀，删除范围限定在单个管理员。
+	DeleteOpsAdminUserRolesSQL = "DELETE FROM `admin_user_role` WHERE `admin_user_id` = ?"
+
+	// InsertOpsAdminUserRoleSQL 插入管理员角色关联。
+	// 事务内批量执行；依赖唯一索引 (admin_user_id, role_id) 保证同一管理员不会重复绑定同一角色。
+	InsertOpsAdminUserRoleSQL = "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?, ?, NOW(), 0)"
+
+	// SelectOpsUserRolesSQL 查询指定管理员已绑定角色。
+	// WHERE aur.admin_user_id=? 命中 admin_user_role(admin_user_id,role_id) 唯一索引前缀；再按 role_id 关联 role 主键。
+	SelectOpsUserRolesSQL = "SELECT r.`id`, r.`name`, r.`description`, r.`create_at` FROM `admin_user_role` aur INNER JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 WHERE aur.`admin_user_id` = ? ORDER BY r.`id` DESC"
+)
+
 // 视频模块
 const (
 	// InsertOrUpdateVideoSubmissionSQL 创建或更新稿件记录。

@@ -1,6 +1,7 @@
 package OpsRepositoryPackage
 
 import (
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"fmt"
@@ -25,7 +26,7 @@ func NewRepository(db *sql.DB) *Repository {
 
 // CreateRole 创建角色
 func (r *Repository) CreateRole(ctx context.Context, name, description string) (string, error) {
-	res, err := r.db.ExecContext(ctx, "INSERT INTO `role` (`name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, 1, NOW(), NOW())", name, description)
+	res, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsRoleSQL, name, description)
 	if err != nil {
 		return "", err
 	}
@@ -47,10 +48,10 @@ func (r *Repository) GetRoleList(ctx context.Context, cursor int64, pageSize int
 		pageSize = 20
 	}
 	queryLimit := pageSize + 1
-	querySQL := "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 ORDER BY `id` DESC LIMIT ?"
+	querySQL := SQLQueriesPackage.SelectOpsRoleListFirstSQL
 	args := []interface{}{queryLimit}
 	if cursor > 0 {
-		querySQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+		querySQL = SQLQueriesPackage.SelectOpsRoleListByCursorSQL
 		args = []interface{}{cursor, queryLimit}
 	}
 
@@ -101,25 +102,25 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 		limit = 10
 	}
 
-	conditions := []string{"`is_delete` = 0"}
+	conditions := []string{SQLQueriesPackage.OpsAdminUserActiveConditionSQL}
 	args := make([]interface{}, 0, 5)
 	hasEmail := r.hasAdminUserEmailColumn(ctx)
 	likePrefix := keyword + "%"
 	if id, err := strconv.ParseInt(keyword, 10, 64); err == nil && id > 0 {
-		conditions = append(conditions, "`id` = ?")
+		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserIDConditionSQL)
 		args = append(args, id)
 	} else if hasEmail {
-		conditions = append(conditions, "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)")
+		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserKeywordWithEmailConditionSQL)
 		args = append(args, likePrefix, likePrefix, likePrefix, likePrefix)
 	} else {
-		conditions = append(conditions, "(`name` LIKE ? OR `nick_name` LIKE ? OR `mobile` LIKE ?)")
+		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserKeywordWithoutEmailConditionSQL)
 		args = append(args, likePrefix, likePrefix, likePrefix)
 	}
 
 	whereSQL := strings.Join(conditions, " AND ")
-	selectSQL := "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user`"
+	selectSQL := SQLQueriesPackage.SelectOpsAdminUserWithoutEmailSQL
 	if hasEmail {
-		selectSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
+		selectSQL = SQLQueriesPackage.SelectOpsAdminUserWithEmailSQL
 	}
 	querySQL := fmt.Sprintf("%s WHERE %s ORDER BY `id` DESC LIMIT ?", selectSQL, whereSQL)
 	queryArgs := append(args, limit)
@@ -178,7 +179,7 @@ func (r *Repository) hasAdminUserEmailColumn(ctx context.Context) bool {
 		// 千万级表约束：这个检查只访问系统元数据，不读取 admin_user 业务数据；并且用 sync.Once 缓存结果，
 		// 每个 Repository 实例最多执行一次，避免高并发搜索时反复访问 INFORMATION_SCHEMA。
 		// 注意：如果服务运行中手工新增 email 字段，需要重启服务后 sync.Once 缓存才会刷新。
-		r.adminEmailCheckErr = r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_user' AND COLUMN_NAME = 'email'").Scan(&exists)
+		r.adminEmailCheckErr = r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsTableColumnExistsSQL, "admin_user", "email").Scan(&exists)
 		r.adminEmailExists = r.adminEmailCheckErr == nil && exists > 0
 	})
 	return r.adminEmailExists
@@ -199,7 +200,7 @@ func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs
 
 	// 千万级关联表约束：admin_user_role 通过唯一索引 (admin_user_id, role_id) 命中指定管理员；
 	// 单个管理员角色数很小，采用同一事务内先删后批量插入，保证提交后关联集合完整替换。
-	if _, err := tx.ExecContext(ctx, "DELETE FROM `admin_user_role` WHERE `admin_user_id` = ?", adminUserID); err != nil {
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.DeleteOpsAdminUserRolesSQL, adminUserID); err != nil {
 		return err
 	}
 
@@ -207,7 +208,7 @@ func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs
 		return tx.Commit()
 	}
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?, ?, NOW(), 0)")
+	stmt, err := tx.PrepareContext(ctx, SQLQueriesPackage.InsertOpsAdminUserRoleSQL)
 	if err != nil {
 		return err
 	}
@@ -238,7 +239,7 @@ func (r *Repository) GetUserRoles(ctx context.Context, userID string) ([]map[str
 		return nil, fmt.Errorf("invalid userID")
 	}
 
-	rows, err := r.db.QueryContext(ctx, "SELECT r.`id`, r.`name`, r.`description`, r.`create_at` FROM `admin_user_role` aur INNER JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 WHERE aur.`admin_user_id` = ? ORDER BY r.`id` DESC", adminUserID)
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsUserRolesSQL, adminUserID)
 	if err != nil {
 		return nil, err
 	}
