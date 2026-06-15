@@ -7,8 +7,21 @@
     "conflict_policy": "conservative"
   },
   "shared_rules": {
-    "base": ["AGENTS.md", ".ai_agents/00-core.md", ".ai_agents/01-style.md"],
-    "validation": [".ai_agents/05-validation.md", ".ai_agents/06-output.md", ".ai_agents/07-forbidden.md", ".ai_agents/08-performance.md"],
+    "base": [
+      "AGENTS.md",
+      ".ai_agents/00-core.md",
+      ".ai_agents/01-style.md",
+      ".ai_agents/05-validation.md",
+      ".ai_agents/06-output.md",
+      ".ai_agents/07-forbidden.md",
+      ".ai_agents/08-performance.md"
+    ],
+    "validation": [
+      ".ai_agents/05-validation.md",
+      ".ai_agents/06-output.md",
+      ".ai_agents/07-forbidden.md",
+      ".ai_agents/08-performance.md"
+    ],
     "go": [".ai_agents/02-go-rules.md"],
     "api": [".ai_agents/03-api-rules.md"],
     "data": [".ai_agents/04-data-rules.md"]
@@ -19,10 +32,10 @@
     "claude": { "extends": "shared_rules" }
   },
   "task_mapping": {
-    "go": ["go", "service", "handler"],
-    "api": ["api", "controller"],
-    "data": ["repository", "dao", "db", "sql"],
-    "performance": ["optimize", "benchmark"],
-    "validation": ["validate", "check"]
+    "go": ["go", "golang", "service", "handler", "worker", "middleware"],
+    "api": ["api", "handler", "controller", "request", "response", "dto"],
+    "data": ["repository", "repo", "dao", "db", "database", "sql", "orm", "mysql", "redis", "cache"],
+    "performance": ["optimize", "benchmark", "performance", "concurrency", "high_concurrency"],
+    "validation": ["validate", "check", "test", "lint", "build"]
   }
 }
