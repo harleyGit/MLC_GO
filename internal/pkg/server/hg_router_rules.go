@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-02-01 12:27:27
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-04 10:12:32
+ * @LastEditTime: 2026-06-14 22:37:40
  * @FilePath: /MLC_GO/server/hg_router.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -205,6 +205,14 @@ func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 
 func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
+		{
+			Path:    "/admins/list",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: true,
+		},
 		{
 			Path:    "/roles",
 			Version: "v1",
