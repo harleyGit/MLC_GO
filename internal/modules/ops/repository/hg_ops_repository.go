@@ -152,10 +152,11 @@ func (r *Repository) GetAdminUserList(ctx context.Context, cursor int64, pageSiz
 	return list, -1, hasMore, nil
 }
 
-// SearchAdminUsers 按管理员 ID、姓名、昵称、邮箱、手机号搜索管理员。
+// SearchAdminUsers 按管理员 ID、邮箱、手机号、用户名等关键词搜索管理员。
 // 千万级表约束：
-// - id 使用主键等值查询；mobile 使用唯一索引 idx_mobile 的前缀 LIKE；name/nick_name 使用 idx_name/idx_nick_name 的前缀 LIKE。
+// - admin_user.id 使用主键等值查询；mobile 使用唯一索引 idx_mobile 的前缀 LIKE；name/nick_name 使用 idx_name/idx_nick_name 的前缀 LIKE。
 // - email 是新迁移字段：当前库可能尚未执行加列迁移，所以先检测列是否存在；存在时才纳入 idx_email 前缀搜索和 SELECT 字段。
+// - users.user_id/user_name/email/phone 和 user/wechat_user/app_user.user_id 先走各自索引查候选 ID，再按 admin_user 主键回表过滤软删除。
 // - 不支持 "%keyword%" 包含查询，避免 BTree 索引失效导致全表扫描。
 // - 强制 limit 最大 20，且不额外执行 COUNT(*)，避免后台搜索接口在高并发下返回大结果集或触发大范围统计。
 func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit int) ([]map[string]interface{}, int64, error) {
@@ -167,62 +168,161 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 		limit = 10
 	}
 
-	conditions := []string{SQLQueriesPackage.OpsAdminUserActiveConditionSQL}
-	args := make([]interface{}, 0, 5)
 	hasEmail := r.hasAdminUserEmailColumn(ctx)
 	likePrefix := keyword + "%"
-	if id, err := strconv.ParseInt(keyword, 10, 64); err == nil && id > 0 {
-		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserIDConditionSQL)
-		args = append(args, id)
-	} else if hasEmail {
-		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserKeywordWithEmailConditionSQL)
-		args = append(args, likePrefix, likePrefix, likePrefix, likePrefix)
-	} else {
-		conditions = append(conditions, SQLQueriesPackage.OpsAdminUserKeywordWithoutEmailConditionSQL)
-		args = append(args, likePrefix, likePrefix, likePrefix)
-	}
-
-	whereSQL := strings.Join(conditions, " AND ")
-	selectSQL := SQLQueriesPackage.SelectOpsAdminUserWithoutEmailSQL
-	if hasEmail {
-		selectSQL = SQLQueriesPackage.SelectOpsAdminUserWithEmailSQL
-	}
-	querySQL := fmt.Sprintf("%s WHERE %s ORDER BY `id` DESC LIMIT ?", selectSQL, whereSQL)
-	queryArgs := append(args, limit)
-	rows, err := r.db.QueryContext(ctx, querySQL, queryArgs...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
 	list := make([]map[string]interface{}, 0, limit)
-	for rows.Next() {
-		var id int64
-		var name, nickName, mobile string
-		var email sql.NullString
-		var status int
-		if hasEmail {
-			if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
-				return nil, 0, err
+	seen := make(map[string]struct{}, limit)
+	// 多条搜索路径可能命中同一个管理员，用 seen 保证返回结果去重且不超过 limit。
+	appendAdmins := func(rows *sql.Rows) error {
+		defer rows.Close()
+		for rows.Next() {
+			item, err := scanAdminUserRow(rows, hasEmail)
+			if err != nil {
+				return err
 			}
-		} else {
-			if err := rows.Scan(&id, &name, &nickName, &mobile, &status); err != nil {
+			id := item["id"].(string)
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			list = append(list, item)
+			if len(list) >= limit {
+				break
+			}
+		}
+		return rows.Err()
+	}
+	queryAdmins := func(condition string, args ...interface{}) error {
+		if len(list) >= limit {
+			return nil
+		}
+		whereSQL := SQLQueriesPackage.OpsAdminUserActiveConditionSQL + " AND " + condition
+		selectSQL := SQLQueriesPackage.SelectOpsAdminUserWithoutEmailSQL
+		if hasEmail {
+			selectSQL = SQLQueriesPackage.SelectOpsAdminUserWithEmailSQL
+		}
+		querySQL := fmt.Sprintf("%s WHERE %s ORDER BY `id` DESC LIMIT ?", selectSQL, whereSQL)
+		queryArgs := append(args, limit-len(list))
+		rows, err := r.db.QueryContext(ctx, querySQL, queryArgs...)
+		if err != nil {
+			return err
+		}
+		return appendAdmins(rows)
+	}
+	if id, err := strconv.ParseInt(keyword, 10, 64); err == nil && id > 0 {
+		// 纯数字优先按 admin_user.id 主键精确查询，这是管理员角色分配页最直接的搜索路径。
+		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserIDConditionSQL, id); err != nil {
+			return nil, 0, err
+		}
+		// 兼容历史账号表和课程平台用户表：这些表的用户 ID 与 admin_user.id 共用同一个 ID 空间。
+		// 先在各表按索引查候选 ID，再回表 admin_user 过滤软删除，避免跨表 OR JOIN 放大扫描。
+		if len(list) < limit {
+			if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByUsersIDSQL, id); err != nil {
 				return nil, 0, err
 			}
 		}
-		list = append(list, map[string]interface{}{
-			"id":       strconv.FormatInt(id, 10),
-			"name":     name,
-			"nickName": nickName,
-			"email":    email.String,
-			"mobile":   mobile,
-			"status":   status,
-		})
+		if len(list) < limit {
+			if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByCourseUserIDSQL, id); err != nil {
+				return nil, 0, err
+			}
+		}
+		if len(list) < limit {
+			if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByWechatUserIDSQL, id); err != nil {
+				return nil, 0, err
+			}
+		}
+		if len(list) < limit {
+			if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByAppUserIDSQL, id); err != nil {
+				return nil, 0, err
+			}
+		}
+	} else if hasEmail {
+		// 非数字关键词先查 admin_user 自身字段，优先返回已是管理员表直接命中的数据。
+		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserKeywordWithEmailConditionSQL, likePrefix, likePrefix, likePrefix, likePrefix); err != nil {
+			return nil, 0, err
+		}
+	} else {
+		// 灰度迁移兼容：admin_user.email 不存在时不引用该列，避免旧库报 Unknown column。
+		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserKeywordWithoutEmailConditionSQL, likePrefix, likePrefix, likePrefix); err != nil {
+			return nil, 0, err
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
+	if len(list) >= limit {
+		return list, int64(len(list)), nil
+	}
+	userIDQueries := []string{
+		SQLQueriesPackage.SelectOpsAdminUserIDByUsersUserIDPrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminUserIDByUsersUserNamePrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminUserIDByUsersEmailPrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminUserIDByUsersPhonePrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminUserIDByCourseUserNickNamePrefixSQL,
+	}
+	// admin_user 未直接命中时，再按关联用户表的业务 ID、用户名、邮箱、手机号和昵称补充搜索。
+	for _, querySQL := range userIDQueries {
+		if len(list) >= limit {
+			break
+		}
+		if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, querySQL, likePrefix); err != nil {
+			return nil, 0, err
+		}
 	}
 	return list, int64(len(list)), nil
+}
+
+func scanAdminUserRow(rows *sql.Rows, hasEmail bool) (map[string]interface{}, error) {
+	var id int64
+	var name, nickName, mobile string
+	var email sql.NullString
+	var status int
+	if hasEmail {
+		if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := rows.Scan(&id, &name, &nickName, &mobile, &status); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]interface{}{
+		"id":       strconv.FormatInt(id, 10),
+		"name":     name,
+		"nickName": nickName,
+		"email":    email.String,
+		"mobile":   mobile,
+		"status":   status,
+	}, nil
+}
+
+func (r *Repository) appendAdminUsersByIDQuery(ctx context.Context, list *[]map[string]interface{}, seen map[string]struct{}, hasEmail bool, limit int, querySQL string, keyword interface{}) error {
+	rows, err := r.db.QueryContext(ctx, querySQL, keyword, limit-len(*list))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var adminID int64
+		if err := rows.Scan(&adminID); err != nil {
+			return err
+		}
+		if len(*list) >= limit {
+			break
+		}
+		idText := strconv.FormatInt(adminID, 10)
+		if _, ok := seen[idText]; ok {
+			continue
+		}
+		// 候选表只负责定位 ID，最终仍以 admin_user 当前状态为准，软删除或不存在的管理员直接跳过。
+		item, err := r.getAdminByIDWithEmailFlag(ctx, adminID, hasEmail)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		seen[idText] = struct{}{}
+		*list = append(*list, item)
+	}
+	return rows.Err()
 }
 
 // SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
@@ -358,6 +458,10 @@ func (r *Repository) getAdminByMobile(ctx context.Context, mobile string) (map[s
 
 func (r *Repository) getAdminByID(ctx context.Context, adminID int64) (map[string]interface{}, error) {
 	hasEmail := r.hasAdminUserEmailColumn(ctx)
+	return r.getAdminByIDWithEmailFlag(ctx, adminID, hasEmail)
+}
+
+func (r *Repository) getAdminByIDWithEmailFlag(ctx context.Context, adminID int64, hasEmail bool) (map[string]interface{}, error) {
 	querySQL := SQLQueriesPackage.SelectOpsAdminByIDWithoutEmailSQL
 	if hasEmail {
 		querySQL = SQLQueriesPackage.SelectOpsAdminByIDWithEmailSQL

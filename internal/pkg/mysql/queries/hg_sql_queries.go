@@ -129,6 +129,42 @@ const (
 	// email 字段存在时启用；name/nick_name/email/mobile 均使用前缀 LIKE，避免索引失效。
 	OpsAdminUserKeywordWithEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)"
 
+	// SelectOpsAdminUserIDByUsersIDSQL 按 users.id 精确定位管理员 ID。
+	// 命中 users 主键；用于旧账号表自增 ID 与 admin_user.id 共用同一 ID 的搜索链路。
+	SelectOpsAdminUserIDByUsersIDSQL = "SELECT `id` FROM `users` WHERE `id` = ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByUsersUserIDPrefixSQL 按 users.user_id 前缀定位管理员 ID。
+	// 命中 users.user_id 唯一索引前缀；返回 ID 后再按 admin_user 主键回表确认管理员存在且未删除。
+	SelectOpsAdminUserIDByUsersUserIDPrefixSQL = "SELECT `id` FROM `users` WHERE `user_id` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByUsersUserNamePrefixSQL 按 users.user_name 前缀定位管理员 ID。
+	// 命中 users.user_name 唯一索引前缀；避免跨表 OR JOIN 在大表上扩大扫描范围。
+	SelectOpsAdminUserIDByUsersUserNamePrefixSQL = "SELECT `id` FROM `users` WHERE `user_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByUsersEmailPrefixSQL 按 users.email 前缀定位管理员 ID。
+	// 命中 users.email/uk_email 唯一索引前缀；用于管理员角色分配页按注册邮箱搜索。
+	SelectOpsAdminUserIDByUsersEmailPrefixSQL = "SELECT `id` FROM `users` WHERE `email` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByUsersPhonePrefixSQL 按 users.phone 前缀定位管理员 ID。
+	// 命中 users.phone/uk_phone 唯一索引前缀；用于管理员角色分配页按注册手机号搜索。
+	SelectOpsAdminUserIDByUsersPhonePrefixSQL = "SELECT `id` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByCourseUserIDSQL 按课程平台 user.id 精确定位管理员 ID。
+	// 命中 user 主键；用于 admin_user.id 与课程平台 user.id 共用同一 ID 的搜索链路。
+	SelectOpsAdminUserIDByCourseUserIDSQL = "SELECT `id` FROM `user` WHERE `id` = ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByCourseUserNickNamePrefixSQL 按课程平台 user.nick_name 前缀定位管理员 ID。
+	// 命中 user.idx_name 前缀；返回 ID 后再按 admin_user 主键回表确认管理员存在且未删除。
+	SelectOpsAdminUserIDByCourseUserNickNamePrefixSQL = "SELECT `id` FROM `user` WHERE `nick_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByWechatUserIDSQL 按 wechat_user.user_id 精确定位管理员 ID。
+	// 命中 wechat_user.uidx_user 唯一索引；用于微信身份表与 user/admin_user 共用用户 ID 的搜索链路。
+	SelectOpsAdminUserIDByWechatUserIDSQL = "SELECT `user_id` FROM `wechat_user` WHERE `user_id` = ? ORDER BY `user_id` DESC LIMIT ?"
+
+	// SelectOpsAdminUserIDByAppUserIDSQL 按 app_user.user_id 精确定位管理员 ID。
+	// 命中 app_user.uidx_user_appcode 唯一索引前缀；用于应用身份表与 user/admin_user 共用用户 ID 的搜索链路。
+	SelectOpsAdminUserIDByAppUserIDSQL = "SELECT `user_id` FROM `app_user` WHERE `user_id` = ? ORDER BY `user_id` DESC LIMIT ?"
+
 	// SelectOpsAdminCandidateByIDSQL 按 users.id 精确搜索添加管理员候选。
 	// 命中 users 主键；用于纯数字关键词的最高选择性查询，避免 OR 条件导致优化器误判扫描范围。
 	SelectOpsAdminCandidateByIDSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `id` = ? ORDER BY `id` DESC LIMIT ?"
