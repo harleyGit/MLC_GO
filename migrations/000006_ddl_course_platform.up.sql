@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `permission` (
   `desc` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '权限描述说明',
   `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_at` datetime NOT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间，自动更新',
-  `update_by` bigint NOT NULL DEFAULT '0' COMMENT '最后更新人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '最后更新人ID',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `idx_code` (`code`,`status`) USING BTREE COMMENT '权限编码唯一索引',
   KEY `idx_name` (`name`) USING BTREE COMMENT '权限名称索引',
@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS `permission` (
 -- 存储后台管理员账号信息
 CREATE TABLE IF NOT EXISTS `admin_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '管理员ID，主键自增',
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '关联users表的用户ID',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员姓名',
   `nick_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '管理员昵称',
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '邮箱，用于搜索和通知',
@@ -44,13 +45,14 @@ CREATE TABLE IF NOT EXISTS `admin_user` (
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
   `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_at` datetime NOT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `create_by` bigint NOT NULL DEFAULT '0' COMMENT '创建人ID',
-  `update_by` bigint NOT NULL DEFAULT '1' COMMENT '更新人ID',
+  `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '更新人ID',
   `sex` tinyint NOT NULL DEFAULT '3' COMMENT '性别: 1=男 2=女 3=其他',
   `is_delete` tinyint NOT NULL DEFAULT '0' COMMENT '软删除标记: 0=正常 1=已删除',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `idx_email` (`email`) USING BTREE COMMENT '邮箱唯一索引',
   UNIQUE KEY `idx_mobile` (`mobile`) USING BTREE COMMENT '手机号唯一索引',
+  KEY `idx_user_id` (`user_id`) USING BTREE COMMENT '用户ID索引',
   KEY `idx_name` (`name`) USING BTREE COMMENT '姓名索引',
   KEY `idx_nick_name` (`nick_name`) USING BTREE COMMENT '昵称索引，用于后台管理员搜索'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='管理员表 - 存储后台管理员信息';
@@ -64,8 +66,8 @@ CREATE TABLE IF NOT EXISTS `role` (
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
   `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `create_by` bigint NOT NULL DEFAULT '0' COMMENT '创建人ID',
-  `update_by` bigint NOT NULL DEFAULT '0' COMMENT '更新人ID',
+  `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '更新人ID',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uidx_name` (`name`) USING BTREE COMMENT '角色名称唯一索引',
   KEY `idx_status_id` (`status`,`id`) USING BTREE COMMENT '角色列表分页索引'
@@ -79,8 +81,8 @@ CREATE TABLE IF NOT EXISTS `role_permission` (
   `permission_id` bigint NOT NULL COMMENT '权限ID',
   `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `create_by` bigint NOT NULL DEFAULT '0' COMMENT '创建人ID',
-  `update_by` bigint NOT NULL DEFAULT '0' COMMENT '更新人ID',
+  `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '更新人ID',
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_role_id` (`role_id`) USING BTREE COMMENT '角色ID索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='角色权限关联表 - 角色与权限的多对多关系';
@@ -92,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `admin_user_role` (
   `admin_user_id` bigint NOT NULL COMMENT '管理员ID',
   `role_id` bigint NOT NULL COMMENT '角色ID',
   `update_at` datetime NOT NULL COMMENT '更新时间',
-  `update_by` bigint NOT NULL COMMENT '更新人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '更新人ID',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uidx_aduid_role_id` (`admin_user_id`,`role_id`) COMMENT '管理员角色唯一索引',
   KEY `idx_role_id` (`role_id`) COMMENT '角色ID索引'
@@ -167,9 +169,9 @@ CREATE TABLE IF NOT EXISTS `course_goods` (
   `sale_type` tinyint NOT NULL COMMENT '销售类型: 1=免费 2=收费',
   `status` tinyint NOT NULL DEFAULT '-1' COMMENT '状态: -1=下架 1=上架',
   `create_at` datetime NOT NULL COMMENT '创建时间',
-  `create_by` bigint NOT NULL DEFAULT '0' COMMENT '创建人ID',
+  `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '创建人ID',
   `update_at` datetime NOT NULL COMMENT '更新时间',
-  `update_by` bigint NOT NULL DEFAULT '0' COMMENT '更新人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '更新人ID',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uidx_name` (`name`) COMMENT '商品名称唯一索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='课程商品表 - 存储课程商品信息';
@@ -184,7 +186,7 @@ CREATE TABLE IF NOT EXISTS `course_catalog` (
   `good_id` bigint NOT NULL COMMENT '所属商品ID',
   `sort` bigint NOT NULL COMMENT '排序值',
   `update_at` datetime NOT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `update_by` bigint NOT NULL COMMENT '更新人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '更新人ID',
   PRIMARY KEY (`id`),
   KEY `idx_good_id` (`good_id`) COMMENT '商品ID索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='课程目录表 - 存储课程章节目录';
@@ -203,7 +205,7 @@ CREATE TABLE IF NOT EXISTS `course_lessons` (
   `homework` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '课后练习内容',
   `sort` tinyint NOT NULL DEFAULT '0' COMMENT '排序值',
   `update_at` datetime NOT NULL COMMENT '更新时间',
-  `update_by` bigint NOT NULL COMMENT '更新人ID',
+  `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '更新人ID',
   PRIMARY KEY (`id`),
   KEY `idx_gid` (`goods_id`) COMMENT '商品ID索引',
   KEY `idx_ct_id` (`catalog_id`) COMMENT '目录ID索引'
@@ -252,12 +254,12 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `refund_at` bigint DEFAULT NULL COMMENT '退款时间戳',
   `cancel_at` bigint DEFAULT NULL COMMENT '取消时间戳',
   `cancel_type` tinyint DEFAULT NULL COMMENT '取消类型',
-  `cancel_by` bigint DEFAULT NULL COMMENT '取消人ID',
+  `cancel_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '取消人ID',
   `cancel_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '取消原因',
   `create_at` bigint NOT NULL COMMENT '创建时间戳',
-  `create_by` bigint NOT NULL COMMENT '创建人ID',
+  `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '创建人ID',
   `transfer_at` bigint NOT NULL DEFAULT '0' COMMENT '转账时间戳',
-  `transfer_by` bigint NOT NULL DEFAULT '0' COMMENT '转账操作人ID',
+  `transfer_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '转账操作人ID',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_odno` (`order_no`) USING BTREE COMMENT '订单编号唯一索引',
   KEY `idx_uid` (`user_id`) USING BTREE COMMENT '用户ID索引',
