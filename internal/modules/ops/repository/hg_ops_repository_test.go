@@ -26,8 +26,8 @@ func TestSearchAdminUsersFindsAdminByLinkedUsersUserName(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("len(list) = %d, want 1", len(list))
 	}
-	if got := list[0]["id"]; got != "101" {
-		t.Fatalf("admin id = %v, want 101", got)
+	if got := list[0]["id"]; got != "UID-101" {
+		t.Fatalf("admin id = %v, want UID-101", got)
 	}
 	if got := list[0]["name"]; got != "Alice Admin" {
 		t.Fatalf("admin name = %v, want Alice Admin", got)
@@ -45,8 +45,8 @@ func TestSearchAdminUsersFindsAdminByLinkedUsersEmail(t *testing.T) {
 	if total != 1 || len(list) != 1 {
 		t.Fatalf("got total=%d len=%d, want 1 result", total, len(list))
 	}
-	if got := list[0]["id"]; got != "101" {
-		t.Fatalf("admin id = %v, want 101", got)
+	if got := list[0]["id"]; got != "UID-101" {
+		t.Fatalf("admin id = %v, want UID-101", got)
 	}
 }
 
@@ -61,8 +61,24 @@ func TestSearchAdminUsersFindsAdminByLinkedUsersPhone(t *testing.T) {
 	if total != 1 || len(list) != 1 {
 		t.Fatalf("got total=%d len=%d, want 1 result", total, len(list))
 	}
-	if got := list[0]["id"]; got != "101" {
-		t.Fatalf("admin id = %v, want 101", got)
+	if got := list[0]["id"]; got != "UID-101" {
+		t.Fatalf("admin id = %v, want UID-101", got)
+	}
+}
+
+func TestSearchAdminUsersFindsAdminByPartialLinkedUsersPhone(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+
+	list, total, err := repo.SearchAdminUsers(context.Background(), "176", 10)
+	if err != nil {
+		t.Fatalf("SearchAdminUsers returned error: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("got total=%d len=%d, want 1 result", total, len(list))
+	}
+	if got := list[0]["id"]; got != "UID-101" {
+		t.Fatalf("admin id = %v, want UID-101", got)
 	}
 }
 
@@ -77,8 +93,8 @@ func TestSearchAdminUsersFindsAdminByAdminID(t *testing.T) {
 	if total != 1 || len(list) != 1 {
 		t.Fatalf("got total=%d len=%d, want 1 result", total, len(list))
 	}
-	if got := list[0]["id"]; got != "101" {
-		t.Fatalf("admin id = %v, want 101", got)
+	if got := list[0]["id"]; got != "UID-101" {
+		t.Fatalf("admin id = %v, want UID-101", got)
 	}
 }
 
@@ -111,16 +127,20 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 	switch {
 	case strings.Contains(query, "INFORMATION_SCHEMA.COLUMNS"):
 		return newHGTestRows([]string{"COUNT(*)"}, [][]driver.Value{{int64(1)}}), nil
-	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`id` = ?") && args[0] == int64(101):
-		return newHGTestRows([]string{"id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{int64(101), "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
-	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`user_name` LIKE") && args[0] == "alice%":
-		return newHGTestRows([]string{"id"}, [][]driver.Value{{int64(101)}}), nil
-	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`email` LIKE") && args[0] == "alice@example.com%":
-		return newHGTestRows([]string{"id"}, [][]driver.Value{{int64(101)}}), nil
-	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`phone` LIKE") && args[0] == "13800138000%":
-		return newHGTestRows([]string{"id"}, [][]driver.Value{{int64(101)}}), nil
+	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` LIKE") && args[0] == "%101%":
+		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
+	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` = ?") && args[0] == "UID-101":
+		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
+	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`user_name` LIKE") && args[0] == "%alice%":
+		return newHGTestRows([]string{"user_id"}, [][]driver.Value{{"UID-101"}}), nil
+	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`email` LIKE") && args[0] == "%alice@example.com%":
+		return newHGTestRows([]string{"user_id"}, [][]driver.Value{{"UID-101"}}), nil
+	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`phone` LIKE") && args[0] == "%13800138000%":
+		return newHGTestRows([]string{"user_id"}, [][]driver.Value{{"UID-101"}}), nil
+	case strings.Contains(query, "FROM `users`") && strings.Contains(query, "`phone` LIKE") && args[0] == "%176%":
+		return newHGTestRows([]string{"user_id"}, [][]driver.Value{{"UID-101"}}), nil
 	case strings.Contains(query, "FROM `admin_user`"):
-		return newHGTestRows([]string{"id", "name", "nick_name", "email", "mobile", "status"}, nil), nil
+		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, nil), nil
 	default:
 		return newHGTestRows([]string{"id"}, nil), nil
 	}

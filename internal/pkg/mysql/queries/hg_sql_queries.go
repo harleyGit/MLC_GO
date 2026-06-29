@@ -90,12 +90,14 @@ const (
 	SelectOpsRoleListByCursorSQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserWithoutEmailSQL 搜索管理员基础字段，不引用 email。
+	// 对外返回的管理员 ID 必须使用 admin_user.user_id，它与 users.user_id 同类型、同语义；admin_user.id 只是后台表自增主键，不返回给角色分配搜索框。
 	// 兼容旧库：部分环境 admin_user 尚未执行 email 加列迁移，使用该 SELECT 可避免 MySQL 1054 Unknown column。
-	SelectOpsAdminUserWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user`"
+	SelectOpsAdminUserWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user`"
 
 	// SelectOpsAdminUserWithEmailSQL 搜索管理员基础字段，包含 email。
+	// 第一个字段固定为 user_id，保证 scanAdminUserRow 扫描出的 id 就是 users.user_id，而不是 admin_user 自增 id。
 	// 仅在 hasAdminUserEmailColumn 检测到 admin_user.email 存在后使用；email 可命中 idx_email 前缀搜索。
-	SelectOpsAdminUserWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
+	SelectOpsAdminUserWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
 
 	// SelectOpsAdminUserListFirstWithoutEmailSQL 获取管理员首页列表，不引用 email 字段。
 	// 千万级表约束：使用 is_delete 过滤和 id 倒序 cursor 分页，建议 admin_user 具备 (is_delete,id) 复合索引；不使用 COUNT/OFFSET。
@@ -117,37 +119,37 @@ const (
 	// is_delete=0 必须始终存在，避免搜索结果包含软删除管理员。
 	OpsAdminUserActiveConditionSQL = "`is_delete` = 0"
 
-	// OpsAdminUserIDConditionSQL 管理员 ID 精确搜索条件。
-	// 命中 admin_user 主键 id，适合千万级数据下的高选择性查询。
-	OpsAdminUserIDConditionSQL = "`id` = ?"
+	// OpsAdminUserIDConditionSQL 管理员 ID 搜索条件。
+	// 这里的“管理员 ID”指 admin_user.user_id，也就是 users.user_id；使用前缀 LIKE 支持输入完整或部分管理员 ID。
+	OpsAdminUserIDConditionSQL = "`user_id` LIKE ?"
 
 	// OpsAdminUserKeywordWithoutEmailConditionSQL 管理员关键词搜索条件，不包含 email。
-	// 使用前缀 LIKE，例如 keyword%，可利用 name/nick_name/mobile 对应 BTree 索引；禁止 %keyword% 包含查询。
+	// 支持前端角色分配页输入姓名/昵称/手机号的全部或任意一部分；Repository 会传入 %keyword% 做模糊匹配，并用 limit 控制返回规模。
 	OpsAdminUserKeywordWithoutEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `mobile` LIKE ?)"
 
 	// OpsAdminUserKeywordWithEmailConditionSQL 管理员关键词搜索条件，包含 email。
-	// email 字段存在时启用；name/nick_name/email/mobile 均使用前缀 LIKE，避免索引失效。
+	// email 字段存在时启用；name/nick_name/email/mobile 均支持 %keyword% 模糊匹配，满足“可输入全部或一部分”的交互要求。
 	OpsAdminUserKeywordWithEmailConditionSQL = "(`name` LIKE ? OR `nick_name` LIKE ? OR `email` LIKE ? OR `mobile` LIKE ?)"
 
-	// SelectOpsAdminUserIDByUsersIDSQL 按 users.id 精确定位管理员 ID。
-	// 命中 users 主键；用于旧账号表自增 ID 与 admin_user.id 共用同一 ID 的搜索链路。
-	SelectOpsAdminUserIDByUsersIDSQL = "SELECT `id` FROM `users` WHERE `id` = ? ORDER BY `id` DESC LIMIT ?"
+	// SelectOpsAdminUserIDByUsersIDSQL 按 users.user_id 精确定位管理员 ID。
+	// users.id 是数据库自增主键，不是对外用户 ID；这里必须返回 users.user_id，后续再用 admin_user.user_id 回表确认管理员存在且未删除。
+	SelectOpsAdminUserIDByUsersIDSQL = "SELECT `user_id` FROM `users` WHERE `user_id` = ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserIDByUsersUserIDPrefixSQL 按 users.user_id 前缀定位管理员 ID。
-	// 命中 users.user_id 唯一索引前缀；返回 ID 后再按 admin_user 主键回表确认管理员存在且未删除。
-	SelectOpsAdminUserIDByUsersUserIDPrefixSQL = "SELECT `id` FROM `users` WHERE `user_id` LIKE ? ORDER BY `id` DESC LIMIT ?"
+	// 命中 users.user_id 唯一索引前缀；返回 users.user_id 后再按 admin_user.user_id 回表确认管理员存在且未删除。
+	SelectOpsAdminUserIDByUsersUserIDPrefixSQL = "SELECT `user_id` FROM `users` WHERE `user_id` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserIDByUsersUserNamePrefixSQL 按 users.user_name 前缀定位管理员 ID。
-	// 命中 users.user_name 唯一索引前缀；避免跨表 OR JOIN 在大表上扩大扫描范围。
-	SelectOpsAdminUserIDByUsersUserNamePrefixSQL = "SELECT `id` FROM `users` WHERE `user_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
+	// 搜索条件命中 user_name 索引，但返回值仍必须是 users.user_id，不能返回 users.id。
+	SelectOpsAdminUserIDByUsersUserNamePrefixSQL = "SELECT `user_id` FROM `users` WHERE `user_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserIDByUsersEmailPrefixSQL 按 users.email 前缀定位管理员 ID。
-	// 命中 users.email/uk_email 唯一索引前缀；用于管理员角色分配页按注册邮箱搜索。
-	SelectOpsAdminUserIDByUsersEmailPrefixSQL = "SELECT `id` FROM `users` WHERE `email` LIKE ? ORDER BY `id` DESC LIMIT ?"
+	// 命中 users.email/uk_email 唯一索引前缀；返回 users.user_id 供 admin_user.user_id 回表。
+	SelectOpsAdminUserIDByUsersEmailPrefixSQL = "SELECT `user_id` FROM `users` WHERE `email` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserIDByUsersPhonePrefixSQL 按 users.phone 前缀定位管理员 ID。
-	// 命中 users.phone/uk_phone 唯一索引前缀；用于管理员角色分配页按注册手机号搜索。
-	SelectOpsAdminUserIDByUsersPhonePrefixSQL = "SELECT `id` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
+	// 命中 users.phone/uk_phone 唯一索引前缀；返回 users.user_id，避免把 users.id 误当作管理员业务 ID。
+	SelectOpsAdminUserIDByUsersPhonePrefixSQL = "SELECT `user_id` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserIDByCourseUserIDSQL 按课程平台 user.id 精确定位管理员 ID。
 	// 命中 user 主键；用于 admin_user.id 与课程平台 user.id 共用同一 ID 的搜索链路。
@@ -186,28 +188,36 @@ const (
 	SelectOpsAdminCandidateByPhonePrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
 	// InsertOpsAdminFromUserWithEmailSQL 从 users 主键提升为 admin_user，适用于 admin_user.email 已迁移的环境。
-	// 写入使用 INSERT ... SELECT，字段来源由后端按 users.id 读取；email/mobile 唯一键防止并发重复添加。
-	InsertOpsAdminFromUserWithEmailSQL = "INSERT INTO `admin_user` (`name`, `nick_name`, `email`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), NULLIF(`email`, ''), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
+	// 写入 admin_user.user_id 时必须使用 users.user_id，保证新增管理员后 SearchAdminUsers 能按同一个业务用户 ID 搜索和返回。
+	InsertOpsAdminFromUserWithEmailSQL = "INSERT INTO `admin_user` (`user_id`, `name`, `nick_name`, `email`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT `user_id`, COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), NULLIF(`email`, ''), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
 
 	// InsertOpsAdminFromUserWithoutEmailSQL 从 users 主键提升为 admin_user，兼容 admin_user.email 尚未迁移的环境。
-	// 不引用 admin_user.email，避免旧库报 MySQL 1054 Unknown column；mobile 唯一键仍负责并发重复提交保护。
-	InsertOpsAdminFromUserWithoutEmailSQL = "INSERT INTO `admin_user` (`name`, `nick_name`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
+	// 不引用 admin_user.email，避免旧库报 MySQL 1054 Unknown column；仍写入 user_id，避免管理员搜索结果缺少业务用户 ID。
+	InsertOpsAdminFromUserWithoutEmailSQL = "INSERT INTO `admin_user` (`user_id`, `name`, `nick_name`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT `user_id`, COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"
 
 	// SelectOpsAdminByMobileWithEmailSQL 按手机号读取管理员，包含 email 字段。
 	// 命中 admin_user.idx_mobile 唯一索引，用于插入重复时返回已存在管理员信息。
-	SelectOpsAdminByMobileWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
+	SelectOpsAdminByMobileWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
 
 	// SelectOpsAdminByMobileWithoutEmailSQL 按手机号读取管理员，不引用 email 字段。
 	// 兼容旧库 admin_user.email 缺失场景，仍命中 admin_user.idx_mobile 唯一索引。
-	SelectOpsAdminByMobileWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
+	SelectOpsAdminByMobileWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `mobile` = ? AND `is_delete` = 0 LIMIT 1"
 
-	// SelectOpsAdminByIDWithEmailSQL 按 admin_user.id 读取管理员，包含 email 字段。
-	// 命中主键，用于添加管理员成功后返回完整管理员信息。
-	SelectOpsAdminByIDWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
+	// SelectOpsAdminByPrimaryIDWithEmailSQL 按 admin_user.id 自增主键读取管理员，包含 email 字段。
+	// 仅用于 AddAdminFromUser 刚插入成功后通过 LastInsertId 回查；SELECT 仍返回 user_id，保证对外 DTO 的 id 是 users.user_id。
+	SelectOpsAdminByPrimaryIDWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
 
-	// SelectOpsAdminByIDWithoutEmailSQL 按 admin_user.id 读取管理员，不引用 email 字段。
-	// 兼容旧库 admin_user.email 缺失场景，命中主键。
-	SelectOpsAdminByIDWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
+	// SelectOpsAdminByPrimaryIDWithoutEmailSQL 按 admin_user.id 自增主键读取管理员，不引用 email 字段。
+	// 仅用于兼容 admin_user.email 尚未迁移环境下的新增管理员回查；对外仍返回 admin_user.user_id。
+	SelectOpsAdminByPrimaryIDWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `id` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAdminByIDWithEmailSQL 按 admin_user.user_id 读取管理员，包含 email 字段。
+	// user_id 与 users.user_id 类型一致，是角色分配搜索结果使用的对外管理员 ID；不要用 admin_user.id 自增主键。
+	SelectOpsAdminByIDWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `user_id` = ? AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAdminByIDWithoutEmailSQL 按 admin_user.user_id 读取管理员，不引用 email 字段。
+	// 兼容旧库 admin_user.email 缺失场景；查询条件仍使用 user_id，保证 SearchAdminUsers 的 id 字段始终对应 users.user_id。
+	SelectOpsAdminByIDWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `user_id` = ? AND `is_delete` = 0 LIMIT 1"
 
 	// SelectOpsUserPhoneByIDSQL 按 users.id 读取手机号。
 	// 命中 users 主键，用于 admin_user 唯一键冲突时回查已存在管理员。
