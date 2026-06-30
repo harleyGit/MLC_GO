@@ -176,14 +176,15 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 	list := make([]map[string]interface{}, 0, limit)
 	seen := make(map[string]struct{}, limit)
 	// 多条搜索路径可能命中同一个管理员，用 seen 保证返回结果去重且不超过 limit。
+	// appendAdmins 是一个匿名函数
 	appendAdmins := func(rows *sql.Rows) error {
 		defer rows.Close()
-		for rows.Next() {
+		for rows.Next() { // 数据库遍历， 游标向下一行移动。
 			item, err := scanAdminUserRow(rows, hasEmail)
 			if err != nil {
 				return err
 			}
-			id := item["id"].(string)
+			id := item["id"].(string) //类型断言其为string类型，因为item["id"]是interface{}类型，即为：any类型
 			if _, ok := seen[id]; ok {
 				continue
 			}
@@ -205,6 +206,10 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 			selectSQL = SQLQueriesPackage.SelectOpsAdminUserWithEmailSQL
 		}
 		querySQL := fmt.Sprintf("%s WHERE %s ORDER BY `id` DESC LIMIT ?", selectSQL, whereSQL)
+		/* 比如：limit - len(list) = 4
+		args = [status, name]
+		queryArgs = [status, name, 4]
+		*/
 		queryArgs := append(args, limit-len(list))
 		rows, err := r.db.QueryContext(ctx, querySQL, queryArgs...)
 		if err != nil {
@@ -212,27 +217,30 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 		}
 		return appendAdmins(rows)
 	}
-	if _, err := strconv.ParseInt(keyword, 10, 64); err == nil {
-		// 纯数字也可能是 users.user_id 的全部或前缀，不能再按 admin_user.id 自增主键查询。
-		// 这里继续使用 user_id 前缀匹配，保证“管理员ID”始终对应 000002 users.user_id。
-		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserIDConditionSQL, likePattern); err != nil {
-			return nil, 0, err
-		}
-		// 兼容通过 users.user_id 精确输入的场景：先在 users 表按唯一索引查业务 user_id，
-		// 再按 admin_user.user_id 回表，避免把 users.id 自增主键误当成管理员 ID。
-		if len(list) < limit {
-			if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByUsersIDSQL, keyword); err != nil {
-				return nil, 0, err
-			}
-		}
-	} else if hasEmail {
-		// 非数字关键词先查 admin_user 自身字段，优先返回已是管理员表直接命中的数据。
+	// 管理员 ID 对应 admin_user.user_id/users.user_id，是 varchar(255) 的不规则字符串；数字和非数字关键词都要支持模糊匹配。
+	if err := queryAdmins(SQLQueriesPackage.OpsAdminUserIDConditionSQL, likePattern); err != nil {
+		return nil, 0, err
+	}
+	if hasEmail {
+		// 先查 admin_user 自身字段，优先返回已是管理员表直接命中的数据。
 		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserKeywordWithEmailConditionSQL, likePattern, likePattern, likePattern, likePattern); err != nil {
 			return nil, 0, err
 		}
 	} else {
 		// 灰度迁移兼容：admin_user.email 不存在时不引用该列，避免旧库报 Unknown column。
 		if err := queryAdmins(SQLQueriesPackage.OpsAdminUserKeywordWithoutEmailConditionSQL, likePattern, likePattern, likePattern); err != nil {
+			return nil, 0, err
+		}
+	}
+	if len(list) >= limit {
+		return list, int64(len(list)), nil
+	}
+	// ParseInt 仅判断 keyword 是否为纯数字字符串，不用于判断 users.user_id。
+	// users.user_id 是 varchar(255) 的不规则字符串；数字关键词仍需继续支持手机号等字段的模糊搜索。
+	if _, err := strconv.ParseInt(keyword, 10, 64); err == nil { // keyword 是纯数字字符串
+		// 兼容通过 users.user_id 精确输入纯数字字符串的场景：先在 users 表按唯一索引查业务 user_id，
+		// 再按 admin_user.user_id 回表，避免把 users.id 自增主键误当成管理员 ID。
+		if err := r.appendAdminUsersByIDQuery(ctx, &list, seen, hasEmail, limit, SQLQueriesPackage.SelectOpsAdminUserIDByUsersIDSQL, keyword); err != nil {
 			return nil, 0, err
 		}
 	}
@@ -267,15 +275,18 @@ func scanAdminUserRow(rows *sql.Rows, hasEmail bool) (map[string]interface{}, er
 	// SELECT 的第一个字段固定是 admin_user.user_id，它来自 000002 users.user_id。
 	// 不要扫描 admin_user.id：该字段只是后台管理员表自增主键，不是前端角色分配页展示/传递的管理员 ID。
 	// 历史管理员可能在新增 user_id 字段前创建，数据库里仍是 NULL；用 NullString 避免扫描失败，后续应通过数据回填修复。
-	if hasEmail {
+	if hasEmail { //有邮箱
 		if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
 			return nil, err
 		}
 	} else {
+		// 当前数据库一行 → Go map。可以将数据库中的字段映射到 Go map。也就是将表中某一行的值映射到 Go map。
 		if err := rows.Scan(&id, &name, &nickName, &mobile, &status); err != nil {
 			return nil, err
 		}
 	}
+	// TODO：优先使用结构体而不是 map[string]interface{}。例如定义一个 AdminUser 结构体，再由 JSON 序列化输出。这样类型安全、IDE 自动补全、编译期检查都会更好。
+	// TODO：显式处理 sql.NullString.Valid。当前直接使用 id.String、email.String 会把数据库 NULL 和空字符串都变成 ""，如果业务上需要区分这两种情况，建议根据 Valid 返回 nil 或其他明确的值
 	return map[string]interface{}{
 		"id":       id.String, //数据库类型
 		"name":     name,

@@ -100,8 +100,18 @@ func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取URL查询参数,根据Get请求的参数名获取对应的值
 	keyword := r.URL.Query().Get("keyword")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	// r.URL.Query() 获取所有URL查询参数
+	// strconv.Atoi 把字符串转换成int
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10 // 默认值
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+			limit = v
+		}
+	}
 	resp, err := h.service.SearchAdminUsers(r.Context(), keyword, limit)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
