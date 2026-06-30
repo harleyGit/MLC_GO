@@ -242,10 +242,11 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 	userIDQueries := []string{
 		SQLQueriesPackage.SelectOpsAdminUserIDByUsersUserIDPrefixSQL,
 		SQLQueriesPackage.SelectOpsAdminUserIDByUsersUserNamePrefixSQL,
+		SQLQueriesPackage.SelectOpsAdminUserIDByUsersNickNamePrefixSQL,
 		SQLQueriesPackage.SelectOpsAdminUserIDByUsersEmailPrefixSQL,
 		SQLQueriesPackage.SelectOpsAdminUserIDByUsersPhonePrefixSQL,
 	}
-	// admin_user 未直接命中时，再按 users 表的业务 ID、用户名、邮箱、手机号补充搜索。
+	// admin_user 未直接命中时，再按 users 表的业务 ID、用户名、昵称、邮箱、手机号补充搜索。
 	// 注意：这里不再混用 000006 的 user/wechat_user/app_user.user_id，那些字段是 bigint，和 000002 users.user_id 不是同一类型。
 	for _, querySQL := range userIDQueries {
 		if len(list) >= limit {
@@ -259,12 +260,13 @@ func (r *Repository) SearchAdminUsers(ctx context.Context, keyword string, limit
 }
 
 func scanAdminUserRow(rows *sql.Rows, hasEmail bool) (map[string]interface{}, error) {
-	var id string
+	var id sql.NullString
 	var name, nickName, mobile string
 	var email sql.NullString
 	var status int
 	// SELECT 的第一个字段固定是 admin_user.user_id，它来自 000002 users.user_id。
 	// 不要扫描 admin_user.id：该字段只是后台管理员表自增主键，不是前端角色分配页展示/传递的管理员 ID。
+	// 历史管理员可能在新增 user_id 字段前创建，数据库里仍是 NULL；用 NullString 避免扫描失败，后续应通过数据回填修复。
 	if hasEmail {
 		if err := rows.Scan(&id, &name, &nickName, &email, &mobile, &status); err != nil {
 			return nil, err
@@ -275,7 +277,7 @@ func scanAdminUserRow(rows *sql.Rows, hasEmail bool) (map[string]interface{}, er
 		}
 	}
 	return map[string]interface{}{
-		"id":       id,
+		"id":       id.String, //数据库类型
 		"name":     name,
 		"nickName": nickName,
 		"email":    email.String,
@@ -466,12 +468,13 @@ func (r *Repository) getAdminByIDWithEmailFlag(ctx context.Context, adminUserID 
 }
 
 func (r *Repository) scanAdminRow(row *sql.Row, hasEmail bool) (map[string]interface{}, error) {
-	var id string
+	var id sql.NullString
 	var name, nickName, mobileValue string
 	var email sql.NullString
 	var status int
 	// 所有 SearchAdminUsers 相关 SELECT 的第一个字段都必须是 admin_user.user_id。
 	// 该字段与 users.user_id 类型一致，前端角色分配页使用它作为管理员 ID；admin_user.id 仅保留给内部表关联。
+	// 使用 NullString 是为了兼容已上线历史数据，避免 user_id 尚未回填时接口直接扫描报错。
 	if hasEmail {
 		if err := row.Scan(&id, &name, &nickName, &email, &mobileValue, &status); err != nil {
 			return nil, err
@@ -482,7 +485,7 @@ func (r *Repository) scanAdminRow(row *sql.Row, hasEmail bool) (map[string]inter
 		}
 	}
 	return map[string]interface{}{
-		"id":       id,
+		"id":       id.String,
 		"name":     name,
 		"nickName": nickName,
 		"email":    email.String,

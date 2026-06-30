@@ -143,6 +143,10 @@ const (
 	// 搜索条件命中 user_name 索引，但返回值仍必须是 users.user_id，不能返回 users.id。
 	SelectOpsAdminUserIDByUsersUserNamePrefixSQL = "SELECT `user_id` FROM `users` WHERE `user_name` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
+	// SelectOpsAdminUserIDByUsersNickNamePrefixSQL 按 users.nickname 模糊定位管理员 ID。
+	// 部分用户展示名只写在 nickname 字段；返回值仍必须是 users.user_id，避免回表时混用 users.id。
+	SelectOpsAdminUserIDByUsersNickNamePrefixSQL = "SELECT `user_id` FROM `users` WHERE `nickname` LIKE ? ORDER BY `id` DESC LIMIT ?"
+
 	// SelectOpsAdminUserIDByUsersEmailPrefixSQL 按 users.email 前缀定位管理员 ID。
 	// 命中 users.email/uk_email 唯一索引前缀；返回 users.user_id 供 admin_user.user_id 回表。
 	SelectOpsAdminUserIDByUsersEmailPrefixSQL = "SELECT `user_id` FROM `users` WHERE `email` LIKE ? ORDER BY `id` DESC LIMIT ?"

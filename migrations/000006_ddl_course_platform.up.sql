@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS `admin_user_role` (
 -- 存储用户基本信息，作为用户中心的核心表
 CREATE TABLE IF NOT EXISTS `user` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '用户ID，全局唯一',
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '关联users表的用户ID',
   `nick_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '用户昵称',
   `sex` tinyint NOT NULL COMMENT '性别: 0=其他 1=男 2=女',
   `password` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '登录密码，加密存储',
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS `user` (
   `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
   `update_at` datetime NOT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_user_id` (`user_id`) USING BTREE COMMENT '用户ID索引',
   KEY `idx_name` (`nick_name`) COMMENT '昵称索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='用户主表 - 存储用户基本信息';
 
@@ -140,7 +142,7 @@ CREATE TABLE IF NOT EXISTS `wechat_user` (
 -- 存储用户在不同应用(公众号、小程序)的身份信息
 CREATE TABLE IF NOT EXISTS `app_user` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID，自增',
-  `user_id` bigint NOT NULL COMMENT '关联user表的用户ID',
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '关联users表的用户ID',
   `app_code` int NOT NULL COMMENT '应用编码: 1000=公众号 1001=小程序',
   `open_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '微信应用内openid',
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
@@ -215,7 +217,7 @@ CREATE TABLE IF NOT EXISTS `course_lessons` (
 -- 记录用户购买的课程商品及服务有效期
 CREATE TABLE IF NOT EXISTS `user_course_goods` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `user_id` bigint NOT NULL COMMENT '用户ID',
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '用户ID',
   `order_id` bigint NOT NULL COMMENT '订单ID',
   `goods_id` bigint NOT NULL COMMENT '商品ID',
   `goods_type` tinyint NOT NULL COMMENT '商品类型: 1=课程商品',
@@ -237,7 +239,7 @@ CREATE TABLE IF NOT EXISTS `user_course_goods` (
 CREATE TABLE IF NOT EXISTS `orders` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '订单ID，主键自增',
   `order_no` char(18) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单编号，18位唯一编号',
-  `user_id` bigint NOT NULL COMMENT '下单用户ID',
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '下单用户ID',
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '订单状态: -1=已取消 1=待支付 2=已支付 3=已完成',
   `order_source` tinyint NOT NULL COMMENT '订单来源: 1=用户下单 2=管理后台 3=系统赠送',
   `order_amount` bigint NOT NULL COMMENT '订单金额，单位：分',
