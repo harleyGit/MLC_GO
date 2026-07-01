@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-13 11:43:39
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-01 21:04:24
+ * @LastEditTime: 2026-07-01 21:08:18
  * @FilePath: /MLC_GO/internal/pkg/utils/hg_random_num.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -106,14 +106,24 @@ func GenerateUserIDWithRegion(region string) string {
 // CurrentRegion 根据当前运行环境推断地域码。
 // 优先级：HG_REGION/REGION/AWS_REGION 环境变量 > TZ 时区环境变量 > time.Local > TW 兜底。
 func CurrentRegion() string {
+	// 依次检查 3 个环境变量
 	for _, key := range []string{"HG_REGION", "REGION", "AWS_REGION"} {
 		if region := normalizeRegion(os.Getenv(key)); region != "" {
 			return region
 		}
 	}
+	/* 读取环境变量 TZ（timezone）
+	例如：
+	Asia/Shanghai
+	America/Los_Angeles
+	转换成 region： */
 	if region := regionFromTimezone(os.Getenv("TZ")); region != "" {
 		return region
 	}
+	/* 获取系统默认时区，例如：
+	Asia/Shanghai
+	UTC
+	再继续映射 region。 */
 	return regionFromTimezone(time.Local.String())
 }
 
@@ -178,6 +188,12 @@ func GenerateUserID() string {
 	return GenerateUserIDWithRegion(CurrentRegion())
 }
 
+/*
+一般用于：
+去空格
+统一大小写（如 cn-north-1 → CN-NORTH-1）
+过滤非法值
+*/
 func normalizeRegion(region string) string {
 	region = strings.ToUpper(strings.TrimSpace(region))
 	region = strings.ReplaceAll(region, "-", "_")
