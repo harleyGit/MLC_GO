@@ -8,9 +8,35 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var hgOpsTestDriverOnce sync.Once
+
+func TestGetRoleListReturnsBusinessRoleID(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+
+	list, total, hasMore, err := repo.GetRoleList(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatalf("GetRoleList returned error: %v", err)
+	}
+	if total != -1 {
+		t.Fatalf("total = %d, want -1", total)
+	}
+	if hasMore {
+		t.Fatalf("hasMore = true, want false")
+	}
+	if len(list) != 1 {
+		t.Fatalf("len(list) = %d, want 1", len(list))
+	}
+	if got := list[0]["id"]; got != "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B" {
+		t.Fatalf("role id = %v, want ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", got)
+	}
+	if got := list[0]["idInt"]; got != int64(101) {
+		t.Fatalf("role cursor id = %v, want 101", got)
+	}
+}
 
 func TestSearchAdminUsersFindsAdminByLinkedUsersUserName(t *testing.T) {
 	db := newHGTestDB(t)
@@ -159,6 +185,10 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 	switch {
 	case strings.Contains(query, "INFORMATION_SCHEMA.COLUMNS"):
 		return newHGTestRows([]string{"COUNT(*)"}, [][]driver.Value{{int64(1)}}), nil
+	case strings.Contains(query, "FROM `role`") && strings.Contains(query, "SELECT `role_id`"):
+		return newHGTestRows([]string{"role_id", "id", "name", "description", "create_at"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101), "owner", "Owner role", time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
+	case strings.Contains(query, "FROM `role`"):
+		return newHGTestRows([]string{"id", "name", "description", "create_at"}, [][]driver.Value{{int64(101), "owner", "Owner role", time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` LIKE") && args[0] == "%101%":
 		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`mobile` LIKE") && args[0] == "%3800%":

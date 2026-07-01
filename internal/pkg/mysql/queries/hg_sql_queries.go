@@ -75,19 +75,19 @@ const ()
 // 运维模块
 const (
 	// InsertOpsRoleSQL 创建角色。
-	// 写入 role 表的最小字段集合；status 固定为 1，create_at/update_at 由数据库当前时间生成。
+	// 写入 role 表的业务 role_id 和基础字段；status 固定为 1，create_at/update_at 由数据库当前时间生成。
 	// 索引/约束要求：role.name 需要唯一索引 uidx_name，避免并发创建同名角色。
-	InsertOpsRoleSQL = "INSERT INTO `role` (`name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, 1, NOW(), NOW())"
+	InsertOpsRoleSQL = "INSERT INTO `role` (`role_id`, `name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, ?, 1, NOW(), NOW())"
 
 	// SelectOpsRoleListFirstSQL 获取角色首页列表。
 	// 千万级表约束：使用 idx_status_id(status,id) 复合索引，固定 status=1 并按 id 倒序取 pageSize+1 条。
 	// 不使用 COUNT(*)，不使用 OFFSET；多取 1 条仅用于判断 hasMore，避免深分页扫描和实时统计压力。
-	SelectOpsRoleListFirstSQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 ORDER BY `id` DESC LIMIT ?"
+	SelectOpsRoleListFirstSQL = "SELECT `role_id`, `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsRoleListByCursorSQL 获取角色下一页列表。
 	// cursor 是上一页最后一条 role.id；WHERE status=1 AND id < ? 可继续命中 idx_status_id(status,id)。
 	// 该写法是大表 cursor 分页，避免 LIMIT/OFFSET 在千万级数据下扫描并丢弃大量行。
-	SelectOpsRoleListByCursorSQL = "SELECT `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+	SelectOpsRoleListByCursorSQL = "SELECT `role_id`, `id`, `name`, `description`, `create_at` FROM `role` WHERE `status` = 1 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserWithoutEmailSQL 搜索管理员基础字段，不引用 email。
 	// 对外返回的管理员 ID 必须使用 admin_user.user_id，它与 users.user_id 同类型、同语义；admin_user.id 只是后台表自增主键，不返回给角色分配搜索框。

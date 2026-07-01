@@ -2,6 +2,7 @@ package OpsRepositoryPackage
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"database/sql"
 	"errors"
@@ -29,15 +30,12 @@ func NewRepository(db *sql.DB) *Repository {
 
 // CreateRole 创建角色
 func (r *Repository) CreateRole(ctx context.Context, name, description string) (string, error) {
-	res, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsRoleSQL, name, description)
+	roleID := UtilsPackage.GenerateRoleID()
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsRoleSQL, roleID, name, description)
 	if err != nil {
 		return "", err
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return "", err
-	}
-	return strconv.FormatInt(id, 10), nil
+	return roleID, nil
 }
 
 // GetRoleList 获取角色列表。
@@ -66,14 +64,15 @@ func (r *Repository) GetRoleList(ctx context.Context, cursor int64, pageSize int
 
 	list := make([]map[string]interface{}, 0, queryLimit)
 	for rows.Next() {
+		var roleID sql.NullString
 		var id int64
 		var name, description string
 		var createdAt time.Time
-		if err := rows.Scan(&id, &name, &description, &createdAt); err != nil {
+		if err := rows.Scan(&roleID, &id, &name, &description, &createdAt); err != nil {
 			return nil, 0, false, err
 		}
 		list = append(list, map[string]interface{}{
-			"id":          strconv.FormatInt(id, 10),
+			"id":          roleID.String,
 			"idInt":       id,
 			"name":        name,
 			"description": description,

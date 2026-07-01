@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `admin_user` (
 -- 存储后台角色定义，供 admin_user_role 和 role_permission 关联使用
 CREATE TABLE IF NOT EXISTS `role` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '角色ID，主键自增',
+  `role_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '角色ID',
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '角色名称',
   `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '角色描述',
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS `role` (
   `create_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '创建人ID',
   `update_by` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '更新人ID',
   PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uidx_role_id` (`role_id`) USING BTREE COMMENT '角色ID唯一索引',
   UNIQUE KEY `uidx_name` (`name`) USING BTREE COMMENT '角色名称唯一索引',
   KEY `idx_status_id` (`status`,`id`) USING BTREE COMMENT '角色列表分页索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='角色表 - 存储后台角色定义';

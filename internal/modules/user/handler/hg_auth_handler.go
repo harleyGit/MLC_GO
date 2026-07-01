@@ -90,7 +90,26 @@ func (h *HGUserHandler) VerifyClickCaptcha(w http.ResponseWriter, r *http.Reques
 
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
+/*
+TODO：用户表优化，最好分开成这样
+核心结构（用户表）：
+user
+-----------------------------
+user_id        STRING PRIMARY KEY
+status         INT
+created_at     DATETIME
+updated_at     DATETIME
 
+绑定表（关键）
+user_identity
+-----------------------------------------
+id              BIGINT PK
+user_id         STRING
+identity_type   INT   -- wechat / phone / email
+identity_value  STRING -- openid / phone / email
+union_id        STRING NULL
+created_at      DATETIME
+*/
 // RegisterHandlerV3 处理用户注册请求。
 // handler 只解析 JSON 并调用 service.Register，验证码校验、密码加密、落库和缓存清理由 service 完成。
 func (h *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request) {
