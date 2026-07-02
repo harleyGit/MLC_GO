@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS `admin_user_role` (
   KEY `idx_role_id` (`role_id`) COMMENT '角色ID索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='管理员角色关联表 - 管理员与角色的多对多关系';
 
+-- 用户角色读优化冗余表
+-- 存储管理员已绑定角色快照，GetUserRoles 直接按 admin_user_id 查询，避免高并发读路径 join admin_user_role 和 role。
+CREATE TABLE IF NOT EXISTS `user_role_view` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `admin_user_id` bigint NOT NULL COMMENT '管理员ID',
+  `role_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '角色业务ID',
+  `role_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '角色名称快照',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态: 1=正常 -1=禁用',
+  `create_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uidx_admin_role` (`admin_user_id`,`role_id`) COMMENT '管理员角色唯一索引',
+  KEY `idx_admin_status_id` (`admin_user_id`,`status`,`id`) COMMENT '管理员角色读取索引',
+  KEY `idx_role_id` (`role_id`) COMMENT '角色业务ID索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户角色读优化冗余表';
+
 -- ============================================================
 -- 用户体系模块 (User System)
 -- 功能: 管理前台用户，支持微信登录

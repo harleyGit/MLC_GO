@@ -28,6 +28,25 @@ func TestAssignUserRolesMapsBusinessRoleIDsAndBatchInserts(t *testing.T) {
 	}
 }
 
+func TestGetUserRolesReadsUserRoleView(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+
+	roles, err := repo.GetUserRoles(context.Background(), "101")
+	if err != nil {
+		t.Fatalf("GetUserRoles returned error: %v", err)
+	}
+	if len(roles) != 1 {
+		t.Fatalf("len(roles) = %d, want 1", len(roles))
+	}
+	if got := roles[0]["id"]; got != "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B" {
+		t.Fatalf("role id = %v, want business role_id", got)
+	}
+	if got := roles[0]["name"]; got != "owner" {
+		t.Fatalf("role name = %v, want owner", got)
+	}
+}
+
 func TestGetRoleListReturnsBusinessRoleID(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)
@@ -220,6 +239,8 @@ func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, err
 	switch {
 	case strings.Contains(query, "DELETE FROM `admin_user_role`") && len(args) == 1 && args[0] == int64(101):
 		return hgOpsTestResult(1), nil
+	case strings.Contains(query, "DELETE FROM `user_role_view`") && len(args) == 1 && args[0] == int64(101):
+		return hgOpsTestResult(1), nil
 	case strings.Contains(query, "INSERT INTO `admin_user_role`") && strings.Count(query, "(?, ?, NOW(), 0)") == 2:
 		want := []driver.Value{int64(101), int64(101), int64(101), int64(102)}
 		if len(args) != len(want) {
@@ -228,6 +249,17 @@ func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, err
 		for i := range want {
 			if args[i] != want[i] {
 				return nil, fmt.Errorf("insert arg[%d] = %v, want %v", i, args[i], want[i])
+			}
+		}
+		return hgOpsTestResult(2), nil
+	case strings.Contains(query, "INSERT INTO `user_role_view`") && strings.Count(query, "(?, ?, ?, ?, ?)") == 2:
+		want := []driver.Value{int64(101), "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", "owner", int64(1), int64(101), "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C", "auditor", int64(1)}
+		if len(args) != len(want) {
+			return nil, fmt.Errorf("view insert args len = %d, want %d", len(args), len(want))
+		}
+		for i := range want {
+			if args[i] != want[i] {
+				return nil, fmt.Errorf("view insert arg[%d] = %v, want %v", i, args[i], want[i])
 			}
 		}
 		return hgOpsTestResult(2), nil
@@ -248,8 +280,10 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 	switch {
 	case strings.Contains(query, "INFORMATION_SCHEMA.COLUMNS"):
 		return newHGTestRows([]string{"COUNT(*)"}, [][]driver.Value{{int64(1)}}), nil
+	case strings.Contains(query, "FROM `user_role_view`"):
+		return newHGTestRows([]string{"role_id", "role_name", "status", "create_at"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", "owner", int64(1), time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
 	case strings.Contains(query, "FROM `role`") && strings.Contains(query, "`role_id` IN"):
-		return newHGTestRows([]string{"role_id", "id"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101)}, {"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C", int64(102)}}), nil
+		return newHGTestRows([]string{"role_id", "id", "name", "status"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101), "owner", int64(1)}, {"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C", int64(102), "auditor", int64(1)}}), nil
 	case strings.Contains(query, "FROM `role`") && strings.Contains(query, "SELECT `role_id`"):
 		return newHGTestRows([]string{"role_id", "id", "name", "description", "create_at"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101), "owner", "Owner role", time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
 	case strings.Contains(query, "FROM `role`"):

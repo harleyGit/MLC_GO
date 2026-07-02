@@ -23,6 +23,13 @@ type Repository struct {
 	adminEmailCheckErr error
 }
 
+type opsRoleBinding struct {
+	BusinessID string
+	InternalID int64
+	Name       string
+	Status     int
+}
+
 // NewRepository 创建运维管理数据访问实例
 func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
@@ -556,28 +563,34 @@ func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs
 	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.DeleteOpsAdminUserRolesSQL, adminUserID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.DeleteOpsUserRoleViewSQL, adminUserID); err != nil {
+		return err
+	}
 
 	if len(roleIDs) == 0 {
 		// 不执行tx.Commit()，提交事务，数据不会落库
 		return tx.Commit()
 	}
 
-	internalRoleIDs, err := r.resolveInternalRoleIDs(ctx, tx, roleIDs)
+	roleBindings, err := r.resolveRoleBindings(ctx, tx, roleIDs)
 	if err != nil {
 		return err
 	}
-	if len(internalRoleIDs) == 0 {
+	if len(roleBindings) == 0 {
 		return tx.Commit()
 	}
 
-	if err := insertAdminUserRolesBatch(ctx, tx, adminUserID, internalRoleIDs); err != nil {
+	if err := insertAdminUserRolesBatch(ctx, tx, adminUserID, roleBindings); err != nil {
+		return err
+	}
+	if err := insertUserRoleViewBatch(ctx, tx, adminUserID, roleBindings); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func (r *Repository) resolveInternalRoleIDs(ctx context.Context, tx *sql.Tx, roleIDs []string) ([]int64, error) {
+func (r *Repository) resolveRoleBindings(ctx context.Context, tx *sql.Tx, roleIDs []string) ([]opsRoleBinding, error) {
 	seen := make(map[string]struct{}, len(roleIDs))
 	businessRoleIDs := make([]string, 0, len(roleIDs))
 	for _, roleID := range roleIDs {
@@ -610,45 +623,47 @@ func (r *Repository) resolveInternalRoleIDs(ctx context.Context, tx *sql.Tx, rol
 	}
 	defer rows.Close()
 
-	roleIDToInternalID := make(map[string]int64, len(businessRoleIDs))
+	roleIDToBinding := make(map[string]opsRoleBinding, len(businessRoleIDs))
 	for rows.Next() {
 		var roleID string
 		var internalID int64
+		var name string
+		var status int
 		// role_id, internal_id 映射关系到roleID，internalID
-		if err := rows.Scan(&roleID, &internalID); err != nil {
+		if err := rows.Scan(&roleID, &internalID, &name, &status); err != nil {
 			return nil, err
 		}
-		roleIDToInternalID[roleID] = internalID
+		roleIDToBinding[roleID] = opsRoleBinding{BusinessID: roleID, InternalID: internalID, Name: name, Status: status}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	internalRoleIDs := make([]int64, 0, len(roleIDToInternalID))
+	bindings := make([]opsRoleBinding, 0, len(roleIDToBinding))
 	for _, roleID := range businessRoleIDs {
-		internalID, ok := roleIDToInternalID[roleID]
-		if !ok || internalID <= 0 {
+		binding, ok := roleIDToBinding[roleID]
+		if !ok || binding.InternalID <= 0 {
 			return nil, fmt.Errorf("invalid roleID: %s", roleID)
 		}
-		internalRoleIDs = append(internalRoleIDs, internalID)
+		bindings = append(bindings, binding)
 	}
-	return internalRoleIDs, nil
+	return bindings, nil
 }
 
 /* 这段代码是 MySQL 特有的批量插入 + 重复主键忽略更新语法，常用于批量给管理员绑定角色，当 admin_user_id + role_id 联合唯一索引冲突时，不修改原有数据。 */
-func insertAdminUserRolesBatch(ctx context.Context, tx *sql.Tx, adminUserID int64, roleIDs []int64) error {
-	if len(roleIDs) == 0 {
+func insertAdminUserRolesBatch(ctx context.Context, tx *sql.Tx, adminUserID int64, bindings []opsRoleBinding) error {
+	if len(bindings) == 0 {
 		return nil
 	}
 
-	valueParts := make([]string, 0, len(roleIDs))
-	args := make([]interface{}, 0, len(roleIDs)*2)
-	for _, roleID := range roleIDs {
-		if roleID <= 0 {
+	valueParts := make([]string, 0, len(bindings))
+	args := make([]interface{}, 0, len(bindings)*2)
+	for _, binding := range bindings {
+		if binding.InternalID <= 0 {
 			return fmt.Errorf("invalid roleID")
 		}
 		valueParts = append(valueParts, "(?, ?, NOW(), 0)")
-		args = append(args, adminUserID, roleID)
+		args = append(args, adminUserID, binding.InternalID)
 	}
 
 	/* 最终拼接完成后的sql语句是：
@@ -661,6 +676,27 @@ func insertAdminUserRolesBatch(ctx context.Context, tx *sql.Tx, adminUserID int6
 	// 表 admin_user_role 一定建立了唯一联合索引， 同一个管理员不能重复绑定同一个角色
 	// 当执行 INSERT 时，数据库检测到即将插入的数据违反唯一索引（重复记录），不会抛出主键冲突错误，转而执行 UPDATE 后面的逻辑
 	querySQL += " ON DUPLICATE KEY UPDATE `role_id` = `role_id`"
+	_, err := tx.ExecContext(ctx, querySQL, args...)
+	return err
+}
+
+func insertUserRoleViewBatch(ctx context.Context, tx *sql.Tx, adminUserID int64, bindings []opsRoleBinding) error {
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	valueParts := make([]string, 0, len(bindings))
+	args := make([]interface{}, 0, len(bindings)*4)
+	for _, binding := range bindings {
+		if strings.TrimSpace(binding.BusinessID) == "" {
+			return fmt.Errorf("invalid roleID")
+		}
+		valueParts = append(valueParts, "(?, ?, ?, ?, ?)")
+		args = append(args, adminUserID, binding.BusinessID, binding.Name, binding.Status)
+	}
+
+	querySQL := SQLQueriesPackage.InsertOpsUserRoleViewBatchPrefixSQL + strings.Join(valueParts, ",")
+	querySQL += " ON DUPLICATE KEY UPDATE `role_name` = VALUES(`role_name`), `status` = VALUES(`status`)"
 	_, err := tx.ExecContext(ctx, querySQL, args...)
 	return err
 }
@@ -680,16 +716,17 @@ func (r *Repository) GetUserRoles(ctx context.Context, userID string) ([]map[str
 
 	list := make([]map[string]interface{}, 0, 8)
 	for rows.Next() {
-		var id int64
-		var name, description string
+		var roleID, name string
+		var status int
 		var createdAt time.Time
-		if err := rows.Scan(&id, &name, &description, &createdAt); err != nil {
+		if err := rows.Scan(&roleID, &name, &status, &createdAt); err != nil {
 			return nil, err
 		}
 		list = append(list, map[string]interface{}{
-			"id":          strconv.FormatInt(id, 10),
+			"id":          roleID,
 			"name":        name,
-			"description": description,
+			"description": "",
+			"status":      status,
 			"createdAt":   createdAt.Format(time.RFC3339),
 		})
 	}

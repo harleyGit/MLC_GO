@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:54:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-11 10:11:37
+ * @LastEditTime: 2026-07-02 20:39:22
  * @FilePath: /MLC_GO/internal/pkg/mysql/queries/hg_sql_queries.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -235,21 +235,29 @@ const (
 	// 事务内执行；WHERE admin_user_id=? 命中 admin_user_role 唯一索引前缀，删除范围限定在单个管理员。
 	DeleteOpsAdminUserRolesSQL = "DELETE FROM `admin_user_role` WHERE `admin_user_id` = ?"
 
+	// DeleteOpsUserRoleViewSQL 删除指定管理员的角色冗余读模型。
+	// AssignUserRoles 在同一事务内先删后写，保证 user_role_view 与 admin_user_role 保持一致。
+	DeleteOpsUserRoleViewSQL = "DELETE FROM `user_role_view` WHERE `admin_user_id` = ?"
+
 	// InsertOpsAdminUserRoleSQL 插入管理员角色关联。
 	// 事务内批量执行；依赖唯一索引 (admin_user_id, role_id) 保证同一管理员不会重复绑定同一角色。
 	InsertOpsAdminUserRoleSQL = "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?, ?, NOW(), 0)"
 
 	// SelectOpsRoleInternalIDsByRoleIDsPrefixSQL 按业务 role.role_id 批量映射内部 role.id。
 	// role_id 是对外业务 ID；admin_user_role.role_id 仍保存内部自增 id，避免破坏现有关联表结构。
-	SelectOpsRoleInternalIDsByRoleIDsPrefixSQL = "SELECT `role_id`, `id` FROM `role` WHERE `status` = 1 AND `role_id` IN "
+	SelectOpsRoleInternalIDsByRoleIDsPrefixSQL = "SELECT `role_id`, `id`, `name`, `status` FROM `role` WHERE `status` = 1 AND `role_id` IN "
 
 	// InsertOpsAdminUserRoleBatchPrefixSQL 批量插入管理员角色关联。
 	// Repository 动态拼接 VALUES 占位符，避免 N 次 SQL 执行和 N 次网络往返。
 	InsertOpsAdminUserRoleBatchPrefixSQL = "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES "
 
+	// InsertOpsUserRoleViewBatchPrefixSQL 批量写入用户角色冗余读模型。
+	// 写路径承担冗余成本，GetUserRoles 读路径直接按 admin_user_id 命中索引，避免大表 join。
+	InsertOpsUserRoleViewBatchPrefixSQL = "INSERT INTO `user_role_view` (`admin_user_id`, `role_id`, `role_name`, `status`, `create_at`) VALUES "
+
 	// SelectOpsUserRolesSQL 查询指定管理员已绑定角色。
-	// WHERE aur.admin_user_id=? 命中 admin_user_role(admin_user_id,role_id) 唯一索引前缀；再按 role_id 关联 role 主键。
-	SelectOpsUserRolesSQL = "SELECT r.`id`, r.`name`, r.`description`, r.`create_at` FROM `admin_user_role` aur INNER JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 WHERE aur.`admin_user_id` = ? ORDER BY r.`id` DESC"
+	// 直接读取 user_role_view 冗余表，WHERE admin_user_id/status + ORDER BY id DESC 命中 idx_admin_status_id，避免亿级关联表 join。
+	SelectOpsUserRolesSQL = "SELECT `role_id`, `role_name`, `status`, `create_at` FROM `user_role_view` WHERE `admin_user_id` = ? AND `status` = 1 ORDER BY `id` DESC"
 )
 
 // 视频模块
