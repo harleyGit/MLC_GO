@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -12,6 +13,20 @@ import (
 )
 
 var hgOpsTestDriverOnce sync.Once
+
+func TestAssignUserRolesMapsBusinessRoleIDsAndBatchInserts(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+
+	err := repo.AssignUserRoles(context.Background(), "101", []string{
+		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B",
+		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C",
+		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B",
+	})
+	if err != nil {
+		t.Fatalf("AssignUserRoles returned error: %v", err)
+	}
+}
 
 func TestGetRoleListReturnsBusinessRoleID(t *testing.T) {
 	db := newHGTestDB(t)
@@ -177,14 +192,64 @@ func (hgOpsTestDriver) Open(string) (driver.Conn, error) {
 
 type hgOpsTestConn struct{}
 
-func (hgOpsTestConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
-func (hgOpsTestConn) Close() error                        { return nil }
-func (hgOpsTestConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
+func (hgOpsTestConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("unexpected prepared statement: %s", query)
+}
+func (hgOpsTestConn) Close() error              { return nil }
+func (hgOpsTestConn) Begin() (driver.Tx, error) { return hgOpsTestTx{}, nil }
+
+func (hgOpsTestConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return hgOpsTestTx{}, nil
+}
+
+func (hgOpsTestConn) PrepareContext(_ context.Context, query string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("unexpected prepared statement: %s", query)
+}
+
+type hgOpsTestTx struct{}
+
+func (hgOpsTestTx) Commit() error   { return nil }
+func (hgOpsTestTx) Rollback() error { return nil }
+
+type hgOpsTestResult int64
+
+func (r hgOpsTestResult) LastInsertId() (int64, error) { return 0, nil }
+func (r hgOpsTestResult) RowsAffected() (int64, error) { return int64(r), nil }
+
+func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, error) {
+	switch {
+	case strings.Contains(query, "DELETE FROM `admin_user_role`") && len(args) == 1 && args[0] == int64(101):
+		return hgOpsTestResult(1), nil
+	case strings.Contains(query, "INSERT INTO `admin_user_role`") && strings.Count(query, "(?, ?, NOW(), 0)") == 2:
+		want := []driver.Value{int64(101), int64(101), int64(101), int64(102)}
+		if len(args) != len(want) {
+			return nil, fmt.Errorf("insert args len = %d, want %d", len(args), len(want))
+		}
+		for i := range want {
+			if args[i] != want[i] {
+				return nil, fmt.Errorf("insert arg[%d] = %v, want %v", i, args[i], want[i])
+			}
+		}
+		return hgOpsTestResult(2), nil
+	default:
+		return nil, fmt.Errorf("unexpected exec: %s args=%v", query, args)
+	}
+}
+
+func (c hgOpsTestConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	values := make([]driver.Value, 0, len(args))
+	for _, arg := range args {
+		values = append(values, arg.Value)
+	}
+	return c.Exec(query, values)
+}
 
 func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, error) {
 	switch {
 	case strings.Contains(query, "INFORMATION_SCHEMA.COLUMNS"):
 		return newHGTestRows([]string{"COUNT(*)"}, [][]driver.Value{{int64(1)}}), nil
+	case strings.Contains(query, "FROM `role`") && strings.Contains(query, "`role_id` IN"):
+		return newHGTestRows([]string{"role_id", "id"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101)}, {"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C", int64(102)}}), nil
 	case strings.Contains(query, "FROM `role`") && strings.Contains(query, "SELECT `role_id`"):
 		return newHGTestRows([]string{"role_id", "id", "name", "description", "create_at"}, [][]driver.Value{{"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", int64(101), "owner", "Owner role", time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
 	case strings.Contains(query, "FROM `role`"):
@@ -210,6 +275,14 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 	default:
 		return newHGTestRows([]string{"id"}, nil), nil
 	}
+}
+
+func (c hgOpsTestConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	values := make([]driver.Value, 0, len(args))
+	for _, arg := range args {
+		values = append(values, arg.Value)
+	}
+	return c.Query(query, values)
 }
 
 type hgTestRows struct {

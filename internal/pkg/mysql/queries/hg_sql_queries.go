@@ -239,6 +239,14 @@ const (
 	// 事务内批量执行；依赖唯一索引 (admin_user_id, role_id) 保证同一管理员不会重复绑定同一角色。
 	InsertOpsAdminUserRoleSQL = "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?, ?, NOW(), 0)"
 
+	// SelectOpsRoleInternalIDsByRoleIDsPrefixSQL 按业务 role.role_id 批量映射内部 role.id。
+	// role_id 是对外业务 ID；admin_user_role.role_id 仍保存内部自增 id，避免破坏现有关联表结构。
+	SelectOpsRoleInternalIDsByRoleIDsPrefixSQL = "SELECT `role_id`, `id` FROM `role` WHERE `status` = 1 AND `role_id` IN "
+
+	// InsertOpsAdminUserRoleBatchPrefixSQL 批量插入管理员角色关联。
+	// Repository 动态拼接 VALUES 占位符，避免 N 次 SQL 执行和 N 次网络往返。
+	InsertOpsAdminUserRoleBatchPrefixSQL = "INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES "
+
 	// SelectOpsUserRolesSQL 查询指定管理员已绑定角色。
 	// WHERE aur.admin_user_id=? 命中 admin_user_role(admin_user_id,role_id) 唯一索引前缀；再按 role_id 关联 role 主键。
 	SelectOpsUserRolesSQL = "SELECT r.`id`, r.`name`, r.`description`, r.`create_at` FROM `admin_user_role` aur INNER JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 WHERE aur.`admin_user_id` = ? ORDER BY r.`id` DESC"

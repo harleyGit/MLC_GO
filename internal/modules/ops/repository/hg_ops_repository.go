@@ -549,36 +549,120 @@ func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs
 
 	// 千万级关联表约束：admin_user_role 通过唯一索引 (admin_user_id, role_id) 命中指定管理员；
 	// 单个管理员角色数很小，采用同一事务内先删后批量插入，保证提交后关联集合完整替换。
+	/* 在事务（Tx）上下文中执行一条 SQL 语句（通常是 INSERT / UPDATE / DELETE），并返回执行结果。
+	适用于：INSERT、UPDATE、DELETE、DDL（CREATE / ALTER / DROP）
+	不适用于：SELECT（查询用 QueryContext）
+	*/
 	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.DeleteOpsAdminUserRolesSQL, adminUserID); err != nil {
 		return err
 	}
 
 	if len(roleIDs) == 0 {
+		// 不执行tx.Commit()，提交事务，数据不会落库
 		return tx.Commit()
 	}
 
-	stmt, err := tx.PrepareContext(ctx, SQLQueriesPackage.InsertOpsAdminUserRoleSQL)
+	internalRoleIDs, err := r.resolveInternalRoleIDs(ctx, tx, roleIDs)
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	if len(internalRoleIDs) == 0 {
+		return tx.Commit()
+	}
 
-	seen := make(map[int64]struct{}, len(roleIDs))
-	for _, roleIDText := range roleIDs {
-		roleID, err := strconv.ParseInt(roleIDText, 10, 64)
-		if err != nil || roleID <= 0 {
-			return fmt.Errorf("invalid roleID")
+	if err := insertAdminUserRolesBatch(ctx, tx, adminUserID, internalRoleIDs); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *Repository) resolveInternalRoleIDs(ctx context.Context, tx *sql.Tx, roleIDs []string) ([]int64, error) {
+	seen := make(map[string]struct{}, len(roleIDs))
+	businessRoleIDs := make([]string, 0, len(roleIDs))
+	for _, roleID := range roleIDs {
+		roleID = strings.TrimSpace(roleID)
+		if roleID == "" {
+			return nil, fmt.Errorf("invalid roleID")
 		}
 		if _, ok := seen[roleID]; ok {
 			continue
 		}
 		seen[roleID] = struct{}{}
-		if _, err := stmt.ExecContext(ctx, adminUserID, roleID); err != nil {
-			return err
-		}
+		businessRoleIDs = append(businessRoleIDs, roleID)
+	}
+	if len(businessRoleIDs) == 0 {
+		return nil, nil
 	}
 
-	return tx.Commit()
+	// strings.Repeat，比如传入("?,", 3),结果是："?,?,?,";每一个 ID 对应一个 ?,，3 个 ID 就重复 3 次，末尾会多一个逗号
+	// strings.TrimRight是裁剪右侧逗号，比如：【"?,?,?,"】裁剪后变成：【"?,?,?"】
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(businessRoleIDs)), ",")
+	querySQL := SQLQueriesPackage.SelectOpsRoleInternalIDsByRoleIDsPrefixSQL + "(" + placeholders + ")"
+	args := make([]interface{}, 0, len(businessRoleIDs))
+	for _, roleID := range businessRoleIDs {
+		args = append(args, roleID)
+	}
+
+	rows, err := tx.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	roleIDToInternalID := make(map[string]int64, len(businessRoleIDs))
+	for rows.Next() {
+		var roleID string
+		var internalID int64
+		// role_id, internal_id 映射关系到roleID，internalID
+		if err := rows.Scan(&roleID, &internalID); err != nil {
+			return nil, err
+		}
+		roleIDToInternalID[roleID] = internalID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	internalRoleIDs := make([]int64, 0, len(roleIDToInternalID))
+	for _, roleID := range businessRoleIDs {
+		internalID, ok := roleIDToInternalID[roleID]
+		if !ok || internalID <= 0 {
+			return nil, fmt.Errorf("invalid roleID: %s", roleID)
+		}
+		internalRoleIDs = append(internalRoleIDs, internalID)
+	}
+	return internalRoleIDs, nil
+}
+
+/* 这段代码是 MySQL 特有的批量插入 + 重复主键忽略更新语法，常用于批量给管理员绑定角色，当 admin_user_id + role_id 联合唯一索引冲突时，不修改原有数据。 */
+func insertAdminUserRolesBatch(ctx context.Context, tx *sql.Tx, adminUserID int64, roleIDs []int64) error {
+	if len(roleIDs) == 0 {
+		return nil
+	}
+
+	valueParts := make([]string, 0, len(roleIDs))
+	args := make([]interface{}, 0, len(roleIDs)*2)
+	for _, roleID := range roleIDs {
+		if roleID <= 0 {
+			return fmt.Errorf("invalid roleID")
+		}
+		valueParts = append(valueParts, "(?, ?, NOW(), 0)")
+		args = append(args, adminUserID, roleID)
+	}
+
+	/* 最终拼接完成后的sql语句是：
+	INSERT INTO `admin_user_role` (`admin_user_id`, `role_id`, `update_at`, `update_by`) VALUES (?,?,?,?),(?,?,?,?),(?,?,?,?)
+
+	这是批量插入写法，一次 SQL 插入多条记录，性能远高于循环单条 Insert
+	所有 ? 占位符对应的真实参数全部存在切片 args 里，顺序一一对应
+	*/
+	querySQL := SQLQueriesPackage.InsertOpsAdminUserRoleBatchPrefixSQL + strings.Join(valueParts, ",")
+	// 表 admin_user_role 一定建立了唯一联合索引， 同一个管理员不能重复绑定同一个角色
+	// 当执行 INSERT 时，数据库检测到即将插入的数据违反唯一索引（重复记录），不会抛出主键冲突错误，转而执行 UPDATE 后面的逻辑
+	querySQL += " ON DUPLICATE KEY UPDATE `role_id` = `role_id`"
+	_, err := tx.ExecContext(ctx, querySQL, args...)
+	return err
 }
 
 // GetUserRoles 获取用户角色
