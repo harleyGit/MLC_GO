@@ -157,6 +157,12 @@ require github.com/julienschmidt/httprouter v1.3.0
 
 require github.com/golang-jwt/jwt/v5 v5.3.0
 
+require (
+	github.com/pierrec/lz4/v4 v4.1.19 // indirect
+	github.com/twmb/franz-go v1.16.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.7.0 // indirect
+)
+
 require github.com/joho/godotenv v1.5.1 // indirect //读取.env 文件中的环境变量值
 
 require (
