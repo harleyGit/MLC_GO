@@ -543,9 +543,9 @@ func (r *Repository) hasAdminUserEmailColumn(ctx context.Context) bool {
 
 // AssignUserRoles 分配用户角色
 func (r *Repository) AssignUserRoles(ctx context.Context, userID string, roleIDs []string) error {
-	adminUserID, err := strconv.ParseInt(userID, 10, 64)
-	if err != nil || adminUserID <= 0 {
-		return fmt.Errorf("invalid userID")
+	adminUserID, err := r.getAdminInternalIDByUserID(ctx, userID)
+	if err != nil {
+		return err
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -703,9 +703,9 @@ func insertUserRoleViewBatch(ctx context.Context, tx *sql.Tx, adminUserID int64,
 
 // GetUserRoles 获取用户角色
 func (r *Repository) GetUserRoles(ctx context.Context, userID string) ([]map[string]interface{}, error) {
-	adminUserID, err := strconv.ParseInt(userID, 10, 64)
-	if err != nil || adminUserID <= 0 {
-		return nil, fmt.Errorf("invalid userID")
+	adminUserID, err := r.getAdminInternalIDByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 
 	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsUserRolesSQL, adminUserID)
@@ -734,6 +734,25 @@ func (r *Repository) GetUserRoles(ctx context.Context, userID string) ([]map[str
 		return nil, err
 	}
 	return list, nil
+}
+
+func (r *Repository) getAdminInternalIDByUserID(ctx context.Context, userID string) (int64, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return 0, fmt.Errorf("invalid userID")
+	}
+
+	var adminUserID int64
+	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsAdminInternalIDByUserIDSQL, userID).Scan(&adminUserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("invalid userID")
+		}
+		return 0, err
+	}
+	if adminUserID <= 0 {
+		return 0, fmt.Errorf("invalid userID")
+	}
+	return adminUserID, nil
 }
 
 // CreateMenu 创建菜单

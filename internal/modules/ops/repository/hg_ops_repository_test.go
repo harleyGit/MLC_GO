@@ -18,7 +18,7 @@ func TestAssignUserRolesMapsBusinessRoleIDsAndBatchInserts(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)
 
-	err := repo.AssignUserRoles(context.Background(), "101", []string{
+	err := repo.AssignUserRoles(context.Background(), "UID-101", []string{
 		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B",
 		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C",
 		"ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B",
@@ -32,7 +32,7 @@ func TestGetUserRolesReadsUserRoleView(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)
 
-	roles, err := repo.GetUserRoles(context.Background(), "101")
+	roles, err := repo.GetUserRoles(context.Background(), "UID-101")
 	if err != nil {
 		t.Fatalf("GetUserRoles returned error: %v", err)
 	}
@@ -290,6 +290,8 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 		return newHGTestRows([]string{"id", "name", "description", "create_at"}, [][]driver.Value{{int64(101), "owner", "Owner role", time.Date(2026, 7, 1, 1, 2, 3, 0, time.UTC)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` LIKE") && args[0] == "%101%":
 		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
+	case strings.Contains(query, "SELECT `id` FROM `admin_user`") && strings.Contains(query, "`user_id` = ?") && args[0] == "UID-101":
+		return newHGTestRows([]string{"id"}, [][]driver.Value{{int64(101)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`mobile` LIKE") && args[0] == "%3800%":
 		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` = ?") && args[0] == "UID-101":

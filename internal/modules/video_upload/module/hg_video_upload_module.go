@@ -4,6 +4,7 @@ import (
 	HGHandlerPackage "MLC_GO/internal/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
+	"MLC_GO/internal/pkg/logHG"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
@@ -39,7 +40,7 @@ func (m *Module) Handler() http.Handler {
 func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) {
 	components := NewModuleComponents(ModuleDeps{RedisService: redisService, SQLManager: sqlManager})
 	if err := components.Service.Init(context.Background()); err != nil {
-		panic(err)
+		logHG.ErrFInfo("视频投稿模块初始化失败，跳过启动期索引/同步任务初始化: %v", err)
 	}
 	HGHandlerPackage.RegisterModule(NewModule(components.Handler))
 }

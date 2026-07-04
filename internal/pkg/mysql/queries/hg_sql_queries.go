@@ -223,6 +223,10 @@ const (
 	// 兼容旧库 admin_user.email 缺失场景；查询条件仍使用 user_id，保证 SearchAdminUsers 的 id 字段始终对应 users.user_id。
 	SelectOpsAdminByIDWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `user_id` = ? AND `is_delete` = 0 LIMIT 1"
 
+	// SelectOpsAdminInternalIDByUserIDSQL 按对外业务 user_id 映射 admin_user 内部自增 id。
+	// 前端角色分配页传递的是 admin_user.user_id；关联表仍使用 admin_user.id，写入前必须做一次索引点查映射。
+	SelectOpsAdminInternalIDByUserIDSQL = "SELECT `id` FROM `admin_user` WHERE `user_id` = ? AND `is_delete` = 0 LIMIT 1"
+
 	// SelectOpsUserPhoneByIDSQL 按 users.id 读取手机号。
 	// 命中 users 主键，用于 admin_user 唯一键冲突时回查已存在管理员。
 	SelectOpsUserPhoneByIDSQL = "SELECT COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)) FROM `users` WHERE `id` = ?"
