@@ -53,6 +53,7 @@ func (b *HGBaseConsumer) HGStartConsume(ctx context.Context, handle HGRecordHand
 	}
 
 	b.once.Do(func() {
+		// 消费循环是长生命周期 goroutine，生命周期由传入 ctx 控制。
 		go b.consumeLoop(ctx, handle)
 	})
 
@@ -62,6 +63,7 @@ func (b *HGBaseConsumer) HGStartConsume(ctx context.Context, handle HGRecordHand
 func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler) {
 	defer func() {
 		if r := recover(); r != nil {
+			// 长生命周期消费 goroutine 不能因为单条异常退出进程，先记录堆栈交给监控告警。
 			logHG.ErrFInfo("kafka consumer panic recovered err=%v stack=%s", r, string(debug.Stack()))
 		}
 	}()
@@ -73,6 +75,7 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 		default:
 		}
 
+		// PollFetches 会阻塞等待 broker 返回消息或 ctx 取消；不要在外层再加 busy loop。
 		fetches := b.cli.PollFetches(ctx)
 		if ctx.Err() != nil {
 			return
@@ -84,18 +87,21 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 		}
 		// 遍历所有拉取到的消息
 		fetches.EachRecord(func(record *kgo.Record) {
+			// 从 Kafka header 恢复 trace 上下文，保证消费侧日志仍能串回原请求。
 			traceCtx := HGExtractTraceFromRecord(record)
 			if err := handle(traceCtx, record); err != nil {
 				logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
 
+				// 业务处理失败先投递 DLQ；当前 offset 不提交，下一轮仍可重试原消息。
 				if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, err.Error()); dlqErr != nil {
 					logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 				}
-				// 失败不提交offset，下次重新消费
+				// 失败不提交 offset，下次重新消费；如果消息持续失败，会依赖 DLQ 和告警人工介入。
 				return
 			}
-			// 业务处理成功，手动提交offset
+			// 业务处理成功后再手动提交 offset，保证至少一次投递语义。
 			if err := b.cli.CommitRecords(ctx, record); err != nil {
+				// 提交失败会导致消息后续重复消费，因此业务 Handler 必须按事件 ID / 业务 key 保证幂等。
 				logHG.ErrFInfo("kafka commit record failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
 			}
 		})

@@ -502,7 +502,47 @@ INNER JOIN (
     LIMIT ?
 ) AS vs_page ON vs.submission_id = vs_page.submission_id
 LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
-ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+	ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+)
+
+// Outbox 模块
+const (
+	// InsertOutboxEventSQL 把领域事件写入本地消息表。
+	// 这条 SQL 必须和业务写库放在同一个 MySQL 事务内：业务数据提交，事件也提交；业务回滚，事件也回滚。
+	InsertOutboxEventSQL = `
+INSERT INTO outbox_events (event_id, event_name, event_key, topic, payload, status, retry_count, next_retry_at)
+VALUES (?, ?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)`
+
+	// SelectPendingOutboxEventsSQL 拉取待投递事件。
+	// FOR UPDATE SKIP LOCKED 允许多个 dispatcher 实例并发工作且互不抢同一批记录。
+	SelectPendingOutboxEventsSQL = `
+SELECT id, event_id, event_name, event_key, topic, payload, retry_count
+FROM outbox_events
+WHERE status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP
+ORDER BY id ASC
+LIMIT ?
+FOR UPDATE SKIP LOCKED`
+
+	// MarkOutboxEventPublishedSQL 标记事件已投递 Kafka。
+	MarkOutboxEventPublishedSQL = `
+UPDATE outbox_events
+SET status = 'published', published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`
+
+	// MarkOutboxEventRetrySQL 投递失败时递增重试次数，并按 retry_count 拉长下次重试时间。
+	MarkOutboxEventRetrySQL = `
+UPDATE outbox_events
+SET retry_count = retry_count + 1,
+    last_error = ?,
+    next_retry_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL LEAST(retry_count + 1, 60) SECOND),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`
+
+	// MarkOutboxEventDeadSQL 超过最大重试次数后进入死信状态，避免一条毒消息阻塞整个队列。
+	MarkOutboxEventDeadSQL = `
+UPDATE outbox_events
+SET status = 'dead', last_error = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`
 )
 
 // 聊天模块

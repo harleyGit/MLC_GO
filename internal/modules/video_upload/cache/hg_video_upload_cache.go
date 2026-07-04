@@ -1,8 +1,10 @@
 package VideoUploadCachePackage
 
 import (
+	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -17,6 +19,7 @@ const (
 	uploadSessionTTL      = 24 * time.Hour
 	submitIdempotencyTTL  = 10 * time.Minute
 	rateLimitWindow       = time.Minute
+	videoListPageTTL      = 5 * time.Second
 	userUploadMinuteLimit = 120
 	ipUploadMinuteLimit   = 600
 	rateLimitRequestCost  = 1
@@ -156,6 +159,13 @@ func submitResultKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitResultKeyPrefix, userID, submissionID)
 }
 
+func videoListPageKey(cursor string, pageSize int) string {
+	if cursor == "" {
+		cursor = "first"
+	}
+	return fmt.Sprintf("%s%s:size:%d", PersistenceRedisPackage.VideoUploadListPageKeyPrefix, cursor, pageSize)
+}
+
 func videoStatusCounterKey() string {
 	return PersistenceRedisPackage.VideoStatusCounterKey
 }
@@ -216,4 +226,55 @@ func (c *Cache) SetVideoStatusCounters(ctx context.Context, counters map[string]
 		values[status] = count
 	}
 	return c.client.HSet(ctx, videoStatusCounterKey(), values).Err()
+}
+
+// GetVideoListPage 读取视频列表页缓存。
+// 列表页是高 QPS 热点读路径，短 TTL 缓存用于吸收瞬时并发；miss 时仍回源 MySQL 游标分页。
+func (c *Cache) GetVideoListPage(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {
+	data, err := c.client.Get(ctx, videoListPageKey(cursor, pageSize)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	var resp VideoUploadDtoPackage.GetVideoListResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, false, err
+	}
+	return &resp, true, nil
+}
+
+// SetVideoListPage 写入视频列表页短 TTL 缓存。
+func (c *Cache) SetVideoListPage(ctx context.Context, cursor string, pageSize int, resp *VideoUploadDtoPackage.GetVideoListResponse) error {
+	if resp == nil {
+		return nil
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, videoListPageKey(cursor, pageSize), data, videoListPageTTL).Err()
+}
+
+// InvalidateVideoListPages 清理列表分页缓存。
+// 写侧提交审核后调用；SCAN 分批删除，避免 KEYS 在生产 Redis 上阻塞事件循环。
+func (c *Cache) InvalidateVideoListPages(ctx context.Context) error {
+	var cursor uint64
+	for {
+		keys, nextCursor, err := c.client.Scan(ctx, cursor, PersistenceRedisPackage.VideoUploadListPagePatternKey, 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := c.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		if nextCursor == 0 {
+			return nil
+		}
+		cursor = nextCursor
+	}
 }

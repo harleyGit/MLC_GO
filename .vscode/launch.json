@@ -9,6 +9,7 @@
       "type": "go", // 调试类型（Go）
       "request": "launch", // 启动模式（launch 或 attach）
       "mode": "auto", // 调试模式（auto/debug/test）
+      "dlvFlags": ["--check-go-version=false"], // 当前 Go 版本高于 Delve 声明支持版本时，跳过 Delve 版本检查
       "preLaunchTask": "ensure-debug-deps",
       "program": "${workspaceFolder}", // 按 main 包整体启动，避免只编译 main.go 导致同包符号缺失
       "args": [
@@ -34,6 +35,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
+      "dlvFlags": ["--check-go-version=false"],
       "preLaunchTask": "ensure-pre-deps",
       "program": "${workspaceFolder}",
       "args": [
@@ -58,6 +60,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
+      "dlvFlags": ["--check-go-version=false"],
       "preLaunchTask": "ensure-prod-deps",
       "program": "${workspaceFolder}",
       "args": [
@@ -83,6 +86,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${fileDirname}" //调试当前文件所在的包
     },
     {
@@ -91,6 +95,7 @@
       "type": "go",
       "request": "launch",
       "mode": "test",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${workspaceFolder}",
       "args": ["-test.run", "MyTestFunction"]
     },
@@ -100,6 +105,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${workspaceFolder}", //调试工作区根目录（适用于有 main 包的项目）
       "args": ["--port=8080", "--env=dev"]
     },
@@ -109,6 +115,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${fileDirname}" //调试当前打开文件所在目录对应的包
     },
     {
@@ -117,6 +124,7 @@
       "type": "go",
       "request": "launch",
       "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${file}" //调试当前打开的文件
     },
     {
@@ -124,6 +132,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
+      "dlvFlags": ["--check-go-version=false"],
       "program": "${workspaceFolder}/TestNotes/performance_practice/performance_analysis_main.go",
       "args": []
     }

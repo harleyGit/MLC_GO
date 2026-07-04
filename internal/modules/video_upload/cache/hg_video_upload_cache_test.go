@@ -24,4 +24,10 @@ func TestVideoUploadCacheKeys(t *testing.T) {
 	if got := videoStatusCounterKey(); got != "video_status_counter" {
 		t.Fatalf("videoStatusCounterKey() = %s", got)
 	}
+	if got := videoListPageKey("", 20); got != "video_upload:list:cursor:first:size:20" {
+		t.Fatalf("videoListPageKey(first) = %s", got)
+	}
+	if got := videoListPageKey("2026-07-04T10:00:00Z|submission_1", 20); got != "video_upload:list:cursor:2026-07-04T10:00:00Z|submission_1:size:20" {
+		t.Fatalf("videoListPageKey(cursor) = %s", got)
+	}
 }

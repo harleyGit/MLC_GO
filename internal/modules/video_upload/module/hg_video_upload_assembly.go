@@ -1,16 +1,19 @@
 package VideoUploadModulePackage
 
 import (
-	ConfigPackage "MLC_GO/internal/pkg/config"
-	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	EventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadServicePackage "MLC_GO/internal/modules/video_upload/service"
 	VideoUploadTaskPackage "MLC_GO/internal/modules/video_upload/task"
+	ConfigPackage "MLC_GO/internal/pkg/config"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"fmt"
 )
+
+const videoUploadDomainEventTopic = "mlc.domain.events"
 
 // ModuleDeps 声明 video_upload 模块依赖的基础设施。
 // MySQL 存储投稿元数据，Redis 负责上传会话、限流和幂等，任务发布器负责异步转码/审核调度。
@@ -43,7 +46,8 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	cache := VideoUploadCachePackage.NewCache(deps.RedisService)
 	taskPub := VideoUploadTaskPackage.NewMemoryPublisher()
 	baseURL := fmt.Sprintf("http://localhost:%s", ConfigPackage.GetServerPort())
-	service := VideoUploadServicePackage.NewService(repo, cache, taskPub, baseURL)
+	service := VideoUploadServicePackage.NewService(repo, cache, taskPub, baseURL).
+		WithEventBus(EventBusPackage.NewKafkaEventBus(videoUploadDomainEventTopic))
 	handler := VideoUploadHandlerPackage.NewHandler(service)
 
 	return &ModuleComponents{

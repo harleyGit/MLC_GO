@@ -5,7 +5,7 @@
  * @LastEditTime: 2026-07-04 17:10:39
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_dlq.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- 
+
  * 功能： 统一死信投递、失败消息缓存补偿
  */
 
@@ -21,8 +21,10 @@ import (
 )
 
 const (
+	// HGTopicDLQBusiness 是业务事件死信 topic。
 	HGTopicDLQBusiness = "hg.dlq.business"
-	HGTopicDLQLog      = "hg.dlq.log"
+	// HGTopicDLQLog 是日志/埋点事件死信 topic。
+	HGTopicDLQLog = "hg.dlq.log"
 )
 
 // HGDLQPayload 是统一死信消息结构。
@@ -46,6 +48,7 @@ func HGSendDLQ(ctx context.Context, record *kgo.Record, cluster string, reason s
 		return fmt.Errorf("kafka dlq record cannot be nil")
 	}
 
+	// DLQ 记录保留原 topic/partition/offset，便于后续定位原始消息和手工补偿。
 	payload := HGDLQPayload{
 		SourceTopic:     record.Topic,
 		SourcePartition: record.Partition,
@@ -63,9 +66,11 @@ func HGSendDLQ(ctx context.Context, record *kgo.Record, cluster string, reason s
 
 	dlqTopic := HGTopicDLQBusiness
 	if cluster == "log" {
+		// 日志类消息和业务类消息分开，避免大流量日志死信淹没核心业务死信。
 		dlqTopic = HGTopicDLQLog
 	}
 
+	// DLQ 继续使用原消息 key，便于同一实体的失败消息按 key 聚合排查。
 	dlqRecord := &kgo.Record{
 		Topic: dlqTopic,
 		Key:   record.Key,

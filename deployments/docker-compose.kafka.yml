@@ -1,0 +1,149 @@
+services:
+  # 本文件用于本地开发启动一套 3 节点 Kafka KRaft 集群。
+  # 访问方式：本机 Go 服务使用 localhost:19092,localhost:29092,localhost:39092；compose 网络内服务使用 kafka-1:9092,kafka-2:9092,kafka-3:9092。
+  # 注意：这是开发环境配置，生产环境必须补齐鉴权、TLS、磁盘容量、监控告警和显式 topic 初始化。
+
+  # Kafka broker/controller 节点 1。
+  # 本地通过 localhost:19092 访问；容器网络内通过 kafka-1:9092 访问。
+  kafka-1:
+    image: bitnami/kafka:3.7
+    container_name: mlc-kafka-1
+    ports:
+      # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:19092。
+      - "19092:9092"
+    environment:
+      # 使用 KRaft 模式，不再依赖 ZooKeeper。
+      KAFKA_ENABLE_KRAFT: "yes"
+      # 每个 KRaft 节点必须有唯一 node id。
+      KAFKA_CFG_NODE_ID: 1
+      # broker 负责读写消息，controller 负责集群元数据选主和管理。
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # 对宿主机客户端暴露的 broker 地址，必须使用宿主机可访问地址。
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:19092
+      # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # consumer offset topic 副本数设为 3，保证任意单节点故障后仍可恢复消费位点。
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # 事务状态 topic 副本数设为 3；未来启用事务消息时需要该配置。
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      # 事务状态最小 ISR 为 2，三节点集群允许损失 1 个副本仍可用。
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    volumes:
+      # 持久化 broker 数据，避免容器重启后 topic 和 offset 丢失。
+      - kafka_1_data:/bitnami/kafka
+
+  # Kafka broker/controller 节点 2。
+  # 本地通过 localhost:29092 访问；容器网络内通过 kafka-2:9092 访问。
+  kafka-2:
+    image: bitnami/kafka:3.7
+    container_name: mlc-kafka-2
+    ports:
+      # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:29092。
+      - "29092:9092"
+    environment:
+      # 使用 KRaft 模式，不再依赖 ZooKeeper。
+      KAFKA_ENABLE_KRAFT: "yes"
+      # 每个 KRaft 节点必须有唯一 node id，且要和 controller quorum voters 中的 id 对应。
+      KAFKA_CFG_NODE_ID: 2
+      # broker 负责读写消息，controller 负责集群元数据选主和管理。
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # 每个 broker 必须广告自己的宿主机映射端口，否则客户端元数据刷新后会连错节点。
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092
+      # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      # 持久化 broker 数据，避免容器重启后 topic 和 offset 丢失。
+      - kafka_2_data:/bitnami/kafka
+
+  # Kafka broker/controller 节点 3。
+  # 本地通过 localhost:39092 访问；容器网络内通过 kafka-3:9092 访问。
+  kafka-3:
+    image: bitnami/kafka:3.7
+    container_name: mlc-kafka-3
+    ports:
+      # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:39092。
+      - "39092:9092"
+    environment:
+      # 使用 KRaft 模式，不再依赖 ZooKeeper。
+      KAFKA_ENABLE_KRAFT: "yes"
+      # 每个 KRaft 节点必须有唯一 node id，且要和 controller quorum voters 中的 id 对应。
+      KAFKA_CFG_NODE_ID: 3
+      # broker 负责读写消息，controller 负责集群元数据选主和管理。
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # 第三个 broker 的宿主机访问地址。
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:39092
+      # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      # 持久化 broker 数据，避免容器重启后 topic 和 offset 丢失。
+      - kafka_3_data:/bitnami/kafka
+
+  # Kafka UI，用于本地查看 topic、consumer group、消息和 broker 状态。
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: mlc-kafka-ui
+    ports:
+      # 浏览器访问 http://localhost:18080。
+      - "18080:8080"
+    environment:
+      # UI 中展示的集群名称。
+      KAFKA_CLUSTERS_0_NAME: mlc-local
+      # UI 运行在 compose 网络内，因此使用容器内地址 kafka-x:9092。
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+
+  # Prometheus 监控服务预留。
+  # 当前 compose 只启动服务和端口，采集 Kafka/Grafana 指标还需要补 prometheus.yml。
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mlc-prometheus
+    ports:
+      # 浏览器访问 http://localhost:19090。
+      - "19090:9090"
+
+  # Grafana 可视化服务预留。
+  # 初始账号通常为 admin/admin，首次登录后按提示修改密码。
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mlc-grafana
+    ports:
+      # 浏览器访问 http://localhost:13000。
+      - "13000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  # 三个 broker 使用独立数据卷，避免节点数据互相覆盖。
+  # 如需彻底清空本地 Kafka 数据，可停止 compose 后删除这些 volume；删除后 topic、消息和 consumer offset 都会丢失。
+  kafka_1_data:
+  # kafka-2 的持久化数据卷。
+  kafka_2_data:
+  # kafka-3 的持久化数据卷。
+  kafka_3_data:

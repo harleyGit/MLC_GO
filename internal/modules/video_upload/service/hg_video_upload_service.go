@@ -1,6 +1,8 @@
 package VideoUploadServicePackage
 
 import (
+	"MLC_GO/internal/events"
+	VideoEventsPackage "MLC_GO/internal/events/video"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
@@ -45,12 +47,49 @@ var (
 // Service 承载视频投稿业务编排。
 // 文件保存、业务 ID 生成、基础校验放在这里，SQL 细节交给 repository。
 type Service struct {
-	repo      *VideoUploadRepositoryPackage.Repository
-	cache     *VideoUploadCachePackage.Cache
+	repo      videoUploadRepository
+	cache     videoUploadCache
 	publisher VideoUploadTaskPackage.Publisher
+	eventBus  eventPublisher
 	baseURL   string // 服务基础 URL，用于拼接文件绝对访问地址
 	uploader  *HGUploadPackage.Uploader
 	syncer    *VideoUploadTaskPackage.StatusCounterSyncer
+}
+
+type eventPublisher interface {
+	Publish(ctx context.Context, event events.DomainEvent) error
+}
+
+type videoUploadRepository interface {
+	EnsureVideoListIndex(ctx context.Context) error
+	CreateUploadedVideo(ctx context.Context, video VideoUploadRepositoryPackage.UploadedVideo) error
+	SaveSubmission(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) error
+	SaveSubmissionWithEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest, domainEvents ...events.DomainEvent) error
+	GetSubmissionStatus(ctx context.Context, submissionID string, userID string) (string, bool, error)
+	GetVideoListByCursor(ctx context.Context, cursor string, limit int) ([]VideoUploadDtoPackage.VideoListItem, error)
+	GetVideoStatusCounts(ctx context.Context) (map[string]int64, error)
+}
+
+// WithEventBus 注入领域事件总线。
+// 业务代码只依赖 event bus 抽象，不直接依赖 Kafka producer；Kafka 不可用时发布失败不会影响主库写入结果。
+func (s *Service) WithEventBus(eventBus eventPublisher) *Service {
+	s.eventBus = eventBus
+	return s
+}
+
+type videoUploadCache interface {
+	SaveUploadSession(ctx context.Context, userID string, submissionID string) error
+	TouchUploadSession(ctx context.Context, userID string, submissionID string) error
+	CheckUploadRateLimit(ctx context.Context, userID string, ip string) error
+	AcquireSubmitLock(ctx context.Context, userID string, submissionID string) (string, error)
+	ReleaseSubmitLock(ctx context.Context, userID string, submissionID string, lockValue string) error
+	SaveSubmitResult(ctx context.Context, userID string, submissionID string, status string) error
+	IncrementVideoStatusCounter(ctx context.Context, status string, delta int64) error
+	GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error)
+	SetVideoStatusCounters(ctx context.Context, counters map[string]int64) error
+	GetVideoListPage(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error)
+	SetVideoListPage(ctx context.Context, cursor string, pageSize int, resp *VideoUploadDtoPackage.GetVideoListResponse) error
+	InvalidateVideoListPages(ctx context.Context) error
 }
 
 // NewService 创建视频投稿服务。
@@ -199,28 +238,38 @@ func (s *Service) CheckUploadRateLimit(ctx context.Context, userID string, ip st
 
 // SaveSubmission 校验并保存稿件级配置、各分 P 配置、标签、定时发布和商业推广。
 func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) (*VideoUploadDtoPackage.SaveSubmissionResponse, error) {
+	// 先补齐默认值和校验必填项，避免无效数据进入事务造成部分写入。
 	if err := normalizeAndValidateSubmission(&req); err != nil {
 		return nil, err
 	}
+	// 用户维度提交锁防止同一个稿件被重复点击提交，降低重复写库和重复事件风险。
 	lockValue, err := s.acquireSubmitLock(ctx, userID, req.SubmissionID)
 	if err != nil {
 		return nil, err
 	}
 	defer s.releaseSubmitLock(context.WithoutCancel(ctx), userID, req.SubmissionID, lockValue)
 
+	// 保存前读取旧状态，用于 Redis 计数器按 delta 更新，而不是每次 COUNT(*) 回源。
 	oldStatus, _, err := s.repo.GetSubmissionStatus(ctx, req.SubmissionID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.repo.SaveSubmission(ctx, userID, req); err != nil {
+	// 领域事件随业务数据写入同一个 MySQL 事务的 Outbox，避免 DB 成功但 Kafka 失败导致读模型漏更新。
+	domainEvents := s.submissionEvents(ctx, userID, req)
+	if err := s.repo.SaveSubmissionWithEvents(ctx, userID, req, domainEvents...); err != nil {
 		return nil, err
 	}
 	if s.cache != nil {
+		// 计数器和列表页缓存属于性能优化，失败不影响主流程；后台同步器会定期从 MySQL 修正计数。
 		counterStatus, counterDelta := videoListCounterUpdate(oldStatus, req.Status)
 		_ = s.cache.IncrementVideoStatusCounter(ctx, counterStatus, counterDelta)
 		_ = s.cache.SaveSubmitResult(ctx, userID, req.SubmissionID, req.Status)
+		if oldStatus != req.Status && (isVideoListCountedStatus(oldStatus) || isVideoListCountedStatus(req.Status)) {
+			_ = s.cache.InvalidateVideoListPages(ctx)
+		}
 	}
+	// 转码/审核任务是异步副作用，当前阶段保持尽力投递，不阻断稿件保存结果。
 	s.publishSubmissionTasks(ctx, userID, req)
 	return &VideoUploadDtoPackage.SaveSubmissionResponse{
 		SubmissionID: req.SubmissionID,
@@ -229,7 +278,34 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 	}, nil
 }
 
+func (s *Service) publishSubmissionEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) {
+	// 仅 reviewing 状态会触发审核事件；草稿保存不应该污染审核/Feed 等消费链路。
+	if s.eventBus == nil || req.Status != "reviewing" {
+		return
+	}
+	_ = s.eventBus.Publish(ctx, VideoEventsPackage.VideoReviewedEvent{
+		EventMeta:    events.NewEventMeta(ctx),
+		SubmissionID: req.SubmissionID,
+		UserID:       userID,
+	})
+}
+
+func (s *Service) submissionEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) []events.DomainEvent {
+	// 只返回需要和业务事务一起提交的事件，调用方负责写入 Outbox。
+	if req.Status != "reviewing" {
+		return nil
+	}
+	return []events.DomainEvent{
+		VideoEventsPackage.VideoReviewedEvent{
+			EventMeta:    events.NewEventMeta(ctx),
+			SubmissionID: req.SubmissionID,
+			UserID:       userID,
+		},
+	}
+}
+
 func (s *Service) acquireSubmitLock(ctx context.Context, userID string, submissionID string) (string, error) {
+	// 没有 Redis 时跳过锁，保持本地开发可用；生产环境应配置 Redis 以降低重复提交风险。
 	if s.cache == nil {
 		return "", nil
 	}
@@ -245,11 +321,13 @@ func (s *Service) acquireSubmitLock(ctx context.Context, userID string, submissi
 
 func (s *Service) releaseSubmitLock(ctx context.Context, userID string, submissionID string, lockValue string) {
 	if s.cache != nil {
+		// 用 lockValue 做安全释放，避免误删后续请求重新获得的锁。
 		_ = s.cache.ReleaseSubmitLock(ctx, userID, submissionID, lockValue)
 	}
 }
 
 func (s *Service) publishSubmissionTasks(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) {
+	// 任务队列只做派生处理，失败由后续补偿任务兜底，不能影响稿件主事务。
 	if s.publisher == nil {
 		return
 	}
@@ -396,6 +474,12 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
+	if s.cache != nil {
+		resp, hit, err := s.cache.GetVideoListPage(ctx, cursor, pageSize)
+		if err == nil && hit {
+			return resp, nil
+		}
+	}
 
 	total, err := s.getVideoListTotal(ctx)
 	if err != nil {
@@ -403,12 +487,16 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 	}
 
 	if total == 0 {
-		return &VideoUploadDtoPackage.GetVideoListResponse{
+		resp := &VideoUploadDtoPackage.GetVideoListResponse{
 			Total:    0,
 			PageSize: pageSize,
 			HasMore:  false,
 			Videos:   []VideoUploadDtoPackage.VideoListItem{},
-		}, nil
+		}
+		if s.cache != nil {
+			_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, resp)
+		}
+		return resp, nil
 	}
 
 	videos, err := s.repo.GetVideoListByCursor(ctx, cursor, pageSize+1)
@@ -426,13 +514,17 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 		nextCursor = videos[len(videos)-1].SubmitTime + "|" + videos[len(videos)-1].SubmissionID
 	}
 
-	return &VideoUploadDtoPackage.GetVideoListResponse{
+	resp := &VideoUploadDtoPackage.GetVideoListResponse{
 		Total:      total,
 		PageSize:   pageSize,
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
 		Videos:     videos,
-	}, nil
+	}
+	if s.cache != nil {
+		_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, resp)
+	}
+	return resp, nil
 }
 
 // getVideoListTotal 获取视频总数，优先从 Redis Hash 计数器读取。

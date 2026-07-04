@@ -55,6 +55,8 @@ const (
 	// 提交任务锁，防止用户重复提交任务【视频上传草稿】
 	VideoUploadSubmitLockKeyPrefix   = "video_upload:submit_lock:"
 	VideoUploadSubmitResultKeyPrefix = "video_upload:submit_result:"
+	VideoUploadListPageKeyPrefix     = "video_upload:list:cursor:"
+	VideoUploadListPagePatternKey    = "video_upload:list:cursor:*"
 	// VideoStatusCounterKey 用 Redis Hash 按稿件状态维护视频列表计数，避免高并发列表总数查询打到 MySQL COUNT(*)。
 	VideoStatusCounterKey = "video_status_counter"
 )

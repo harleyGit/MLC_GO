@@ -1,7 +1,9 @@
 package VideoUploadRepositoryPackage
 
 import (
+	"MLC_GO/internal/events"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
+	"MLC_GO/internal/outbox"
 	hg_time "MLC_GO/internal/pkg/hg_time"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
@@ -64,6 +66,40 @@ func (r *Repository) CreateUploadedVideo(ctx context.Context, video UploadedVide
 // SaveSubmission 保存完整稿件配置。
 // 因为本模块不使用外键，所有写入都带 userID/submissionID 限定，避免误更新其他用户数据。
 func (r *Repository) SaveSubmission(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) error {
+	return r.SaveSubmissionWithEvents(ctx, userID, req)
+}
+
+// SaveSubmissionWithEvents 在同一个 MySQL 事务中保存稿件配置和 Outbox 事件。
+// 初学者重点：不要 Save() 后立刻 Producer.Send()，否则会出现“数据库成功但 Kafka 失败”的不一致。
+func (r *Repository) SaveSubmissionWithEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest, domainEvents ...events.DomainEvent) error {
+	// 开启本地事务，把稿件主表、分 P 配置、标签、定时发布、商业推广和 Outbox 事件作为一个原子单元提交。
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// Commit 成功后 Rollback 会返回 sql.ErrTxDone；defer 保证异常路径释放事务资源。
+	defer tx.Rollback()
+
+	if err := r.saveSubmissionTx(ctx, tx, userID, req); err != nil {
+		return err
+	}
+	if len(domainEvents) > 0 {
+		// Outbox writer 复用同一个 tx，避免数据库写入成功但事件记录丢失。
+		writer := outbox.NewRepository(r.db, "mlc.domain.events")
+		for _, event := range domainEvents {
+			if event == nil {
+				continue
+			}
+			if err := writer.SaveTx(ctx, tx, event); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) saveSubmissionTx(ctx context.Context, tx *sql.Tx, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) error {
+	// CardConfig 是动态卡片配置，使用 JSON 存储；空配置转 NULL，避免无意义空对象占用字段。
 	cardConfig, err := json.Marshal(req.CardConfig)
 	if err != nil {
 		return err
@@ -72,12 +108,13 @@ func (r *Repository) SaveSubmission(ctx context.Context, userID string, req Vide
 		cardConfig = nil
 	}
 
-	videoCount, totalSize, err := r.getSubmissionTotals(ctx, req.SubmissionID, userID)
+	videoCount, totalSize, err := r.getSubmissionTotalsTx(ctx, tx, req.SubmissionID, userID)
 	if err != nil {
 		return err
 	}
 
-	_, err = r.db.ExecContext(ctx, SQLQueriesPackage.SaveSubmissionSQL, req.SubmissionID, userID, req.Title, req.CoverURL, req.Category, req.VideoType, req.SourceURL, req.Description,
+	// 主表保存稿件级配置，WHERE/唯一键都带 submissionID + userID，防止跨用户误写。
+	_, err = tx.ExecContext(ctx, SQLQueriesPackage.SaveSubmissionSQL, req.SubmissionID, userID, req.Title, req.CoverURL, req.Category, req.VideoType, req.SourceURL, req.Description,
 		boolToInt(req.AllowSecondaryCreation), boolToInt(req.Watermark), req.Visibility, req.Declaration, nullableJSON(cardConfig),
 		boolToInt(req.DolbyAudio), boolToInt(req.HiresAudio), boolToInt(req.CloseDanmaku), boolToInt(req.CloseComment),
 		boolToInt(req.FeaturedComment), req.DynamicDescription, boolToInt(req.HideFromProfile), videoCount, totalSize, req.Status,
@@ -87,44 +124,67 @@ func (r *Repository) SaveSubmission(ctx context.Context, userID string, req Vide
 	}
 
 	for _, video := range req.Videos {
-		if err = r.updateVideoConfig(ctx, userID, req.SubmissionID, video); err != nil {
+		// 分 P 配置和标签在同一个事务内更新，保证列表展示不会看到半更新状态。
+		if err = r.updateVideoConfigTx(ctx, tx, userID, req.SubmissionID, video); err != nil {
 			return err
 		}
-		if err = r.replaceTags(ctx, video.VideoID, video.Tags); err != nil {
+		if err = r.replaceTagsTx(ctx, tx, video.VideoID, video.Tags); err != nil {
 			return err
 		}
 	}
 
-	if err = r.saveSchedule(ctx, userID, req.SubmissionID, req.Schedule); err != nil {
+	if err = r.saveScheduleTx(ctx, tx, userID, req.SubmissionID, req.Schedule); err != nil {
 		return err
 	}
 
-	return r.saveCommercial(ctx, userID, req.SubmissionID, req.Commercial)
+	return r.saveCommercialTx(ctx, tx, userID, req.SubmissionID, req.Commercial)
 }
 
 // getSubmissionTotals 根据已上传的视频文件重新计算稿件总数和总大小。
 // 这样前端不需要可信地上报 video_count/total_size，避免被篡改。
 func (r *Repository) getSubmissionTotals(ctx context.Context, submissionID, userID string) (int, int64, error) {
+	return r.getSubmissionTotalsTx(ctx, r.db, submissionID, userID)
+}
+
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func (r *Repository) getSubmissionTotalsTx(ctx context.Context, q queryRower, submissionID, userID string) (int, int64, error) {
 	var videoCount int
 	var totalSize int64
-	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetSubmissionTotalsSQL, submissionID, userID).Scan(&videoCount, &totalSize)
+	// 重新按已上传文件计算总数和总大小，防止客户端篡改提交请求中的聚合字段。
+	err := q.QueryRowContext(ctx, SQLQueriesPackage.GetSubmissionTotalsSQL, submissionID, userID).Scan(&videoCount, &totalSize)
 	return videoCount, totalSize, err
 }
 
 // updateVideoConfig 更新单个分 P 的表单配置。
 func (r *Repository) updateVideoConfig(ctx context.Context, userID string, submissionID string, video VideoUploadDtoPackage.VideoConfigRequest) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateVideoFileConfigSQL, video.PartNumber, video.Title, video.CoverURL, video.VideoType, video.SourceURL, video.Category, video.Description, video.VideoID, submissionID, userID)
+	return r.updateVideoConfigTx(ctx, r.db, userID, submissionID, video)
+}
+
+func (r *Repository) updateVideoConfigTx(ctx context.Context, execer sqlExecer, userID string, submissionID string, video VideoUploadDtoPackage.VideoConfigRequest) error {
+	_, err := execer.ExecContext(ctx, SQLQueriesPackage.UpdateVideoFileConfigSQL, video.PartNumber, video.Title, video.CoverURL, video.VideoType, video.SourceURL, video.Category, video.Description, video.VideoID, submissionID, userID)
 	return err
 }
 
 // replaceTags 使用先删后插保存标签。
 // 标签最多 7 个，数据量很小；这种写法比逐项 diff 更简单且行为稳定。
 func (r *Repository) replaceTags(ctx context.Context, videoID string, tags []string) error {
-	if _, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteVideoTagsByVideoIDSQL, videoID); err != nil {
+	return r.replaceTagsTx(ctx, r.db, videoID, tags)
+}
+
+type sqlExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func (r *Repository) replaceTagsTx(ctx context.Context, execer sqlExecer, videoID string, tags []string) error {
+	// 先清理旧标签再插入新标签，保证删除标签的场景也能正确落库。
+	if _, err := execer.ExecContext(ctx, SQLQueriesPackage.DeleteVideoTagsByVideoIDSQL, videoID); err != nil {
 		return err
 	}
 	for _, tag := range tags {
-		if _, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertVideoTagSQL, videoID, tag); err != nil {
+		if _, err := execer.ExecContext(ctx, SQLQueriesPackage.InsertVideoTagSQL, videoID, tag); err != nil {
 			return err
 		}
 	}
@@ -133,28 +193,39 @@ func (r *Repository) replaceTags(ctx context.Context, videoID string, tags []str
 
 // saveSchedule 保存或删除稿件级定时发布配置。
 func (r *Repository) saveSchedule(ctx context.Context, userID string, submissionID string, schedule *VideoUploadDtoPackage.ScheduleRequest) error {
+	return r.saveScheduleTx(ctx, r.db, userID, submissionID, schedule)
+}
+
+func (r *Repository) saveScheduleTx(ctx context.Context, execer sqlExecer, userID string, submissionID string, schedule *VideoUploadDtoPackage.ScheduleRequest) error {
 	if schedule == nil || !schedule.Enabled || schedule.ScheduledTime == nil {
-		_, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteScheduledPublishSQL, submissionID, userID)
+		// 前端关闭定时发布时删除旧配置，避免历史定时任务继续生效。
+		_, err := execer.ExecContext(ctx, SQLQueriesPackage.DeleteScheduledPublishSQL, submissionID, userID)
 		return err
 	}
 
+	// 客户端时间统一解析为服务端可比较的 time.Time，避免直接信任字符串格式。
 	scheduledTime, err := hg_time.ParseClientTime(*schedule.ScheduledTime)
 	if err != nil {
 		return err
 	}
 
-	_, err = r.db.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateScheduledPublishSQL, submissionID, userID, scheduledTime)
+	_, err = execer.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateScheduledPublishSQL, submissionID, userID, scheduledTime)
 	return err
 }
 
 // saveCommercial 保存或删除稿件级商业推广配置。
 func (r *Repository) saveCommercial(ctx context.Context, userID string, submissionID string, commercial *VideoUploadDtoPackage.CommercialRequest) error {
+	return r.saveCommercialTx(ctx, r.db, userID, submissionID, commercial)
+}
+
+func (r *Repository) saveCommercialTx(ctx context.Context, execer sqlExecer, userID string, submissionID string, commercial *VideoUploadDtoPackage.CommercialRequest) error {
 	if commercial == nil || !commercial.Enabled {
-		_, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteCommercialPromotionSQL, submissionID, userID)
+		// 关闭商业推广时删除旧配置，保持请求语义为最终态覆盖。
+		_, err := execer.ExecContext(ctx, SQLQueriesPackage.DeleteCommercialPromotionSQL, submissionID, userID)
 		return err
 	}
 
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateCommercialPromotionSQL, submissionID, userID, commercial.PromotionType, commercial.PromotionName, commercial.PromotionForm)
+	_, err := execer.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateCommercialPromotionSQL, submissionID, userID, commercial.PromotionType, commercial.PromotionName, commercial.PromotionForm)
 	return err
 }
 
@@ -253,7 +324,7 @@ func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, li
 		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
 	}
 
-	return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorSQL, limit, parts[0], parts[1])
+	return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorSQL, parts[0], parts[0], parts[1], limit)
 }
 
 // queryVideoList 执行视频列表查询并扫描结果，消除重复代码。

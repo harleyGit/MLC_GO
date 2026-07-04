@@ -122,6 +122,25 @@ func HGSendBusinessEvent(ctx context.Context, topic string, key string, data any
 	return nil
 }
 
+// HGSendBusinessEventBytes 发送已经序列化好的业务事件字节。
+// Outbox dispatcher 使用该方法，避免把 outbox.payload 再次 JSON Marshal 成字符串。
+func HGSendBusinessEventBytes(ctx context.Context, topic string, key string, payload []byte) error {
+	if topic == "" {
+		return errors.New("kafka topic cannot be empty")
+	}
+	record := &kgo.Record{Topic: topic, Key: []byte(key), Value: payload}
+	HGInjectTraceToRecord(ctx, record)
+
+	client := HGClient()
+	if client == nil {
+		return errors.New("kafka client is not initialized")
+	}
+	if err := client.ProduceSync(ctx, record).FirstErr(); err != nil {
+		return fmt.Errorf("produce business kafka event topic=%s: %w", topic, err)
+	}
+	return nil
+}
+
 // HGSendLogEvent 异步发送日志/埋点事件。不阻塞业务接口
 //
 // 异步发送不阻塞主业务链路；若发送失败，会尝试进入 DLQ。注意：当进程崩溃时，尚未 flush 的异步消息仍可能丢失。
