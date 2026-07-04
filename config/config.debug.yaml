@@ -4,3 +4,14 @@ log:
   level: debug
 db:
   dsn: root:123456@tcp(127.0.0.1:3306)/test
+kafka:
+  business:
+    brokers: []
+    acks: all
+    retry: 3
+    client_id: mlc-go-debug-business
+  log:
+    brokers: []
+    acks: "1"
+    retry: 1
+    client_id: mlc-go-debug-log

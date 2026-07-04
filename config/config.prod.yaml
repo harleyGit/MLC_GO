@@ -4,3 +4,14 @@ log:
   level: info
 db:
   dsn: root:******@tcp(prod-db:3306)/prod
+kafka:
+  business:
+    brokers: []
+    acks: all
+    retry: 5
+    client_id: mlc-go-prod-business
+  log:
+    brokers: []
+    acks: "1"
+    retry: 3
+    client_id: mlc-go-prod-log

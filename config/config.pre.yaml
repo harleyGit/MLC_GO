@@ -4,3 +4,14 @@ log:
   level: info
 db:
   dsn: root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB
+kafka:
+  business:
+    brokers: []
+    acks: all
+    retry: 3
+    client_id: mlc-go-pre-business
+  log:
+    brokers: []
+    acks: "1"
+    retry: 1
+    client_id: mlc-go-pre-log

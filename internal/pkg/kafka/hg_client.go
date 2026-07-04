@@ -1,3 +1,4 @@
+// package hg_client.go:全局生产者单例、发送通用方法
 package HGKafkaPackage
 
 import (
@@ -13,6 +14,13 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+const (
+	// hgKafkaStartupPingTimeout 是启动期 Kafka 可达性探测上限。
+	// kgo.NewClient 只构建本地 client，不代表 broker 已可达；启动期 Ping 可以提前发现 broker 地址错误、网络不通或认证链路异常。
+	// 这里不用过长超时，是为了让容器编排系统快速重启/报警，而不是让进程长期卡在启动阶段。
+	hgKafkaStartupPingTimeout = 3 * time.Second
+)
+
 var (
 	// HGGlobalKgoClient 是业务集群的全局 franz-go Client。
 	//
@@ -26,6 +34,11 @@ var (
 //
 // 该函数应在程序启动阶段调用一次；若初始化失败，调用方应阻止服务启动，避免请求期才暴露 MQ 不可用。
 // 当前项目 Go 版本为 1.23.5，kadm 新版本要求更高 Go 版本，因此这里先接入 kgo 核心生产/消费能力。
+//
+// 初始化分三步：
+// 1. 根据业务集群配置构建 producer/consumer 共用的 kgo opts。
+// 2. 创建临时 client 后立即 Ping broker，确认配置不是“看起来合法但实际不可用”。
+// 3. Ping 成功后再替换全局 client，避免失败初始化把 HGGlobalKgoClient 置为不可用实例。
 func HGInitKafka(cfg HGKafkaClusterConfig) error {
 	opts, err := HGNewBusinessProducerOpts(cfg.Business)
 	if err != nil {
@@ -36,6 +49,11 @@ func HGInitKafka(cfg HGKafkaClusterConfig) error {
 	if err != nil {
 		return fmt.Errorf("new business kafka client: %w", err)
 	}
+	if err := hgPingKafkaClient(client, hgKafkaStartupPingTimeout); err != nil {
+		// Ping 失败说明当前 client 还没有进入可服务状态；直接关闭临时 client，保持全局状态不变。
+		client.Close()
+		return fmt.Errorf("ping business kafka client: %w", err)
+	}
 
 	hgClientMu.Lock()
 	oldClient := HGGlobalKgoClient
@@ -43,6 +61,7 @@ func HGInitKafka(cfg HGKafkaClusterConfig) error {
 	hgClientMu.Unlock()
 
 	if oldClient != nil {
+		// 热替换或测试重复初始化时释放旧 client，避免旧连接继续占用 broker 连接数和本地资源。
 		oldClient.Close()
 	}
 
@@ -125,6 +144,25 @@ func HGClient() *kgo.Client {
 	hgClientMu.RLock()
 	defer hgClientMu.RUnlock()
 	return HGGlobalKgoClient
+}
+
+// HGPingKafka 检查当前全局 Kafka Client 是否能访问任一 broker。
+//
+// 该方法主要用于 /readyz：只要任一已发现 broker 或 seed broker 能响应 ApiVersions 请求，就认为 Kafka 依赖可达。
+// 调用方必须传入带超时/取消的 ctx，避免 ready 探针在网络异常时堆积。
+func HGPingKafka(ctx context.Context) error {
+	client := HGClient()
+	if client == nil {
+		return errors.New("kafka client is not initialized")
+	}
+	return client.Ping(ctx)
+}
+
+func hgPingKafkaClient(client *kgo.Client, timeout time.Duration) error {
+	// 启动期没有上游请求 ctx，因此使用固定超时的 Background context；cancel 必须释放计时器资源。
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return client.Ping(ctx)
 }
 
 // HGCloseKafka 优雅关闭 Kafka Client。

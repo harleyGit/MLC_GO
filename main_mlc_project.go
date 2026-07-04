@@ -1,18 +1,19 @@
 package main
 
 import (
-	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGHandlerPackage "MLC_GO/internal/handler"
-	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
-	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
-	HGLoggerPackage "MLC_GO/internal/pkg/logger"
+	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
-	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
+	ConfigPackage "MLC_GO/internal/pkg/config"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
+	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"MLC_GO/internal/pkg/logHG"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"errors"
 	"fmt"
@@ -54,6 +55,7 @@ type MLCApplication struct {
 	server       *http.Server
 	redisService *PersistenceRedisPackage.RedisService
 	sqlManager   *PersistenceSQLPackage.HGSQLManager
+	kafkaCloser  kafkaCloser
 }
 
 func init() {
@@ -106,7 +108,7 @@ func buildMLCServer() (*http.Server, error) {
 
 // buildMLCApplication 负责构建工程依赖、注册模块并组装 HTTP Server。
 //
-// 构建顺序刻意保持为：Logger -> Redis -> MySQL -> 模块注册 -> 根路由 -> Server。
+// 构建顺序刻意保持为：Logger -> Redis -> MySQL -> Kafka -> 模块注册 -> 根路由 -> Server。
 // 这样任何一步失败都可以释放前面已成功初始化的资源，避免启动失败时连接泄漏。
 func buildMLCApplication() (*MLCApplication, error) {
 	HGLoggerPackage.Init()
@@ -127,6 +129,17 @@ func buildMLCApplication() (*MLCApplication, error) {
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
 
+	kafkaCloser, err := initKafkaIfConfigured()
+	if err != nil {
+		logHG.ErrFInfo("Kafka初始化失败: %v", err)
+		// Kafka 排在 Redis/MySQL 之后初始化；一旦 Kafka 配置或网络不可用，必须回滚前置资源。
+		// 这样可以保证应用启动失败时不会遗留数据库连接池、Redis 连接池或后台日志资源。
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, err
+	}
+
 	// 2. 注册所有模块（每个模块内部创建自己的 handler）。
 	// ClearModules 用来避免测试或重复构建应用时，全局注册表被 append 出重复模块。
 	// 新增模块只需在此处调用 RegisterModules 即可。
@@ -142,9 +155,10 @@ func buildMLCApplication() (*MLCApplication, error) {
 	routeCatalogs := collectRouteCatalogs()
 
 	// 4. 创建根路由。
-	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL，而 /healthz 保持纯进程存活检查。
+	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
+	// Kafka 未配置时 kafkaCloser 为 nil，此时 ready 检查不会访问 Kafka，避免本地和单测环境被可选 MQ 依赖阻断。
 	rootMux := HGHandlerPackage.NewRootHandlerWithHealth(routeCatalogs, HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck: newReadyCheck(redisService, sqlManager),
+		ReadyCheck: newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
 	})
 
 	srv := &http.Server{
@@ -163,20 +177,29 @@ func buildMLCApplication() (*MLCApplication, error) {
 		server:       srv,
 		redisService: redisService,
 		sqlManager:   sqlManager,
+		kafkaCloser:  kafkaCloser,
 	}, nil
 }
 
-// newReadyCheck 聚合 Redis/MySQL 依赖检查，供 /readyz 区分依赖是否可用。
+// newReadyCheck 聚合 Redis/MySQL/Kafka 依赖检查，供 /readyz 区分依赖是否可用。
 //
 // /healthz 只说明进程还活着；/readyz 说明依赖可用、实例可以接业务流量。
 // Kubernetes/负载均衡可以据此在依赖不可用时摘掉实例，避免把请求打到不可服务的节点。
-func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) HGHandlerPackage.DependencyChecker {
+// kafkaEnabled 只表达“本次启动是否真实初始化过 Kafka”，而不是单纯读取配置项：
+// 1. Kafka 未配置时不检查，保持可选基础设施语义。
+// 2. Kafka 已初始化时必须检查，防止 broker 故障后实例继续被流量入口视为 ready。
+func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool) HGHandlerPackage.DependencyChecker {
 	return func(ctx context.Context) error {
 		if err := redisService.PingContext(ctx); err != nil {
 			return fmt.Errorf("redis not ready: %w", err)
 		}
 		if err := sqlManager.PingContext(ctx); err != nil {
 			return fmt.Errorf("mysql not ready: %w", err)
+		}
+		if kafkaEnabled {
+			if err := HGKafkaPackage.HGPingKafka(ctx); err != nil {
+				return fmt.Errorf("kafka not ready: %w", err)
+			}
 		}
 		return nil
 	}
@@ -242,6 +265,9 @@ func (app *MLCApplication) Close() {
 	}
 	if err := app.sqlManager.Close(); err != nil {
 		logHG.ErrFInfo("数据库关闭失败: %v", err)
+	}
+	if app.kafkaCloser != nil {
+		app.kafkaCloser()
 	}
 	HGLoggerPackage.CloseLogger()
 }

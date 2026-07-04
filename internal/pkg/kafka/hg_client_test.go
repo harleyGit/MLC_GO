@@ -2,7 +2,10 @@ package HGKafkaPackage
 
 import (
 	"context"
+	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -13,6 +16,17 @@ func TestHGSendBusinessEventRequiresClient(t *testing.T) {
 	t.Cleanup(func() { HGGlobalKgoClient = oldClient })
 
 	err := HGSendBusinessEvent(context.Background(), "topic", "key", map[string]string{"ok": "1"})
+	if err == nil {
+		t.Fatal("expected error when kafka client is nil")
+	}
+}
+
+func TestHGPingKafkaRequiresClient(t *testing.T) {
+	oldClient := HGGlobalKgoClient
+	HGGlobalKgoClient = nil
+	t.Cleanup(func() { HGGlobalKgoClient = oldClient })
+
+	err := HGPingKafka(context.Background())
 	if err == nil {
 		t.Fatal("expected error when kafka client is nil")
 	}
@@ -46,5 +60,38 @@ func TestHGCloseKafkaFlushesAndClosesClient(t *testing.T) {
 
 	if HGGlobalKgoClient != nil {
 		t.Fatal("expected global client reset to nil")
+	}
+}
+
+func TestHGInitKafkaFailsWhenBrokerUnreachable(t *testing.T) {
+	oldClient := HGGlobalKgoClient
+	HGGlobalKgoClient = nil
+	t.Cleanup(func() {
+		HGCloseKafka()
+		HGGlobalKgoClient = oldClient
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen unused port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	start := time.Now()
+	err = HGInitKafka(HGKafkaClusterConfig{Business: HGClusterConfig{Brokers: []string{addr}}})
+	if err == nil {
+		t.Fatal("expected unreachable broker to fail initialization")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("expected fast broker reachability failure, took %s", time.Since(start))
+	}
+	if !strings.Contains(err.Error(), "ping") {
+		t.Fatalf("expected ping error context, got %v", err)
+	}
+	if HGGlobalKgoClient != nil {
+		t.Fatal("expected global kafka client to remain nil after failed init")
 	}
 }
