@@ -1,4 +1,5 @@
 // package hg_client.go:全局生产者单例、发送通用方法
+// 单 Client 同时支持生产 + 消费，无需区分 producer/consumer 两套连接，大幅减少 Broker 连接数（大厂集群连接管控核心优化）
 package HGKafkaPackage
 
 import (
@@ -31,6 +32,7 @@ var (
 )
 
 // HGInitKafka 初始化业务 Kafka Client。
+// HGInitKafka 程序启动初始化全局客户端
 //
 // 该函数应在程序启动阶段调用一次；若初始化失败，调用方应阻止服务启动，避免请求期才暴露 MQ 不可用。
 // 当前项目 Go 版本为 1.23.5，kadm 新版本要求更高 Go 版本，因此这里先接入 kgo 核心生产/消费能力。
@@ -40,6 +42,7 @@ var (
 // 2. 创建临时 client 后立即 Ping broker，确认配置不是“看起来合法但实际不可用”。
 // 3. Ping 成功后再替换全局 client，避免失败初始化把 HGGlobalKgoClient 置为不可用实例。
 func HGInitKafka(cfg HGKafkaClusterConfig) error {
+	// 业务客户端（生产+消费共用）
 	opts, err := HGNewBusinessProducerOpts(cfg.Business)
 	if err != nil {
 		return fmt.Errorf("build business kafka opts: %w", err)
@@ -64,7 +67,7 @@ func HGInitKafka(cfg HGKafkaClusterConfig) error {
 		// 热替换或测试重复初始化时释放旧 client，避免旧连接继续占用 broker 连接数和本地资源。
 		oldClient.Close()
 	}
-
+	// 埋点客户端可独立创建，或复用同一client（看流量隔离需求）
 	return nil
 }
 
@@ -92,6 +95,7 @@ func HGBuildRecord(ctx context.Context, topic string, key string, data any) (*kg
 }
 
 // HGSendBusinessEvent 同步发送高可靠业务事件。
+// /service层调用发送业务事件
 //
 // 同步发送适合必须确认入 Kafka 后才能返回的核心链路；调用方必须传入有超时/取消能力的 ctx，避免 broker 异常时请求无限等待。
 func HGSendBusinessEvent(ctx context.Context, topic string, key string, data any) error {
@@ -108,11 +112,17 @@ func HGSendBusinessEvent(ctx context.Context, topic string, key string, data any
 	if err := client.ProduceSync(ctx, record).FirstErr(); err != nil {
 		return fmt.Errorf("produce business kafka event topic=%s: %w", topic, err)
 	}
-
+	// TODO: 异步发送 下面没有做，可以看下如何做he kafka
+	/*
+		// 注入trace到header
+		InjectTraceToRecord(ctx, record)
+		// 同步发送；超高吞吐用ProduceAsync非阻塞
+		return GlobalKgoClient.ProduceSync(ctx, record).FirstErr()
+	*/
 	return nil
 }
 
-// HGSendLogEvent 异步发送日志/埋点事件。
+// HGSendLogEvent 异步发送日志/埋点事件。不阻塞业务接口
 //
 // 异步发送不阻塞主业务链路；若发送失败，会尝试进入 DLQ。注意：当进程崩溃时，尚未 flush 的异步消息仍可能丢失。
 func HGSendLogEvent(ctx context.Context, topic string, data any) {
@@ -138,6 +148,15 @@ func HGSendLogEvent(ctx context.Context, topic string, data any) {
 		}
 	})
 }
+
+// TODO：优雅关闭 未做，看看啥原因
+// Close 优雅关闭，等待缓存消息全部发送完成
+/* func Close() {
+	if GlobalKgoClient != nil {
+		_ = GlobalKgoClient.Flush(context.Background())
+		GlobalKgoClient.Close()
+	}
+} */
 
 // HGClient 返回当前全局 Kafka Client。
 func HGClient() *kgo.Client {

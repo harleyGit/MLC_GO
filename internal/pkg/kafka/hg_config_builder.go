@@ -1,3 +1,14 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:34:42
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-07-04 17:16:24
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_config_builder.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
+ * 两套配置：高吞吐埋点 / 高可靠交易
+ */
+
 package HGKafkaPackage
 
 import (
@@ -13,7 +24,7 @@ const (
 	hgBusinessBatchMaxBytes     = 8 * 1024 * 1024
 )
 
-// HGNewLogProducerOpts 构建日志/埋点集群的生产者配置。
+// HGNewLogProducerOpts 构建日志/埋点集群的生产者配置；埋点集群：极致吞吐，acks=1，高批量
 //
 // 设计目标：吞吐优先、延迟可控、内存有上限。
 // - acks=1：leader 写入即确认，吞吐高，但 broker 故障窗口内存在少量丢失风险。
@@ -54,16 +65,22 @@ func hgNewProducerOpts(cfg HGClusterConfig, batchMaxBytes int32, linger time.Dur
 		kgo.RequiredAcks(hgToKgoAcks(cfg.Acks)),
 		kgo.ProducerBatchCompression(kgo.Lz4Compression(), kgo.SnappyCompression(), kgo.NoCompression()),
 		kgo.ProducerBatchMaxBytes(batchMaxBytes),
+		// kgo.ProducerBatchMaxDuration(50), // 50ms强制刷批
 		kgo.ProducerLinger(linger),
 		kgo.RecordRetries(cfg.Retry),
 		kgo.MaxBufferedRecords(hgDefaultMaxBufferedRecords),
 		kgo.MaxBufferedBytes(hgDefaultMaxBufferedBytes),
 		kgo.ProduceRequestTimeout(10 * time.Second),
+		// 开启幂等生产者，防止重试重复
+		//kgo.IdempotentProducer(),
 		kgo.WithHooks(HGMetricHook{}, HGTraceHook{}),
 	}
 
 	if cfg.ClientID != "" {
+		// 设置客户端ID
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
+		// 为啥没有这个：注入监控、链路钩子
+		// opts = append(opts, MetricHookOpt(), TraceHookOpt())
 	}
 
 	return opts

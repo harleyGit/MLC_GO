@@ -1,3 +1,14 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:36:21
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-07-04 17:10:39
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_dlq.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ 
+ * 功能： 统一死信投递、失败消息缓存补偿
+ */
+
 package HGKafkaPackage
 
 import (

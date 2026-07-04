@@ -1,3 +1,13 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:36:21
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-07-04 17:40:56
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_consumer.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ * 统一消费基类、自动offset管理、DLQ
+ */
+
 package HGKafkaPackage
 
 import (
@@ -30,7 +40,7 @@ func HGNewBaseConsumer(cli *kgo.Client, dlqTopic string) *HGBaseConsumer {
 	return &HGBaseConsumer{cli: cli, dlqTopic: dlqTopic}
 }
 
-// HGStartConsume 启动消费循环。
+// HGStartConsume 启动消费循环，支持多topic、自动负载均衡
 //
 // 注意：franz-go 的订阅 topic/group 应尽量通过创建 client 时的 ConsumeTopics/ConsumerGroup 配置完成；
 // 为保持调用简单，这里只负责 PollFetches 主循环，不在请求路径创建 goroutine，不使用无界 channel。
@@ -72,17 +82,19 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 			logHG.ErrFInfo("kafka fetch error errs=%v", errs)
 			continue
 		}
-
+		// 遍历所有拉取到的消息
 		fetches.EachRecord(func(record *kgo.Record) {
 			traceCtx := HGExtractTraceFromRecord(record)
 			if err := handle(traceCtx, record); err != nil {
 				logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
+
 				if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, err.Error()); dlqErr != nil {
 					logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 				}
+				// 失败不提交offset，下次重新消费
 				return
 			}
-
+			// 业务处理成功，手动提交offset
 			if err := b.cli.CommitRecords(ctx, record); err != nil {
 				logHG.ErrFInfo("kafka commit record failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
 			}

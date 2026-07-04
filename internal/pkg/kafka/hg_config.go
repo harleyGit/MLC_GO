@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:34:41
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-07-04 17:12:35
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_config.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package HGKafkaPackage
 
 import (
@@ -19,7 +27,9 @@ const (
 // Business 用于高可靠业务事件，默认 acks=all；Log 用于高吞吐日志/埋点，默认 acks=1。
 // 两套配置允许在生产环境中做物理集群隔离，避免日志洪峰影响核心交易链路。
 type HGKafkaClusterConfig struct {
+	// 业务消息集群
 	Business HGClusterConfig `yaml:"business" mapstructure:"business"`
+	// 埋点日志集群
 	Log      HGClusterConfig `yaml:"log" mapstructure:"log"`
 }
 
