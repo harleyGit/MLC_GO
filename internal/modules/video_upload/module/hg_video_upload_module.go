@@ -2,10 +2,11 @@ package VideoUploadModulePackage
 
 import (
 	HGHandlerPackage "MLC_GO/internal/handler"
+	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
-	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
+	"context"
 	"net/http"
 )
 
@@ -37,5 +38,8 @@ func (m *Module) Handler() http.Handler {
 // RegisterModules 注册视频投稿模块，内部完成依赖创建并写入全局模块注册表。
 func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) {
 	components := NewModuleComponents(ModuleDeps{RedisService: redisService, SQLManager: sqlManager})
+	if err := components.Service.Init(context.Background()); err != nil {
+		panic(err)
+	}
 	HGHandlerPackage.RegisterModule(NewModule(components.Handler))
 }

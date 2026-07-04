@@ -119,7 +119,10 @@ func (s *ScheduleRequest) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	//map[string]json.RawMessage :key 是字符串，value 是 json.RawMessage 类型。
+	// json.RawMessage 本质：[]byte 的别名，专门用来暂存未解析的原始 JSON 片段，不立刻内部解析
 	var raw map[string]json.RawMessage
+	// 把顶层 JSON 对象解析成一个 map，每个字段不做深层解析，只原样保留原始 JSON 字节。
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}

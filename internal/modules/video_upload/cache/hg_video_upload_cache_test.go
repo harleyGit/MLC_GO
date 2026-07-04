@@ -21,4 +21,7 @@ func TestVideoUploadCacheKeys(t *testing.T) {
 	if got := submitResultKey(userID, submissionID); got != "video_upload:submit_result:user_1:submission_1" {
 		t.Fatalf("submitResultKey() = %s", got)
 	}
+	if got := videoStatusCounterKey(); got != "video_status_counter" {
+		t.Fatalf("videoStatusCounterKey() = %s", got)
+	}
 }

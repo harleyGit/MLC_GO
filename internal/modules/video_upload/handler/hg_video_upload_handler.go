@@ -260,6 +260,9 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Image string `json:"image"`
 	}
+	// 解析 http 请求 body json 到 req 结构体
+	// 创建一个 JSON 解码器，数据源是 HTTP 请求体流 r.Body。
+	// r.Body：请求体数据流（前端 POST/PUT 提交的 body 内容）
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Image == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 image 字段"})

@@ -1,12 +1,13 @@
 package VideoUploadRepositoryPackage
 
 import (
-	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	hg_time "MLC_GO/internal/pkg/hg_time"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
@@ -200,6 +201,43 @@ func (r *Repository) GetVideoListTotal(ctx context.Context) (int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetVideoListTotalSQL).Scan(&total)
 	return total, err
+}
+
+// GetVideoStatusCounts 按状态精确回源列表计数器。
+// 仅用于 Redis 计数器初始化或补偿，常规高并发查询应走 Redis Hash，避免 COUNT(*) 成为热点。
+func (r *Repository) GetVideoStatusCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.GetVideoStatusCountsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counters := map[string]int64{
+		"reviewing": 0,
+		"published": 0,
+	}
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		counters[status] = count
+	}
+	return counters, rows.Err()
+}
+
+// GetSubmissionStatus 点查单个稿件状态，用于 Redis 计数器写侧 delta 计算。
+func (r *Repository) GetSubmissionStatus(ctx context.Context, submissionID string, userID string) (string, bool, error) {
+	var status string
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.GetVideoSubmissionStatusSQL, submissionID, userID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return status, true, nil
 }
 
 // GetVideoListByCursor 使用游标分页获取视频列表，避免亿级数据量下 OFFSET 深分页扫描。

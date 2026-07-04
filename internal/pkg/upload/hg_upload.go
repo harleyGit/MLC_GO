@@ -97,21 +97,30 @@ type UploadResult struct {
 
 // FileNameGenerator 文件名生成器。
 type FileNameGenerator struct {
+	// counter 持有一个无符号 64 位自增计数器 counter，用来提供自增序列号，确保在高并发上传时生成的文件名唯一性。使用 atomic 包的原子操作来保证线程安全。
 	counter uint64
 }
 
-// 全局文件名生成器。
+// globalGenerator 全局文件名生成器。
+// 全局单例指针，整个程序只用这一个计数器实例，保证全局自增有序。
 var globalGenerator = &FileNameGenerator{}
 
 // GenerateFileName 生成文件名：hg_模块名+年月日时分秒+序号.图片格式
 // 示例：hg_user_20260505183045123456789_000001_ab12cd34ef56abcd.jpg
 func GenerateFileName(moduleName string, ext string) string {
 	generator := globalGenerator
+
+	// seq 全局唯一递增数字，每次调用 + 1
+	// atomic.AddUint64：原子自增；多协程并发上传时，不加锁也能安全对 counter+1，不会出现并发重复序号。
 	seq := atomic.AddUint64(&generator.counter, 1)
 
 	// 纳秒时间、原子序号和随机后缀共同避免高并发下文件名冲突。
 	now := time.Now()
+	// timeStr
+	// 20060102150405 Go 标准时间模板 → 年月日时分秒
+	// now.Nanosecond() 9 位纳秒，补零到 9 位
 	timeStr := now.Format("20060102150405") + fmt.Sprintf("%09d", now.Nanosecond())
+	// randomStr 自定义函数，生成 8 位十六进制随机字符串，增加随机熵，进一步杜绝极端冲突。
 	randomStr := newRandomHex(8)
 
 	// 清理模块名
@@ -119,6 +128,9 @@ func GenerateFileName(moduleName string, ext string) string {
 	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
 
 	// 生成文件名
+	// seq%1000000： 自增数字很大（uint64 可到上亿），直接拼接字符串太长；
+	// 对 1000000 取模，只保留6 位数字，缩短文件名长度，冲突概率几乎不变。%06d 不足 6 位前面补 0，保证长度统一。
+	// 模板拆分：hg_{模块名}_{时间纳秒串}_{6位自增序号}_{8位随机串}.后缀
 	return fmt.Sprintf("hg_%s_%s_%06d_%s.%s", moduleName, timeStr, seq%1000000, randomStr, ext)
 }
 
@@ -165,20 +177,27 @@ func (d *LocalStorageDriver) Upload(data []byte, key string, contentType string)
 func (d *LocalStorageDriver) UploadStream(reader io.Reader, key string, contentType string) (string, error) {
 	// 创建目录
 	dir := filepath.Dir(filepath.Join(d.uploadDir, key))
+	// 递归创建多级目录，不存在的父目录会一并创建；目录已存在时不会报错。
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create dir failed: %w", err)
 	}
 
 	// 保存文件
+	// filepath.Join 拼接完整文件路径，自动适配不同系统路径分隔符（Windows \ / Mac/Linux /），避免手动拼接出现斜杠错乱。
 	filePath := filepath.Join(d.uploadDir, key)
+	// os.OpenFile 创建文件，如果文件已存在则返回错误。
+	// os.O_WRONLY：只写；os.O_CREATE：如果文件不存在则创建；os.O_EXCL：如果文件已存在则返回错误。
+	// err: 文件已存在：O_EXCL 触发 file exists 错误;目录不存在、磁盘满、权限不足等也会报错
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return "", fmt.Errorf("open file failed: %w", err)
 	}
 	defer file.Close()
 
-	if _, err := io.Copy(file, reader); err != nil {
-		_ = os.Remove(filePath)
+	// 把 reader 中的二进制图片流，完整拷贝写入本地文件 file
+	if _, err := io.Copy(file, reader); err != nil { //当写入中途出错（磁盘满、流中断、IO 异常）
+		// 写入失败，删除残留空/损坏文件
+		_ = os.Remove(filePath) //执行 os.Remove(filePath)，把半截损坏的文件删掉，避免残留垃圾文件；
 		return "", fmt.Errorf("write file failed: %w", err)
 	}
 
@@ -328,6 +347,7 @@ func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (
 		return nil, fmt.Errorf("data size %d exceeds max %d", len(data), u.config.MaxFileSize)
 	}
 
+	// 文件名处理
 	ext = normalizeExt(ext)
 
 	// 2. 检查文件类型
@@ -445,6 +465,7 @@ func (u *Uploader) DeleteFile(key string) error {
 // isAllowedType 检查文件类型是否允许。
 func (u *Uploader) isAllowedType(ext string) bool {
 	for _, allowed := range u.config.AllowedTypes {
+		// EqualFold 忽略大小写比较两个字符串是否相等，专门用来做不区分大小写的匹配。
 		if strings.EqualFold(ext, allowed) {
 			return true
 		}
@@ -482,23 +503,39 @@ func GetFileExt(filename string) string {
 	return strings.TrimPrefix(ext, ".")
 }
 
-// normalizeExt 标准化文件扩展名，避免大小写和点号造成校验绕过。
+// normalizeExt 标准化文件扩展名，避免大小写和点号造成校验绕过。【清洗文件后缀，统一转为小写、去除空格、去掉开头的点】
+//
+//	@param ext 后缀名
+//	@return string
 func normalizeExt(ext string) string {
+	// strings.TrimSpace(ext) 删除字符串首尾所有空白字符，包含：空格、换行 \n、制表符 \t 都会清掉。
+	// strings.TrimPrefix (上一步结果，".") 删除字符串开头的指定前缀，如果没有指定前缀，则返回原字符串。
+	// strings.ToLower： 全部字母转小写，统一后缀格式，方便后续判断图片类型。
 	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
 }
 
 // sanitizePathPart 清理路径片段，避免模块名携带路径穿越字符。
+// 清洗业务模块名，过滤 / \ : * ? " < > | 等非法路径字符，防止目录穿越、非法文件名。
+//
+//	@param value 模块名
+//	@return string
 func sanitizePathPart(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "default"
 	}
 
+	// strings.Builder 是 Go 官方推荐的高性能字符串拼接工具，用来替代频繁 + 拼接字符串。底层是可变字节数组，减少内存拷贝，适合循环内逐字符组装字符串。
 	var builder strings.Builder
+	// 预分配内存，提前告知 Builder 最终大概需要多少字节空间。
+	// 	len(value)：原始字符串 value 的字节长度；
+	// 	Grow 会一次性申请对应容量，避免循环写入时频繁扩容、复制内存，提升性能。
 	builder.Grow(len(value))
+	// 遍历字符串 value 里的每一个 Unicode 字符（rune），逐个处理
 	for _, r := range value {
 		switch {
 		case r >= 'a' && r <= 'z':
+			// 把这个小写字母写入 builder 缓存，保留下来
 			builder.WriteRune(r)
 		case r >= 'A' && r <= 'Z':
 			builder.WriteRune(r)
@@ -524,6 +561,8 @@ func validateImageContentType(data []byte, ext string) error {
 		return fmt.Errorf("image data is empty")
 	}
 
+	// DetectContentType是net/http 标准库方法，根据文件二进制字节流自动识别真实 MIME 类型，不靠后缀猜，靠文件头部二进制特征判断。
+	// 原理：读取字节前 512 字节，对照各类文件魔数（文件头部标识）识别： JPG 头部 FFD8FF、PNG 头部 89504E47 → image/png、WebP 头部 RIFF → image/webp
 	contentType := http.DetectContentType(data)
 	expected := getContentType(ext)
 	if ext == ImageTypeJPG || ext == ImageTypeJPEG {

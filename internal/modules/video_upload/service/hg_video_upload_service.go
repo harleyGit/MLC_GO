@@ -27,7 +27,8 @@ const (
 	// maxVideoUploadSize 和前端限制保持一致，避免超大文件占满磁盘或拖垮单实例上传 goroutine。
 	maxVideoUploadSize = int64(4 << 30)
 	// videoUploadRoot 是当前本地上传根目录；生产环境后续可替换为对象存储实现。
-	videoUploadRoot = "uploads/video"
+	videoUploadRoot                = "uploads/video"
+	videoStatusCounterSyncInterval = 5 * time.Minute
 )
 
 var (
@@ -49,24 +50,35 @@ type Service struct {
 	publisher VideoUploadTaskPackage.Publisher
 	baseURL   string // 服务基础 URL，用于拼接文件绝对访问地址
 	uploader  *HGUploadPackage.Uploader
+	syncer    *VideoUploadTaskPackage.StatusCounterSyncer
 }
 
 // NewService 创建视频投稿服务。
 // baseURL 用于拼接文件绝对访问地址，如 http://localhost:8080。
 func NewService(repo *VideoUploadRepositoryPackage.Repository, cache *VideoUploadCachePackage.Cache, publisher VideoUploadTaskPackage.Publisher, baseURL string) *Service {
-	return &Service{
+	s := &Service{
 		repo:      repo,
 		cache:     cache,
 		publisher: publisher,
 		baseURL:   strings.TrimRight(baseURL, "/"),
 		uploader:  HGUploadPackage.NewUploaderWithBaseURL(baseURL),
 	}
+	if cache != nil {
+		s.syncer = VideoUploadTaskPackage.NewStatusCounterSyncer(repo, cache, videoStatusCounterSyncInterval)
+	}
+	return s
 }
 
 // Init 初始化服务，确保数据库索引存在。
 // 应在服务启动时调用一次。
 func (s *Service) Init(ctx context.Context) error {
-	return s.repo.EnsureVideoListIndex(ctx)
+	if err := s.repo.EnsureVideoListIndex(ctx); err != nil {
+		return err
+	}
+	if s.syncer != nil {
+		s.syncer.Start(context.WithoutCancel(ctx))
+	}
+	return nil
 }
 
 // UploadVideo 保存单个视频文件并写入上传完成记录。
@@ -115,7 +127,7 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 
 	// 写文件时同步计算 MD5，避免上传完成后再次读盘扫描大文件。
 	// 非常经典的文件保存+MD5计算+文件信息生成流程
-	hash := md5.New()	// 创建MD5计算器，此时 hash -> 等待接受数据 -> 计算MD5值
+	hash := md5.New() // 创建MD5计算器，此时 hash -> 等待接受数据 -> 计算MD5值
 	// 同时写文件和计算MD5，io.MultiWriter(dst, hash) 创建一个同时写入 dst 和 hash 的 writer，保证文件内容被写入磁盘的同时也被 hash 计算器接收，避免重复读取文件内容。
 	if _, err = io.Copy(io.MultiWriter(dst, hash), file); err != nil {
 		return nil, err
@@ -196,10 +208,17 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 	}
 	defer s.releaseSubmitLock(context.WithoutCancel(ctx), userID, req.SubmissionID, lockValue)
 
+	oldStatus, _, err := s.repo.GetSubmissionStatus(ctx, req.SubmissionID, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := s.repo.SaveSubmission(ctx, userID, req); err != nil {
 		return nil, err
 	}
 	if s.cache != nil {
+		counterStatus, counterDelta := videoListCounterUpdate(oldStatus, req.Status)
+		_ = s.cache.IncrementVideoStatusCounter(ctx, counterStatus, counterDelta)
 		_ = s.cache.SaveSubmitResult(ctx, userID, req.SubmissionID, req.Status)
 	}
 	s.publishSubmissionTasks(ctx, userID, req)
@@ -416,49 +435,92 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 	}, nil
 }
 
-// getVideoListTotal 获取视频总数，优先从 Redis 缓存读取。
-// 缓存未命中时查库并回写缓存（TTL 60s），避免亿级数据量下每次请求都执行 COUNT(*)。
+// getVideoListTotal 获取视频总数，优先从 Redis Hash 计数器读取。
+// Redis key: video_status_counter；fields: reviewing/published。HGETALL + 内存求和是 O(1) 级小 hash 访问，避免亿级表 COUNT(*) 热点。
 func (s *Service) getVideoListTotal(ctx context.Context) (int, error) {
-	const videoListTotalCacheKey = "video_upload:list:total"
-	const videoListTotalCacheTTL = 60 * time.Second
-
 	if s.cache != nil {
-		total, err := s.cache.GetInt(ctx, videoListTotalCacheKey)
-		if err == nil && total >= 0 {
-			return total, nil
+		counters, hit, err := s.cache.GetVideoStatusCounters(ctx)
+		if err == nil && hit {
+			return videoListTotalFromCounters(counters), nil
 		}
 	}
 
-	total, err := s.repo.GetVideoListTotal(ctx)
+	counters, err := s.repo.GetVideoStatusCounts(ctx)
 	if err != nil {
 		return 0, err
 	}
 
 	if s.cache != nil {
-		_ = s.cache.SetInt(ctx, videoListTotalCacheKey, total, videoListTotalCacheTTL)
+		_ = s.cache.SetVideoStatusCounters(ctx, counters)
 	}
 
-	return total, nil
+	return videoListTotalFromCounters(counters), nil
+}
+
+func videoListCounterDelta(oldStatus string, newStatus string) int64 {
+	_, delta := videoListCounterUpdate(oldStatus, newStatus)
+	return delta
+}
+
+func videoListCounterUpdate(oldStatus string, newStatus string) (string, int64) {
+	oldVisible := isVideoListCountedStatus(oldStatus)
+	newVisible := isVideoListCountedStatus(newStatus)
+	if oldVisible == newVisible {
+		return "", 0
+	}
+	if newVisible {
+		return newStatus, 1
+	}
+	return oldStatus, -1
+}
+
+func isVideoListCountedStatus(status string) bool {
+	return status == "reviewing" || status == "published"
+}
+
+func videoListTotalFromCounters(counters map[string]int64) int {
+	total := counters["reviewing"] + counters["published"]
+	if total < 0 {
+		return 0
+	}
+	return int(total)
 }
 
 // SaveCoverImage 解析 base64 data URL 并保存为封面图片文件。
 // 复用 HGUploadPackage.Uploader（与头像上传同一套存储驱动），返回可直接在浏览器访问的绝对 URL。
+// 这段代码专门用来解析 Base64 格式的图片 DataURL，形如：data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+/* 完整流程示例
+输入 dataURL：data:image/webp;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=
+commaIdx 找到逗号位置
+前缀是 data:、有逗号，校验通过
+meta = data:image/webp;base64
+raw = UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=
+meta 包含 image/webp → ext = "webp"
+*/
 func (s *Service) SaveCoverImage(ctx context.Context, userID string, dataURL string) (string, error) {
+	/* strings.Index 查找字符串中第一个 , 的下标索引：
+	DataURL 固定格式：元信息,base64图片内容
+	逗号左边是文件类型、编码；右边是图片 base64 原文
+	找不到逗号时返回 -1
+	*/
 	commaIdx := strings.Index(dataURL, ",")
+	// commaIdx < 0：字符串里没有逗号，不是标准 dataURL
+	// !strings.HasPrefix(dataURL, "data:")：字符串不以 data: 开头，根本不是 DataURL 格式
 	if commaIdx < 0 || !strings.HasPrefix(dataURL, "data:") {
 		return "", errors.New("无效的图片 data URL")
 	}
 
-	meta := dataURL[:commaIdx]
-	raw := dataURL[commaIdx+1:]
+	meta := dataURL[:commaIdx]  // 逗号前面部分，meta 是 MIME 类型描述，image/jpeg 不会走 if 判断，所以默认 ext=jpg
+	raw := dataURL[commaIdx+1:] // 逗号后面全部base64字符串
 
-	ext := "jpg"
+	ext := "jpg" // 默认后缀jpg， 拿到 ext 后缀后，一般用来生成本地文件名，例如 uuid.${ext}，再把 raw 解码成图片文件
 	if strings.Contains(meta, "image/png") {
 		ext = "png"
 	} else if strings.Contains(meta, "image/webp") {
 		ext = "webp"
 	}
 
+	// 解码base64字符串raw为图片二进制
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
 		return "", errors.New("base64 解码失败")

@@ -38,7 +38,7 @@ func (h *HGUserHandler) GetClickCaptcha(w http.ResponseWriter, r *http.Request) 
 
 	resp, err := h.clickCaptchaSvc.GenerateCaptcha(r.Context())
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "生成验证码失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "生成验证码失败: " + err.Error()})
 		return
 	}
 
@@ -84,12 +84,13 @@ func (h *HGUserHandler) VerifyClickCaptcha(w http.ResponseWriter, r *http.Reques
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码验证失败，请重新点选"})
 			return
 		}
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证失败: " + err.Error()})
 		return
 	}
 
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
+
 /*
 TODO：用户表优化，最好分开成这样
 核心结构（用户表）：
@@ -121,7 +122,7 @@ func (h *HGUserHandler) RegisterHandlerV3(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.svc.Register(r.Context(), req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: " + err.Error()})
 		return
 	}
 
@@ -199,7 +200,7 @@ func (h *HGUserHandler) validateClickCaptchaToken(w http.ResponseWriter, r *http
 	// 删除动作使 token 具备一次性消费语义，避免并发或重复点击导致同一 token 被多次使用。
 	valid, err := h.clickCaptchaSvc.ValidateVerifyToken(r.Context(), verifyToken)
 	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码校验失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "验证码校验失败: " + err.Error()})
 		return false
 	}
 	if !valid {
@@ -243,7 +244,7 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 
 	// 调用邮箱注册服务
 	if err := h.svc.RegisterWithEmail(r.Context(), req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: " + err.Error()})
 		return
 	}
 
@@ -260,7 +261,7 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	var req UserServicePackage.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: " + err.Error()})
 		return
 	}
 	req.Device = PkGDevicePackage.Fingerprint(r)
@@ -277,7 +278,7 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		case UserServicePackage.ErrPhoneOrEmailRequired:
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "手机号或邮箱必填"})
 		default:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "登录失败: "+err.Error()})
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "登录失败: " + err.Error()})
 		}
 		return
 	}
@@ -322,7 +323,7 @@ func (h *HGUserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	var req UserDtoPackage.ResetPasswordReqModel
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: " + err.Error()})
 		return
 	}
 
@@ -333,7 +334,7 @@ func (h *HGUserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		case UserServicePackage.ErrCodeInvalid:
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码无效或已过期"})
 		default:
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.ResetPasswordFailCode, Message: "重置密码失败: "+err.Error()})
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.ResetPasswordFailCode, Message: "重置密码失败: " + err.Error()})
 		}
 		return
 	}
@@ -351,7 +352,7 @@ func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	var req RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: "+err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "JSON 解析失败: " + err.Error()})
 		return
 	}
 	if req.RefreshToken == "" {

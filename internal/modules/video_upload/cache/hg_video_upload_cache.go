@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -155,6 +156,10 @@ func submitResultKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitResultKeyPrefix, userID, submissionID)
 }
 
+func videoStatusCounterKey() string {
+	return PersistenceRedisPackage.VideoStatusCounterKey
+}
+
 // GetInt 从 Redis 获取整数值，key 不存在时返回 -1。
 func (c *Cache) GetInt(ctx context.Context, key string) (int, error) {
 	val, err := c.client.Get(ctx, key).Int()
@@ -167,4 +172,48 @@ func (c *Cache) GetInt(ctx context.Context, key string) (int, error) {
 // SetInt 向 Redis 写入整数值并设置 TTL。
 func (c *Cache) SetInt(ctx context.Context, key string, value int, ttl time.Duration) error {
 	return c.client.Set(ctx, key, value, ttl).Err()
+}
+
+// IncrementVideoStatusCounter 原子调整某个稿件状态的计数。
+// Redis HINCRBY 是单命令原子操作，适合 10k~100k+ QPS 的列表总数热点查询写侧维护。
+func (c *Cache) IncrementVideoStatusCounter(ctx context.Context, status string, delta int64) error {
+	if delta == 0 || status == "" {
+		return nil
+	}
+	return c.client.HIncrBy(ctx, videoStatusCounterKey(), status, delta).Err()
+}
+
+// GetVideoStatusCounters 从 Redis Hash 读取所有状态计数。
+// 返回 hit=false 表示计数器尚未初始化，调用方应回源 MySQL 并回填。
+func (c *Cache) GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error) {
+	values, err := c.client.HGetAll(ctx, videoStatusCounterKey()).Result()
+	if err != nil {
+		return nil, false, err
+	}
+	if len(values) == 0 {
+		return nil, false, nil
+	}
+
+	counters := make(map[string]int64, len(values))
+	for status, value := range values {
+		count, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, false, err
+		}
+		counters[status] = count
+	}
+	return counters, true, nil
+}
+
+// SetVideoStatusCounters 用 MySQL 精确回源结果初始化 Redis 计数器。
+// 计数器不设置 TTL，避免高并发下 key 过期瞬间把热点请求打回 MySQL；一致性由写侧 HINCRBY 和后续补偿任务保证。
+func (c *Cache) SetVideoStatusCounters(ctx context.Context, counters map[string]int64) error {
+	if len(counters) == 0 {
+		return nil
+	}
+	values := make(map[string]interface{}, len(counters))
+	for status, count := range counters {
+		values[status] = count
+	}
+	return c.client.HSet(ctx, videoStatusCounterKey(), values).Err()
 }

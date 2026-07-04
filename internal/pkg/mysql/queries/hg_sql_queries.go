@@ -411,6 +411,22 @@ SELECT COUNT(*)
 FROM video_submissions
 WHERE status IN ('reviewing', 'published')`
 
+	// GetVideoStatusCountsSQL 按状态精确回源视频列表计数器。
+	// 索引要求：命中 video_submissions(status, submit_time) 前缀 status，首次初始化或 Redis 丢失时使用，不能作为高 QPS 常规路径。
+	GetVideoStatusCountsSQL = `
+SELECT status, COUNT(*)
+FROM video_submissions
+WHERE status IN ('reviewing', 'published')
+GROUP BY status`
+
+	// GetVideoSubmissionStatusSQL 读取单个稿件当前状态，用于写侧计算 Redis 计数 delta。
+	// 索引要求：submission_id 唯一键或高选择性索引；单稿件锁内点查，不扫描大表。
+	GetVideoSubmissionStatusSQL = `
+SELECT status
+FROM video_submissions
+WHERE submission_id = ? AND user_id = ?
+LIMIT 1`
+
 	// CreateVideoSubmissionStatusTimeIndexSQL 创建视频稿件状态和提交时间联合索引。
 	// 用于优化 GetVideoListSQL 的查询性能。
 	CreateVideoSubmissionStatusTimeIndexSQL = `

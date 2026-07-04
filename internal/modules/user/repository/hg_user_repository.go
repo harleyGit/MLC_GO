@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 10:03:08
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-10 12:16:29
+ * @LastEditTime: 2026-07-03 20:36:52
  * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_repository.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -604,7 +604,12 @@ func updateUserSecurity(
 
 	query := fmt.Sprintf("UPDATE user_security SET %s WHERE user_id = ?", strings.Join(setClauses, ", "))
 	args = append(args, userID)
+	//执行无返回结果的 SQL 语句
+	// 适合：UPDATE / INSERT / DELETE / CREATE TABLE 这类不返回多行数据的写 SQL；
+	// 不适合 SELECT（查数据要用 QueryContext）
+	// 在事务tx中执行UPDATE，带ctx超时控制
 	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		// 执行失败，包装错误返回
 		return wrapUserSecurityWriteErr("update user security", err)
 	}
 
@@ -670,7 +675,11 @@ func wrapUserSecurityWriteErr(operation string, err error) error {
 
 // isMySQLDuplicateKey 判断 MySQL 唯一键冲突。
 func isMySQLDuplicateKey(err error) bool {
+	// 定义 MySQL 驱动专属错误类型变量，用来承接数据库原生错误
 	var mysqlErr *mysql.MySQLError
+	// errors.As：把原始错误 err 尝试转换成 mysql.MySQLError（MySQL 驱动专属错误）；转换成功返回 true，失败说明不是 MySQL 数据库错误
+	// 转换成功后，判断 MySQL 错误码是否等于1062
+	// 1062 = ER_DUP_ENTRY：唯一索引 / 主键重复，插入重复数据
 	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }
 
