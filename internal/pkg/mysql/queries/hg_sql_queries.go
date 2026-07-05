@@ -100,20 +100,20 @@ const (
 	SelectOpsAdminUserWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user`"
 
 	// SelectOpsAdminUserListFirstWithoutEmailSQL 获取管理员首页列表，不引用 email 字段。
-	// 千万级表约束：使用 is_delete 过滤和 id 倒序 cursor 分页，建议 admin_user 具备 (is_delete,id) 复合索引；不使用 COUNT/OFFSET。
-	SelectOpsAdminUserListFirstWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `id` DESC LIMIT ?"
+	// 千万级表约束：使用 is_delete 过滤和 user_id 倒序 cursor 分页，建议 admin_user 具备 (is_delete,user_id) 复合索引；不使用 COUNT/OFFSET。
+	SelectOpsAdminUserListFirstWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `user_id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserListByCursorWithoutEmailSQL 获取管理员下一页列表，不引用 email 字段。
-	// cursor 是上一页最后一条 admin_user.id；WHERE is_delete=0 AND id<? 避免深分页扫描和大量回表丢弃。
-	SelectOpsAdminUserListByCursorWithoutEmailSQL = "SELECT `id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+	// cursor 是上一页最后一条 admin_user.user_id；WHERE is_delete=0 AND user_id<? 避免深分页扫描和大量回表丢弃。
+	SelectOpsAdminUserListByCursorWithoutEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `user_id` < ? ORDER BY `user_id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserListFirstWithEmailSQL 获取管理员首页列表，包含 email 字段。
 	// 仅在 admin_user.email 字段存在时使用；分页策略与无 email 版本一致，不做实时总数统计。
-	SelectOpsAdminUserListFirstWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `id` DESC LIMIT ?"
+	SelectOpsAdminUserListFirstWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 ORDER BY `user_id` DESC LIMIT ?"
 
 	// SelectOpsAdminUserListByCursorWithEmailSQL 获取管理员下一页列表，包含 email 字段。
-	// cursor 采用自增主键 id，ORDER BY id DESC 保证分页稳定；建议建立 (is_delete,id) 索引支撑大表查询。
-	SelectOpsAdminUserListByCursorWithEmailSQL = "SELECT `id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+	// cursor 采用 user_id，ORDER BY user_id DESC 保证分页稳定；建议建立 (is_delete,user_id) 索引支撑大表查询。
+	SelectOpsAdminUserListByCursorWithEmailSQL = "SELECT `user_id`, `name`, `nick_name`, `email`, `mobile`, `status` FROM `admin_user` WHERE `is_delete` = 0 AND `user_id` < ? ORDER BY `user_id` DESC LIMIT ?"
 
 	// OpsAdminUserActiveConditionSQL 管理员搜索的基础条件。
 	// is_delete=0 必须始终存在，避免搜索结果包含软删除管理员。

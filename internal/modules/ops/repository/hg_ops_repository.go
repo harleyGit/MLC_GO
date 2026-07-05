@@ -126,7 +126,7 @@ func (r *Repository) GetAdminUserList(ctx context.Context, cursor int64, pageSiz
 
 	list := make([]map[string]interface{}, 0, queryLimit)
 	for rows.Next() {
-		var id int64
+		var id sql.NullString
 		var name, nickName, mobile string
 		var email sql.NullString
 		var status int
@@ -140,7 +140,7 @@ func (r *Repository) GetAdminUserList(ctx context.Context, cursor int64, pageSiz
 			}
 		}
 		list = append(list, map[string]interface{}{
-			"id":       strconv.FormatInt(id, 10),
+			"id":       id.String,
 			"name":     name,
 			"nickName": nickName,
 			"email":    email.String,
