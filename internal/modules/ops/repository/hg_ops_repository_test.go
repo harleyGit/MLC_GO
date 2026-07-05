@@ -252,8 +252,11 @@ func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, err
 			}
 		}
 		return hgOpsTestResult(2), nil
-	case strings.Contains(query, "INSERT INTO `user_role_view`") && strings.Count(query, "(?, ?, ?, ?, ?)") == 2:
+	case strings.Contains(query, "INSERT INTO `user_role_view`"):
 		want := []driver.Value{int64(101), "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8B", "owner", int64(1), int64(101), "ROL_01JZ4M9T5P4P4CH7B4Y4QXAK8C", "auditor", int64(1)}
+		if got := strings.Count(query, "?"); got != len(want) {
+			return nil, fmt.Errorf("view insert placeholder count = %d, want %d", got, len(want))
+		}
 		if len(args) != len(want) {
 			return nil, fmt.Errorf("view insert args len = %d, want %d", len(args), len(want))
 		}

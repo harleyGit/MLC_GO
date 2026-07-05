@@ -691,7 +691,7 @@ func insertUserRoleViewBatch(ctx context.Context, tx *sql.Tx, adminUserID int64,
 		if strings.TrimSpace(binding.BusinessID) == "" {
 			return fmt.Errorf("invalid roleID")
 		}
-		valueParts = append(valueParts, "(?, ?, ?, ?, ?)")
+		valueParts = append(valueParts, "(?, ?, ?, ?, NOW())")
 		args = append(args, adminUserID, binding.BusinessID, binding.Name, binding.Status)
 	}
 
