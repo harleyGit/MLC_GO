@@ -46,6 +46,38 @@ func (s *Service) CreateRole(ctx context.Context, userID string, req OpsDtoPacka
 	return &OpsDtoPackage.CreateRoleResponse{ID: id, Name: name, Description: description}, nil
 }
 
+// UpdateRole 更新角色
+func (s *Service) UpdateRole(ctx context.Context, userID string, req OpsDtoPackage.UpdateRoleRequest) (*OpsDtoPackage.UpdateRoleResponse, error) {
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		return nil, errors.New("角色ID不能为空")
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("角色名称不能为空")
+	}
+	description := strings.TrimSpace(req.Description)
+	item, err := s.repo.UpdateRole(ctx, id, name, description)
+	if err != nil {
+		return nil, err
+	}
+	return &OpsDtoPackage.UpdateRoleResponse{
+		ID:          toString(item["id"]),
+		Name:        toString(item["name"]),
+		Description: toString(item["description"]),
+		CreatedAt:   toString(item["createdAt"]),
+	}, nil
+}
+
+// DeleteRole 删除角色
+func (s *Service) DeleteRole(ctx context.Context, userID string, req OpsDtoPackage.DeleteRoleRequest) error {
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		return errors.New("角色ID不能为空")
+	}
+	return s.repo.DeleteRole(ctx, id)
+}
+
 // GetRoleList 获取角色列表。
 // 千万级表约束：角色列表使用 cursor 翻页，cursor 是上一页最后一条角色 id；cursor=0 表示首页。
 // Service 只限制 pageSize 上限并透传 cursor，不提供实时 total，避免 Repository 执行 COUNT/OFFSET。

@@ -79,6 +79,16 @@ const (
 	// 索引/约束要求：role.name 需要唯一索引 uidx_name，避免并发创建同名角色。
 	InsertOpsRoleSQL = "INSERT INTO `role` (`role_id`, `name`, `description`, `status`, `create_at`, `update_at`) VALUES (?, ?, ?, 1, NOW(), NOW())"
 
+	// UpdateRoleSQL 更新角色。
+	// 按 role_id 更新 name 和 description，update_at 由数据库当前时间生成。
+	// 索引/约束要求：role.role_id 需要唯一索引，避免更新冲突。
+	UpdateRoleSQL = "UPDATE `role` SET `name` = ?, `description` = ?, `update_at` = NOW() WHERE `role_id` = ? AND `status` = 1"
+
+	// DeleteRoleSQL 删除角色（软删除）。
+	// 将 status 设置为 0，表示已删除；update_at 由数据库当前时间生成。
+	// 索引/约束要求：role.role_id 需要唯一索引，避免删除冲突。
+	DeleteRoleSQL = "UPDATE `role` SET `status` = 0, `update_at` = NOW() WHERE `role_id` = ? AND `status` = 1"
+
 	// SelectOpsRoleListFirstSQL 获取角色首页列表。
 	// 千万级表约束：使用 idx_status_id(status,id) 复合索引，固定 status=1 并按 id 倒序取 pageSize+1 条。
 	// 不使用 COUNT(*)，不使用 OFFSET；多取 1 条仅用于判断 hasMore，避免深分页扫描和实时统计压力。

@@ -47,6 +47,58 @@ func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// UpdateRole 更新角色
+func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	var req OpsDtoPackage.UpdateRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		return
+	}
+
+	resp, err := h.service.UpdateRole(r.Context(), userID, req)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult(w, r, resp)
+}
+
+// DeleteRole 删除角色
+func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	var req OpsDtoPackage.DeleteRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		return
+	}
+
+	err := h.service.DeleteRole(r.Context(), userID, req)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		return
+	}
+
+	HGResponsePakcage.SuccessResult[interface{}](w, r, nil)
+}
+
 // GetRoleList 获取角色列表
 func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)

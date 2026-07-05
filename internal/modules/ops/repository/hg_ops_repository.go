@@ -45,6 +45,61 @@ func (r *Repository) CreateRole(ctx context.Context, name, description string) (
 	return roleID, nil
 }
 
+// UpdateRole 更新角色
+func (r *Repository) UpdateRole(ctx context.Context, roleID, name, description string) (map[string]interface{}, error) {
+	res, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateRoleSQL, name, description, roleID)
+	if err != nil {
+		return nil, err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("角色不存在或已删除")
+	}
+	// 查询更新后的角色信息
+	querySQL := SQLQueriesPackage.SelectOpsRoleListFirstSQL
+	args := []interface{}{1}
+	rows, err := r.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var roleIDStr sql.NullString
+		var id int64
+		var nameStr, descriptionStr string
+		var createdAt time.Time
+		if err := rows.Scan(&roleIDStr, &id, &nameStr, &descriptionStr, &createdAt); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"id":          roleIDStr.String,
+			"name":        nameStr,
+			"description": descriptionStr,
+			"createdAt":   createdAt.Format(time.RFC3339),
+		}, nil
+	}
+	return nil, fmt.Errorf("角色不存在")
+}
+
+// DeleteRole 删除角色（软删除）
+func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
+	res, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteRoleSQL, roleID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("角色不存在或已删除")
+	}
+	return nil
+}
+
 // GetRoleList 获取角色列表。
 // 千万级表约束：
 // - 使用 idx_status_id(status,id) 复合索引，查询条件固定为 status=1，并按 id 倒序做游标翻页。

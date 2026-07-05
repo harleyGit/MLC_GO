@@ -14,6 +14,26 @@ type CreateRoleResponse struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// UpdateRoleRequest 更新角色请求
+type UpdateRoleRequest struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// UpdateRoleResponse 更新角色响应
+type UpdateRoleResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// DeleteRoleRequest 删除角色请求
+type DeleteRoleRequest struct {
+	ID string `json:"id"`
+}
+
 // RoleListResponse 角色列表响应
 type RoleListResponse struct {
 	Total      int64      `json:"total"`
