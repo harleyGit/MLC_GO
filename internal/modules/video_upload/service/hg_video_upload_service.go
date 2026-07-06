@@ -115,6 +115,16 @@ func (s *Service) Init(ctx context.Context) error {
 		return err
 	}
 	if s.syncer != nil {
+		/* s.syncer.Start(...) 同步器启动函数，作用：
+			1. 开启后台协程循环同步数据（数据库同步、缓存同步、消息队列消费、定时任务等）
+			2.入参是 context.Context，用于控制同步器生命周期：超时、取消、关闭信号
+
+		 WithoutCancel(ctx) 基于父 ctx 创建新的上下文，特性：
+			1. 新 ctx 不会继承父 ctx 的取消信号
+			2.父 ctx 调用 cancel()、父 ctx 超时、父 ctx 被关闭 → 不会影响这个新 ctx
+			3.会继承父 ctx 的元数据（value）：TraceID、请求 ID、用户标识等透传
+			4.新 ctx 没有手动 cancel 函数，只能依靠自身生命周期退出
+		*/
 		s.syncer.Start(context.WithoutCancel(ctx))
 	}
 	return nil

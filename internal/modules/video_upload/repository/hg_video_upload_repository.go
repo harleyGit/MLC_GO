@@ -209,6 +209,7 @@ func (r *Repository) saveScheduleTx(ctx context.Context, execer sqlExecer, userI
 		return err
 	}
 
+	// TODO：在亿级数据、千万级并发场景下，大厂通常还会结合分库分表、消息队列（如 Kafka）、批量写入以及合理的唯一键设计，以降低热点数据竞争和索引维护成本，使 UPSERT 能够稳定运行在超大规模系统中。
 	_, err = execer.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateScheduledPublishSQL, submissionID, userID, scheduledTime)
 	return err
 }
@@ -407,6 +408,7 @@ func (r *Repository) queryVideoList(ctx context.Context, query string, args ...i
 
 // EnsureVideoListIndex 确保视频列表查询所需的索引存在。
 // 在服务启动时调用，创建 (status, submit_time) 联合索引以优化查询性能。
+// TODO: 性能存在问题，看：https://chatgpt.com/g/g-p-6948f37c9d50819197a136546b06413d-gogong-cheng/c/6a4b61e5-9014-83ec-a14c-baea973947ec
 func (r *Repository) EnsureVideoListIndex(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.CreateVideoSubmissionStatusTimeIndexSQL)
 	return err

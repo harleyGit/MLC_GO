@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-05-30 17:10:04
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-30 17:32:30
+ * @LastEditTime: 2026-07-06 17:43:28
  * @FilePath: /MLC_GO/internal/pkg/hg_time/client_time.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -26,8 +26,12 @@ type ClientTime struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
-// ParseClientTime 根据显式标记解析客户端时间，返回带正确时区的 time.Time。
+// 核心作用是：把不同格式的“客户端时间”统一解析成 time.Time（Go 标准时间类型），统一转换成UTC时间。
+// ParseClientTime 根据显式标记解析客户端时间，返回带正确时区的 time.Time。 
 // datetime-local 必须携带 timezone，否则返回错误——不再 fallback 到服务器本地时区。
+//	@param ct 
+//	@return time.Time 
+//	@return error 
 func ParseClientTime(ct ClientTime) (time.Time, error) {
 	switch ct.Format {
 	case "rfc3339":
@@ -52,7 +56,7 @@ func ParseClientTime(ct ClientTime) (time.Time, error) {
 			加载一个时区对象（location），比如： loc, err := time.LoadLocation("Asia/Shanghai")
 		*/
 		loc, err := time.LoadLocation(ct.Timezone)
-		if err != nil {
+		if err != nil {// 没有时区的时间必须补充时区，否则禁止解析，避免时间错乱
 			return time.Time{}, fmt.Errorf("invalid timezone %q: %w", ct.Timezone, err)
 		}
 		return time.ParseInLocation("2006-01-02T15:04", ct.Value, loc)
