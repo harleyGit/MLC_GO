@@ -190,12 +190,14 @@ func (c *Cache) IncrementVideoStatusCounter(ctx context.Context, status string, 
 	if delta == 0 || status == "" {
 		return nil
 	}
+	//HIncrBy是redis中操作 Redis Hash 类型字段自增的方法。
 	return c.client.HIncrBy(ctx, videoStatusCounterKey(), status, delta).Err()
 }
 
 // GetVideoStatusCounters 从 Redis Hash 读取所有状态计数。
 // 返回 hit=false 表示计数器尚未初始化，调用方应回源 MySQL 并回填。
 func (c *Cache) GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error) {
+	// 返回所有状态计数。
 	values, err := c.client.HGetAll(ctx, videoStatusCounterKey()).Result()
 	if err != nil {
 		return nil, false, err
@@ -263,6 +265,8 @@ func (c *Cache) SetVideoListPage(ctx context.Context, cursor string, pageSize in
 func (c *Cache) InvalidateVideoListPages(ctx context.Context) error {
 	var cursor uint64
 	for {
+		// 在不阻塞 Redis 的情况下，渐进式遍历数据库中的 Key。对于亿级 Key 的 Redis 集群，这是唯一推荐的遍历方式。
+		// TODO：对于在线高 QPS 业务查询，则应该避免依赖 Scan()，改用预先设计好的索引结构。
 		keys, nextCursor, err := c.client.Scan(ctx, cursor, PersistenceRedisPackage.VideoUploadListPagePatternKey, 100).Result()
 		if err != nil {
 			return err

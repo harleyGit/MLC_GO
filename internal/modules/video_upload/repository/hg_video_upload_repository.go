@@ -164,6 +164,8 @@ func (r *Repository) updateVideoConfig(ctx context.Context, userID string, submi
 }
 
 func (r *Repository) updateVideoConfigTx(ctx context.Context, execer sqlExecer, userID string, submissionID string, video VideoUploadDtoPackage.VideoConfigRequest) error {
+	// 分 P 配置和标签在同一个事务内更新，保证列表展示不会看到半更新状态。
+	// excer 是sql.Tx 也就是就是数据库事务对象。
 	_, err := execer.ExecContext(ctx, SQLQueriesPackage.UpdateVideoFileConfigSQL, video.PartNumber, video.Title, video.CoverURL, video.VideoType, video.SourceURL, video.Category, video.Description, video.VideoID, submissionID, userID)
 	return err
 }
@@ -278,6 +280,7 @@ func (r *Repository) GetVideoListTotal(ctx context.Context) (int, error) {
 // GetVideoStatusCounts 按状态精确回源列表计数器。
 // 仅用于 Redis 计数器初始化或补偿，常规高并发查询应走 Redis Hash，避免 COUNT(*) 成为热点。
 func (r *Repository) GetVideoStatusCounts(ctx context.Context) (map[string]int64, error) {
+	// TODO：在亿级数据、千万级并发场景下，大厂通常还会结合分库分表、消息队列（如 Kafka）、批量写入以及合理的唯一键设计，使 COUNT(*) 能够稳定运行在超大规模系统中。使用索引：CREATE INDEX idx_status_cover ON video_submissions(status, id);
 	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.GetVideoStatusCountsSQL)
 	if err != nil {
 		return nil, err

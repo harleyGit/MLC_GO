@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:54:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-02 20:39:22
+ * @LastEditTime: 2026-07-08 20:10:34
  * @FilePath: /MLC_GO/internal/pkg/mysql/queries/hg_sql_queries.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -341,6 +341,7 @@ ON DUPLICATE KEY UPDATE
 
 	// GetSubmissionTotalsSQL 根据已上传的视频文件重新计算稿件总数和总大小。
 	// 这样前端不需要可信地上报 video_count/total_size，避免被篡改。
+	// SUM(file_size)累加文件大小；COALESCE中如果 SUM 结果是 NULL，就返回 0，否则返回文件大小
 	GetSubmissionTotalsSQL = `
 SELECT COUNT(*), COALESCE(SUM(file_size), 0)
 FROM video_files

@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:48:12
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-07-17 18:01:55
+ * @FilePath: /MLC_GO/internal/pkg/config/hg_kafka_config.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package ConfigPackage
 
 import (
@@ -20,6 +28,7 @@ import (
 // 3. 两组 brokers 都会去除空白项，避免 YAML 中的空字符串把“未启用”误判为“配置非法”。
 func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 	var cfg HGKafkaPackage.HGKafkaClusterConfig
+	// 读取的是config.xxx.yaml中的kafka配置
 	if err := viper.UnmarshalKey("kafka", &cfg); err != nil {
 		return cfg, false, fmt.Errorf("读取 Kafka 配置失败: %w", err)
 	}

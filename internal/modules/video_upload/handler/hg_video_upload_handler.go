@@ -144,7 +144,9 @@ func readUploadMultipart(r *http.Request) (io.Reader, string, int64, string, map
 
 // readSmallMultipartField 只读取很小的文本字段，防止恶意 multipart 字段撑爆内存。
 func readSmallMultipartField(part *multipart.Part) (string, error) {
+	// 读取字段内容，限制最大长度，防止恶意字段撑爆内存
 	limited := io.LimitReader(part, maxMultipartHeaderBytes+1)
+	// io.ReadAll 会把数据写入内存，这里使用 io.LimitReader 限制最大长度
 	data, err := io.ReadAll(limited)
 	if err != nil {
 		return "", errors.New("读取上传字段失败")
