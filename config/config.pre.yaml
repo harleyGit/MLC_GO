@@ -5,13 +5,30 @@ log:
 db:
   dsn: root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB
 kafka:
+  # business 是应用当前实际初始化的 Kafka 集群，用于预发布环境业务事件；该配置为启动必填项。
   business:
-    brokers: []
+    # 当前预发布配置沿用本机 Compose 三节点端口，仅适用于服务与 Kafka 运行在同一宿主机的验证环境。
+    # 若服务部署到容器、虚拟机或远程预发布集群，必须替换为该运行环境可解析、可路由的 broker 地址。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    # all 表示等待 ISR 副本全部确认，使预发布可靠性策略与生产业务链路保持一致。
     acks: all
+    # 业务事件发送失败后的客户端重试次数；重试可能产生重复投递，消费者仍需保证幂等。
     retry: 3
+    # broker 日志和指标中的客户端标识，明确区分预发布业务流量。
     client_id: mlc-go-pre-business
+  # log 为日志/埋点流量预留的独立配置；当前地址与 business 相同，后续可替换为独立日志集群。
   log:
-    brokers: []
+    # 与 business 相同，此处 localhost 只适用于同宿主机部署，远程预发布必须替换为真实内网地址。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    # "1" 表示 leader 确认，日志链路吞吐优先；使用字符串以匹配 Kafka 配置结构。
     acks: "1"
+    # 日志链路限制为一次重试，降低非核心流量在故障期间的资源放大。
     retry: 1
+    # 日志客户端标识，便于在 broker 指标中区分预发布日志流量。
     client_id: mlc-go-pre-log

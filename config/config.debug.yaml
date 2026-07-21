@@ -5,13 +5,29 @@ log:
 db:
   dsn: root:123456@tcp(127.0.0.1:3306)/test
 kafka:
+  # business 是应用当前实际初始化的 Kafka 集群，用于需要可靠确认的业务事件；该配置为启动必填项。
   business:
-    brokers: []
+    # seed broker 列表。地址来自 deployments/docker-compose.kafka.yml 的宿主机映射端口；任一地址可达后客户端会发现完整集群。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    # all 表示等待 ISR 副本全部确认，优先保证业务消息可靠性。
     acks: all
+    # 单条记录发送失败后的客户端重试次数；业务事件允许有限重试，但业务侧仍需保证幂等。
     retry: 3
+    # broker 日志和指标中的客户端标识，包含服务名、环境和用途，便于排查连接及流量来源。
     client_id: mlc-go-debug-business
+  # log 为日志/埋点流量预留的独立集群配置；当前与 business 共用本地集群，但保留独立参数以便后续物理隔离。
   log:
-    brokers: []
+    # 本地开发同样访问 Compose 暴露到宿主机的三节点地址。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    # "1" 表示 leader 写入成功即确认，降低日志链路延迟并提高吞吐；YAML 中加引号避免被解析为整数。
     acks: "1"
+    # 日志消息允许较少重试，避免 broker 异常时非核心流量长时间占用客户端缓冲。
     retry: 1
+    # 日志客户端标识；未来创建独立日志 Client 时用于 broker 侧观测。
     client_id: mlc-go-debug-log

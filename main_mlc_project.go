@@ -129,6 +129,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
 
+	// Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
+	// 成功返回的 closer 会保存到 MLCApplication，在退出阶段统一 flush 并关闭全局 Kafka Client。
 	kafkaCloser, err := initKafkaIfConfigured()
 	if err != nil {
 		logHG.ErrFInfo("Kafka初始化失败: %v", err)
@@ -156,7 +158,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 
 	// 4. 创建根路由。
 	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
-	// Kafka 未配置时 kafkaCloser 为 nil，此时 ready 检查不会访问 Kafka，避免本地和单测环境被可选 MQ 依赖阻断。
+	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
 	rootMux := HGHandlerPackage.NewRootHandlerWithHealth(routeCatalogs, HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck: newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
 	})
@@ -185,9 +187,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 //
 // /healthz 只说明进程还活着；/readyz 说明依赖可用、实例可以接业务流量。
 // Kubernetes/负载均衡可以据此在依赖不可用时摘掉实例，避免把请求打到不可服务的节点。
-// kafkaEnabled 只表达“本次启动是否真实初始化过 Kafka”，而不是单纯读取配置项：
-// 1. Kafka 未配置时不检查，保持可选基础设施语义。
-// 2. Kafka 已初始化时必须检查，防止 broker 故障后实例继续被流量入口视为 ready。
+// kafkaEnabled 表达本次启动是否已成功初始化 Kafka；生产启动成功后该值必须为 true。
+// Kafka 已初始化时必须持续检查，防止 broker 故障后实例继续被流量入口视为 ready。
 func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool) HGHandlerPackage.DependencyChecker {
 	return func(ctx context.Context) error {
 		if err := redisService.PingContext(ctx); err != nil {
