@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-04 17:40:56
+ * @LastEditTime: 2026-07-23 16:36:15
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  * 统一消费基类、自动offset管理、DLQ
@@ -52,6 +52,7 @@ func (b *HGBaseConsumer) HGStartConsume(ctx context.Context, handle HGRecordHand
 		return fmt.Errorf("kafka consumer handler cannot be nil")
 	}
 
+	// 保证某段代码只执行一次，即使多个 goroutine 同时调用，也只会有一个执行成功
 	b.once.Do(func() {
 		// 消费循环是长生命周期 goroutine，生命周期由传入 ctx 控制。
 		go b.consumeLoop(ctx, handle)
@@ -69,13 +70,17 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 	}()
 
 	for {
+		// select类似：多个 channel 等待，哪个 channel 有数据，执行哪个。
 		select {
+			// 退出消费循环
+			//ctx里面有一个Done()，即channel。正常Done channel没有数据，处于阻塞状态。调用cancel()变成：ctx.Done()发送关闭信号
 		case <-ctx.Done():
 			return
 		default:
 		}
 
-		// PollFetches 会阻塞等待 broker 返回消息或 ctx 取消；不要在外层再加 busy loop。
+		// PollFetches 用来主动向 Kafka Broker 拉取消息（fetch），阻塞等待消息返回，然后把拉取到的一批消息封装成 Fetches 返回给消费者处理。
+		//PollFetches()就是：Consumer 发起一次 Fetch 请求。大白话就是：含义：给我一批当前可消费的数据。
 		fetches := b.cli.PollFetches(ctx)
 		if ctx.Err() != nil {
 			return
@@ -100,6 +105,7 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 				return
 			}
 			// 业务处理成功后再手动提交 offset，保证至少一次投递语义。
+			// TODO：性能不好在·高并发场景，应该批量提交，但 franz-go 暂无批量提交接口。
 			if err := b.cli.CommitRecords(ctx, record); err != nil {
 				// 提交失败会导致消息后续重复消费，因此业务 Handler 必须按事件 ID / 业务 key 保证幂等。
 				logHG.ErrFInfo("kafka commit record failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)

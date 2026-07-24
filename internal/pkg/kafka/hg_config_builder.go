@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:34:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-04 17:16:24
+ * @LastEditTime: 2026-07-21 17:46:38
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_config_builder.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -69,6 +69,7 @@ func HGNewBusinessProducerOpts(cfg HGClusterConfig) ([]kgo.Opt, error) {
 
 // hgNewProducerOpts 生成 franz-go producer 通用配置。
 func hgNewProducerOpts(cfg HGClusterConfig, batchMaxBytes int32, linger time.Duration) []kgo.Opt {
+	// 通用配置项。一个切片，里面的元素都是实现了 kgo.Opt 接口的函数，用于配置 Kafka 客户端。
 	opts := []kgo.Opt{
 		// Seed broker 只用于客户端发现集群，后续 franz-go 会维护完整 broker 元数据。
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -97,14 +98,19 @@ func hgNewProducerOpts(cfg HGClusterConfig, batchMaxBytes int32, linger time.Dur
 	return opts
 }
 
-// hgToKgoAcks 将项目配置中的 ack 字符串转换为 franz-go ack 枚举。
+// hgToKgoAcks 根据 Kafka Producer 的 acks 配置，返回 franz-go 对应的消息确认策略。
+// 它决定：Producer 发送消息后，需要 Kafka Broker 返回什么级别的确认，才认为消息发送成功。
+// 这是 Kafka 可靠性和性能之间的核心配置。
 func hgToKgoAcks(acks string) kgo.Acks {
 	switch acks {
 	case HGAcksNone:
-		return kgo.NoAck()
+		// roducer 发消息后，不等待 Kafka 返回确认。可靠性最低，性能最高
+		return kgo.NoAck() 
 	case HGAcksLeader:
+		// 等待 Kafka Topic 分区 Leader 写入成功。适合：普通业务：
 		return kgo.LeaderAck()
 	default:
+		// 等待所有 ISR（同步副本）确认。可靠性最高，性能最低。适合：核心业务、交易、订单等。
 		return kgo.AllISRAcks()
 	}
 }

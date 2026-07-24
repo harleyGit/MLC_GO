@@ -48,6 +48,7 @@ func HGInitKafka(cfg HGKafkaClusterConfig) error {
 		return fmt.Errorf("build business kafka opts: %w", err)
 	}
 
+	// 创建 Kafka 客户端
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new business kafka client: %w", err)
@@ -109,6 +110,7 @@ func HGSendBusinessEvent(ctx context.Context, topic string, key string, data any
 		return errors.New("kafka client is not initialized")
 	}
 
+	// 把一条消息 record 同步发送到 Kafka，等待 Kafka 返回结果，然后获取第一个错误
 	if err := client.ProduceSync(ctx, record).FirstErr(); err != nil {
 		return fmt.Errorf("produce business kafka event topic=%s: %w", topic, err)
 	}
@@ -157,11 +159,13 @@ func HGSendLogEvent(ctx context.Context, topic string, data any) {
 		return
 	}
 
-	client.Produce(ctx, record, func(r *kgo.Record, err error) {
+	// Produce 的核心作用：异步发送 Kafka 消息，不阻塞当前业务 goroutine，通过 callback 异步通知发送结果
+	client.Produce(ctx, record, func(r *kgo.Record, err error) { // callback是发送结果回调，若是kafka写成功，直接结束
 		if err == nil {
 			return
 		}
 		logHG.ErrFInfo("produce kafka log event failed topic=%s err=%v", topic, err)
+		// 发送失败，尝试进入 DLQ【死信队列，作用是：Kafka消息发送失败后，不直接丢弃，而保存到另一个 Topic。】
 		if dlqErr := HGSendDLQ(ctx, r, "log", err.Error()); dlqErr != nil {
 			logHG.ErrFInfo("send kafka log dlq failed topic=%s err=%v", topic, dlqErr)
 		}
@@ -196,10 +200,12 @@ func HGPingKafka(ctx context.Context) error {
 	return client.Ping(ctx)
 }
 
+// hgPingKafkaClient 检测 Kafka Client 是否能够正常连接 Kafka 集群
 func hgPingKafkaClient(client *kgo.Client, timeout time.Duration) error {
 	// 启动期没有上游请求 ctx，因此使用固定超时的 Background context；cancel 必须释放计时器资源。
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	// 检测 Kafka Client 是否正常，防止宕机、网络不通、DNS失败、SASL认证失败
 	return client.Ping(ctx)
 }
 
@@ -216,10 +222,15 @@ func HGCloseKafka() {
 		return
 	}
 
+	// 服务退出前，等待 Kafka Producer 内部缓存的未发送消息全部发送完成，然后关闭 Kafka Client，避免消息丢失。
+	// 时间限制：10秒，避免服务退出时无限等待；若 Kafka broker 不可达，Flush 会在超时后返回错误。如果 Kafka 挂了：Flush()，一直等待，服务无法退出，Pod无法停止
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	//没有 cancel：timer 还会存在。
 	defer cancel()
+	// 把 Producer 缓冲区里面还没有发送完成的消息全部刷到 Kafka。
 	if err := client.Flush(ctx); err != nil {
 		logHG.ErrFInfo("flush kafka client failed err=%v", err)
 	}
+	// 关闭 Kafka Client，释放连接和资源。因为：Flush 只负责发送剩余消息，但是 Client 还有资源，Close负责释放资源
 	client.Close()
 }

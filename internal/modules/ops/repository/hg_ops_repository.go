@@ -51,6 +51,7 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, name, description s
 	if err != nil {
 		return nil, err
 	}
+	// 获取 SQL 执行后实际影响的行数。用于判断INSERT/UPDATE/DELETE操作成功
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
 		return nil, err
@@ -740,12 +741,14 @@ func insertUserRoleViewBatch(ctx context.Context, tx *sql.Tx, adminUserID int64,
 		return nil
 	}
 
+	// 批量插入的占位符字符串切片，每个元素是 "(?, ?, ?, ?, NOW())"，对应一条记录的参数，预估容量为 len(bindings)，避免切片扩容
 	valueParts := make([]string, 0, len(bindings))
 	args := make([]interface{}, 0, len(bindings)*4)
 	for _, binding := range bindings {
 		if strings.TrimSpace(binding.BusinessID) == "" {
 			return fmt.Errorf("invalid roleID")
 		}
+		// 往valueParts中添加一个占位符字符串，返回新的字符串【注意：这里用新的字符串防止原字符串扩容，不是原字符串内容了】
 		valueParts = append(valueParts, "(?, ?, ?, ?, NOW())")
 		args = append(args, adminUserID, binding.BusinessID, binding.Name, binding.Status)
 	}

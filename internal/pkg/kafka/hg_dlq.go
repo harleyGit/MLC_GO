@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-04 17:10:39
+ * @LastEditTime: 2026-07-23 16:40:05
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_dlq.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -83,6 +83,7 @@ func HGSendDLQ(ctx context.Context, record *kgo.Record, cluster string, reason s
 		return fmt.Errorf("kafka client is not initialized")
 	}
 
+	// ProduceSync() 同步生产一条 Kafka 消息。FirstErr() 找第一个发送失败的错误
 	if err := client.ProduceSync(ctx, dlqRecord).FirstErr(); err != nil {
 		return fmt.Errorf("produce kafka dlq topic=%s: %w", dlqTopic, err)
 	}
