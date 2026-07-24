@@ -1,0 +1,3 @@
+server:
+  # debug 和 pre 的默认监听端口；prod 在环境配置中覆盖。
+  port: 8080

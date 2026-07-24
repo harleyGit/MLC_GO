@@ -1,0 +1,3 @@
+log:
+  # 非开发环境默认使用 info，debug 环境单独覆盖。
+  level: info

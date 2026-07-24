@@ -520,10 +520,21 @@ go mod tidy
 
 ```sh
 ├── config/
-│   ├── config.debug.yaml
-│   ├── config.pre.yaml
-│   └── config.prod.yaml
+│   ├── base/                  # 跨环境公共默认值
+│   │   ├── app.yaml
+│   │   ├── log.yaml
+│   │   ├── mysql.yaml
+│   │   ├── redis.yaml
+│   │   ├── kafka.yaml
+│   │   └── tracing.yaml
+│   ├── debug/                 # 开发环境覆盖
+│   ├── pre/                   # 预发布环境覆盖
+│   └── prod/                  # 生产环境覆盖
 ```
+
+启动时按 `base`、当前环境的顺序合并模块配置，环境配置覆盖公共默认值。默认配置根目录为 `./config`，部署到其他工作目录时可通过 `MLC_CONFIG_DIR` 显式指定；`SERVER_ENV` 仅支持 `debug`、`pre`、`prod`。
+
+本地 `debug` 环境允许 Kafka 未启动时以降级模式运行，便于调试不依赖消息队列的功能；设置 `KAFKA_REQUIRED=true` 可强制使用生产一致的启动检查。`pre` 和 `prod` 环境始终要求 Kafka 可用。
 
 | 环境   | 常用标识          | 用途       |
 | ------ | ----------------- | ---------- |

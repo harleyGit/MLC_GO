@@ -1,0 +1,16 @@
+kafka:
+  business:
+    # 仅适用于服务与 Kafka 位于同一宿主机的预发布验证环境。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 3
+    client_id: mlc-go-pre-business
+  log:
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 1
+    client_id: mlc-go-pre-log

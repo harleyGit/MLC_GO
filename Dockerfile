@@ -1,8 +1,9 @@
 # ======================
-# 构建阶段
+# 第一阶段：构建阶段
 # ======================
 # ← 不要加 registry 前缀！，比如： FROM registry.cn-hangzhou.aliyuncs.com/library/golang:1.23 AS builder
 # go version 查到go版本
+# 定义一个构建阶段名字叫 builder
 FROM golang:1.23 AS builder   
 
 # Go 模块代理（国内可用）
@@ -21,7 +22,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app .
 
 # ======================
-# 运行阶段
+# 第二阶段：运行阶段
 # ======================
 # ← 不要用 latest，也不要加 registry 前缀, 比如： registry.cn-hangzhou.aliyuncs.com/library/alpine:latest
 FROM alpine:3.20   
@@ -31,8 +32,14 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
-# 拷贝编译好的二进制
+# 从builder这个阶段里面复制文件【拷贝编译好的二进制】
 COPY --from=builder /app/app .
+
+# 运行时只复制不含真实密钥的模块化 YAML；数据库和 Redis 密钥由部署环境注入。
+COPY --from=builder /app/config/base ./config/base
+COPY --from=builder /app/config/debug ./config/debug
+COPY --from=builder /app/config/pre ./config/pre
+COPY --from=builder /app/config/prod ./config/prod
 
 # 启动应用
 CMD ["./app"]

@@ -1,0 +1,16 @@
+kafka:
+  business:
+    # 本地 Compose 暴露到宿主机的 seed broker；容器部署时必须替换为可路由地址。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 3
+    client_id: mlc-go-debug-business
+  log:
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 1
+    client_id: mlc-go-debug-log

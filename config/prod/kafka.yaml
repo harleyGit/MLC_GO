@@ -1,0 +1,17 @@
+kafka:
+  business:
+    # 部署前替换为生产 Kafka 的内网 DNS；所有 advertised.listeners 必须对应用可达。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 5
+    client_id: mlc-go-prod-business
+  log:
+    # 建议与业务集群做物理隔离或至少设置独立资源配额。
+    brokers:
+      - localhost:19092
+      - localhost:29092
+      - localhost:39092
+    retry: 3
+    client_id: mlc-go-prod-log

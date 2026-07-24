@@ -1,8 +1,8 @@
 package ConfigPackage
 
 import (
-	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -26,25 +26,147 @@ func TestGetKafkaConfigRejectsEmptyBusinessBrokers(t *testing.T) {
 }
 
 func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
+	type expectedConfig struct {
+		serverPort     int
+		logLevel       string
+		dsn            string
+		businessRetry  int
+		businessClient string
+		logRetry       int
+		logClient      string
+	}
+
+	expectedByEnv := map[string]expectedConfig{
+		"debug": {
+			serverPort:     8080,
+			logLevel:       "debug",
+			dsn:            "root:123456@tcp(127.0.0.1:3306)/test",
+			businessRetry:  3,
+			businessClient: "mlc-go-debug-business",
+			logRetry:       1,
+			logClient:      "mlc-go-debug-log",
+		},
+		"pre": {
+			serverPort:     8080,
+			logLevel:       "info",
+			dsn:            "root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB",
+			businessRetry:  3,
+			businessClient: "mlc-go-pre-business",
+			logRetry:       1,
+			logClient:      "mlc-go-pre-log",
+		},
+		"prod": {
+			serverPort:     80,
+			logLevel:       "info",
+			dsn:            "root:******@tcp(prod-db:3306)/prod",
+			businessRetry:  5,
+			businessClient: "mlc-go-prod-business",
+			logRetry:       3,
+			logClient:      "mlc-go-prod-log",
+		},
+	}
+
+	configDir := projectConfigDir(t)
 	for _, env := range []string{"debug", "pre", "prod"} {
 		t.Run(env, func(t *testing.T) {
-			configPath := filepath.Join("..", "..", "..", "config", "config."+env+".yaml")
-			configReader := viper.New()
-			configReader.SetConfigFile(configPath)
-			if err := configReader.ReadInConfig(); err != nil {
-				t.Fatalf("read %s config: %v", env, err)
+			viper.Reset()
+			t.Cleanup(viper.Reset)
+			t.Setenv("MLC_CONFIG_DIR", configDir)
+
+			if err := LoadConfig(env); err != nil {
+				t.Fatalf("load %s config: %v", env, err)
 			}
 
-			var cfg HGKafkaPackage.HGKafkaClusterConfig
-			if err := configReader.UnmarshalKey("kafka", &cfg); err != nil {
-				t.Fatalf("unmarshal %s kafka config: %v", env, err)
+			expected := expectedByEnv[env]
+			if got := viper.GetInt("server.port"); got != expected.serverPort {
+				t.Fatalf("server.port = %d, want %d", got, expected.serverPort)
 			}
-			if _, err := HGKafkaPackage.HGBuildClusterConfig(cfg.Business); err != nil {
-				t.Fatalf("invalid %s business kafka config: %v", env, err)
+			if got := viper.GetString("log.level"); got != expected.logLevel {
+				t.Fatalf("log.level = %q, want %q", got, expected.logLevel)
 			}
-			if _, err := HGKafkaPackage.HGBuildClusterConfig(cfg.Log); err != nil {
-				t.Fatalf("invalid %s log kafka config: %v", env, err)
+			if got := viper.GetString("db.dsn"); got != expected.dsn {
+				t.Fatalf("db.dsn = %q, want %q", got, expected.dsn)
+			}
+
+			cfg, enabled, err := GetKafkaConfig()
+			if err != nil {
+				t.Fatalf("get %s kafka config: %v", env, err)
+			}
+			if !enabled {
+				t.Fatalf("expected %s kafka config to be enabled", env)
+			}
+			if cfg.Business.Retry != expected.businessRetry || cfg.Business.ClientID != expected.businessClient {
+				t.Fatalf("business config = retry %d client_id %q, want retry %d client_id %q", cfg.Business.Retry, cfg.Business.ClientID, expected.businessRetry, expected.businessClient)
+			}
+			if cfg.Log.Retry != expected.logRetry || cfg.Log.ClientID != expected.logClient {
+				t.Fatalf("log config = retry %d client_id %q, want retry %d client_id %q", cfg.Log.Retry, cfg.Log.ClientID, expected.logRetry, expected.logClient)
+			}
+			if len(cfg.Business.Brokers) != 3 || len(cfg.Log.Brokers) != 3 {
+				t.Fatalf("expected environment broker lists to replace base values, got business=%v log=%v", cfg.Business.Brokers, cfg.Log.Brokers)
 			}
 		})
 	}
+}
+
+func TestLoadConfigRejectsUnsupportedEnvironment(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("MLC_CONFIG_DIR", projectConfigDir(t))
+
+	err := LoadConfig("production")
+	if err == nil {
+		t.Fatal("expected unsupported environment to be rejected")
+	}
+	if !strings.Contains(err.Error(), "不支持的运行环境") {
+		t.Fatalf("expected unsupported environment error, got %v", err)
+	}
+}
+
+func TestLoadConfigDoesNotRetainPreviousEnvironmentValues(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("MLC_CONFIG_DIR", projectConfigDir(t))
+
+	if err := LoadConfig("debug"); err != nil {
+		t.Fatalf("load debug config: %v", err)
+	}
+	if err := LoadConfig("prod"); err != nil {
+		t.Fatalf("load prod config: %v", err)
+	}
+
+	if got := viper.GetString("kafka.business.client_id"); got != "mlc-go-prod-business" {
+		t.Fatalf("kafka.business.client_id = %q, want prod value", got)
+	}
+	if got := viper.GetString("log.level"); got != "info" {
+		t.Fatalf("log.level = %q, want prod value", got)
+	}
+}
+
+func TestGetServerPortUsesEnvironmentOverrideThenLoadedConfig(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("MLC_CONFIG_DIR", projectConfigDir(t))
+	t.Setenv("SERVER_PORT", "")
+
+	if err := LoadConfig("prod"); err != nil {
+		t.Fatalf("load prod config: %v", err)
+	}
+	if got := GetServerPort(); got != "80" {
+		t.Fatalf("GetServerPort() = %q, want loaded prod port 80", got)
+	}
+
+	t.Setenv("SERVER_PORT", "9090")
+	if got := GetServerPort(); got != "9090" {
+		t.Fatalf("GetServerPort() = %q, want environment override 9090", got)
+	}
+}
+
+func projectConfigDir(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "config")
 }

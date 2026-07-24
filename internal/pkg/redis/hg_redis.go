@@ -9,8 +9,8 @@
 package PersistenceRedisPackage
 
 import (
-	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"MLC_GO/internal/pkg/logHG"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"context"
 	"encoding/json"
 	"os"
@@ -58,7 +58,7 @@ const (
 	defaultRedisWriteTimeout = 2 * time.Second
 )
 
-/* 比如：debug环境中，Go 程序启动，加载 config.debug.yaml变量 */
+/* 比如：debug 环境中，Go 程序启动后加载 config/base 与 config/debug 下的模块配置。 */
 func getRedisAddr() string {
 	redisHost := os.Getenv("REDIS_HOST")
 	if redisHost == "" {

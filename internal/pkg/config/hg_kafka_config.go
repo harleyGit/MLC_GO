@@ -18,7 +18,7 @@ import (
 
 // GetKafkaConfig 从当前已加载的 viper 配置中读取 Kafka 配置。
 //
-// 配置来源是启动阶段 LoadConfig 根据 SERVER_ENV 加载的 config/config.<env>.yaml：
+// 配置来源是启动阶段 LoadConfig 根据 SERVER_ENV 合并的 config/base/kafka.yaml 和 config/<env>/kafka.yaml：
 // 1. kafka.business 用于当前全局 Kafka Client，承载需要可靠确认的业务事件，是启动必填配置。
 // 2. kafka.log 用于日志/埋点流量隔离；当前初始化流程尚未创建独立日志 Client，但配置存在时仍提前校验，防止上线后使用非法配置。
 // 3. brokers 是 seed broker 列表，格式为 host:port；客户端连接任一 seed 后会自动发现完整集群元数据。

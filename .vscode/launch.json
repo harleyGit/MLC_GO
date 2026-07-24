@@ -24,7 +24,8 @@
       "env": {
         "GOPATH": "${env:GOPATH}",
         "MY_ENV": "debug",
-        "SERVER_ENV": "debug"
+        "SERVER_ENV": "debug",
+        "KAFKA_REQUIRED": "false"
       },
       "showLog": true, // 显示调试日志
       "console": "integratedTerminal" // 👈 关键：使用集成终端,解决在vscode中debug【调试控制台】无法输入，使其【调试控制台】与终端大致合并
@@ -50,7 +51,8 @@
       "env": {
         "GOPATH": "${env:GOPATH}",
         "MY_ENV": "pre",
-        "SERVER_ENV": "pre"
+        "SERVER_ENV": "pre",
+        "KAFKA_REQUIRED": "true"
       },
       "showLog": true,
       "console": "integratedTerminal"
@@ -75,7 +77,8 @@
       "env": {
         "GOPATH": "${env:GOPATH}",
         "MY_ENV": "prod",
-        "SERVER_ENV": "prod"
+        "SERVER_ENV": "prod",
+        "KAFKA_REQUIRED": "true"
       },
       "showLog": true,
       "console": "integratedTerminal"

@@ -1,0 +1,7 @@
+kafka:
+  business:
+    # 业务消息优先可靠性，等待 ISR 副本确认。
+    acks: all
+  log:
+    # 日志链路只等待 leader 确认，以降低延迟和资源占用。
+    acks: "1"
