@@ -9,11 +9,11 @@
 package PersistenceSQLPackage
 
 import (
-	ConfigPackage "MLC_GO/internal/pkg/config"
-	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
-	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	"MLC_GO/internal/pkg/logHG"
+	HGLoggerPackage "MLC_GO/internal/pkg/logger"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"fmt"
@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/go-sql-driver/mysql"
 )
 
 var (
@@ -46,72 +46,17 @@ const (
 	defaultSQLPingTimeout = 5 * time.Second
 )
 
-/* 获取比如：hg_debug.env 数据库连接所需要的环境变量 */
-func LoadSQLEnvValue() {
-	// 按 SERVER_ENV 选择当前要加载的环境文件。
-	// 这样在 VS Code 中切换 debug / pre / prod 时，
-	// MySQL 配置会跟着环境一起切换，而不是永远读取 debug 配置。
-	env := ConfigPackage.GetEnv()
-
-	var envFilePath string
-	switch env {
-	case ConfigPackage.EnvPre:
-		envFilePath = ConfigPackage.TEST_ENV_PATH
-	case ConfigPackage.EnvProd:
-		envFilePath = ConfigPackage.PROD_ENV_PATH
-	default:
-		envFilePath = ConfigPackage.DEV_ENV_PATH
-	}
-
-	// 把该文件里的 MYSQL_* 变量加载进进程环境
-	err := godotenv.Load(envFilePath)
-	if err != nil {
-		logHG.ErrFInfo("警告：加载环境文件失败: %s, err: %v", envFilePath, err)
-	}
-	wd, _ := os.Getwd()
-	logHG.DebugFInfo("加载sql环境变量,当前工作目录：%v", wd)
-}
-
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
-// 分环境加载环境变量
-func getSQLDSNV2() string {
-	cfg := ConfigPackage.Load()
-	var sqlDSN = SQLQueriesPackage.DB_DSN
-	logHG.DebugFInfo("++++ cfg.MAC_TYPE: %v", cfg.MAC_TYPE)
-
-	if cfg.MAC_TYPE == ConfigPackage.DEV_COMPUTER {
-		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC",
-			cfg.MySQLUser, cfg.MySQLPass, cfg.MySQLHost, cfg.MySQLPort, cfg.MySQLDB)
-		fmt.Printf("🍎 Raw DSN: %s\n", sqlDSN)
-	}
-	logHG.DebugFInfo("SQLDSN: %v", sqlDSN)
-
-	return sqlDSN
-}
-
-// Deprecated: 使用 getSQLDSNV2 方法，因为这个方法需要使用默认 .env 文件内容
-func getSQLDSN() string {
-	host := getEnv("MYSQL_HOST", "localhost")
-	port := getEnv("MYSQL_PORT", "3306")
-	user := getEnv("MYSQL_USER", "root")
-	password := getEnv("MYSQL_PASSWORD", "hh109")
-	dbName := getEnv("MYSQL_DB", "HG_MLC_DB")
-	macType := getEnv("MAC_TYPE", "M2Pro")
-	var sqlDSN = SQLQueriesPackage.DB_DSN
-
-	if macType == ConfigPackage.DEV_COMPUTER {
-		sqlDSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=UTC",
-			user, password, host, port, dbName)
-	}
-	logHG.DebugFInfo("SQLDSN: %v", sqlDSN)
-
-	return sqlDSN
+func buildSQLDSN(cfg ConfigPackage.HGMySQLConfig) string {
+	return (&mysql.Config{
+		User:      cfg.User,
+		Passwd:    cfg.Password,
+		Net:       "tcp",
+		Addr:      cfg.Host + ":" + cfg.Port,
+		DBName:    cfg.Database,
+		ParseTime: true,
+		Loc:       time.UTC,
+		Collation: "utf8mb4_general_ci",
+	}).FormatDSN()
 }
 
 func NewSQLManager() (*HGSQLManager, error) {
@@ -126,8 +71,11 @@ func NewSQLManager() (*HGSQLManager, error) {
 
 func NewSQLDB() (*sql.DB, error) {
 	var err error
-	// dsn := getSQLDSN()//SQLQueriesPackage.DB_DSN
-	dsn := getSQLDSNV2()
+	cfg, err := ConfigPackage.GetMySQLConfig()
+	if err != nil {
+		return nil, err
+	}
+	dsn := buildSQLDSN(cfg)
 	db, err = sql.Open("mysql", dsn)
 	if err != nil {
 		logHG.ErrFInfo("连接MySQL数据库失败: %v", err)

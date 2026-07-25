@@ -9,10 +9,12 @@
 package PersistenceRedisPackage
 
 import (
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	"MLC_GO/internal/pkg/logHG"
 	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -59,32 +61,22 @@ const (
 )
 
 /* 比如：debug 环境中，Go 程序启动后加载 config/base 与 config/debug 下的模块配置。 */
-func getRedisAddr() string {
-	redisHost := os.Getenv("REDIS_HOST")
-	if redisHost == "" {
-		redisHost = "localhost"
+func newRedisClient() (*redis.Client, error) {
+	cfg, err := ConfigPackage.GetRedisConfig()
+	if err != nil {
+		return nil, fmt.Errorf("加载 Redis 配置失败: %w", err)
 	}
-
-	redisPort := os.Getenv("REDIS_PORT")
-	if redisPort == "" {
-		redisPort = "6379"
-	}
-
-	return redisHost + ":" + redisPort
-}
-
-func newRedisClient() *redis.Client {
 	// Redis 客户端内部自带连接池，应用应该创建少量长期复用的 client，而不是每个请求创建。
 	// 这些参数均可通过环境变量覆盖，便于按机器规格、Redis 集群规格和副本数调优。
 	return redis.NewClient(&redis.Options{
-		Addr:         getRedisAddr(),
+		Addr:         cfg.Host + ":" + cfg.Port,
 		PoolSize:     getEnvInt("REDIS_POOL_SIZE", defaultRedisPoolSize),
 		MinIdleConns: getEnvInt("REDIS_MIN_IDLE_CONNS", defaultRedisMinIdleConns),
 		MaxRetries:   getEnvInt("REDIS_MAX_RETRIES", defaultRedisMaxRetries),
 		DialTimeout:  getEnvDuration("REDIS_DIAL_TIMEOUT", defaultRedisDialTimeout),
 		ReadTimeout:  getEnvDuration("REDIS_READ_TIMEOUT", defaultRedisReadTimeout),
 		WriteTimeout: getEnvDuration("REDIS_WRITE_TIMEOUT", defaultRedisWriteTimeout),
-	})
+	}), nil
 }
 
 func WithContext(ctx context.Context) RedisOption {
@@ -133,8 +125,13 @@ func NewRedisServiceV2(opts ...RedisOption) *RedisService {
 	// 使用opt构建RedisService
 	// TODO: 若是初始化用 context.Background(), 则后续调用比如用Get传入的是http的
 	// TODO: r *http.Request; r.Context()， 这样会不会冲突？
+	client, err := newRedisClient()
+	if err != nil {
+		logHG.ErrFInfo("Redis 配置加载失败: %v", err)
+		return nil
+	}
 	return &RedisService{
-		client:     newRedisClient(),
+		client:     client,
 		defaultCtx: options.ctx,
 	}
 }
@@ -163,8 +160,13 @@ func NewRedisService(ctx ...context.Context) *RedisService {
 	} else {
 		defaultCtx = context.Background()
 	}
+	client, err := newRedisClient()
+	if err != nil {
+		logHG.ErrFInfo("Redis 配置加载失败: %v", err)
+		return nil
+	}
 	redisServer := &RedisService{
-		client:     newRedisClient(),
+		client:     client,
 		defaultCtx: defaultCtx,
 	}
 
@@ -187,8 +189,12 @@ func NewRedisServiceWithError(ctx ...context.Context) (*RedisService, error) {
 		defaultCtx = context.Background()
 	}
 
+	client, err := newRedisClient()
+	if err != nil {
+		return nil, err
+	}
 	redisServer := &RedisService{
-		client:     newRedisClient(),
+		client:     client,
 		defaultCtx: defaultCtx,
 	}
 

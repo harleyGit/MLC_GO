@@ -27,17 +27,14 @@ WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # 如果外部没有传参数，就默认按 debug 处理。
 TARGET_ENV="${1:-debug}"
 
-# 这里先定义一个默认的环境文件路径。
-# 后面会根据 TARGET_ENV 再切换成对应环境自己的 env 文件。
-ENV_FILE="${WORKSPACE_DIR}/config/env_configs/hg_debug.env"
+# 基础设施连接信息统一来自模块化 YAML，不再读取分环境 .env。
+CONFIG_DIR="${WORKSPACE_DIR}/config"
 PRE_COMPOSE_FILE="${WORKSPACE_DIR}/config/docker/hg_docker_compose.pre.yml"
 
 # 下面先定义默认值。
 # 如果后面没有读到配置文件，脚本就用这些默认值继续执行。
 MYSQL_HOST="127.0.0.1"
 MYSQL_PORT="3306"
-MYSQL_USER="root"
-MYSQL_PASSWORD=""
 REDIS_HOST="127.0.0.1"
 REDIS_PORT="6379"
 ALLOW_AUTO_START="true"
@@ -53,15 +50,12 @@ ALLOW_AUTO_START="true"
 # - prod：只检查，不自动启动，避免误操作生产环境
 case "${TARGET_ENV}" in
     debug)
-        ENV_FILE="${WORKSPACE_DIR}/config/env_configs/hg_debug.env"
         ALLOW_AUTO_START="true"
         ;;
     pre)
-        ENV_FILE="${WORKSPACE_DIR}/config/env_configs/hg_pre.env"
         ALLOW_AUTO_START="true"
         ;;
     prod)
-        ENV_FILE="${WORKSPACE_DIR}/config/env_configs/hg_prod.env"
         ALLOW_AUTO_START="false"
         ;;
     *)
@@ -70,37 +64,20 @@ case "${TARGET_ENV}" in
         ;;
 esac
 
-# if [ -f 文件路径 ] 的意思是：
-# “如果这个路径存在，并且它是一个普通文件，就执行 then 里的逻辑”。
-# 这里是在判断当前目标环境对应的 env 文件是否存在。
-if [ -f "${ENV_FILE}" ]; then
-    # while IFS='=' read -r key value 的作用是：
-    # 按行读取文件内容，并且按 = 拆成左边 key、右边 value。
-    # 比如 MYSQL_HOST=127.0.0.1
-    # 就会拆成：
-    #   key   -> MYSQL_HOST
-    #   value -> 127.0.0.1
-    while IFS='=' read -r key value; do
-        # case 是 Bash 的多分支判断，类似很多语言里的 switch。
-        # 根据 key 的名字，把对应的 value 赋值给本脚本变量。
-        case "${key}" in
-            MYSQL_HOST) MYSQL_HOST="${value}" ;;
-            MYSQL_PORT) MYSQL_PORT="${value}" ;;
-            MYSQL_USER) MYSQL_USER="${value}" ;;
-            MYSQL_PASSWORD) MYSQL_PASSWORD="${value}" ;;
-            REDIS_HOST) REDIS_HOST="${value}" ;;
-            REDIS_PORT) REDIS_PORT="${value}" ;;
-        esac
-    # done < <(...) 叫“进程替换”。
-    # 可以理解为：把括号里命令的输出，当作 while 循环的输入。
-    #
-    # grep -v '^[[:space:]]*#'：去掉注释行
-    # grep '='：只保留包含等号的配置行
-    #
-    # 这里没有直接 source 整个 env 文件，是为了只取这个脚本真正需要的几个配置，
-    # 减少额外变量带来的副作用。
-    done < <(grep -v '^[[:space:]]*#' "${ENV_FILE}" | grep '=')
+CONFIG_VALUES=()
+while IFS= read -r value; do
+    CONFIG_VALUES+=("${value}")
+done < <(go run "${WORKSPACE_DIR}/cmd/hg_config_check" --env "${TARGET_ENV}" --config-dir "${CONFIG_DIR}")
+
+if [ "${#CONFIG_VALUES[@]}" -ne 4 ]; then
+    echo "[ERROR] 读取 ${TARGET_ENV} 基础设施配置失败" >&2
+    exit 1
 fi
+
+MYSQL_HOST="${CONFIG_VALUES[0]}"
+MYSQL_PORT="${CONFIG_VALUES[1]}"
+REDIS_HOST="${CONFIG_VALUES[2]}"
+REDIS_PORT="${CONFIG_VALUES[3]}"
 
 # log_info 是一个函数。
 # 调用方式例如：log_info "MySQL 已运行"
@@ -212,25 +189,7 @@ wait_for_port() {
 # 这里不用单纯的端口探测，而用 mysqladmin ping，
 # 因为端口打开不代表 MySQL 已经完全就绪，也不代表认证参数一定正确。
 check_mysql() {
-    # 先定义一个数组，把 mysqladmin 需要的参数放进去。
-    # 数组写法：
-    # local mysqladmin_args=( 参数1 参数2 参数3 )
-    local mysqladmin_args=(
-        -h"${MYSQL_HOST}"
-        -P"${MYSQL_PORT}"
-        -u"${MYSQL_USER}"
-    )
-
-    # [ -n "${MYSQL_PASSWORD}" ] 表示“如果字符串非空”。
-    # 只有当密码不为空时，才把 -p密码 追加进去。
-    if [ -n "${MYSQL_PASSWORD}" ]; then
-        mysqladmin_args+=(-p"${MYSQL_PASSWORD}")
-    fi
-
-    # "${mysqladmin_args[@]}" 表示把数组中的每个参数原样展开。
-    # --silent 表示静默模式。
-    # 最终只通过退出码判断是否成功，不打印多余信息。
-    mysqladmin ping "${mysqladmin_args[@]}" --silent >/dev/null 2>&1
+    go run "${WORKSPACE_DIR}/cmd/hg_config_check" --env "${TARGET_ENV}" --config-dir "${CONFIG_DIR}" --check mysql >/dev/null 2>&1
 }
 
 # start_mysql 的作用是：当 MySQL 没起来时，尝试把它启动起来。
@@ -365,7 +324,7 @@ ensure_mysql_ready() {
 # redis-cli ping 如果正常，一般会返回 PONG。
 # grep -q "PONG" 表示只检查是否包含这个字符串，不把内容打印到屏幕。
 check_redis() {
-    redis-cli -h "${REDIS_HOST}" -p "${REDIS_PORT}" ping 2>/dev/null | grep -q "PONG"
+    go run "${WORKSPACE_DIR}/cmd/hg_config_check" --env "${TARGET_ENV}" --config-dir "${CONFIG_DIR}" --check redis >/dev/null 2>&1
 }
 
 # start_redis 的作用是尝试启动 Redis。
@@ -455,7 +414,7 @@ ensure_redis_ready() {
 # 所以一旦脚本失败，调试就会被中断，不会继续启动 Go 程序。
 main() {
     log_info "开始检查 ${TARGET_ENV} 环境依赖服务"
-    log_info "当前使用环境文件：${ENV_FILE}"
+    log_info "当前使用模块配置：${CONFIG_DIR}/${TARGET_ENV}/mysql.yaml、redis.yaml"
     ensure_mysql_ready
     ensure_redis_ready
     log_info "${TARGET_ENV} 环境依赖服务已就绪"

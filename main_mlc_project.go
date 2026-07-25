@@ -58,11 +58,6 @@ type MLCApplication struct {
 	kafkaCloser  kafkaCloser
 }
 
-func init() {
-	// 启动阶段先加载 SQL 相关环境变量，保证后续数据库依赖可直接读取到配置。
-	PersistenceSQLPackage.LoadSQLEnvValue()
-}
-
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
 func mlc_main() {
 	logHG.DebugInfo("MLC_GO项目启动中...")
@@ -87,6 +82,9 @@ func mlc_main() {
 
 // loadRuntimeConfig 负责按当前 SERVER_ENV 加载对应的业务配置文件。
 func loadRuntimeConfig() error {
+	if err := ConfigPackage.InitRuntimeEnv(); err != nil {
+		return err
+	}
 	env := ConfigPackage.GetEnv()
 	if err := ConfigPackage.LoadConfig(string(env)); err != nil {
 		return fmt.Errorf("加载配置文件失败, env=%s: %w", env, err)

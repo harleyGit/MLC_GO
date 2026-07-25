@@ -1,2 +1,7 @@
-db:
-  dsn: root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB
+mysql:
+  host: 127.0.0.1
+  port: "3308"
+  user: root
+  password: hh109
+  database: HG_MLC_PRE_DB
+  migrate_expect_version: 1

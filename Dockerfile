@@ -40,6 +40,7 @@ COPY --from=builder /app/config/base ./config/base
 COPY --from=builder /app/config/debug ./config/debug
 COPY --from=builder /app/config/pre ./config/pre
 COPY --from=builder /app/config/prod ./config/prod
+COPY --from=builder /app/config/MLC.env ./config/MLC.env
 
 # 启动应用
 CMD ["./app"]

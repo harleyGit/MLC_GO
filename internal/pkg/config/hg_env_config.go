@@ -2,93 +2,84 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-04 11:21:32
+ * @LastEditTime: 2026-07-25 15:24:14
  * @FilePath: /MLC_GO/internal/pkg/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 package ConfigPackage
 
 import (
-	"os"
-	"runtime"
+	"fmt"
 	"strconv"
+	"strings"
+
+	"github.com/spf13/viper"
 )
 
-const (
-	PROD = "prod"
-
-	// 正式环境路径
-	PROD_ENV_PATH = "./config/env_configs/hg_prod.env"
-	// 开发环境路径
-	DEV_ENV_PATH = "./config/env_configs/hg_debug.env"
-	// 测试环境路径
-	TEST_ENV_PATH = "./config/env_configs/hg_pre.env"
-
-	// 开发电脑芯片版本【有m2Pro 和 Intel】
-	DEV_COMPUTER = "M2Pro"
-)
-
-type ENVConfigModel struct {
-	MySQLHost      string
-	MySQLPort      string
-	MySQLUser      string
-	MySQLPass      string
-	MySQLDB        string
-	MAC_TYPE       string
-	MigrateVersion int
+// HGMySQLConfig 描述当前环境的 MySQL 连接和 schema 版本约束。
+type HGMySQLConfig struct {
+	// yaml是结构体标签，对应配置文件中的属性
+	// mapstructure 是：将 map 数据映射到 struct 的库使用的标签。常见于：Viper、配置中心、环境变量转换
+	// 有yaml、mapstructure表示支持2种解析方式。
+	Host                 string `yaml:"host" mapstructure:"host"`
+	Port                 string `yaml:"port" mapstructure:"port"`
+	User                 string `yaml:"user" mapstructure:"user"`
+	Password             string `yaml:"password" mapstructure:"password"`
+	Database             string `yaml:"database" mapstructure:"database"`
+	MigrateExpectVersion int    `yaml:"migrate_expect_version" mapstructure:"migrate_expect_version"`
 }
 
-/* 加载 MySQL 等基础设施配置 */
-func Load() *ENVConfigModel {
-	// MIGRATE_EXPECT_VERSION 是字符串，用 strconv.Atoi 转为整数
-	v, err := strconv.Atoi(os.Getenv("MIGRATE_EXPECT_VERSION"))
-	if err != nil {
-		v = 1
-	}
-
-	return &ENVConfigModel{
-		MySQLHost:      getEnvOrDefault("MYSQL_HOST", "127.0.0.1"),
-		MySQLPort:      getEnvOrDefault("MYSQL_PORT", "3306"),
-		MySQLUser:      getEnvOrDefault("MYSQL_USER", "root"),
-		MySQLPass:      resolveMySQLPassword(),
-		MySQLDB:        getEnvOrDefault("MYSQL_DB", "HG_MLC_DB"),
-		MAC_TYPE:       getEnvOrDefault("MAC_TYPE", DEV_COMPUTER),
-		MigrateVersion: v,
-	}
+// HGRedisConfig 描述当前环境的 Redis 网络地址。
+type HGRedisConfig struct {
+	Host string `yaml:"host" mapstructure:"host"`
+	Port string `yaml:"port" mapstructure:"port"`
 }
 
-/*
-读取环境变量，若为空则返回默认值
-getEnvOrDefault 不是从文件读取的，而是从操作系统的环境变量中读取;
-来源是：config/env_configs/hg_debug.env
-*/
-func getEnvOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+// GetMySQLConfig 从已加载的模块化 YAML 中读取并校验 MySQL 配置。
+func GetMySQLConfig() (HGMySQLConfig, error) {
+	var cfg HGMySQLConfig
+	// viper.UnmarshalKey 读取 viper 配置中 mysql 节点的内容，并将其反序列化到 cfg 结构体中。这个时候结构体中的标签mapstructure起到作用了。
+	if err := viper.UnmarshalKey("mysql", &cfg); err != nil {
+		return cfg, fmt.Errorf("读取 MySQL 配置失败: %w", err)
 	}
-	return fallback
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.Port = strings.TrimSpace(cfg.Port)
+	cfg.User = strings.TrimSpace(cfg.User)
+	cfg.Database = strings.TrimSpace(cfg.Database)
+	if cfg.Host == "" || cfg.User == "" || cfg.Database == "" {
+		return cfg, fmt.Errorf("mysql.host、mysql.user、mysql.database 不能为空")
+	}
+	if err := hgValidatePort("mysql.port", cfg.Port); err != nil {
+		return cfg, err
+	}
+	if cfg.MigrateExpectVersion < 1 {
+		return cfg, fmt.Errorf("mysql.migrate_expect_version 必须大于等于 1")
+	}
+	return cfg, nil
 }
 
-/*
-	 获取 MySQL 密码
-		判断是否 macOS + ARM64 (M1/M2/M3 芯片)
-	    ↓
-		是 → 优先读 MYSQL_PASSWORD_ARM，否则默认 "hh109"
-				↓
-		否 → 直接读 MYSQL_PASSWORD（Intel 电脑）
-*/
-func resolveMySQLPassword() string {
-	intelPassword := os.Getenv("MYSQL_PASSWORD")
-
-	// 仅在 macOS 下按芯片架构区分密码策略：
-	// Intel(amd64) -> 使用 MYSQL_PASSWORD（可为空）
-	// Apple Silicon(arm64) -> 优先 MYSQL_PASSWORD_ARM，否则回退 hh109
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		if armPassword := os.Getenv("MYSQL_PASSWORD_ARM"); armPassword != "" {
-			return armPassword
-		}
-		return "hh109"
+// GetRedisConfig 从已加载的模块化 YAML 中读取并校验 Redis 配置。
+func GetRedisConfig() (HGRedisConfig, error) {
+	var cfg HGRedisConfig
+	if err := viper.UnmarshalKey("redis", &cfg); err != nil {
+		return cfg, fmt.Errorf("读取 Redis 配置失败: %w", err)
 	}
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.Port = strings.TrimSpace(cfg.Port)
+	if cfg.Host == "" {
+		return cfg, fmt.Errorf("redis.host 不能为空")
+	}
+	if err := hgValidatePort("redis.port", cfg.Port); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
 
-	return intelPassword
+func hgValidatePort(name string, value string) error {
+	// Atoi表示十进制字符串→int
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("%s 必须是 1-65535 的有效端口", name)
+	}
+	return nil
 }

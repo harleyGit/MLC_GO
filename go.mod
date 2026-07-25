@@ -166,7 +166,7 @@ require (
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 )
 
-require github.com/joho/godotenv v1.5.1 // indirect //读取.env 文件中的环境变量值
+require github.com/joho/godotenv v1.5.1 // 读取 config/MLC.env 中的默认运行环境
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

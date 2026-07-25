@@ -129,19 +129,22 @@ internal/
 <br/>
 
 **改 debug 环境**
-文件在：
-[config/env_configs/hg_debug.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_debug.env:1)
+MySQL 和 Redis 分别配置在 `config/debug/mysql.yaml`、`config/debug/redis.yaml`。
 
 你可以改这些值：
 
-```env
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=!hxxx9
-MYSQL_DB=HG_MLC_DB
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
+```yaml
+mysql:
+  host: 127.0.0.1
+  port: "3306"
+  user: root
+  password: hh109
+  database: HG_MLC_DB
+  migrate_expect_version: 1
+
+redis:
+  host: 127.0.0.1
+  port: "6379"
 ```
 
 如果你本机 MySQL 不是 `3306`，或者密码不是 `hh109`，就在这里改。
@@ -151,32 +154,39 @@ REDIS_PORT=6379
 <br/>
 
 **改 pre 环境**
-文件在：
-[config/env_configs/hg_pre.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_pre.env:1)
+文件在 `config/pre/mysql.yaml`、`config/pre/redis.yaml`。
 
 目前我给你配的是“本地模拟预发”：
 
-```env
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3308
-MYSQL_USER=root
-MYSQL_PASSWORD=!hxxx9
-MYSQL_DB=HG_MLC_PRE_DB
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6380
+```yaml
+mysql:
+  host: 127.0.0.1
+  port: "3308"
+  user: root
+  password: hh109
+  database: HG_MLC_PRE_DB
+  migrate_expect_version: 1
+
+redis:
+  host: 127.0.0.1
+  port: "6380"
 ```
 
 <br/>
 如果你想让 `pre` 连真实预发机器，比如：
 
-```env
-MYSQL_HOST=10.10.1.25
-MYSQL_PORT=3306
-MYSQL_USER=pre_user
-MYSQL_PASSWORD=你的密码
-MYSQL_DB=pre_db
-REDIS_HOST=10.10.1.26
-REDIS_PORT=6379
+```yaml
+mysql:
+  host: 10.10.1.25
+  port: "3306"
+  user: pre_user
+  password: 你的密码
+  database: pre_db
+  migrate_expect_version: 1
+
+redis:
+  host: 10.10.1.26
+  port: "6379"
 ```
 
 也可以直接改这里。
@@ -196,19 +206,22 @@ REDIS_PORT=6379
 <br/>
 
 **改 prod 环境**
-文件在：
-[config/env_configs/hg_prod.env](/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/config/env_configs/hg_prod.env:1)
+文件在 `config/prod/mysql.yaml`、`config/prod/redis.yaml`。
 
 例如：
 
-```env
-MYSQL_HOST=prod-mysql.internal
-MYSQL_PORT=3306
-MYSQL_USER=app
-MYSQL_PASSWORD=*******
-MYSQL_DB=HG_MLC_PROD_DB
-REDIS_HOST=prod-redis.internal
-REDIS_PORT=6379
+```yaml
+mysql:
+  host: prod-mysql.internal
+  port: "3306"
+  user: app
+  password: "********"
+  database: HG_MLC_PROD_DB
+  migrate_expect_version: 1
+
+redis:
+  host: prod-redis.internal
+  port: "6379"
 ```
 
 生产环境建议你只改这些连接信息，不要做自动启动。
@@ -240,12 +253,7 @@ ports:
 - "6381:6379"
 ```
 
-2. 再改 `hg_pre.env`：
-
-```env
-MYSQL_PORT=3310
-REDIS_PORT=6381
-```
+2. 再同步修改 `config/pre/mysql.yaml` 和 `config/pre/redis.yaml` 中的端口。
 
 一定要两边一致，不然脚本能拉起容器，但程序连不上。
 
@@ -263,22 +271,22 @@ REDIS_PORT=6381
 - `env.SERVER_ENV`
 - `args`
 
-通常你现在不用先改这里，优先改 `.env` 和 `compose` 就够了。
+通常优先修改当前环境的 `mysql.yaml`、`redis.yaml` 和对应 compose 端口。
 
 <br/>
 
 **最推荐的修改原则**
 你可以按这个思路改：
 
-- 本地开发不对：改 `hg_debug.env`
-- 本地模拟预发不对：改 `hg_pre.env` 和 `hg_docker_compose.pre.yml`
-- 真实预发地址不对：改 `hg_pre.env`
-- 生产地址不对：改 `hg_prod.env`
+- 本地开发不对：改 `config/debug/mysql.yaml` 和 `redis.yaml`
+- 本地模拟预发不对：改 `config/pre` 下的模块配置和 `hg_docker_compose.pre.yml`
+- 真实预发地址不对：改 `config/pre` 下的模块配置
+- 生产地址不对：改 `config/prod` 下的模块配置
 
 **你现在可以先这样试一次**
 如果你要跑本地模拟预发：
 
-1. 先检查 `hg_pre.env` 里的端口和密码对不对
+1. 先检查 `config/pre/mysql.yaml`、`redis.yaml` 里的地址、端口和密码
 2. 再看 `hg_docker_compose.pre.yml` 里的端口映射对不对
 3. 然后在 VS Code 选：
    `🧪 Launch MLC_GO Root main.go (pre)`
@@ -286,7 +294,7 @@ REDIS_PORT=6381
 
 如果你要跑本地 debug：
 
-1. 先检查 `hg_debug.env`
+1. 先检查 `config/debug/mysql.yaml` 和 `redis.yaml`
 2. 在 VS Code 选：
    `🧪 Launch MLC_GO Root main.go (debug)`
 3. 点运行
@@ -305,20 +313,7 @@ REDIS_PORT=6381
 
 > <h2 id="Intel电脑修改配置启动">Intel电脑修改配置启动</h2>
 
-**Intel 电脑：**
-hg_debug.env 文件：
-
-```sh
-MYSQL_PASSWORD=
-```
-
-M2Pro
-
-hg_debug.env 文件：
-
-```sh
-MYSQL_PASSWORD=hh109
-```
+不同开发机器的 MySQL 密码不同时，修改 `config/debug/mysql.yaml` 中的 `mysql.password`。工程不再根据 CPU 架构隐式切换密码。
 
 启动 redis：
 
@@ -520,6 +515,7 @@ go mod tidy
 
 ```sh
 ├── config/
+│   ├── MLC.env                # 唯一环境文件，只提供默认 SERVER_ENV
 │   ├── base/                  # 跨环境公共默认值
 │   │   ├── app.yaml
 │   │   ├── log.yaml

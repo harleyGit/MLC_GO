@@ -1,2 +1,2 @@
-# Redis 当前由 REDIS_* 环境变量驱动，此节点为后续统一配置模型预留。
+# Redis 地址由当前环境 redis.yaml 提供。
 redis: {}

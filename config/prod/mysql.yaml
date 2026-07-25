@@ -1,3 +1,8 @@
-db:
-  # 示例占位值；生产凭据必须通过密钥管理系统或运行环境注入，不应提交真实密码。
-  dsn: root:******@tcp(prod-db:3306)/prod
+mysql:
+  host: prod-mysql.internal
+  port: "3306"
+  user: app
+  # 占位值。正式部署必须通过密钥管理系统生成受控配置，禁止提交真实密码。
+  password: "********"
+  database: HG_MLC_PROD_DB
+  migrate_expect_version: 1

@@ -43,7 +43,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    env_file:
-      - ./../env_configs/hg_debug.env
+    environment:
+      SERVER_ENV: debug
+      KAFKA_REQUIRED: "false"
     ports:
       - "8080:8080"

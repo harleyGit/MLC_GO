@@ -1,2 +1,3 @@
-# Redis 当前由 config/env_configs/hg_pre.env 中的 REDIS_* 变量驱动。
-{}
+redis:
+  host: 127.0.0.1
+  port: "6380"

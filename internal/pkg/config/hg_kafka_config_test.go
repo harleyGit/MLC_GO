@@ -29,7 +29,6 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 	type expectedConfig struct {
 		serverPort     int
 		logLevel       string
-		dsn            string
 		businessRetry  int
 		businessClient string
 		logRetry       int
@@ -40,7 +39,6 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 		"debug": {
 			serverPort:     8080,
 			logLevel:       "debug",
-			dsn:            "root:123456@tcp(127.0.0.1:3306)/test",
 			businessRetry:  3,
 			businessClient: "mlc-go-debug-business",
 			logRetry:       1,
@@ -49,7 +47,6 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 		"pre": {
 			serverPort:     8080,
 			logLevel:       "info",
-			dsn:            "root:hh109@tcp(127.0.0.1:3308)/HG_MLC_PRE_DB",
 			businessRetry:  3,
 			businessClient: "mlc-go-pre-business",
 			logRetry:       1,
@@ -58,7 +55,6 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 		"prod": {
 			serverPort:     80,
 			logLevel:       "info",
-			dsn:            "root:******@tcp(prod-db:3306)/prod",
 			businessRetry:  5,
 			businessClient: "mlc-go-prod-business",
 			logRetry:       3,
@@ -84,10 +80,6 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			if got := viper.GetString("log.level"); got != expected.logLevel {
 				t.Fatalf("log.level = %q, want %q", got, expected.logLevel)
 			}
-			if got := viper.GetString("db.dsn"); got != expected.dsn {
-				t.Fatalf("db.dsn = %q, want %q", got, expected.dsn)
-			}
-
 			cfg, enabled, err := GetKafkaConfig()
 			if err != nil {
 				t.Fatalf("get %s kafka config: %v", env, err)
