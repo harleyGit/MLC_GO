@@ -7,6 +7,9 @@ kafka:
       - localhost:39092
     retry: 3
     client_id: mlc-go-pre-business
+    topics:
+      - mlc.domain.events
+    group_id: mlc-go-pre-domain-events
   log:
     brokers:
       - localhost:19092

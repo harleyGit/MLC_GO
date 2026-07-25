@@ -81,7 +81,11 @@ func TestHGInitKafkaFailsWhenBrokerUnreachable(t *testing.T) {
 	}
 
 	start := time.Now()
-	err = HGInitKafka(HGKafkaClusterConfig{Business: HGClusterConfig{Brokers: []string{addr}}})
+	err = HGInitKafka(HGKafkaClusterConfig{Business: HGClusterConfig{
+		Brokers: []string{addr},
+		Topics:  []string{"mlc.domain.events"},
+		GroupID: "mlc-go-test-domain-events",
+	}})
 	if err == nil {
 		t.Fatal("expected unreachable broker to fail initialization")
 	}

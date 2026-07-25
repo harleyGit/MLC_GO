@@ -12,6 +12,7 @@
 package HGKafkaPackage
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -67,6 +68,30 @@ func HGNewBusinessProducerOpts(cfg HGClusterConfig) ([]kgo.Opt, error) {
 	return hgNewProducerOpts(normalized, hgBusinessBatchMaxBytes, 100*time.Millisecond), nil
 }
 
+// HGNewBusinessClientOpts 构建同时承担业务生产与消费的长生命周期 Client 配置。
+// 消费端关闭自动提交，并在每批处理完成后由 consumeLoop 显式提交和释放 rebalance。
+func HGNewBusinessClientOpts(cfg HGClusterConfig) ([]kgo.Opt, error) {
+	normalized, err := HGBuildClusterConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized.Topics) == 0 {
+		return nil, fmt.Errorf("kafka consumer topics cannot be empty")
+	}
+	if normalized.GroupID == "" {
+		return nil, fmt.Errorf("kafka consumer group_id cannot be empty")
+	}
+
+	opts := hgNewProducerOpts(normalized, hgBusinessBatchMaxBytes, 100*time.Millisecond)
+	opts = append(opts,
+		kgo.ConsumeTopics(normalized.Topics...),
+		kgo.ConsumerGroup(normalized.GroupID),
+		kgo.DisableAutoCommit(),
+		kgo.BlockRebalanceOnPoll(),
+	)
+	return opts, nil
+}
+
 // hgNewProducerOpts 生成 franz-go producer 通用配置。
 func hgNewProducerOpts(cfg HGClusterConfig, batchMaxBytes int32, linger time.Duration) []kgo.Opt {
 	// 通用配置项。一个切片，里面的元素都是实现了 kgo.Opt 接口的函数，用于配置 Kafka 客户端。
@@ -105,7 +130,7 @@ func hgToKgoAcks(acks string) kgo.Acks {
 	switch acks {
 	case HGAcksNone:
 		// roducer 发消息后，不等待 Kafka 返回确认。可靠性最低，性能最高
-		return kgo.NoAck() 
+		return kgo.NoAck()
 	case HGAcksLeader:
 		// 等待 Kafka Topic 分区 Leader 写入成功。适合：普通业务：
 		return kgo.LeaderAck()

@@ -2,6 +2,7 @@ package ConfigPackage
 
 import (
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 		logLevel       string
 		businessRetry  int
 		businessClient string
+		businessGroup  string
 		logRetry       int
 		logClient      string
 	}
@@ -41,6 +43,7 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			logLevel:       "debug",
 			businessRetry:  3,
 			businessClient: "mlc-go-debug-business",
+			businessGroup:  "mlc-go-debug-domain-events",
 			logRetry:       1,
 			logClient:      "mlc-go-debug-log",
 		},
@@ -49,6 +52,7 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			logLevel:       "info",
 			businessRetry:  3,
 			businessClient: "mlc-go-pre-business",
+			businessGroup:  "mlc-go-pre-domain-events",
 			logRetry:       1,
 			logClient:      "mlc-go-pre-log",
 		},
@@ -57,6 +61,7 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			logLevel:       "info",
 			businessRetry:  5,
 			businessClient: "mlc-go-prod-business",
+			businessGroup:  "mlc-go-prod-domain-events",
 			logRetry:       3,
 			logClient:      "mlc-go-prod-log",
 		},
@@ -89,6 +94,9 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			}
 			if cfg.Business.Retry != expected.businessRetry || cfg.Business.ClientID != expected.businessClient {
 				t.Fatalf("business config = retry %d client_id %q, want retry %d client_id %q", cfg.Business.Retry, cfg.Business.ClientID, expected.businessRetry, expected.businessClient)
+			}
+			if cfg.Business.GroupID != expected.businessGroup || !reflect.DeepEqual(cfg.Business.Topics, []string{"mlc.domain.events"}) {
+				t.Fatalf("business consumer config = group_id %q topics %v, want group_id %q topics [mlc.domain.events]", cfg.Business.GroupID, cfg.Business.Topics, expected.businessGroup)
 			}
 			if cfg.Log.Retry != expected.logRetry || cfg.Log.ClientID != expected.logClient {
 				t.Fatalf("log config = retry %d client_id %q, want retry %d client_id %q", cfg.Log.Retry, cfg.Log.ClientID, expected.logRetry, expected.logClient)

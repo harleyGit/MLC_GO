@@ -19,11 +19,12 @@ import (
 // GetKafkaConfig 从当前已加载的 viper 配置中读取 Kafka 配置。
 //
 // 配置来源是启动阶段 LoadConfig 根据 SERVER_ENV 合并的 config/base/kafka.yaml 和 config/<env>/kafka.yaml：
-// 1. kafka.business 用于当前全局 Kafka Client，承载需要可靠确认的业务事件，是启动必填配置。
+// 1. kafka.business 用于当前全局 Kafka Client，同时承载业务事件生产与领域事件消费，是启动必填配置。
 // 2. kafka.log 用于日志/埋点流量隔离；当前初始化流程尚未创建独立日志 Client，但配置存在时仍提前校验，防止上线后使用非法配置。
 // 3. brokers 是 seed broker 列表，格式为 host:port；客户端连接任一 seed 后会自动发现完整集群元数据。
 // 4. acks 支持 "0"、"1"、"all"；retry 小于 0 时由 Kafka 配置构建器归一化为 0。
-// 5. client_id 会进入 Kafka broker 日志和指标，必须包含服务及环境标识，便于定位连接来源。
+// 5. topics/group_id 配置消费订阅与消费组；消费端关闭自动提交并由 consumeLoop 批量提交 offset。
+// 6. client_id 会进入 Kafka broker 日志和指标，必须包含服务及环境标识，便于定位连接来源。
 //
 // 返回值 enabled 表示 business 配置是否已通过校验。business.brokers 缺失或配置非法时直接返回错误，应用不得继续启动。
 //
@@ -41,6 +42,7 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 	// 去除每个 broker 两侧空白并丢弃空字符串，避免 YAML 中的 " " 被当成有效地址。
 	cfg.Business.Brokers = trimKafkaBrokers(cfg.Business.Brokers)
 	cfg.Log.Brokers = trimKafkaBrokers(cfg.Log.Brokers)
+	cfg.Business.Topics = trimKafkaValues(cfg.Business.Topics)
 
 	// 当前应用的全局 Client 使用 business 集群，因此没有有效 business seed broker 时必须快速失败。
 	if len(cfg.Business.Brokers) == 0 {
@@ -48,7 +50,7 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 	}
 
 	// 此处只做 brokers、acks、retry 等静态校验；网络连通性由 HGInitKafka 在启动期 Ping broker 验证。
-	if _, err := HGKafkaPackage.HGBuildClusterConfig(cfg.Business); err != nil {
+	if _, err := HGKafkaPackage.HGNewBusinessClientOpts(cfg.Business); err != nil {
 		return cfg, true, fmt.Errorf("业务 Kafka 配置非法: %w", err)
 	}
 
@@ -63,12 +65,16 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 }
 
 func trimKafkaBrokers(brokers []string) []string {
+	return trimKafkaValues(brokers)
+}
+
+func trimKafkaValues(values []string) []string {
 	// 预分配原切片容量，清洗过程只复用容量，不在循环内反复扩容。
-	result := make([]string, 0, len(brokers))
-	for _, broker := range brokers {
-		broker = strings.TrimSpace(broker)
-		if broker != "" {
-			result = append(result, broker)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			result = append(result, value)
 		}
 	}
 	return result

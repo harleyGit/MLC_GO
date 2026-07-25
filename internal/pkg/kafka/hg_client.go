@@ -43,7 +43,7 @@ var (
 // 3. Ping 成功后再替换全局 client，避免失败初始化把 HGGlobalKgoClient 置为不可用实例。
 func HGInitKafka(cfg HGKafkaClusterConfig) error {
 	// 业务客户端（生产+消费共用）
-	opts, err := HGNewBusinessProducerOpts(cfg.Business)
+	opts, err := HGNewBusinessClientOpts(cfg.Business)
 	if err != nil {
 		return fmt.Errorf("build business kafka opts: %w", err)
 	}

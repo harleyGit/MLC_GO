@@ -81,6 +81,8 @@ func setValidKafkaConfig() {
 	viper.Set("kafka.business.brokers", []string{"127.0.0.1:19092"})
 	viper.Set("kafka.business.acks", "all")
 	viper.Set("kafka.business.client_id", "mlc-go-test-business")
+	viper.Set("kafka.business.topics", []string{"mlc.domain.events"})
+	viper.Set("kafka.business.group_id", "mlc-go-test-domain-events")
 	viper.Set("kafka.log.brokers", []string{"127.0.0.1:19092"})
 	viper.Set("kafka.log.acks", "1")
 	viper.Set("kafka.log.client_id", "mlc-go-test-log")

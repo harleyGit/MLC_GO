@@ -30,7 +30,7 @@ type HGKafkaClusterConfig struct {
 	// 业务消息集群
 	Business HGClusterConfig `yaml:"business" mapstructure:"business"`
 	// 埋点日志集群
-	Log      HGClusterConfig `yaml:"log" mapstructure:"log"`
+	Log HGClusterConfig `yaml:"log" mapstructure:"log"`
 }
 
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
@@ -42,6 +42,8 @@ type HGClusterConfig struct {
 	Acks     string   `yaml:"acks" mapstructure:"acks"`
 	Retry    int      `yaml:"retry" mapstructure:"retry"`
 	ClientID string   `yaml:"client_id" mapstructure:"client_id"`
+	Topics   []string `yaml:"topics" mapstructure:"topics"`
+	GroupID  string   `yaml:"group_id" mapstructure:"group_id"`
 }
 
 // HGBuildClusterConfig 校验并归一化 Kafka 集群配置。
@@ -81,5 +83,17 @@ func HGBuildClusterConfig(cfg HGClusterConfig) (HGClusterConfig, error) {
 		Acks:     acks,
 		Retry:    retry,
 		ClientID: strings.TrimSpace(cfg.ClientID),
+		Topics:   hgTrimNonEmptyStrings(cfg.Topics),
+		GroupID:  strings.TrimSpace(cfg.GroupID),
 	}, nil
+}
+
+func hgTrimNonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
