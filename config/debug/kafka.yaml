@@ -9,7 +9,23 @@ kafka:
     client_id: mlc-go-debug-business
     topics:
       - mlc.domain.events
-    group_id: mlc-go-debug-domain-events
+    consumers:
+      feed:
+        enabled: false
+        group_id: mlc-go-debug-feed
+        client_id: mlc-go-debug-feed
+      search:
+        enabled: false
+        group_id: mlc-go-debug-search
+        client_id: mlc-go-debug-search
+      statistic:
+        enabled: false
+        group_id: mlc-go-debug-statistic
+        client_id: mlc-go-debug-statistic
+      audit:
+        enabled: false
+        group_id: mlc-go-debug-audit
+        client_id: mlc-go-debug-audit
   log:
     brokers:
       - localhost:19092

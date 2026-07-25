@@ -9,8 +9,10 @@
 package main
 
 import (
+	InfrastructureKafkaPackage "MLC_GO/internal/infrastructure/kafka"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -35,7 +37,25 @@ type kafkaCloser func()
 // 1. 非 nil 表示 Kafka 已完成初始化，Close 阶段必须 flush 并关闭 client。
 // 2. 初始化失败不会返回 closer，调用方应按启动失败路径回滚前置依赖。
 func initKafkaIfConfigured() (kafkaCloser, error) {
-	return hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
+	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
+	if err != nil || producerCloser == nil {
+		return producerCloser, err
+	}
+	cfg, _, err := ConfigPackage.GetKafkaConfig()
+	if err != nil {
+		producerCloser()
+		return nil, err
+	}
+	consumerRuntime, err := InfrastructureKafkaPackage.NewRuntime(context.Background(), cfg.Business)
+	if err != nil {
+		producerCloser()
+		return nil, fmt.Errorf("Kafka消费者初始化失败: %w", err)
+	}
+	consumerRuntime.Start()
+	return func() {
+		consumerRuntime.Close()
+		producerCloser()
+	}, nil
 }
 
 func hgInitKafkaIfConfigured(initKafka func(HGKafkaPackage.HGKafkaClusterConfig) error) (kafkaCloser, error) {

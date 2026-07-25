@@ -9,9 +9,9 @@
 package HGHandlerPackage
 
 import (
-	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	"MLC_GO/internal/pkg/logHG"
+	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
 	"net/http"
@@ -27,6 +27,8 @@ const (
 	healthzPath = "/healthz"
 	// readyzPath 是依赖就绪检查路径，表示实例是否可以承接业务流量。
 	readyzPath = "/readyz"
+	// metricsPath 暴露进程内指标，由部署层限制为监控网络访问。
+	metricsPath = "/metrics"
 	// defaultHealthCheckTimout 限制单次依赖检查耗时，避免探活请求拖住 goroutine。
 	defaultHealthCheckTimout = 2 * time.Second
 )
@@ -39,6 +41,8 @@ type DependencyChecker func(context.Context) error
 type HealthCheckConfig struct {
 	// ReadyCheck 为 nil 时 /readyz 只返回 ready，主要用于旧入口和单元测试；生产入口会注入真实依赖检查。
 	ReadyCheck DependencyChecker
+	// MetricsHandler 为 nil 时不注册 /metrics。
+	MetricsHandler http.Handler
 }
 
 // HGRouteMount 定义一个模块路由挂载点，便于按模块扩展和统一管理前缀策略。
@@ -107,6 +111,9 @@ func registerHealthRoutes(rootMux *http.ServeMux, health HealthCheckConfig) {
 	// /readyz 检查外部依赖，用于判断实例是否可以接收流量。
 	// 例如 Kubernetes readinessProbe 使用它，依赖异常时把实例从 service endpoints 中摘除。
 	rootMux.Handle(readyzPath, newReadyzHandler(health.ReadyCheck))
+	if health.MetricsHandler != nil {
+		rootMux.Handle(metricsPath, health.MetricsHandler)
+	}
 }
 
 // newHealthzHandler 返回进程存活检查 handler。

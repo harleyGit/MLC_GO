@@ -50,8 +50,14 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 	}
 
 	// 此处只做 brokers、acks、retry 等静态校验；网络连通性由 HGInitKafka 在启动期 Ping broker 验证。
-	if _, err := HGKafkaPackage.HGNewBusinessClientOpts(cfg.Business); err != nil {
+	if _, err := HGKafkaPackage.HGNewBusinessProducerOpts(cfg.Business); err != nil {
 		return cfg, true, fmt.Errorf("业务 Kafka 配置非法: %w", err)
+	}
+	if len(cfg.Business.Topics) == 0 {
+		return cfg, true, fmt.Errorf("业务 Kafka 配置非法: consumer topics 不能为空")
+	}
+	if err := validateKafkaConsumerGroups(cfg.Business.Consumers); err != nil {
+		return cfg, true, fmt.Errorf("业务 Kafka 消费组配置非法: %w", err)
 	}
 
 	// log 集群允许暂不启用；一旦提供 brokers，就必须满足与 business 集群相同的基础格式约束。
@@ -62,6 +68,30 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 	}
 
 	return cfg, true, nil
+}
+
+func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) error {
+	configs := []struct {
+		name string
+		cfg  HGKafkaPackage.HGConsumerConfig
+	}{
+		{name: "feed", cfg: groups.Feed},
+		{name: "search", cfg: groups.Search},
+		{name: "statistic", cfg: groups.Statistic},
+		{name: "audit", cfg: groups.Audit},
+	}
+	seen := make(map[string]string, len(configs))
+	for _, item := range configs {
+		item.cfg.GroupID = strings.TrimSpace(item.cfg.GroupID)
+		if item.cfg.GroupID == "" {
+			return fmt.Errorf("consumer %s group_id 不能为空", item.name)
+		}
+		if previous, ok := seen[item.cfg.GroupID]; ok {
+			return fmt.Errorf("consumer %s 与 %s 的 group_id 重复: %s", item.name, previous, item.cfg.GroupID)
+		}
+		seen[item.cfg.GroupID] = item.name
+	}
+	return nil
 }
 
 func trimKafkaBrokers(brokers []string) []string {

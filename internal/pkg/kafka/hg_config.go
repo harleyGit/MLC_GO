@@ -33,17 +33,33 @@ type HGKafkaClusterConfig struct {
 	Log HGClusterConfig `yaml:"log" mapstructure:"log"`
 }
 
+// HGConsumerConfig 定义一个独立消费组。
+type HGConsumerConfig struct {
+	Enabled  bool   `yaml:"enabled" mapstructure:"enabled"`
+	GroupID  string `yaml:"group_id" mapstructure:"group_id"`
+	ClientID string `yaml:"client_id" mapstructure:"client_id"`
+}
+
+// HGConsumerGroupConfigs 为各读模型分配独立消费位点。
+type HGConsumerGroupConfigs struct {
+	Feed      HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
+	Search    HGConsumerConfig `yaml:"search" mapstructure:"search"`
+	Statistic HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
+	Audit     HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
+}
+
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
 //
 // Brokers 必填，必须使用 host:port 形式；Acks 支持 "0"、"1"、"all"；Retry 小于 0 时按 0 处理。
 // ClientID 建议使用服务名+环境名，便于 broker 侧观测连接来源。
 type HGClusterConfig struct {
-	Brokers  []string `yaml:"brokers" mapstructure:"brokers"`
-	Acks     string   `yaml:"acks" mapstructure:"acks"`
-	Retry    int      `yaml:"retry" mapstructure:"retry"`
-	ClientID string   `yaml:"client_id" mapstructure:"client_id"`
-	Topics   []string `yaml:"topics" mapstructure:"topics"`
-	GroupID  string   `yaml:"group_id" mapstructure:"group_id"`
+	Brokers   []string               `yaml:"brokers" mapstructure:"brokers"`
+	Acks      string                 `yaml:"acks" mapstructure:"acks"`
+	Retry     int                    `yaml:"retry" mapstructure:"retry"`
+	ClientID  string                 `yaml:"client_id" mapstructure:"client_id"`
+	Topics    []string               `yaml:"topics" mapstructure:"topics"`
+	GroupID   string                 `yaml:"group_id" mapstructure:"group_id"`
+	Consumers HGConsumerGroupConfigs `yaml:"consumers" mapstructure:"consumers"`
 }
 
 // HGBuildClusterConfig 校验并归一化 Kafka 集群配置。
@@ -79,13 +95,28 @@ func HGBuildClusterConfig(cfg HGClusterConfig) (HGClusterConfig, error) {
 	}
 
 	return HGClusterConfig{
-		Brokers:  brokers,
-		Acks:     acks,
-		Retry:    retry,
-		ClientID: strings.TrimSpace(cfg.ClientID),
-		Topics:   hgTrimNonEmptyStrings(cfg.Topics),
-		GroupID:  strings.TrimSpace(cfg.GroupID),
+		Brokers:   brokers,
+		Acks:      acks,
+		Retry:     retry,
+		ClientID:  strings.TrimSpace(cfg.ClientID),
+		Topics:    hgTrimNonEmptyStrings(cfg.Topics),
+		GroupID:   strings.TrimSpace(cfg.GroupID),
+		Consumers: hgNormalizeConsumerGroups(cfg.Consumers),
 	}, nil
+}
+
+func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupConfigs {
+	normalize := func(cfg HGConsumerConfig) HGConsumerConfig {
+		cfg.GroupID = strings.TrimSpace(cfg.GroupID)
+		cfg.ClientID = strings.TrimSpace(cfg.ClientID)
+		return cfg
+	}
+	return HGConsumerGroupConfigs{
+		Feed:      normalize(groups.Feed),
+		Search:    normalize(groups.Search),
+		Statistic: normalize(groups.Statistic),
+		Audit:     normalize(groups.Audit),
+	}
 }
 
 func hgTrimNonEmptyStrings(values []string) []string {

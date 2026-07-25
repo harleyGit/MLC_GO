@@ -1,6 +1,7 @@
 package statistic
 
 import (
+	"MLC_GO/internal/consumer"
 	"MLC_GO/internal/events"
 	VideoEventsPackage "MLC_GO/internal/events/video"
 	"context"
@@ -16,8 +17,7 @@ func NewConsumer() *Consumer { return &Consumer{} }
 func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) error {
 	switch envelope.EventName {
 	case VideoEventsPackage.VideoReviewedEventName, VideoEventsPackage.VideoPublishedEventName, VideoEventsPackage.VideoDeletedEventName:
-		// TODO: 按 eventKey 幂等更新 Redis/ClickHouse 等统计模型。
-		return nil
+		return consumer.NewHandlerNotImplementedError("statistic", envelope.EventName)
 	default:
 		// 统计模块只消费明确支持的事件，其余事件保持 no-op。
 		return nil

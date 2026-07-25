@@ -266,3 +266,20 @@ func TestNewRouteCatalogGroupedHandler_ReturnGroups(t *testing.T) {
 		t.Fatalf("response should contain profile group, body=%s", rec.Body.String())
 	}
 }
+
+func TestNewRootHandlerWithHealthRegistersMetricsHandler(t *testing.T) {
+	handler := NewRootHandlerWithHealth(nil, HealthCheckConfig{
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("metric 1\n"))
+		}),
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "metric 1\n" {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+}

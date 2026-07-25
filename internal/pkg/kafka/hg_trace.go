@@ -32,7 +32,14 @@ func HGInjectTraceToRecord(ctx context.Context, record *kgo.Record) {
 //
 // 消费端 handler 应使用返回的 context 写日志、调用下游服务，保证消息链路可追踪。
 func HGExtractTraceFromRecord(record *kgo.Record) context.Context {
-	ctx := context.Background()
+	return HGExtractTraceFromRecordContext(context.Background(), record)
+}
+
+// HGExtractTraceFromRecordContext 在保留父 context 取消、deadline 和值的基础上恢复 Kafka trace。
+func HGExtractTraceFromRecordContext(ctx context.Context, record *kgo.Record) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if record == nil {
 		return ctx
 	}

@@ -76,6 +76,59 @@ func TestHGNewBusinessClientOptsConfiguresManualConsumerGroup(t *testing.T) {
 	}
 }
 
+func TestHGNewBusinessProducerOptsDoesNotJoinConsumerGroup(t *testing.T) {
+	opts, err := HGNewBusinessProducerOpts(HGClusterConfig{
+		Brokers: []string{"127.0.0.1:9092"},
+		Topics:  []string{"mlc.domain.events"},
+		GroupID: "must-not-be-used",
+	})
+	if err != nil {
+		t.Fatalf("build producer opts: %v", err)
+	}
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		t.Fatalf("new producer client: %v", err)
+	}
+	defer client.Close()
+
+	if got := client.OptValue(kgo.ConsumerGroup); got != "" {
+		t.Fatalf("producer consumer group = %v, want empty", got)
+	}
+	if got := client.OptValue(kgo.ConsumeTopics); len(got.(map[string]*regexp.Regexp)) != 0 {
+		t.Fatalf("producer consume topics = %v, want empty", got)
+	}
+}
+
+func TestHGNewBusinessConsumerOptsConfiguresIndependentGroup(t *testing.T) {
+	opts, err := HGNewBusinessConsumerOpts(
+		HGClusterConfig{Brokers: []string{"127.0.0.1:9092"}},
+		[]string{"mlc.domain.events"},
+		"mlc-go-feed",
+		"mlc-go-feed-client",
+	)
+	if err != nil {
+		t.Fatalf("build consumer opts: %v", err)
+	}
+	client, err := kgo.NewClient(opts...)
+	if err != nil {
+		t.Fatalf("new consumer client: %v", err)
+	}
+	defer client.Close()
+
+	if got := client.OptValue(kgo.ConsumerGroup); got != "mlc-go-feed" {
+		t.Fatalf("consumer group = %v, want mlc-go-feed", got)
+	}
+	if got := client.OptValue(kgo.ClientID); got != "mlc-go-feed-client" {
+		t.Fatalf("client id = %v, want mlc-go-feed-client", got)
+	}
+	if got := client.OptValue(kgo.DisableAutoCommit); got != true {
+		t.Fatalf("disable auto commit = %v, want true", got)
+	}
+	if got := client.OptValue(kgo.BlockRebalanceOnPoll); got != true {
+		t.Fatalf("block rebalance = %v, want true", got)
+	}
+}
+
 func TestHGNewBusinessClientOptsRequiresConsumerSettings(t *testing.T) {
 	for _, testCase := range []struct {
 		name    string

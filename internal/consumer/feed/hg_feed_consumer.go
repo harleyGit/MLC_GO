@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"MLC_GO/internal/consumer"
 	"MLC_GO/internal/events"
 	VideoEventsPackage "MLC_GO/internal/events/video"
 	"context"
@@ -17,8 +18,7 @@ func NewConsumer() *Consumer { return &Consumer{} }
 func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) error {
 	switch envelope.EventName {
 	case VideoEventsPackage.VideoReviewedEventName, VideoEventsPackage.VideoPublishedEventName:
-		// TODO: 写入 feed:list 读模型。这里先保留骨架，避免接口请求路径直连 Kafka。
-		return nil
+		return consumer.NewHandlerNotImplementedError("feed", envelope.EventName)
 	default:
 		// 不属于 Feed 关注范围的事件直接忽略，保证同一 topic 可承载多类领域事件。
 		return nil

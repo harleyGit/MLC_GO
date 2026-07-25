@@ -10,7 +10,7 @@ services:
     container_name: mlc-kafka-1
     ports:
       # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:19092。
-      - "19092:9092"
+      - "19092:19092"
     environment:
       # 使用 KRaft 模式，不再依赖 ZooKeeper。
       KAFKA_ENABLE_KRAFT: "yes"
@@ -21,11 +21,12 @@ services:
       # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
       # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
       # 对宿主机客户端暴露的 broker 地址，必须使用宿主机可访问地址。
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:19092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:19092
       # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
       # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
@@ -47,7 +48,7 @@ services:
     container_name: mlc-kafka-2
     ports:
       # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:29092。
-      - "29092:9092"
+      - "29092:29092"
     environment:
       # 使用 KRaft 模式，不再依赖 ZooKeeper。
       KAFKA_ENABLE_KRAFT: "yes"
@@ -58,15 +59,19 @@ services:
       # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
       # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
       # 每个 broker 必须广告自己的宿主机映射端口，否则客户端元数据刷新后会连错节点。
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:29092
       # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
       # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 2
     volumes:
       # 持久化 broker 数据，避免容器重启后 topic 和 offset 丢失。
       - kafka_2_data:/bitnami/kafka
@@ -78,7 +83,7 @@ services:
     container_name: mlc-kafka-3
     ports:
       # 宿主机端口:容器端口；Go 服务在本机运行时使用 localhost:39092。
-      - "39092:9092"
+      - "39092:39092"
     environment:
       # 使用 KRaft 模式，不再依赖 ZooKeeper。
       KAFKA_ENABLE_KRAFT: "yes"
@@ -89,15 +94,19 @@ services:
       # 三节点 controller quorum；格式为 nodeId@host:controllerPort。
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
       # 9092 对外提供普通 Kafka 协议，9093 仅供 controller quorum 内部通信。
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://:39092,CONTROLLER://:9093
       # 第三个 broker 的宿主机访问地址。
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:39092
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,EXTERNAL://localhost:39092
       # 本地开发使用明文协议；生产环境应替换为 SASL_SSL/SSL。
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
       # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 2
     volumes:
       # 持久化 broker 数据，避免容器重启后 topic 和 offset 丢失。
       - kafka_3_data:/bitnami/kafka

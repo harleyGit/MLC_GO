@@ -1,6 +1,7 @@
 package search
 
 import (
+	"MLC_GO/internal/consumer"
 	"MLC_GO/internal/events"
 	VideoEventsPackage "MLC_GO/internal/events/video"
 	"context"
@@ -17,8 +18,7 @@ func NewConsumer() *Consumer { return &Consumer{} }
 func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) error {
 	switch envelope.EventName {
 	case VideoEventsPackage.VideoPublishedEventName, VideoEventsPackage.VideoDeletedEventName:
-		// TODO: Upsert/Delete ES 文档。
-		return nil
+		return consumer.NewHandlerNotImplementedError("search", envelope.EventName)
 	default:
 		// 搜索索引不关心的事件不报错，避免阻塞同一 consumer group 的正常提交。
 		return nil

@@ -83,6 +83,32 @@ func TestHGProcessFetchBatchDoesNotCommitPartitionWhenFirstRecordFails(t *testin
 	}
 }
 
+func TestHGProcessFetchBatchRecoversHandlerPanicAndContinuesOtherPartition(t *testing.T) {
+	fetches := hgTestFetches(
+		hgTestRecord("orders", 0, 10),
+		hgTestRecord("orders", 1, 20),
+	)
+	var handled []int64
+
+	commits, failed := hgProcessFetchBatch(context.Background(), fetches, func(_ context.Context, record *kgo.Record) error {
+		handled = append(handled, record.Offset)
+		if record.Partition == 0 {
+			panic("boom")
+		}
+		return nil
+	}, nil)
+
+	if got := hgRecordOffsets(commits); !reflect.DeepEqual(got, []int64{20}) {
+		t.Fatalf("commit offsets=%v, want [20]", got)
+	}
+	if got := failed["orders"][0].Offset; got != 10 {
+		t.Fatalf("failed offset=%d, want 10", got)
+	}
+	if !reflect.DeepEqual(handled, []int64{10, 20}) {
+		t.Fatalf("handled=%v, want [10 20]", handled)
+	}
+}
+
 func hgTestFetches(records ...*kgo.Record) kgo.Fetches {
 	partitions := make(map[int32][]*kgo.Record)
 	partitionOrder := make([]int32, 0)

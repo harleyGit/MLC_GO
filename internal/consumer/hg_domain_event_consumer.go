@@ -4,8 +4,18 @@ import (
 	"MLC_GO/internal/events"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// ErrHandlerNotImplemented 表示消费者识别该事件，但业务投影尚未实现。
+// 该错误必须阻止 offset 提交，避免 TODO Handler 静默吞掉领域事件。
+var ErrHandlerNotImplemented = errors.New("consumer handler not implemented")
+
+// NewHandlerNotImplementedError 返回带消费者和事件上下文的可识别错误。
+func NewHandlerNotImplementedError(consumerName string, eventName string) error {
+	return fmt.Errorf("%w: consumer=%s event=%s", ErrHandlerNotImplemented, consumerName, eventName)
+}
 
 // Handler 处理一种或多种领域事件。
 // Feed/Search/Statistic/Audit 各自实现自己的 Handler，互不影响、互不共享消费位点。

@@ -13,6 +13,7 @@ package HGKafkaPackage
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -89,6 +90,38 @@ func HGNewBusinessClientOpts(cfg HGClusterConfig) ([]kgo.Opt, error) {
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
 	)
+	return opts, nil
+}
+
+// HGNewBusinessConsumerOpts 构建独立消费组 Client，避免多个读模型共享消费位点。
+func HGNewBusinessConsumerOpts(cfg HGClusterConfig, topics []string, groupID string, clientID string) ([]kgo.Opt, error) {
+	normalized, err := HGBuildClusterConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	topics = hgTrimNonEmptyStrings(topics)
+	if len(topics) == 0 {
+		return nil, fmt.Errorf("kafka consumer topics cannot be empty")
+	}
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, fmt.Errorf("kafka consumer group_id cannot be empty")
+	}
+
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(normalized.Brokers...),
+		kgo.ConsumeTopics(topics...),
+		kgo.ConsumerGroup(groupID),
+		kgo.DisableAutoCommit(),
+		kgo.BlockRebalanceOnPoll(),
+		kgo.WithHooks(HGMetricHook{}),
+		kgo.OnPartitionsAssigned(hgKafkaOnPartitionsAssigned),
+		kgo.OnPartitionsRevoked(hgKafkaOnPartitionsRevoked),
+		kgo.OnPartitionsLost(hgKafkaOnPartitionsLost),
+	}
+	if clientID = strings.TrimSpace(clientID); clientID != "" {
+		opts = append(opts, kgo.ClientID(clientID))
+	}
 	return opts, nil
 }
 

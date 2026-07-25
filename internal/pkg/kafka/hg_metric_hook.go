@@ -1,53 +1,163 @@
-/*
- * @Author: GangHuang harleysor@qq.com
- * @Date: 2026-07-04 16:36:21
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-23 17:37:35
- * @FilePath: /MLC_GO/internal/pkg/kafka/hg_metric_hook.go
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- 
- 功能：prometheus埋点钩子（发送成功/lag/耗时）
- */
-
 package HGKafkaPackage
 
 import (
+	"context"
+	"fmt"
+	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-//TODO：大厂除了统计下面的，还要统计消息数量、失败数量、延迟、DLQ数量、Consumer Lag，用于 Producer性能监控 + 容量评估 + 故障定位。
 var (
-
-	// hgKafkaBufferedRecords 定义一个原子计数器，为Kafka 当前缓冲中的消息数量
-	hgKafkaBufferedRecords atomic.Uint64
-
-	// hgKafkaWrittenBatches  已经写入 Kafka 的批次数量。
-	hgKafkaWrittenBatches  atomic.Uint64
+	hgKafkaProduceRecords         atomic.Uint64
+	hgKafkaProduceFailures        atomic.Uint64
+	hgKafkaWrittenBatches         atomic.Uint64
+	hgKafkaConsumeBatches         atomic.Uint64
+	hgKafkaConsumeBatchRecords    atomic.Uint64
+	hgKafkaConsumeBatchNanos      atomic.Uint64
+	hgKafkaFetchErrors            atomic.Uint64
+	hgKafkaHandlerFailures        atomic.Uint64
+	hgKafkaDLQWrites              atomic.Uint64
+	hgKafkaDLQFailures            atomic.Uint64
+	hgKafkaCommits                atomic.Uint64
+	hgKafkaCommitFailures         atomic.Uint64
+	hgKafkaCommitPartitions       atomic.Uint64
+	hgKafkaCommitNanos            atomic.Uint64
+	hgKafkaConsumerPanics         atomic.Uint64
+	hgKafkaGroupErrors            atomic.Uint64
+	hgKafkaPartitionsAssigned     atomic.Uint64
+	hgKafkaPartitionsRevoked      atomic.Uint64
+	hgKafkaPartitionsLost         atomic.Uint64
+	hgKafkaAssignedPartitionGauge atomic.Int64
 )
 
-// HGMetricHook 提供轻量级 franz-go hook，用于统计客户端侧缓冲和写出批次数。
-//
-// 这里不直接引入 Prometheus 依赖，避免扩大项目观测体系边界；生产接入时可在这些 hook 中桥接现有 metrics registry。
+// HGMetricHook 收集 Kafka Producer 和 Consumer 的低开销进程级指标。
 type HGMetricHook struct{}
 
-// OnProduceRecordBuffered 在消息进入 franz-go 客户端缓冲区时触发。
-func (HGMetricHook) OnProduceRecordBuffered(_ *kgo.Record) {
-	hgKafkaBufferedRecords.Add(1)
+// OnProduceRecordUnbuffered 统计最终完成的生产记录和失败数。
+func (HGMetricHook) OnProduceRecordUnbuffered(_ *kgo.Record, err error) {
+	hgKafkaProduceRecords.Add(1)
+	if err != nil {
+		hgKafkaProduceFailures.Add(1)
+	}
 }
 
-// OnProduceBatchWritten 在一个 produce batch 写入 broker 连接后触发。
+// OnProduceBatchWritten 统计成功写入 broker 的批次数。
 func (HGMetricHook) OnProduceBatchWritten(_ kgo.BrokerMetadata, _ string, _ int32, _ kgo.ProduceBatchMetrics) {
 	hgKafkaWrittenBatches.Add(1)
 }
 
-// HGMetricsSnapshot 返回 Kafka 客户端侧轻量指标快照，便于单测或健康检查读取。
-// 获取当前 Kafka 指标快照
-//	@return bufferedRecords 
-//	@return writtenBatches 
-func HGMetricsSnapshot() (bufferedRecords uint64, writtenBatches uint64) {
+// OnGroupManageError 统计导致消费组会话退出并退避的错误。
+func (HGMetricHook) OnGroupManageError(_ error) {
+	hgKafkaGroupErrors.Add(1)
+}
 
-	// return Load() 读取原子变量，线程安全
-	return hgKafkaBufferedRecords.Load(), hgKafkaWrittenBatches.Load()
+func hgObserveConsumeBatch(records int, elapsed time.Duration) {
+	if records <= 0 {
+		return
+	}
+	hgKafkaConsumeBatches.Add(1)
+	hgKafkaConsumeBatchRecords.Add(uint64(records))
+	hgKafkaConsumeBatchNanos.Add(uint64(elapsed))
+}
+
+func hgObserveCommit(partitions int, elapsed time.Duration, err error) {
+	hgKafkaCommits.Add(1)
+	hgKafkaCommitPartitions.Add(uint64(partitions))
+	hgKafkaCommitNanos.Add(uint64(elapsed))
+	if err != nil {
+		hgKafkaCommitFailures.Add(1)
+	}
+}
+
+func hgKafkaOnPartitionsAssigned(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
+	count := hgPartitionCount(partitions)
+	hgKafkaPartitionsAssigned.Add(uint64(count))
+	hgKafkaAssignedPartitionGauge.Add(int64(count))
+}
+
+func hgKafkaOnPartitionsRevoked(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
+	count := hgPartitionCount(partitions)
+	hgKafkaPartitionsRevoked.Add(uint64(count))
+	hgKafkaAssignedPartitionGauge.Add(-int64(count))
+}
+
+func hgKafkaOnPartitionsLost(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
+	count := hgPartitionCount(partitions)
+	hgKafkaPartitionsLost.Add(uint64(count))
+	hgKafkaAssignedPartitionGauge.Add(-int64(count))
+}
+
+func hgPartitionCount(partitions map[string][]int32) int {
+	count := 0
+	for _, values := range partitions {
+		count += len(values)
+	}
+	return count
+}
+
+// HGKafkaMetricsHandler 返回 Prometheus text exposition 格式的内存指标，不访问外部依赖。
+func HGKafkaMetricsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+
+		writeCounter := func(name string, value uint64) {
+			_, _ = fmt.Fprintf(w, "%s %d\n", name, value)
+		}
+		writeCounter("mlc_kafka_produce_records_total", hgKafkaProduceRecords.Load())
+		writeCounter("mlc_kafka_produce_failures_total", hgKafkaProduceFailures.Load())
+		writeCounter("mlc_kafka_produce_batches_total", hgKafkaWrittenBatches.Load())
+		writeCounter("mlc_kafka_consume_batches_total", hgKafkaConsumeBatches.Load())
+		writeCounter("mlc_kafka_consume_batch_records_total", hgKafkaConsumeBatchRecords.Load())
+		writeCounter("mlc_kafka_consume_batch_duration_nanoseconds_total", hgKafkaConsumeBatchNanos.Load())
+		writeCounter("mlc_kafka_fetch_errors_total", hgKafkaFetchErrors.Load())
+		writeCounter("mlc_kafka_handler_failures_total", hgKafkaHandlerFailures.Load())
+		writeCounter("mlc_kafka_dlq_writes_total", hgKafkaDLQWrites.Load())
+		writeCounter("mlc_kafka_dlq_failures_total", hgKafkaDLQFailures.Load())
+		writeCounter("mlc_kafka_commits_total", hgKafkaCommits.Load())
+		writeCounter("mlc_kafka_commit_failures_total", hgKafkaCommitFailures.Load())
+		writeCounter("mlc_kafka_commit_partitions_total", hgKafkaCommitPartitions.Load())
+		writeCounter("mlc_kafka_commit_duration_nanoseconds_total", hgKafkaCommitNanos.Load())
+		writeCounter("mlc_kafka_consumer_panics_total", hgKafkaConsumerPanics.Load())
+		writeCounter("mlc_kafka_group_errors_total", hgKafkaGroupErrors.Load())
+		writeCounter("mlc_kafka_partitions_assigned_total", hgKafkaPartitionsAssigned.Load())
+		writeCounter("mlc_kafka_partitions_revoked_total", hgKafkaPartitionsRevoked.Load())
+		writeCounter("mlc_kafka_partitions_lost_total", hgKafkaPartitionsLost.Load())
+		_, _ = fmt.Fprintf(w, "mlc_kafka_assigned_partitions %d\n", hgKafkaAssignedPartitionGauge.Load())
+	})
+}
+
+func hgResetKafkaMetricsForTest() {
+	hgKafkaProduceRecords.Store(0)
+	hgKafkaProduceFailures.Store(0)
+	hgKafkaWrittenBatches.Store(0)
+	hgKafkaConsumeBatches.Store(0)
+	hgKafkaConsumeBatchRecords.Store(0)
+	hgKafkaConsumeBatchNanos.Store(0)
+	hgKafkaFetchErrors.Store(0)
+	hgKafkaHandlerFailures.Store(0)
+	hgKafkaDLQWrites.Store(0)
+	hgKafkaDLQFailures.Store(0)
+	hgKafkaCommits.Store(0)
+	hgKafkaCommitFailures.Store(0)
+	hgKafkaCommitPartitions.Store(0)
+	hgKafkaCommitNanos.Store(0)
+	hgKafkaConsumerPanics.Store(0)
+	hgKafkaGroupErrors.Store(0)
+	hgKafkaPartitionsAssigned.Store(0)
+	hgKafkaPartitionsRevoked.Store(0)
+	hgKafkaPartitionsLost.Store(0)
+	hgKafkaAssignedPartitionGauge.Store(0)
+}
+
+// HGMetricsSnapshot 保留原有轻量快照接口。
+func HGMetricsSnapshot() (produceRecords uint64, writtenBatches uint64) {
+	return hgKafkaProduceRecords.Load(), hgKafkaWrittenBatches.Load()
 }

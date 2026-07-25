@@ -158,7 +158,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
 	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
 	rootMux := HGHandlerPackage.NewRootHandlerWithHealth(routeCatalogs, HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck: newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
+		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(),
 	})
 
 	srv := &http.Server{
@@ -259,14 +260,15 @@ func (app *MLCApplication) Close() {
 	if app == nil {
 		return
 	}
+	// 先停止并等待 Kafka Consumer，避免 Handler 在数据库和 Redis 已关闭后继续处理消息。
+	if app.kafkaCloser != nil {
+		app.kafkaCloser()
+	}
 	if err := app.redisService.Close(); err != nil {
 		logHG.ErrFInfo("Redis关闭失败: %v", err)
 	}
 	if err := app.sqlManager.Close(); err != nil {
 		logHG.ErrFInfo("数据库关闭失败: %v", err)
-	}
-	if app.kafkaCloser != nil {
-		app.kafkaCloser()
 	}
 	HGLoggerPackage.CloseLogger()
 }

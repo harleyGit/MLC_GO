@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"MLC_GO/internal/pkg/logHG"
 
@@ -63,9 +64,22 @@ func (b *HGBaseConsumer) HGStartConsume(ctx context.Context, handle HGRecordHand
 	return nil
 }
 
+// HGRunConsume 同步运行消费循环，供应用 runtime 管理退出和等待。
+func (b *HGBaseConsumer) HGRunConsume(ctx context.Context, handle HGRecordHandler) error {
+	if b == nil || b.cli == nil {
+		return fmt.Errorf("kafka consumer client cannot be nil")
+	}
+	if handle == nil {
+		return fmt.Errorf("kafka consumer handler cannot be nil")
+	}
+	b.consumeLoop(ctx, handle)
+	return ctx.Err()
+}
+
 func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler) {
 	defer func() {
 		if r := recover(); r != nil {
+			hgKafkaConsumerPanics.Add(1)
 			// 长生命周期消费 goroutine 不能因为单条异常退出进程，先记录堆栈交给监控告警。
 			logHG.ErrFInfo("kafka consumer panic recovered err=%v stack=%s", r, string(debug.Stack()))
 		}
@@ -89,21 +103,30 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 		}
 
 		if errs := fetches.Errors(); len(errs) > 0 {
+			hgKafkaFetchErrors.Add(uint64(len(errs)))
 			logHG.ErrFInfo("kafka fetch error errs=%v", errs)
 			b.cli.AllowRebalance()
 			continue
 		}
 
+		batchStartedAt := time.Now()
 		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) {
+			hgKafkaHandlerFailures.Add(1)
 			logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, handleErr)
+			hgKafkaDLQWrites.Add(1)
 			if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, handleErr.Error()); dlqErr != nil {
+				hgKafkaDLQFailures.Add(1)
 				logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 			}
 		})
+		hgObserveConsumeBatch(fetches.NumRecords(), time.Since(batchStartedAt))
 
 		if len(commitRecords) > 0 {
 			// CommitRecords 支持变参批量提交；每个分区只传最后一条连续成功记录，单批只产生一次提交请求。
-			if err := b.cli.CommitRecords(ctx, commitRecords...); err != nil {
+			commitStartedAt := time.Now()
+			err := b.cli.CommitRecords(ctx, commitRecords...)
+			hgObserveCommit(len(commitRecords), time.Since(commitStartedAt), err)
+			if err != nil {
 				// 提交失败会导致消息后续重复消费，因此业务 Handler 必须按事件 ID / 业务 key 保证幂等。
 				logHG.ErrFInfo("kafka commit batch failed records=%d err=%v", len(commitRecords), err)
 			}
@@ -130,8 +153,8 @@ func hgProcessFetchBatch(
 			for _, partition := range topic.Partitions {
 				var lastSucceeded *kgo.Record
 				for _, record := range partition.Records {
-					traceCtx := HGExtractTraceFromRecord(record)
-					if err := handle(traceCtx, record); err != nil {
+					traceCtx := HGExtractTraceFromRecordContext(ctx, record)
+					if err := hgInvokeRecordHandler(traceCtx, handle, record); err != nil {
 						if onFailure != nil {
 							onFailure(traceCtx, record, err)
 						}
@@ -157,4 +180,13 @@ func hgProcessFetchBatch(
 		failedOffsets = nil
 	}
 	return commitRecords, failedOffsets
+}
+
+func hgInvokeRecordHandler(ctx context.Context, handle HGRecordHandler, record *kgo.Record) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("kafka record handler panic: %v", recovered)
+		}
+	}()
+	return handle(ctx, record)
 }

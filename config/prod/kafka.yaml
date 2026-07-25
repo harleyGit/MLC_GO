@@ -9,7 +9,23 @@ kafka:
     client_id: mlc-go-prod-business
     topics:
       - mlc.domain.events
-    group_id: mlc-go-prod-domain-events
+    consumers:
+      feed:
+        enabled: false
+        group_id: mlc-go-prod-feed
+        client_id: mlc-go-prod-feed
+      search:
+        enabled: false
+        group_id: mlc-go-prod-search
+        client_id: mlc-go-prod-search
+      statistic:
+        enabled: false
+        group_id: mlc-go-prod-statistic
+        client_id: mlc-go-prod-statistic
+      audit:
+        enabled: false
+        group_id: mlc-go-prod-audit
+        client_id: mlc-go-prod-audit
   log:
     # 建议与业务集群做物理隔离或至少设置独立资源配额。
     brokers:

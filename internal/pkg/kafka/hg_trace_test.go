@@ -29,3 +29,20 @@ func TestHGInjectTraceSkipsEmptyTID(t *testing.T) {
 		t.Fatalf("expected no headers, got %d", len(record.Headers))
 	}
 }
+
+func TestHGExtractTraceFromRecordPreservesParentCancellation(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	record := &kgo.Record{Headers: []kgo.RecordHeader{{Key: hgTraceHeaderTID, Value: []byte("tid-parent")}}}
+
+	traceCtx := HGExtractTraceFromRecordContext(parent, record)
+	cancel()
+
+	select {
+	case <-traceCtx.Done():
+	default:
+		t.Fatal("trace context should preserve parent cancellation")
+	}
+	if got := UtilsPackage.GetTID(traceCtx); got != "tid-parent" {
+		t.Fatalf("TID = %q, want tid-parent", got)
+	}
+}
