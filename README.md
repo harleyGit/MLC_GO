@@ -56,7 +56,7 @@
   - [Go 开发者路线图](https://github.com/darius-khll/golang-developer-roadmap/blob/master/i18n/zh-CN/ReadMe-zh-CN.md)
   - [GitHubDaily 已累积分享超过 8000 个开源项目](https://github.com/GitHubDaily/GitHubDaily)
 - [优化建议](#优化建议)
-
+  - [免费图片资源](https://picsum.photos)
 <br/><br/><br/>
 
 ---

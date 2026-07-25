@@ -21,9 +21,11 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+const hgConsumerMaxPollRecords = 500
+
 // HGRecordHandler 是统一消费处理函数。
 //
-// handler 返回 nil 后才提交 offset；返回 error 时消息会进入 DLQ，且不会提交当前 offset，便于后续重试。
+// handler 返回 nil 后才提交 offset；返回 error 时消息会进入 DLQ，失败分区从当前消息继续重试。
 type HGRecordHandler func(ctx context.Context, record *kgo.Record) error
 
 // HGBaseConsumer 是 franz-go 消费基类。
@@ -42,8 +44,8 @@ func HGNewBaseConsumer(cli *kgo.Client, dlqTopic string) *HGBaseConsumer {
 
 // HGStartConsume 启动消费循环，支持多topic、自动负载均衡
 //
-// 注意：franz-go 的订阅 topic/group 应尽量通过创建 client 时的 ConsumeTopics/ConsumerGroup 配置完成；
-// 为保持调用简单，这里只负责 PollFetches 主循环，不在请求路径创建 goroutine，不使用无界 channel。
+// 注意：client 必须通过 ConsumeTopics、ConsumerGroup、DisableAutoCommit 和 BlockRebalanceOnPoll 配置消费组；
+// 这里使用有界批次处理并批量提交 offset，不在请求路径创建 goroutine，不使用无界 channel。
 func (b *HGBaseConsumer) HGStartConsume(ctx context.Context, handle HGRecordHandler) error {
 	if b == nil || b.cli == nil {
 		return fmt.Errorf("kafka consumer client cannot be nil")
@@ -72,44 +74,87 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 	for {
 		// select类似：多个 channel 等待，哪个 channel 有数据，执行哪个。
 		select {
-			// 退出消费循环
-			//ctx里面有一个Done()，即channel。正常Done channel没有数据，处于阻塞状态。调用cancel()变成：ctx.Done()发送关闭信号
+		// 退出消费循环
+		//ctx里面有一个Done()，即channel。正常Done channel没有数据，处于阻塞状态。调用cancel()变成：ctx.Done()发送关闭信号
 		case <-ctx.Done():
 			return
 		default:
 		}
 
-		// PollFetches 用来主动向 Kafka Broker 拉取消息（fetch），阻塞等待消息返回，然后把拉取到的一批消息封装成 Fetches 返回给消费者处理。
-		//PollFetches()就是：Consumer 发起一次 Fetch 请求。大白话就是：含义：给我一批当前可消费的数据。
-		fetches := b.cli.PollFetches(ctx)
+		// 限制单批记录数，避免大 fetch 在慢 Handler 下长期阻塞 rebalance 或占用过多内存。
+		fetches := b.cli.PollRecords(ctx, hgConsumerMaxPollRecords)
 		if ctx.Err() != nil {
+			b.cli.AllowRebalance()
 			return
 		}
 
 		if errs := fetches.Errors(); len(errs) > 0 {
 			logHG.ErrFInfo("kafka fetch error errs=%v", errs)
+			b.cli.AllowRebalance()
 			continue
 		}
-		// 遍历所有拉取到的消息
-		fetches.EachRecord(func(record *kgo.Record) {
-			// 从 Kafka header 恢复 trace 上下文，保证消费侧日志仍能串回原请求。
-			traceCtx := HGExtractTraceFromRecord(record)
-			if err := handle(traceCtx, record); err != nil {
-				logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
 
-				// 业务处理失败先投递 DLQ；当前 offset 不提交，下一轮仍可重试原消息。
-				if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, err.Error()); dlqErr != nil {
-					logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
-				}
-				// 失败不提交 offset，下次重新消费；如果消息持续失败，会依赖 DLQ 和告警人工介入。
-				return
-			}
-			// 业务处理成功后再手动提交 offset，保证至少一次投递语义。
-			// TODO：性能不好在·高并发场景，应该批量提交，但 franz-go 暂无批量提交接口。
-			if err := b.cli.CommitRecords(ctx, record); err != nil {
-				// 提交失败会导致消息后续重复消费，因此业务 Handler 必须按事件 ID / 业务 key 保证幂等。
-				logHG.ErrFInfo("kafka commit record failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, err)
+		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) {
+			logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, handleErr)
+			if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, handleErr.Error()); dlqErr != nil {
+				logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 			}
 		})
+
+		if len(commitRecords) > 0 {
+			// CommitRecords 支持变参批量提交；每个分区只传最后一条连续成功记录，单批只产生一次提交请求。
+			if err := b.cli.CommitRecords(ctx, commitRecords...); err != nil {
+				// 提交失败会导致消息后续重复消费，因此业务 Handler 必须按事件 ID / 业务 key 保证幂等。
+				logHG.ErrFInfo("kafka commit batch failed records=%d err=%v", len(commitRecords), err)
+			}
+		}
+		if len(failedOffsets) > 0 {
+			// Poll 已推进本地位置；显式回退到失败消息，防止下一轮跳过失败分区的未处理记录。
+			b.cli.SetOffsets(failedOffsets)
+		}
+		b.cli.AllowRebalance()
 	}
+}
+
+func hgProcessFetchBatch(
+	ctx context.Context,
+	fetches kgo.Fetches,
+	handle HGRecordHandler,
+	onFailure func(context.Context, *kgo.Record, error),
+) ([]*kgo.Record, map[string]map[int32]kgo.EpochOffset) {
+	commitRecords := make([]*kgo.Record, 0, len(fetches))
+	failedOffsets := make(map[string]map[int32]kgo.EpochOffset)
+
+	for _, fetch := range fetches {
+		for _, topic := range fetch.Topics {
+			for _, partition := range topic.Partitions {
+				var lastSucceeded *kgo.Record
+				for _, record := range partition.Records {
+					traceCtx := HGExtractTraceFromRecord(record)
+					if err := handle(traceCtx, record); err != nil {
+						if onFailure != nil {
+							onFailure(traceCtx, record, err)
+						}
+						if failedOffsets[record.Topic] == nil {
+							failedOffsets[record.Topic] = make(map[int32]kgo.EpochOffset)
+						}
+						failedOffsets[record.Topic][record.Partition] = kgo.EpochOffset{
+							Epoch:  record.LeaderEpoch,
+							Offset: record.Offset,
+						}
+						break
+					}
+					lastSucceeded = record
+				}
+				if lastSucceeded != nil {
+					commitRecords = append(commitRecords, lastSucceeded)
+				}
+			}
+		}
+	}
+
+	if len(failedOffsets) == 0 {
+		failedOffsets = nil
+	}
+	return commitRecords, failedOffsets
 }
