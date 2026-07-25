@@ -59,6 +59,8 @@ const (
 	VideoUploadListPagePatternKey    = "video_upload:list:cursor:*"
 	// VideoStatusCounterKey 用 Redis Hash 按稿件状态维护视频列表计数，避免高并发列表总数查询打到 MySQL COUNT(*)。
 	VideoStatusCounterKey = "video_status_counter"
+	// OpsBilibiliActiveTagListKey 缓存动画页启用标签，写操作提交后直接删除该固定 key。
+	OpsBilibiliActiveTagListKey = "ops:bilibili:douga_tags:active"
 )
 
 /* lua脚本 */

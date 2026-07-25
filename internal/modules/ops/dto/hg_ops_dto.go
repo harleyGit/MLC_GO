@@ -50,6 +50,45 @@ type RoleItem struct {
 	CreatedAt   string `json:"createdAt"`
 }
 
+// BilibiliTagRequest 创建 Bilibili 动画标签请求。
+// Status 取值：1 启用、2 停用；传 0 时创建接口默认启用。
+type BilibiliTagRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sortOrder"`
+	Status    int    `json:"status"`
+}
+
+// UpdateBilibiliTagRequest 更新 Bilibili 动画标签请求。
+type UpdateBilibiliTagRequest struct {
+	TagID     string `json:"tagId"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sortOrder"`
+	Status    int    `json:"status"`
+}
+
+// DeleteBilibiliTagRequest 删除 Bilibili 动画标签请求。
+type DeleteBilibiliTagRequest struct {
+	TagID string `json:"tagId"`
+}
+
+// BilibiliTagListResponse Bilibili 动画标签列表响应。
+type BilibiliTagListResponse struct {
+	Total      int64             `json:"total"`
+	List       []BilibiliTagItem `json:"list"`
+	NextCursor string            `json:"nextCursor"`
+	HasMore    bool              `json:"hasMore"`
+}
+
+// BilibiliTagItem Bilibili 动画标签项。
+type BilibiliTagItem struct {
+	TagID     string `json:"tagId"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sortOrder"`
+	Status    int    `json:"status"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
 // AdminUserSearchResponse 管理员搜索响应。
 // 说明：admin_user 表当前没有 email 字段，Email 先保留为空字符串，便于前端统一展示列结构。
 type AdminUserSearchResponse struct {

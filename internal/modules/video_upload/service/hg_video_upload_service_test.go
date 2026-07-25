@@ -75,7 +75,7 @@ func TestGetVideoListReturnsCachedPageWithoutRepositoryQuery(t *testing.T) {
 		cache: &fakeVideoListCache{cachedPage: cached},
 	}
 
-	got, err := svc.GetVideoList(context.Background(), "", 20)
+	got, err := svc.GetVideoList(context.Background(), "", 20, "MMD·3D")
 	if err != nil {
 		t.Fatalf("GetVideoList() error = %v", err)
 	}
@@ -89,6 +89,7 @@ func TestGetVideoListReturnsCachedPageWithoutRepositoryQuery(t *testing.T) {
 
 type fakeVideoListRepository struct {
 	listCalls int
+	tagName   string
 }
 
 func (f *fakeVideoListRepository) EnsureVideoListIndex(ctx context.Context) error { return nil }
@@ -104,8 +105,9 @@ func (f *fakeVideoListRepository) SaveSubmissionWithEvents(ctx context.Context, 
 func (f *fakeVideoListRepository) GetSubmissionStatus(ctx context.Context, submissionID string, userID string) (string, bool, error) {
 	return "", false, nil
 }
-func (f *fakeVideoListRepository) GetVideoListByCursor(ctx context.Context, cursor string, limit int) ([]VideoUploadDtoPackage.VideoListItem, error) {
+func (f *fakeVideoListRepository) GetVideoListByCursor(ctx context.Context, cursor string, limit int, tagName string) ([]VideoUploadDtoPackage.VideoListItem, error) {
 	f.listCalls++
+	f.tagName = tagName
 	return nil, nil
 }
 func (f *fakeVideoListRepository) GetVideoStatusCounts(ctx context.Context) (map[string]int64, error) {
@@ -143,10 +145,10 @@ func (f *fakeVideoListCache) GetVideoStatusCounters(ctx context.Context) (map[st
 func (f *fakeVideoListCache) SetVideoStatusCounters(ctx context.Context, counters map[string]int64) error {
 	return nil
 }
-func (f *fakeVideoListCache) GetVideoListPage(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {
+func (f *fakeVideoListCache) GetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {
 	return f.cachedPage, f.cachedPage != nil, nil
 }
-func (f *fakeVideoListCache) SetVideoListPage(ctx context.Context, cursor string, pageSize int, resp *VideoUploadDtoPackage.GetVideoListResponse) error {
+func (f *fakeVideoListCache) SetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string, resp *VideoUploadDtoPackage.GetVideoListResponse) error {
 	return nil
 }
 func (f *fakeVideoListCache) InvalidateVideoListPages(ctx context.Context) error { return nil }

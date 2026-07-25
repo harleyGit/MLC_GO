@@ -237,8 +237,9 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 
 	cursor := r.URL.Query().Get("cursor")
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	tagName := strings.TrimSpace(r.URL.Query().Get("tagName"))
 
-	resp, err := h.service.GetVideoList(r.Context(), cursor, pageSize)
+	resp, err := h.service.GetVideoList(r.Context(), cursor, pageSize, tagName)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})

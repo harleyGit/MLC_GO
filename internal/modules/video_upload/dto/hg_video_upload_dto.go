@@ -173,6 +173,8 @@ type GetVideoListRequest struct {
 	Cursor string `json:"cursor"`
 	// PageSize 每页数量，默认 20，最大 100。
 	PageSize int `json:"pageSize"`
+	// TagName 视频标签名称；为空表示推荐/全部视频。
+	TagName string `json:"tagName"`
 }
 
 // GetVideoListResponse 获取视频列表的响应。

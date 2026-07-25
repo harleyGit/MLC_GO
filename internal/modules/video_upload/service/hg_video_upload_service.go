@@ -66,7 +66,7 @@ type videoUploadRepository interface {
 	SaveSubmission(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) error
 	SaveSubmissionWithEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest, domainEvents ...events.DomainEvent) error
 	GetSubmissionStatus(ctx context.Context, submissionID string, userID string) (string, bool, error)
-	GetVideoListByCursor(ctx context.Context, cursor string, limit int) ([]VideoUploadDtoPackage.VideoListItem, error)
+	GetVideoListByCursor(ctx context.Context, cursor string, limit int, tagName string) ([]VideoUploadDtoPackage.VideoListItem, error)
 	GetVideoStatusCounts(ctx context.Context) (map[string]int64, error)
 }
 
@@ -87,8 +87,8 @@ type videoUploadCache interface {
 	IncrementVideoStatusCounter(ctx context.Context, status string, delta int64) error
 	GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error)
 	SetVideoStatusCounters(ctx context.Context, counters map[string]int64) error
-	GetVideoListPage(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error)
-	SetVideoListPage(ctx context.Context, cursor string, pageSize int, resp *VideoUploadDtoPackage.GetVideoListResponse) error
+	GetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error)
+	SetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string, resp *VideoUploadDtoPackage.GetVideoListResponse) error
 	InvalidateVideoListPages(ctx context.Context) error
 }
 
@@ -480,23 +480,31 @@ func trimExt(fileName string) string {
 // GetVideoList 获取已提交审核的视频列表。
 // 支持游标分页（亿级数据量优化）：首次调用传空 cursor，后续使用响应中的 nextCursor 翻页。
 // total 通过 Redis 缓存（TTL 60s），避免每次请求都执行 COUNT(*) 全表扫描。
-func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, error) {
+func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int, tagName string) (*VideoUploadDtoPackage.GetVideoListResponse, error) {
+	tagName = strings.TrimSpace(tagName)
+	if len([]rune(tagName)) > 32 {
+		return nil, errors.New("标签名称不能超过32个字符")
+	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
 	if s.cache != nil {
-		resp, hit, err := s.cache.GetVideoListPage(ctx, cursor, pageSize)
+		resp, hit, err := s.cache.GetVideoListPage(ctx, cursor, pageSize, tagName)
 		if err == nil && hit {
 			return resp, nil
 		}
 	}
 
-	total, err := s.getVideoListTotal(ctx)
-	if err != nil {
-		return nil, err
+	total := -1
+	if tagName == "" {
+		var err error
+		total, err = s.getVideoListTotal(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if total == 0 {
+	if tagName == "" && total == 0 {
 		resp := &VideoUploadDtoPackage.GetVideoListResponse{
 			Total:    0,
 			PageSize: pageSize,
@@ -504,12 +512,12 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 			Videos:   []VideoUploadDtoPackage.VideoListItem{},
 		}
 		if s.cache != nil {
-			_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, resp)
+			_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, tagName, resp)
 		}
 		return resp, nil
 	}
 
-	videos, err := s.repo.GetVideoListByCursor(ctx, cursor, pageSize+1)
+	videos, err := s.repo.GetVideoListByCursor(ctx, cursor, pageSize+1, tagName)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +540,7 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int)
 		Videos:     videos,
 	}
 	if s.cache != nil {
-		_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, resp)
+		_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, tagName, resp)
 	}
 	return resp, nil
 }

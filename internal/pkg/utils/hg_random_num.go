@@ -94,6 +94,11 @@ func GenerateRoleID() string {
 	return GenerateBusinessID("ROL")
 }
 
+// GenerateBilibiliTagID 生成 Bilibili 动画标签业务 ID。
+func GenerateBilibiliTagID() string {
+	return GenerateBusinessID("BLTAG")
+}
+
 // GenerateUserIDWithRegion 生成用户业务 ID：HGUSR_ + 地域码 + 26 位 ULID。
 func GenerateUserIDWithRegion(region string) string {
 	region = normalizeRegion(region)

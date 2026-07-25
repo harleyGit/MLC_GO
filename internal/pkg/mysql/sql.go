@@ -11,6 +11,7 @@ package PersistenceSQLPackage
 import (
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	ConfigPackage "MLC_GO/internal/pkg/config"
+	HGMigratePackage "MLC_GO/internal/pkg/hg_migrate"
 	"MLC_GO/internal/pkg/logHG"
 	HGLoggerPackage "MLC_GO/internal/pkg/logger"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
@@ -91,6 +92,10 @@ func NewSQLDB() (*sql.DB, error) {
 		logHG.ErrFInfo("Ping MySQL数据库失败: %v", err)
 		_ = db.Close()
 		return nil, err
+	}
+	if err = HGMigratePackage.ChekckMigrateVersion(db, cfg.MigrateExpectVersion); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("database migration not ready: %w", err)
 	}
 	// Go 程序启动时校验数据库（不建表）
 	if _, err := checkoutSQLTable(); err != nil {

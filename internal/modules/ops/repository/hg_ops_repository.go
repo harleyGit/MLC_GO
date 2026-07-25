@@ -152,6 +152,123 @@ func (r *Repository) GetRoleList(ctx context.Context, cursor int64, pageSize int
 	return list, -1, hasMore, nil
 }
 
+// CreateBilibiliTag 创建动画标签，唯一索引负责并发同名请求去重。
+func (r *Repository) CreateBilibiliTag(ctx context.Context, operatorID, name string, sortOrder, status int) (map[string]interface{}, error) {
+	tagID := UtilsPackage.GenerateBilibiliTagID()
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsBilibiliTagSQL, tagID, name, sortOrder, status, operatorID, operatorID)
+	if err != nil {
+		// 唯一索引冲突时返回自定义错误，便于前端提示“标签名称已存在”，而不是笼统的“数据库操作失败”。
+		if isDuplicateKeyError(err) {
+			return nil, fmt.Errorf("标签名称已存在")
+		}
+		return nil, fmt.Errorf("create bilibili tag: %w", err)
+	}
+	return r.getBilibiliTagByTagID(ctx, tagID)
+}
+
+// UpdateBilibiliTag 按唯一业务 tag_id 更新动画标签。
+func (r *Repository) UpdateBilibiliTag(ctx context.Context, operatorID, tagID, name string, sortOrder, status int) (map[string]interface{}, error) {
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateOpsBilibiliTagSQL, name, sortOrder, status, operatorID, tagID)
+	if err != nil {
+		if isDuplicateKeyError(err) {
+			return nil, fmt.Errorf("标签名称已存在")
+		}
+		return nil, fmt.Errorf("update bilibili tag: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("read bilibili tag update result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("标签不存在或已删除")
+	}
+	return r.getBilibiliTagByTagID(ctx, tagID)
+}
+
+// DeleteBilibiliTag 软删除动画标签，不修改历史视频标签快照。
+func (r *Repository) DeleteBilibiliTag(ctx context.Context, operatorID, tagID string) error {
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.DeleteOpsBilibiliTagSQL, operatorID, tagID)
+	if err != nil {
+		return fmt.Errorf("delete bilibili tag: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read bilibili tag delete result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("标签不存在或已删除")
+	}
+	return nil
+}
+
+// GetBilibiliTagList 获取管理列表，使用 id cursor 且不执行 COUNT(*)。
+func (r *Repository) GetBilibiliTagList(ctx context.Context, cursor int64, pageSize int) ([]map[string]interface{}, bool, error) {
+	queryLimit := pageSize + 1
+	querySQL := SQLQueriesPackage.SelectOpsBilibiliTagListFirstSQL
+	args := []interface{}{queryLimit}
+	if cursor > 0 {
+		querySQL = SQLQueriesPackage.SelectOpsBilibiliTagListByCursorSQL
+		args = []interface{}{cursor, queryLimit}
+	}
+	list, err := r.queryBilibiliTags(ctx, querySQL, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(list) > pageSize
+	if hasMore {
+		list = list[:pageSize]
+	}
+	return list, hasMore, nil
+}
+
+// GetActiveBilibiliTags 获取动画页全部启用标签，SQL 强制最多返回 100 条。
+func (r *Repository) GetActiveBilibiliTags(ctx context.Context) ([]map[string]interface{}, error) {
+	return r.queryBilibiliTags(ctx, SQLQueriesPackage.SelectActiveBilibiliTagListSQL)
+}
+
+func (r *Repository) getBilibiliTagByTagID(ctx context.Context, tagID string) (map[string]interface{}, error) {
+	var createdAt, updatedAt time.Time
+	item := map[string]interface{}{}
+	var id int64
+	var name string
+	var sortOrder, status int
+	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsBilibiliTagByTagIDSQL, tagID).Scan(&tagID, &id, &name, &sortOrder, &status, &createdAt, &updatedAt); err != nil {
+		return nil, fmt.Errorf("query bilibili tag: %w", err)
+	}
+	item["tagId"] = tagID
+	item["idInt"] = id
+	item["name"] = name
+	item["sortOrder"] = sortOrder
+	item["status"] = status
+	item["createdAt"] = createdAt.Format(time.RFC3339)
+	item["updatedAt"] = updatedAt.Format(time.RFC3339)
+	return item, nil
+}
+
+func (r *Repository) queryBilibiliTags(ctx context.Context, querySQL string, args ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := r.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query bilibili tags: %w", err)
+	}
+	defer rows.Close()
+	list := make([]map[string]interface{}, 0, 20)
+	for rows.Next() {
+		var tagID string
+		var id int64
+		var name string
+		var sortOrder, status int
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&tagID, &id, &name, &sortOrder, &status, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan bilibili tag: %w", err)
+		}
+		list = append(list, map[string]interface{}{
+			"tagId": tagID, "idInt": id, "name": name, "sortOrder": sortOrder, "status": status,
+			"createdAt": createdAt.Format(time.RFC3339), "updatedAt": updatedAt.Format(time.RFC3339),
+		})
+	}
+	return list, rows.Err()
+}
+
 // GetAdminUserList 获取管理员列表。
 // 千万级表约束：使用 admin_user.id 倒序 cursor 分页，cursor=0 表示首页，cursor>0 查询 id<cursor。
 // 不执行 COUNT(*) 和 OFFSET；每次多取 1 条判断 hasMore。建议 admin_user 建立 (is_delete,id) 复合索引支撑软删除过滤和稳定排序。
@@ -567,8 +684,12 @@ func (r *Repository) scanAdminRow(row *sql.Row, hasEmail bool) (map[string]inter
 	}, nil
 }
 
+// 判断一次 MySQL 操作失败是不是因为 唯一键冲突（Duplicate Key / Unique Constraint Violation）。
 func isDuplicateKeyError(err error) bool {
-	var mysqlErr *mysql.MySQLError
+	// errors.As 从 error 链中寻找指定类型的错误，并把它转换出来，判断错误是不是 MySQL错误
+	// MySQL 1062 含义：Duplicate entry for key也就是：唯一键冲突。
+	// "Duplicate entry" 直接搜索错误字符串。
+	var mysqlErr *mysql.MySQLError 
 	return err != nil && (errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 || strings.Contains(err.Error(), "Duplicate entry"))
 }
 

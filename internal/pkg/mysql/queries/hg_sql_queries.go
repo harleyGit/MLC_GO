@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-14 20:54:05
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-08 20:10:34
+ * @LastEditTime: 2026-07-25 19:36:08
  * @FilePath: /MLC_GO/internal/pkg/mysql/queries/hg_sql_queries.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -272,6 +272,21 @@ const (
 	// SelectOpsUserRolesSQL 查询指定管理员已绑定角色。
 	// 直接读取 user_role_view 冗余表，WHERE admin_user_id/status + ORDER BY id DESC 命中 idx_admin_status_id，避免亿级关联表 join。
 	SelectOpsUserRolesSQL = "SELECT `role_id`, `role_name`, `status`, `create_at` FROM `user_role_view` WHERE `admin_user_id` = ? AND `status` = 1 ORDER BY `id` DESC"
+
+	// InsertOpsBilibiliTagSQL 创建动画标签；tag_id 和活动名称唯一键共同保证业务标识及名称唯一。
+	InsertOpsBilibiliTagSQL = "INSERT INTO `bilibili_douga_tags` (`tag_id`, `name`, `sort_order`, `status`, `created_by`, `updated_by`) VALUES (?, ?, ?, ?, ?, ?)"
+	// UpdateOpsBilibiliTagSQL 按唯一业务 tag_id 更新未删除标签，避免向客户端暴露自增主键。
+	UpdateOpsBilibiliTagSQL = "UPDATE `bilibili_douga_tags` SET `name` = ?, `sort_order` = ?, `status` = ?, `updated_by` = ? WHERE `tag_id` = ? AND `is_deleted` = 0"
+	// DeleteOpsBilibiliTagSQL 按唯一业务 tag_id 软删除标签，并改写名称唯一键组成字段。
+	DeleteOpsBilibiliTagSQL = "UPDATE `bilibili_douga_tags` SET `is_deleted` = 1, `deleted_token` = `id`, `updated_by` = ? WHERE `tag_id` = ? AND `is_deleted` = 0"
+	// SelectOpsBilibiliTagByTagIDSQL 按唯一业务 tag_id 点查写后标签。
+	SelectOpsBilibiliTagByTagIDSQL = "SELECT `tag_id`, `id`, `name`, `sort_order`, `status`, `created_at`, `updated_at` FROM `bilibili_douga_tags` WHERE `tag_id` = ? AND `is_deleted` = 0"
+	// SelectOpsBilibiliTagListFirstSQL 管理列表首页，按 id 倒序 cursor 分页，不做实时 COUNT。
+	SelectOpsBilibiliTagListFirstSQL = "SELECT `tag_id`, `id`, `name`, `sort_order`, `status`, `created_at`, `updated_at` FROM `bilibili_douga_tags` WHERE `is_deleted` = 0 ORDER BY `id` DESC LIMIT ?"
+	// SelectOpsBilibiliTagListByCursorSQL 管理列表翻页，命中 (is_deleted,id) 索引。
+	SelectOpsBilibiliTagListByCursorSQL = "SELECT `tag_id`, `id`, `name`, `sort_order`, `status`, `created_at`, `updated_at` FROM `bilibili_douga_tags` WHERE `is_deleted` = 0 AND `id` < ? ORDER BY `id` DESC LIMIT ?"
+	// SelectActiveBilibiliTagListSQL 动画页读取全部启用标签；标签配置有 100 条硬上限并命中状态排序索引。【查询出来的数据，先按照标签排序权重 sort_order 从小到大排列；如果排序权重一样，再按照 id 从小到大排列；最后只取前100条。】
+	SelectActiveBilibiliTagListSQL = "SELECT `tag_id`, `id`, `name`, `sort_order`, `status`, `created_at`, `updated_at` FROM `bilibili_douga_tags` WHERE `is_deleted` = 0 AND `status` = 1 ORDER BY `sort_order` ASC, `id` ASC LIMIT 100"
 )
 
 // 视频模块
@@ -518,6 +533,35 @@ INNER JOIN (
 ) AS vs_page ON vs.submission_id = vs_page.submission_id
 LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
 	ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+
+	// GetVideoListByTagCursorFirstSQL 按标签查询视频首页。
+	// video_tags 命中 (tag_name,video_id)，video_files 命中 video_id 唯一键，再按稿件状态/时间返回稳定游标结果。
+	GetVideoListByTagCursorFirstSQL = `
+SELECT
+    vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
+    vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size, vs.submit_time,
+    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number
+FROM video_tags vt
+INNER JOIN video_files vf ON vf.video_id = vt.video_id
+INNER JOIN video_submissions vs ON vs.submission_id = vf.submission_id
+WHERE vt.tag_name = ? AND vs.status IN ('reviewing', 'published') AND vf.part_number = 1
+ORDER BY vs.submit_time DESC, vs.submission_id DESC
+LIMIT ?`
+
+	// GetVideoListByTagCursorSQL 按标签使用复合游标翻页，避免 OFFSET 深分页。
+	// TODO: 这里可以考虑增加 tag_name + (submit_time, submission_id) 联合索引，避免 video_submissions 扫描过多行。大厂方案使用Feed表video_tag_feed预计算标签视频列表，避免实时 join。
+	GetVideoListByTagCursorSQL = `
+SELECT
+    vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
+    vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size, vs.submit_time,
+    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number
+FROM video_tags vt
+INNER JOIN video_files vf ON vf.video_id = vt.video_id
+INNER JOIN video_submissions vs ON vs.submission_id = vf.submission_id
+WHERE vt.tag_name = ? AND vs.status IN ('reviewing', 'published') AND vf.part_number = 1
+  AND (vs.submit_time < ? OR (vs.submit_time = ? AND vs.submission_id < ?))
+ORDER BY vs.submit_time DESC, vs.submission_id DESC
+LIMIT ?`
 )
 
 // Outbox 模块

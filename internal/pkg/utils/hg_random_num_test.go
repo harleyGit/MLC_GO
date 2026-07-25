@@ -136,6 +136,16 @@ func TestGenerateRoleIDDoesNotRepeat(t *testing.T) {
 	}
 }
 
+func TestGenerateBilibiliTagIDUsesRecommendedULIDFormat(t *testing.T) {
+	tagID := GenerateBilibiliTagID()
+	if !strings.HasPrefix(tagID, "BLTAG_") {
+		t.Fatalf("tagID = %q, want BLTAG_ prefix", tagID)
+	}
+	if len(tagID) != len("BLTAG_")+26 {
+		t.Fatalf("tagID = %q, want BLTAG_ plus 26-char ULID", tagID)
+	}
+}
+
 func TestGenerateBusinessIDNormalizesPrefix(t *testing.T) {
 	id := GenerateBusinessID("rol")
 

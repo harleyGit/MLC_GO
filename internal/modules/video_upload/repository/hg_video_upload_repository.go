@@ -318,7 +318,18 @@ func (r *Repository) GetSubmissionStatus(ctx context.Context, submissionID strin
 // GetVideoListByCursor 使用游标分页获取视频列表，避免亿级数据量下 OFFSET 深分页扫描。
 // cursor 格式为 "submitTime|submissionID"，首次调用传空字符串。
 // 多查一条用于判断是否还有下一页。
-func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, limit int) ([]VideoUploadDtoPackage.VideoListItem, error) {
+func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, limit int, tagName string) ([]VideoUploadDtoPackage.VideoListItem, error) {
+	if tagName != "" {
+		if cursor == "" {
+			return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByTagCursorFirstSQL, tagName, limit)
+		}
+		// 按照分隔符 | 切割字符串，但是最多只切成 2 份。
+		parts := strings.SplitN(cursor, "|", 2)
+		if len(parts) != 2 {
+			return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByTagCursorFirstSQL, tagName, limit)
+		}
+		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByTagCursorSQL, tagName, parts[0], parts[0], parts[1], limit)
+	}
 	if cursor == "" {
 		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
 	}

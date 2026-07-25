@@ -159,11 +159,11 @@ func submitResultKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.VideoUploadSubmitResultKeyPrefix, userID, submissionID)
 }
 
-func videoListPageKey(cursor string, pageSize int) string {
+func videoListPageKey(cursor string, pageSize int, tagName string) string {
 	if cursor == "" {
 		cursor = "first"
 	}
-	return fmt.Sprintf("%s%s:size:%d", PersistenceRedisPackage.VideoUploadListPageKeyPrefix, cursor, pageSize)
+	return fmt.Sprintf("%s%s:size:%d:tag:%s", PersistenceRedisPackage.VideoUploadListPageKeyPrefix, cursor, pageSize, tagName)
 }
 
 func videoStatusCounterKey() string {
@@ -232,8 +232,8 @@ func (c *Cache) SetVideoStatusCounters(ctx context.Context, counters map[string]
 
 // GetVideoListPage 读取视频列表页缓存。
 // 列表页是高 QPS 热点读路径，短 TTL 缓存用于吸收瞬时并发；miss 时仍回源 MySQL 游标分页。
-func (c *Cache) GetVideoListPage(ctx context.Context, cursor string, pageSize int) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {
-	data, err := c.client.Get(ctx, videoListPageKey(cursor, pageSize)).Bytes()
+func (c *Cache) GetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {
+	data, err := c.client.Get(ctx, videoListPageKey(cursor, pageSize, tagName)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, false, nil
 	}
@@ -249,7 +249,7 @@ func (c *Cache) GetVideoListPage(ctx context.Context, cursor string, pageSize in
 }
 
 // SetVideoListPage 写入视频列表页短 TTL 缓存。
-func (c *Cache) SetVideoListPage(ctx context.Context, cursor string, pageSize int, resp *VideoUploadDtoPackage.GetVideoListResponse) error {
+func (c *Cache) SetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string, resp *VideoUploadDtoPackage.GetVideoListResponse) error {
 	if resp == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func (c *Cache) SetVideoListPage(ctx context.Context, cursor string, pageSize in
 	if err != nil {
 		return err
 	}
-	return c.client.Set(ctx, videoListPageKey(cursor, pageSize), data, videoListPageTTL).Err()
+	return c.client.Set(ctx, videoListPageKey(cursor, pageSize, tagName), data, videoListPageTTL).Err()
 }
 
 // InvalidateVideoListPages 清理列表分页缓存。
