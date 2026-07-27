@@ -102,15 +102,134 @@ internal/
 <br/>
 你会看到这三个：
 
-- `🧪 Launch MLC_GO Root main.go (debug)`
-- `🧪 Launch MLC_GO Root main.go (pre)`
-- `🧪 Launch MLC_GO Root main.go (prod)`
+- `🧪 Launch MLC_GO Debug`
+- `💥 Launch MLC_GO Pre`
+- `🎾 Launch MLC_GO Prod`
 
 它们分别对应：
 
 - `debug`：本机开发
 - `pre`：本机模拟预发
 - `prod`：只检查生产配置
+
+### VS Code 点击调试按钮后的完整执行流程
+
+以 `🧪 Launch MLC_GO Debug` 为例，点击绿色调试按钮或按 `F5` 后，并不是立即执行根目录的 `main.go`，而是先完成启动前检查：
+
+```text
+点击启动调试
+    ↓
+.vscode/launch.json
+    ↓
+preLaunchTask: ensure-debug-deps
+    ↓
+.vscode/tasks.json
+    ↓
+scripts/ensure_debug_deps.sh debug
+    ↓
+go run ./cmd/hg_config_check（读取配置、检查依赖、执行 debug 数据库迁移）
+    ↓
+前置任务成功退出
+    ↓
+Delve 启动根目录 main 包
+    ↓
+main.go → mlc_main()
+```
+
+对应的关键配置如下：
+
+```jsonc
+// .vscode/launch.json
+{
+  "name": "🧪 Launch MLC_GO Debug",
+  "preLaunchTask": "ensure-debug-deps",
+  "program": "${workspaceFolder}"
+}
+```
+
+```jsonc
+// .vscode/tasks.json
+{
+  "label": "ensure-debug-deps",
+  "command": "${workspaceFolder}/scripts/ensure_debug_deps.sh",
+  "args": ["debug"]
+}
+```
+
+`cmd/hg_config_check/main.go` 是一个短生命周期的辅助命令，不属于根目录主工程的直接调用链。它由 `scripts/ensure_debug_deps.sh` 通过 `go run` 单独启动，一次 debug 前置检查中通常会执行多次：
+
+1. 读取 MySQL、Redis 的非敏感地址：
+
+```bash
+go run ./cmd/hg_config_check --env debug --config-dir ./config
+```
+
+2. 检查 MySQL 连通性和认证状态：
+
+```bash
+go run ./cmd/hg_config_check --env debug --config-dir ./config --check mysql
+```
+
+3. 仅在 debug 环境执行幂等数据库迁移：
+
+```bash
+go run ./cmd/hg_config_check \
+  --env debug \
+  --config-dir ./config \
+  --migrations-dir ./migrations
+```
+
+4. 检查 Redis 连通性：
+
+```bash
+go run ./cmd/hg_config_check --env debug --config-dir ./config --check redis
+```
+
+迁移已经处于最新版本时会输出 `no change`，这是正常结果。`pre` 和 `prod` 前置任务只检查依赖，不自动执行数据库迁移，避免对共享环境或生产数据库意外执行 DDL。
+
+如果前置任务任何一步失败，`scripts/ensure_debug_deps.sh` 会以非零状态退出，VS Code 将终止本次调试，不再启动根目录主工程。
+
+### 为什么 hg_config_check 中的断点没有命中
+
+`cmd/hg_config_check` 是由 Shell 使用普通 `go run` 启动的独立进程，而且发生在 Delve 启动主工程之前。当前调试会话只附加到根目录 `${workspaceFolder}` 对应的主工程，因此：
+
+- `cmd/hg_config_check/main.go` 确实已经执行；
+- 该文件中的普通断点不会被当前主工程的 Delve 会话命中；
+- 前置检查结束后，Delve 才会启动根目录主工程，此后的主工程断点才能命中。
+
+可以通过集成终端中的以下输出确认前置程序已经执行：
+
+```text
+[INFO] 开始检查 debug 环境依赖服务
+[INFO] MySQL 已运行
+[INFO] 开始执行 debug 数据库迁移
+no change
+[INFO] debug 数据库迁移已完成
+[INFO] Redis 已运行
+[INFO] debug 环境依赖服务已就绪
+```
+
+如果需要单步调试 `cmd/hg_config_check/main.go`，可在 `.vscode/launch.json` 中临时增加独立配置：
+
+```jsonc
+{
+  "name": "Debug hg_config_check",
+  "type": "go",
+  "request": "launch",
+  "mode": "debug",
+  "program": "${workspaceFolder}/cmd/hg_config_check",
+  "args": [
+    "--env",
+    "debug",
+    "--config-dir",
+    "${workspaceFolder}/config",
+    "--migrations-dir",
+    "${workspaceFolder}/migrations"
+  ]
+}
+```
+
+编辑器右上角的 `Run Go File`、Code Runner 按钮、`Launch current file` 或直接执行 `go run .`，都不会自动触发 `ensure-debug-deps`。只有选择包含 `preLaunchTask` 的 `🧪 Launch MLC_GO Debug`、`💥 Launch MLC_GO Pre`、`🎾 Launch MLC_GO Prod` 配置时，才会执行对应前置任务。
 
 如果你不用 VS Code，也可以在终端里手动执行前置脚本：
 
@@ -120,7 +239,7 @@ internal/
 ./scripts/ensure_debug_deps.sh prod
 ```
 
-这个脚本只是做“前置依赖检查/启动”，真正启动 Go 程序还是靠 VS Code 的 debug 配置。
+这个脚本负责前置配置读取、依赖检查，以及 debug 环境的数据库迁移；真正启动根目录 Go 主工程仍由 VS Code 的 debug 配置完成。
 
 你说的 IP、端口、密码不对，这个改法很简单，主要改这几类文件。
 
@@ -140,7 +259,7 @@ mysql:
   user: root
   password: hh109
   database: HG_MLC_DB
-  migrate_expect_version: 1
+  migrate_expect_version: 10
 
 redis:
   host: 127.0.0.1
@@ -165,7 +284,7 @@ mysql:
   user: root
   password: hh109
   database: HG_MLC_PRE_DB
-  migrate_expect_version: 1
+  migrate_expect_version: 10
 
 redis:
   host: 127.0.0.1
@@ -182,7 +301,7 @@ mysql:
   user: pre_user
   password: 你的密码
   database: pre_db
-  migrate_expect_version: 1
+  migrate_expect_version: 10
 
 redis:
   host: 10.10.1.26
@@ -217,7 +336,7 @@ mysql:
   user: app
   password: "********"
   database: HG_MLC_PROD_DB
-  migrate_expect_version: 1
+  migrate_expect_version: 10
 
 redis:
   host: prod-redis.internal
@@ -289,14 +408,14 @@ ports:
 1. 先检查 `config/pre/mysql.yaml`、`redis.yaml` 里的地址、端口和密码
 2. 再看 `hg_docker_compose.pre.yml` 里的端口映射对不对
 3. 然后在 VS Code 选：
-   `🧪 Launch MLC_GO Root main.go (pre)`
+   `💥 Launch MLC_GO Pre`
 4. 点运行
 
 如果你要跑本地 debug：
 
 1. 先检查 `config/debug/mysql.yaml` 和 `redis.yaml`
 2. 在 VS Code 选：
-   `🧪 Launch MLC_GO Root main.go (debug)`
+   `🧪 Launch MLC_GO Debug`
 3. 点运行
 
 如果你愿意，我下一步可以直接帮你做一件更省心的事：

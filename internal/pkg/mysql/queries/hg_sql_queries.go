@@ -457,10 +457,18 @@ FROM video_submissions
 WHERE submission_id = ? AND user_id = ?
 LIMIT 1`
 
+	// CheckVideoSubmissionStatusTimeIndexSQL 检查当前数据库中视频列表联合索引是否存在。
+	CheckVideoSubmissionStatusTimeIndexSQL = `
+SELECT COUNT(*)
+FROM information_schema.statistics
+WHERE table_schema = DATABASE()
+  AND table_name = 'video_submissions'
+  AND index_name = ?`
+
 	// CreateVideoSubmissionStatusTimeIndexSQL 创建视频稿件状态和提交时间联合索引。
-	// 用于优化 GetVideoListSQL 的查询性能。
+	// MySQL 不支持 CREATE INDEX IF NOT EXISTS，因此调用方必须先查询 information_schema。
 	CreateVideoSubmissionStatusTimeIndexSQL = `
-CREATE INDEX IF NOT EXISTS idx_video_submissions_status_submit_time
+CREATE INDEX idx_video_submissions_status_submit_time
 ON video_submissions (status, submit_time DESC)`
 
 	// GetVideoListByCursorFirstSQL 游标分页首页查询。

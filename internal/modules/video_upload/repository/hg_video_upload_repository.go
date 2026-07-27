@@ -424,6 +424,16 @@ func (r *Repository) queryVideoList(ctx context.Context, query string, args ...i
 // 在服务启动时调用，创建 (status, submit_time) 联合索引以优化查询性能。
 // TODO: 性能存在问题，看：https://chatgpt.com/g/g-p-6948f37c9d50819197a136546b06413d-gogong-cheng/c/6a4b61e5-9014-83ec-a14c-baea973947ec
 func (r *Repository) EnsureVideoListIndex(ctx context.Context) error {
+	const indexName = "idx_video_submissions_status_submit_time"
+
+	var indexCount int
+	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.CheckVideoSubmissionStatusTimeIndexSQL, indexName).Scan(&indexCount); err != nil {
+		return err
+	}
+	if indexCount > 0 {
+		return nil
+	}
+
 	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.CreateVideoSubmissionStatusTimeIndexSQL)
 	return err
 }

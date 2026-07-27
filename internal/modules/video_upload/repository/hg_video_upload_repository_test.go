@@ -55,3 +55,25 @@ func TestGetVideoListByCursorFiltersByTagName(t *testing.T) {
 		t.Fatalf("sql expectations: %v", err)
 	}
 }
+
+func TestEnsureVideoListIndexCreatesMissingIndexOnMySQL(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.CheckVideoSubmissionStatusTimeIndexSQL)).
+		WithArgs("idx_video_submissions_status_submit_time").
+		WillReturnRows(sqlmock.NewRows([]string{"index_count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.CreateVideoSubmissionStatusTimeIndexSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	repo := NewRepository(db)
+	if err := repo.EnsureVideoListIndex(context.Background()); err != nil {
+		t.Fatalf("EnsureVideoListIndex() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}

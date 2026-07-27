@@ -19,7 +19,9 @@ func TestRegisterModulesDoesNotPanicWhenInitFails(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectExec("CREATE INDEX").WillReturnError(sqlmock.ErrCancelled)
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").
+		WithArgs("idx_video_submissions_status_submit_time").
+		WillReturnError(sqlmock.ErrCancelled)
 
 	HGHandlerPackage.ClearModules()
 	t.Cleanup(HGHandlerPackage.ClearModules)

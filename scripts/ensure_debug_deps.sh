@@ -320,6 +320,26 @@ ensure_mysql_ready() {
     log_info "MySQL 检查通过"
 }
 
+# debug 调试直接依赖仓库最新 schema；依赖探活后执行幂等迁移，避免数据库版本落后导致应用立即退出。
+# pre/prod 不在本机调试任务中自动改库，防止对共享或生产数据库产生意外 DDL。
+ensure_debug_database_migrated() {
+    if [ "${TARGET_ENV}" != "debug" ]; then
+        return 0
+    fi
+
+    if ! command -v migrate >/dev/null 2>&1; then
+        log_error "未找到 migrate 命令，请先安装 golang-migrate"
+        return 1
+    fi
+
+    log_info "开始执行 debug 数据库迁移"
+    go run "${WORKSPACE_DIR}/cmd/hg_config_check" \
+        --env "${TARGET_ENV}" \
+        --config-dir "${CONFIG_DIR}" \
+        --migrations-dir "${WORKSPACE_DIR}/migrations"
+    log_info "debug 数据库迁移已完成"
+}
+
 # check_redis 的作用是检查 Redis 是否可用。
 # redis-cli ping 如果正常，一般会返回 PONG。
 # grep -q "PONG" 表示只检查是否包含这个字符串，不把内容打印到屏幕。
@@ -416,6 +436,7 @@ main() {
     log_info "开始检查 ${TARGET_ENV} 环境依赖服务"
     log_info "当前使用模块配置：${CONFIG_DIR}/${TARGET_ENV}/mysql.yaml、redis.yaml"
     ensure_mysql_ready
+    ensure_debug_database_migrated
     ensure_redis_ready
     log_info "${TARGET_ENV} 环境依赖服务已就绪"
 }

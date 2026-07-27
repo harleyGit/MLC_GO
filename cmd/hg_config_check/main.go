@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -26,13 +29,14 @@ func main() {
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
 	check := flag.String("check", "", "依赖检查：mysql 或 redis；为空时只输出非敏感地址")
+	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
 	flag.Parse()
 
 	// LoadConfig 通过 MLC_CONFIG_DIR 定位 base 和环境目录，因此先写入当前进程环境。
 	// 该变量只影响此短生命周期检查进程，不会修改调用方或 VS Code 的环境。
-	// 设置环境变量，类似Linux中配置： export MLC_CONFIG_DIR=127.0.0.1 
+	// 设置环境变量，类似Linux中配置： export MLC_CONFIG_DIR=127.0.0.1
 	if err := os.Setenv("MLC_CONFIG_DIR", *configDir); err != nil {
 		exitWithError(err)
 	}
@@ -47,6 +51,15 @@ func main() {
 	redisConfig, err := ConfigPackage.GetRedisConfig()
 	if err != nil {
 		exitWithError(err)
+	}
+	if *migrationsDir != "" {
+		if *check != "" {
+			exitWithError(fmt.Errorf("--migrations-dir 不能与 --check 同时使用"))
+		}
+		if err := runMySQLMigrations(mysqlConfig, *migrationsDir); err != nil {
+			exitWithError(err)
+		}
+		return
 	}
 
 	switch *check {
@@ -64,6 +77,39 @@ func main() {
 	default:
 		exitWithError(fmt.Errorf("不支持的检查类型 %q", *check))
 	}
+}
+
+// buildMySQLMigrationURL 构造 golang-migrate 使用的 MySQL URL，并转义账号信息中的保留字符。
+func buildMySQLMigrationURL(cfg ConfigPackage.HGMySQLConfig) string {
+	// credentials 生成用户名密码部分。避免拼接，避免中间反应偶特殊符号比如@可以自动转义
+	credentials := url.UserPassword(cfg.User, cfg.Password).String()
+	address := net.JoinHostPort(cfg.Host, cfg.Port)
+	// PathEscape 转义数据库名字
+	return fmt.Sprintf("mysql://%s@tcp(%s)/%s", credentials, address, url.PathEscape(cfg.Database))
+}
+
+// runMySQLMigrations 使用项目约定的 golang-migrate CLI 将数据库升级到 migrations 目录最新版本。
+func runMySQLMigrations(cfg ConfigPackage.HGMySQLConfig, migrationsDir string) error {
+	// 查找系统有没有 migrate 命令，确保在执行迁移前已经安装了 golang-migrate 工具。
+	migratePath, err := exec.LookPath("migrate")
+	if err != nil {
+		return fmt.Errorf("未找到 migrate 命令，请先安装 golang-migrate: %w", err)
+	}
+
+	// exec.Command() 相当于在终端执行相关命令
+	// migratePath 是 migrate 命令的路径
+	// -path 迁移目录 migrationsDir 迁移目录
+	// -database 数据库连接信息 buildMySQLMigrationURL(cfg)
+	cmd := exec.Command(migratePath, "-path", migrationsDir, "-database", buildMySQLMigrationURL(cfg), "up")
+	// 把 migrate 输出显示到当前终端。
+	cmd.Stdout = os.Stdout
+	// 错误输出。
+	cmd.Stderr = os.Stderr
+	// cmd.Run() 运行命令
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("执行数据库迁移失败: %w", err)
+	}
+	return nil
 }
 
 // checkMySQL 使用与应用相同的连接参数执行启动前 Ping。
