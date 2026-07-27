@@ -1,3 +1,7 @@
 server:
   # debug 和 pre 的默认监听端口；prod 在环境配置中覆盖。
   port: 8080
+
+management:
+  # 管理端口仅承载 healthz、readyz 和 metrics，生产网络策略不得向公网暴露。
+  port: 9091

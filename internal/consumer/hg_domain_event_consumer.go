@@ -3,6 +3,7 @@ package consumer
 import (
 	"MLC_GO/internal/events"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,11 @@ func DecodeEnvelope(value []byte) (events.EventEnvelope, error) {
 	if envelope.EventName == "" {
 		// EventName 是消费侧路由的最小字段，缺失时不能安全分发。
 		return envelope, fmt.Errorf("domain event name cannot be empty")
+	}
+	if envelope.EventID == "" {
+		// 兼容升级前已持久化到 Outbox/Kafka 的旧 Envelope。完整消息字节的 SHA-256 在重试和重放时稳定，
+		// 仅作为历史数据过渡 ID；新事件始终由生产侧生成 UUID，避免不同合法事件被 EventKey 合并。
+		envelope.EventID = fmt.Sprintf("legacy-%x", sha256.Sum256(value))
 	}
 	return envelope, nil
 }

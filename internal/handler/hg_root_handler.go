@@ -65,9 +65,26 @@ func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem)
 // 健康检查放在根路由层，而不是某个业务模块里，是因为它服务于部署系统和负载均衡，
 // 不属于 auth/user/test 任一业务域。这样新增业务模块时也不会影响探活路径。
 func NewRootHandlerWithHealth(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem, health HealthCheckConfig) *http.ServeMux {
+	rootMux := newBusinessRootHandler(routeCatalogs)
+	registerHealthRoutes(rootMux, health)
+	return rootMux
+}
+
+// NewBusinessRootHandler 构建仅承载业务 API 和静态资源的路由，不暴露探活与指标。
+func NewBusinessRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem) *http.ServeMux {
+	return newBusinessRootHandler(routeCatalogs)
+}
+
+// NewManagementHandler 构建独立管理路由；部署层必须通过网络策略限制访问来源。
+func NewManagementHandler(health HealthCheckConfig) *http.ServeMux {
+	managementMux := http.NewServeMux()
+	registerHealthRoutes(managementMux, health)
+	return managementMux
+}
+
+func newBusinessRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem) *http.ServeMux {
 	// 根路由只负责挂载模块路由，具体路径由各模块定义，确保模块内路径清晰且不受外层变动影响。
 	rootMux := http.NewServeMux()
-	registerHealthRoutes(rootMux, health)
 
 	// 从注册表获取所有模块并挂载路由
 	mounts := make([]HGRouteMount, 0, 8)

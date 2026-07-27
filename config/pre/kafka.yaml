@@ -11,18 +11,22 @@ kafka:
       - mlc.domain.events
     consumers:
       feed:
-        enabled: false
+        # Feed 已使用 Redis Lua 原子完成 EventID 幂等、ZSET 写入和容量裁剪，可独立启用。
+        enabled: true
         group_id: mlc-go-pre-feed
         client_id: mlc-go-pre-feed
       search:
+        # 依赖 ES/OpenSearch mapping、批量客户端和失败补偿存储，契约完成前保持关闭。
         enabled: false
         group_id: mlc-go-pre-search
         client_id: mlc-go-pre-search
       statistic:
+        # 已具备 Redis Lua 原子幂等计数，但按灰度顺序先只观察 Feed，避免同时启用多个新读模型扩大风险。
         enabled: false
         group_id: mlc-go-pre-statistic
         client_id: mlc-go-pre-statistic
       audit:
+        # 审核接口的超时、重试、幂等键和限流契约未完成，禁止启用。
         enabled: false
         group_id: mlc-go-pre-audit
         client_id: mlc-go-pre-audit

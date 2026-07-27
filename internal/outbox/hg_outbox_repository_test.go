@@ -5,11 +5,40 @@ import (
 	VideoEventsPackage "MLC_GO/internal/events/video"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
+	"database/sql/driver"
+	"encoding/json"
 	"regexp"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+type hgCaptureEventIDArgument struct{}
+
+func (hgCaptureEventIDArgument) Match(value driver.Value) bool {
+	eventID, ok := value.(string)
+	if !ok || eventID == "" {
+		return false
+	}
+	hgExpectedOutboxEventID = eventID
+	return true
+}
+
+type hgEnvelopeEventIDArgument struct{}
+
+func (hgEnvelopeEventIDArgument) Match(value driver.Value) bool {
+	payload, ok := value.([]byte)
+	if !ok {
+		return false
+	}
+	var envelope events.EventEnvelope
+	if json.Unmarshal(payload, &envelope) != nil {
+		return false
+	}
+	return envelope.EventID != "" && envelope.EventID == hgExpectedOutboxEventID
+}
+
+var hgExpectedOutboxEventID string
 
 func TestRepositorySaveStoresDomainEventEnvelope(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -18,8 +47,9 @@ func TestRepositorySaveStoresDomainEventEnvelope(t *testing.T) {
 	}
 	defer db.Close()
 
+	hgExpectedOutboxEventID = ""
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOutboxEventSQL)).
-		WithArgs(sqlmock.AnyArg(), VideoEventsPackage.VideoReviewedEventName, "submission_1", "mlc.domain.events", sqlmock.AnyArg()).
+		WithArgs(hgCaptureEventIDArgument{}, VideoEventsPackage.VideoReviewedEventName, "submission_1", "mlc.domain.events", hgEnvelopeEventIDArgument{}).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	repo := NewRepository(db, "mlc.domain.events")

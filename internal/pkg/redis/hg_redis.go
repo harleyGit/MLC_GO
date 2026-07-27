@@ -233,6 +233,14 @@ func (redisService *RedisService) Client() *redis.Client {
 	return redisService.client
 }
 
+// Eval 执行集中维护的 Lua 脚本，供需要多命令原子性的读模型、限流和锁逻辑使用。
+func (redisService *RedisService) Eval(ctx context.Context, script string, keys []string, args ...any) error {
+	if redisService == nil || redisService.client == nil {
+		return redis.Nil
+	}
+	return redisService.client.Eval(ctx, script, keys, args...).Err()
+}
+
 func getEnvInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {

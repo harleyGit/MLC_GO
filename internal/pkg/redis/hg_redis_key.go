@@ -59,9 +59,26 @@ const (
 	VideoUploadListPagePatternKey    = "video_upload:list:cursor:*"
 	// VideoStatusCounterKey 用 Redis Hash 按稿件状态维护视频列表计数，避免高并发列表总数查询打到 MySQL COUNT(*)。
 	VideoStatusCounterKey = "video_status_counter"
+	// FeedPublishedZSetKey 保存已发布视频，score 为发布时间毫秒，member 为 submission_id。
+	// {global} 让 ZSET 与幂等 key 在 Redis Cluster 中可通过同一 hash tag 落到同一 slot，满足 Lua 原子执行约束。
+	FeedPublishedZSetKey     = "feed:{global}:published"
+	FeedIdempotencyKeyPrefix = "feed:{global}:idempotency:"
+	// VideoEventCounterKey 按事件名维护预聚合计数，避免实时扫描亿级业务表。
+	VideoEventCounterKey               = "statistic:{video}:events"
+	VideoStatisticIdempotencyKeyPrefix = "statistic:{video}:idempotency:"
 	// OpsBilibiliActiveTagListKey 缓存动画页启用标签，写操作提交后直接删除该固定 key。
 	OpsBilibiliActiveTagListKey = "ops:bilibili:douga_tags:active"
 )
+
+// GetFeedIdempotencyKey 生成 Feed 投影事件幂等 key。
+func GetFeedIdempotencyKey(eventID string) string {
+	return FeedIdempotencyKeyPrefix + eventID
+}
+
+// GetVideoStatisticIdempotencyKey 生成视频统计事件幂等 key。
+func GetVideoStatisticIdempotencyKey(eventID string) string {
+	return VideoStatisticIdempotencyKeyPrefix + eventID
+}
 
 /* lua脚本 */
 const (

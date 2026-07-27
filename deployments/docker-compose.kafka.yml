@@ -131,22 +131,32 @@ services:
   # Prometheus 监控服务预留。
   # 当前 compose 只启动服务和端口，采集 Kafka/Grafana 指标还需要补 prometheus.yml。
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     container_name: mlc-prometheus
     ports:
       # 浏览器访问 http://localhost:19090。
       - "19090:9090"
+    extra_hosts:
+      # Linux Docker 也可通过同一名称抓取宿主机上的应用管理端口。
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
 
   # Grafana 可视化服务预留。
   # 初始账号通常为 admin/admin，首次登录后按提示修改密码。
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.2
     container_name: mlc-grafana
     ports:
       # 浏览器访问 http://localhost:13000。
       - "13000:3000"
     depends_on:
       - prometheus
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
 
 volumes:
   # 三个 broker 使用独立数据卷，避免节点数据互相覆盖。
@@ -156,3 +166,5 @@ volumes:
   kafka_2_data:
   # kafka-3 的持久化数据卷。
   kafka_3_data:
+  prometheus_data:
+  grafana_data:

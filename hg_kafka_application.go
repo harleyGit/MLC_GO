@@ -9,13 +9,19 @@
 package main
 
 import (
+	InfrastructureEventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	InfrastructureKafkaPackage "MLC_GO/internal/infrastructure/kafka"
+	"MLC_GO/internal/outbox"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 
 	"MLC_GO/internal/pkg/logHG"
 )
@@ -37,6 +43,12 @@ type kafkaCloser func()
 // 1. 非 nil 表示 Kafka 已完成初始化，Close 阶段必须 flush 并关闭 client。
 // 2. 初始化失败不会返回 closer，调用方应按启动失败路径回滚前置依赖。
 func initKafkaIfConfigured() (kafkaCloser, error) {
+	return initKafkaWithDependencies(nil, nil)
+}
+
+// initKafkaWithDependencies 初始化 Producer、独立 Consumer Group 和 Outbox dispatcher。
+// Redis/MySQL 均复用应用现有连接池，避免后台任务重复创建高成本基础设施连接。
+func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, error) {
 	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
 	if err != nil || producerCloser == nil {
 		return producerCloser, err
@@ -46,13 +58,33 @@ func initKafkaIfConfigured() (kafkaCloser, error) {
 		producerCloser()
 		return nil, err
 	}
-	consumerRuntime, err := InfrastructureKafkaPackage.NewRuntime(context.Background(), cfg.Business)
+	consumerRuntime, err := InfrastructureKafkaPackage.NewRuntime(context.Background(), cfg.Business, InfrastructureKafkaPackage.RuntimeDependencies{Redis: redisService})
 	if err != nil {
 		producerCloser()
 		return nil, fmt.Errorf("Kafka消费者初始化失败: %w", err)
 	}
 	consumerRuntime.Start()
+
+	// Outbox 与消费者共用一个可取消生命周期。先停 dispatcher，再停 consumer，最后 flush producer。
+	dispatcherCtx, cancelDispatcher := context.WithCancel(context.Background())
+	var dispatcherWG sync.WaitGroup
+	if sqlManager != nil {
+		topic := ""
+		if len(cfg.Business.Topics) > 0 {
+			topic = cfg.Business.Topics[0]
+		}
+		dispatcher := outbox.NewDispatcher(outbox.NewRepository(sqlManager.GetSQLDB(), topic), InfrastructureEventBusPackage.KafkaByteProducer{})
+		dispatcherWG.Add(1)
+		go func() {
+			defer dispatcherWG.Done()
+			if runErr := dispatcher.Run(dispatcherCtx, time.Second, 100); runErr != nil && dispatcherCtx.Err() == nil {
+				logHG.ErrFInfo("Outbox dispatcher stopped: %v", runErr)
+			}
+		}()
+	}
 	return func() {
+		cancelDispatcher()
+		dispatcherWG.Wait()
 		consumerRuntime.Close()
 		producerCloser()
 	}, nil

@@ -134,3 +134,15 @@ func GetServerPort() string {
 	}
 	return "8080"
 }
+
+// GetManagementPort 返回探活和指标专用端口，部署层应仅允许负载均衡探针和 Prometheus 访问。
+func GetManagementPort() string {
+	port := os.Getenv("MANAGEMENT_PORT")
+	if port != "" {
+		return port
+	}
+	if port = viper.GetString("management.port"); port != "" {
+		return port
+	}
+	return "9091"
+}

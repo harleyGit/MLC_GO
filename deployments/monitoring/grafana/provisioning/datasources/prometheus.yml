@@ -1,0 +1,13 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: mlc-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Grafana Alerting 通过该数据源读取并展示 Prometheus 中已装载的 MLC 告警规则。
+      manageAlerts: true

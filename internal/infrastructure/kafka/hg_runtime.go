@@ -25,6 +25,12 @@ type hgConsumerWorker struct {
 	client      *kgo.Client
 }
 
+// RuntimeDependencies 是 Kafka 读模型运行期依赖。
+// Redis 复用应用长生命周期连接池，避免每个 Consumer 重复创建连接池放大资源占用。
+type RuntimeDependencies struct {
+	Redis FeedConsumerPackage.RedisEvalClient
+}
+
 // HGRuntime 管理各读模型独立消费组的创建、运行与关闭。
 type HGRuntime struct {
 	ctx     context.Context
@@ -37,16 +43,30 @@ type HGRuntime struct {
 }
 
 // NewRuntime 创建已启用的消费组；未实现消费者默认禁用，不会创建连接。
-func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig) (*HGRuntime, error) {
+func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps RuntimeDependencies) (*HGRuntime, error) {
 	if parent == nil {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
 	runtime := &HGRuntime{ctx: ctx, cancel: cancel}
+	if (cfg.Consumers.Feed.Enabled || cfg.Consumers.Statistic.Enabled) && deps.Redis == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("redis-backed kafka consumer dependency cannot be nil")
+	}
 	specs := []hgConsumerWorker{
-		{name: "feed", config: cfg.Consumers.Feed, handler: FeedConsumerPackage.NewConsumer()},
+		{
+			name:        "feed",
+			config:      cfg.Consumers.Feed,
+			handler:     FeedConsumerPackage.NewConsumer(FeedConsumerPackage.NewRedisProjector(deps.Redis, 0, 0)),
+			implemented: true,
+		},
 		{name: "search", config: cfg.Consumers.Search, handler: SearchConsumerPackage.NewConsumer()},
-		{name: "statistic", config: cfg.Consumers.Statistic, handler: StatisticConsumerPackage.NewConsumer()},
+		{
+			name:        "statistic",
+			config:      cfg.Consumers.Statistic,
+			handler:     StatisticConsumerPackage.NewConsumer(StatisticConsumerPackage.NewRedisCounter(deps.Redis, 0)),
+			implemented: true,
+		},
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},
 	}
 	for _, spec := range specs {

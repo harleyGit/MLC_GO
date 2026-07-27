@@ -1,0 +1,52 @@
+groups:
+  - name: mlc-kafka
+    rules:
+      - alert: MLCKafkaTargetDown
+        expr: up{job="mlc-go"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: MLC management metrics target is down
+      - alert: MLCKafkaProduceFailures
+        expr: increase(mlc_kafka_produce_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka producer failures detected
+      - alert: MLCKafkaCommitFailures
+        expr: increase(mlc_kafka_commit_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka offset commit failures detected
+      - alert: MLCKafkaHandlerFailures
+        expr: increase(mlc_kafka_handler_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka domain event handler failures detected
+      - alert: MLCKafkaDLQWriteFailures
+        expr: increase(mlc_kafka_dlq_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka DLQ writes are failing
+      - alert: MLCKafkaConsumerPanics
+        expr: increase(mlc_kafka_consumer_panics_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka consumer handler panic recovered
+      - alert: MLCKafkaPartitionsLost
+        expr: increase(mlc_kafka_partitions_lost_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kafka consumer partitions were lost

@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-
-	"github.com/google/uuid"
 )
 
 const defaultTopic = "mlc.domain.events"
@@ -87,8 +85,8 @@ type sqlExecer interface {
 
 // SaveEnvelopeExec 使用传入的执行器写入 Outbox，兼容 *sql.DB 和 *sql.Tx。
 func (r *Repository) SaveEnvelopeExec(ctx context.Context, execer sqlExecer, envelope events.EventEnvelope, payload []byte) error {
-	// event_id 每次落库生成，业务幂等 key 仍使用 envelope.EventKey 传递给 Kafka。
-	_, err := execer.ExecContext(ctx, SQLQueriesPackage.InsertOutboxEventSQL, uuid.NewString(), envelope.EventName, envelope.EventKey, r.topic, payload)
+	// 数据库 event_id 与 Kafka envelope.EventID 必须一致，消费侧才能按同一个 ID 原子去重。
+	_, err := execer.ExecContext(ctx, SQLQueriesPackage.InsertOutboxEventSQL, envelope.EventID, envelope.EventName, envelope.EventKey, r.topic, payload)
 	return err
 }
 

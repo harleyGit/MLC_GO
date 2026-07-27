@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -40,6 +42,8 @@ type EventMeta struct {
 // 2. EventName/EventKey/Version 是消费者路由、幂等和灰度升级需要的公共协议。
 // 3. Payload 保留事件原始 JSON，后续新增字段时老消费者可以忽略未知字段。
 type EventEnvelope struct {
+	// EventID 是每次领域状态变更的唯一 ID，消费侧用它抵御 Kafka 至少一次投递产生的重复消息。
+	EventID       string          `json:"eventId"`
 	EventName     string          `json:"eventName"`
 	EventKey      string          `json:"eventKey"`
 	Version       int             `json:"version"`
@@ -66,6 +70,7 @@ func NewEnvelope(event DomainEvent) (EventEnvelope, error) {
 	// 事件结构通常内嵌 EventMeta；这里从 payload 反解公共头，兼容未来不同事件结构。
 	meta := metaFromEventPayload(payload)
 	return EventEnvelope{
+		EventID:       uuid.NewString(),
 		EventName:     event.EventName(),
 		EventKey:      event.EventKey(),
 		Version:       meta.Version,

@@ -98,8 +98,11 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			if groups.Feed.GroupID == "" || groups.Search.GroupID == "" || groups.Statistic.GroupID == "" || groups.Audit.GroupID == "" {
 				t.Fatalf("consumer groups must be configured: %+v", groups)
 			}
-			if groups.Feed.Enabled || groups.Search.Enabled || groups.Statistic.Enabled || groups.Audit.Enabled {
-				t.Fatalf("TODO consumers must remain disabled: %+v", groups)
+			if !groups.Feed.Enabled {
+				t.Fatalf("feed consumer must be enabled after its idempotent read model is implemented: %+v", groups)
+			}
+			if groups.Search.Enabled || groups.Statistic.Enabled || groups.Audit.Enabled {
+				t.Fatalf("consumers without complete production dependencies must remain disabled: %+v", groups)
 			}
 			if cfg.Log.Retry != expected.logRetry || cfg.Log.ClientID != expected.logClient {
 				t.Fatalf("log config = retry %d client_id %q, want retry %d client_id %q", cfg.Log.Retry, cfg.Log.ClientID, expected.logRetry, expected.logClient)
@@ -161,6 +164,25 @@ func TestGetServerPortUsesEnvironmentOverrideThenLoadedConfig(t *testing.T) {
 	t.Setenv("SERVER_PORT", "9090")
 	if got := GetServerPort(); got != "9090" {
 		t.Fatalf("GetServerPort() = %q, want environment override 9090", got)
+	}
+}
+
+func TestGetManagementPortUsesEnvironmentOverrideThenLoadedConfig(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("MLC_CONFIG_DIR", projectConfigDir(t))
+	t.Setenv("MANAGEMENT_PORT", "")
+
+	if err := LoadConfig("prod"); err != nil {
+		t.Fatalf("load prod config: %v", err)
+	}
+	if got := GetManagementPort(); got != "9091" {
+		t.Fatalf("GetManagementPort() = %q, want 9091", got)
+	}
+
+	t.Setenv("MANAGEMENT_PORT", "19091")
+	if got := GetManagementPort(); got != "19091" {
+		t.Fatalf("GetManagementPort() = %q, want environment override 19091", got)
 	}
 }
 

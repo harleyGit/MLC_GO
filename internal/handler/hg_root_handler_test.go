@@ -283,3 +283,27 @@ func TestNewRootHandlerWithHealthRegistersMetricsHandler(t *testing.T) {
 		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestBusinessAndManagementHandlersSeparateOperationalRoutes(t *testing.T) {
+	metrics := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("metric 1\n"))
+	})
+	businessHandler := NewBusinessRootHandler(nil)
+	managementHandler := NewManagementHandler(HealthCheckConfig{MetricsHandler: metrics})
+
+	for _, path := range []string{healthzPath, readyzPath, metricsPath} {
+		recorder := httptest.NewRecorder()
+		businessHandler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("business path %q status=%d, want 404", path, recorder.Code)
+		}
+	}
+
+	for _, path := range []string{healthzPath, readyzPath, metricsPath} {
+		recorder := httptest.NewRecorder()
+		managementHandler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("management path %q status=%d, want 200", path, recorder.Code)
+		}
+	}
+}

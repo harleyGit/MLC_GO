@@ -73,4 +73,36 @@ if redis.call("GET", KEYS[1]) == ARGV[1] then
 else
     return 0
 end`
+
+	// FeedPublishLuaScript 原子完成 EventID 去重、ZSET 写入和容量裁剪。
+	// KEYS[1]：公开 Feed ZSET；KEYS[2]：EventID 幂等 key，两者必须使用同一 Redis Cluster hash tag。
+	// ARGV[1]：submission_id；ARGV[2]：发布时间毫秒；ARGV[3]：最大成员数；ARGV[4]：幂等 TTL 秒。
+	FeedPublishLuaScript = `
+if redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[4]) == false then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+local overflow = redis.call('ZCARD', KEYS[1]) - tonumber(ARGV[3])
+if overflow > 0 then
+  redis.call('ZREMRANGEBYRANK', KEYS[1], 0, overflow - 1)
+end
+return 1`
+
+	// FeedDeleteLuaScript 原子完成 EventID 去重和 ZSET 删除，重复删除不会重复产生副作用。
+	// KEYS/ARGV 与发布脚本保持同一 key 约束，ARGV[1] 为 submission_id，ARGV[2] 为幂等 TTL 秒。
+	FeedDeleteLuaScript = `
+if redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[2]) == false then
+  return 0
+end
+redis.call('ZREM', KEYS[1], ARGV[1])
+return 1`
+
+	// VideoStatisticIncrementLuaScript 原子完成 EventID 去重和 Hash 计数，抵御 Kafka 至少一次投递的重复累计。
+	// KEYS[1]：统计 Hash；KEYS[2]：EventID 幂等 key；ARGV[1]：事件名；ARGV[2]：幂等 TTL 秒。
+	VideoStatisticIncrementLuaScript = `
+if redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[2]) == false then
+  return 0
+end
+redis.call('HINCRBY', KEYS[1], ARGV[1], 1)
+return 1`
 )

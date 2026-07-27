@@ -31,6 +31,9 @@ func TestNewEnvelopeKeepsStableByteContract(t *testing.T) {
 	if envelope.EventKey != "submission_1" {
 		t.Fatalf("EventKey = %q, want submission_1", envelope.EventKey)
 	}
+	if envelope.EventID == "" {
+		t.Fatal("EventID is empty, want stable event id for consumer idempotency")
+	}
 	if envelope.Version != events.EventVersionV1 || envelope.TraceID != "trace-1" || envelope.RequestID != "request-1" || envelope.SourceService != events.SourceServiceMLC {
 		t.Fatalf("envelope meta = %#v, want event meta copied", envelope)
 	}

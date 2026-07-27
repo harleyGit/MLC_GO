@@ -22,10 +22,12 @@ func TestHGKafkaMetricsHandlerExposesConsumerMetrics(t *testing.T) {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
 	for _, metric := range []string{
+		"# TYPE mlc_kafka_consume_batches_total counter",
 		"mlc_kafka_consume_batches_total 1",
 		"mlc_kafka_consume_batch_records_total 12",
 		"mlc_kafka_commits_total 1",
 		"mlc_kafka_handler_failures_total 1",
+		"# TYPE mlc_kafka_assigned_partitions gauge",
 	} {
 		if !strings.Contains(recorder.Body.String(), metric) {
 			t.Fatalf("metrics missing %q: %s", metric, recorder.Body.String())

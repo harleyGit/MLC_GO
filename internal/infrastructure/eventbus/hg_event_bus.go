@@ -34,8 +34,20 @@ func (b *KafkaEventBus) Publish(ctx context.Context, event events.DomainEvent) e
 	if b.topic == "" {
 		return fmt.Errorf("event bus topic cannot be empty")
 	}
-	// EventKey 用于 Kafka 分区路由，保证同一业务实体的事件尽量落到同一分区。
-	return HGKafkaPackage.HGSendBusinessEvent(ctx, b.topic, event.EventKey(), event)
+	envelope, err := newKafkaEnvelope(event)
+	if err != nil {
+		return err
+	}
+	// 直接 Kafka 与 Outbox 必须发送同一种 Envelope 协议，否则消费者无法统一校验 EventID 和做幂等。
+	return HGKafkaPackage.HGSendBusinessEvent(ctx, b.topic, envelope.EventKey, envelope)
+}
+
+func newKafkaEnvelope(event events.DomainEvent) (events.EventEnvelope, error) {
+	envelope, err := events.NewEnvelope(event)
+	if err != nil {
+		return events.EventEnvelope{}, fmt.Errorf("build kafka event envelope: %w", err)
+	}
+	return envelope, nil
 }
 
 // OutboxEventBus 只把事件写入 MySQL Outbox，不在接口请求内直连 Kafka。

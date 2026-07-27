@@ -43,6 +43,9 @@ const (
 	// mlcServerShutdownTimeout 是收到退出信号后的优雅关闭窗口。
 	// 在该时间内 HTTP server 停止接收新请求，并等待正在处理的请求尽量完成。
 	mlcServerShutdownTimeout = 10 * time.Second
+	// 管理接口只返回小响应，使用更短超时快速释放异常监控连接。
+	mlcManagementReadTimeout  = 5 * time.Second
+	mlcManagementWriteTimeout = 5 * time.Second
 )
 
 // MLCApplication 持有服务运行期依赖，统一管理启动和优雅关闭。
@@ -52,10 +55,11 @@ const (
 // 2. 容器/K8s 发布时会发送 SIGTERM，应用需要先停止接新流量，再释放连接池。
 // 3. 把资源放到一个应用对象里，启动失败和关闭失败都能集中处理，便于维护和测试。
 type MLCApplication struct {
-	server       *http.Server
-	redisService *PersistenceRedisPackage.RedisService
-	sqlManager   *PersistenceSQLPackage.HGSQLManager
-	kafkaCloser  kafkaCloser
+	server           *http.Server
+	managementServer *http.Server
+	redisService     *PersistenceRedisPackage.RedisService
+	sqlManager       *PersistenceSQLPackage.HGSQLManager
+	kafkaCloser      kafkaCloser
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -75,6 +79,7 @@ func mlc_main() {
 	defer app.Close()
 
 	logHG.DebugFInfo("HTTP server 开始监听: %s", app.server.Addr)
+	logHG.DebugFInfo("Management server 开始监听: %s", app.managementServer.Addr)
 	if err := app.Serve(context.Background()); err != nil {
 		logHG.ErrFInfo("HTTP server 运行失败: %v", err)
 	}
@@ -129,7 +134,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 
 	// Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
 	// 成功返回的 closer 会保存到 MLCApplication，在退出阶段统一 flush 并关闭全局 Kafka Client。
-	kafkaCloser, err := initKafkaIfConfigured()
+	kafkaCloser, err := initKafkaWithDependencies(redisService, sqlManager)
 	if err != nil {
 		logHG.ErrFInfo("Kafka初始化失败: %v", err)
 		// Kafka 排在 Redis/MySQL 之后初始化；一旦 Kafka 配置或网络不可用，必须回滚前置资源。
@@ -157,7 +162,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 4. 创建根路由。
 	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
 	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
-	rootMux := HGHandlerPackage.NewRootHandlerWithHealth(routeCatalogs, HGHandlerPackage.HealthCheckConfig{
+	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
+	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
 		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(),
 	})
@@ -173,12 +179,22 @@ func buildMLCApplication() (*MLCApplication, error) {
 		IdleTimeout:       mlcServerIdleTimeout,
 		MaxHeaderBytes:    mlcServerMaxHeaderBytes,
 	}
+	managementServer := &http.Server{
+		Addr:              buildListenAddr(ConfigPackage.GetManagementPort()),
+		Handler:           managementMux,
+		ReadHeaderTimeout: mlcServerReadHeaderTimeout,
+		ReadTimeout:       mlcManagementReadTimeout,
+		WriteTimeout:      mlcManagementWriteTimeout,
+		IdleTimeout:       mlcServerIdleTimeout,
+		MaxHeaderBytes:    mlcServerMaxHeaderBytes,
+	}
 
 	return &MLCApplication{
-		server:       srv,
-		redisService: redisService,
-		sqlManager:   sqlManager,
-		kafkaCloser:  kafkaCloser,
+		server:           srv,
+		managementServer: managementServer,
+		redisService:     redisService,
+		sqlManager:       sqlManager,
+		kafkaCloser:      kafkaCloser,
 	}, nil
 }
 
@@ -228,13 +244,16 @@ func newRedisServiceWithRecover() (redisService *PersistenceRedisPackage.RedisSe
 // 2. 收到 SIGINT/SIGTERM 后调用 Shutdown，而不是 Close，给正在处理的请求一个完成窗口。
 // 3. Shutdown 完成后等待 serveErr 返回，确保 HTTP server 的生命周期完整结束。
 func (app *MLCApplication) Serve(ctx context.Context) error {
-	if app == nil || app.server == nil {
+	if app == nil || app.server == nil || app.managementServer == nil {
 		return errors.New("mlc application server is nil")
 	}
 
-	serveErr := make(chan error, 1)
+	serveErr := make(chan error, 2)
 	go func() {
-		serveErr <- serveMLCServer(app.server)
+		serveErr <- serveNamedMLCServer("business", app.server)
+	}()
+	go func() {
+		serveErr <- serveNamedMLCServer("management", app.managementServer)
 	}()
 
 	stopCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -242,6 +261,10 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 
 	select {
 	case err := <-serveErr:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
+		defer cancel()
+		_ = app.server.Shutdown(shutdownCtx)
+		_ = app.managementServer.Shutdown(shutdownCtx)
 		return err
 	case <-stopCtx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
@@ -249,7 +272,15 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 		if err := app.server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("HTTP server shutdown failed: %w", err)
 		}
-		return <-serveErr
+		if err := app.managementServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("management server shutdown failed: %w", err)
+		}
+		firstErr := <-serveErr
+		secondErr := <-serveErr
+		if firstErr != nil {
+			return firstErr
+		}
+		return secondErr
 	}
 }
 
@@ -297,6 +328,13 @@ func serveMLCServer(srv *http.Server) error {
 		return err
 	}
 
+	return nil
+}
+
+func serveNamedMLCServer(name string, srv *http.Server) error {
+	if err := serveMLCServer(srv); err != nil {
+		return fmt.Errorf("%s server: %w", name, err)
+	}
 	return nil
 }
 
