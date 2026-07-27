@@ -147,6 +147,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # Statistic 本地全链路验收专用 Redis，与 debug 默认 6379 端口隔离。
+  redis-statistic:
+    image: redis:7.4.2-alpine
+    container_name: mlc-redis-statistic
+    ports:
+      - "127.0.0.1:16379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_statistic_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # Prometheus 监控服务预留。
   # 当前 compose 只启动服务和端口，采集 Kafka/Grafana 指标还需要补 prometheus.yml。
   prometheus:
@@ -200,6 +215,7 @@ volumes:
   prometheus_data:
   grafana_data:
   clickhouse_data:
+  redis_statistic_data:
 
 secrets:
   alertmanager_webhook_url:

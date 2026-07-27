@@ -1,4 +1,4 @@
-.PHONY: build clean tool lint help test db-init db-run db-shell db-reset
+.PHONY: build clean tool lint help test statistic-acceptance db-init db-run db-shell db-reset
 
 all: build
 
@@ -18,6 +18,9 @@ clean:
 
 test:
 	go test ./...
+
+statistic-acceptance:
+	MLC_STATISTIC_INTEGRATION=1 go test ./internal/consumer/statistic -run TestHGStatisticIntegrationKafkaClickHouseRedisReconcile -count=1 -v
 
 db-init:
 	@./scripts/db.sh
@@ -42,3 +45,4 @@ help:
 	@echo "make lint: golint ./..."
 	@echo "make clean: remove object files and cached files"
 	@echo "make test: run go tests"
+	@echo "make statistic-acceptance: verify Kafka -> ClickHouse -> Redis -> reconciliation"

@@ -28,3 +28,13 @@ production_gates:
   - clickhouse_write_failure_alert_verified
   - reconciliation_staleness_alert_verified
   - kafka_consumer_lag_alert_verified
+acceptance:
+  local_command: make statistic-acceptance
+  local_scope:
+    - kafka_produce_and_consume
+    - clickhouse_authority_insert
+    - redis_atomic_projection
+    - kafka_offset_commit
+    - zero_drift_reconciliation
+  local_acceptance_is_not_pre_approval: true
+  pre_enablement_policy: all_production_gates_must_be_verified_before_enabling_config_pre_statistic
