@@ -186,6 +186,18 @@ func TestGetManagementPortUsesEnvironmentOverrideThenLoadedConfig(t *testing.T) 
 	}
 }
 
+func TestGetManagementHostDefaultsToLoopbackAndAllowsEnvironmentOverride(t *testing.T) {
+	t.Setenv("MANAGEMENT_HOST", "")
+	viper.Set("management.host", "")
+	if got := GetManagementHost(); got != "127.0.0.1" {
+		t.Fatalf("GetManagementHost() = %q, want 127.0.0.1", got)
+	}
+	t.Setenv("MANAGEMENT_HOST", "0.0.0.0")
+	if got := GetManagementHost(); got != "0.0.0.0" {
+		t.Fatalf("GetManagementHost() = %q, want environment override", got)
+	}
+}
+
 func projectConfigDir(t *testing.T) string {
 	t.Helper()
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -22,6 +23,34 @@ func (hgCaptureEventIDArgument) Match(value driver.Value) bool {
 	}
 	hgExpectedOutboxEventID = eventID
 	return true
+}
+
+func TestRepositoryClaimCommitsLeaseBeforeReturningEvents(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	rows := sqlmock.NewRows([]string{"id", "event_id", "event_name", "event_key", "topic", "payload", "retry_count"}).
+		AddRow(int64(1), "event-1", "video.published", "submission-1", "events", []byte(`{}`), 0)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectPendingOutboxEventsSQL)).WithArgs(8).WillReturnRows(rows)
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.ClaimOutboxEventSQL)).
+		WithArgs(sqlmock.AnyArg(), int64(30), int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	events, err := NewRepository(db, "events").Claim(context.Background(), 8, 30*time.Second)
+	if err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+	if len(events) != 1 || events[0].LeaseToken == "" {
+		t.Fatalf("events = %#v, want one leased event", events)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
 }
 
 type hgEnvelopeEventIDArgument struct{}

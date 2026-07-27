@@ -7,6 +7,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const defaultTopic = "mlc.domain.events"
@@ -34,6 +38,8 @@ type Event struct {
 	Payload []byte
 	// RetryCount 是已失败次数，用于判断是否进入 dead 状态。
 	RetryCount int
+	// LeaseToken 是当前 dispatcher claim 的 fencing token，过期 worker 无权 ack 新租约。
+	LeaseToken string
 }
 
 // NewRepository 创建 Outbox 仓储。
@@ -115,23 +121,74 @@ func (r *Repository) FetchPendingTx(ctx context.Context, tx *sql.Tx, limit int) 
 	return events, rows.Err()
 }
 
-// MarkPublishedTx 将事件标记为已发布。
-func (r *Repository) MarkPublishedTx(ctx context.Context, tx *sql.Tx, id int64) error {
-	_, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventPublishedSQL, id)
-	return err
+// Claim 在短事务内领取一批事件并写入租约，事务提交后才返回，调用方可在事务外发送 Kafka。
+func (r *Repository) Claim(ctx context.Context, limit int, leaseDuration time.Duration) ([]Event, error) {
+	if r == nil || r.db == nil {
+		return nil, fmt.Errorf("outbox repository db cannot be nil")
+	}
+	if leaseDuration <= 0 {
+		leaseDuration = 30 * time.Second
+	}
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, fmt.Errorf("begin outbox claim: %w", err)
+	}
+	defer tx.Rollback()
+	events, err := r.FetchPendingTx(ctx, tx, limit)
+	if err != nil {
+		return nil, fmt.Errorf("select outbox claim: %w", err)
+	}
+	leaseSeconds := int64(leaseDuration / time.Second)
+	if leaseSeconds < 1 {
+		leaseSeconds = 1
+	}
+	for i := range events {
+		events[i].LeaseToken = uuid.NewString()
+		result, execErr := tx.ExecContext(ctx, SQLQueriesPackage.ClaimOutboxEventSQL, events[i].LeaseToken, leaseSeconds, events[i].ID)
+		if execErr != nil {
+			return nil, fmt.Errorf("lease outbox event %d: %w", events[i].ID, execErr)
+		}
+		if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
+			return nil, fmt.Errorf("lease outbox event %d affected %d rows: %w", events[i].ID, affected, affectedErr)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit outbox claim: %w", err)
+	}
+	return events, nil
 }
 
-// MarkRetryTx 记录一次投递失败并保留 pending 状态，等待下一轮重试。
-func (r *Repository) MarkRetryTx(ctx context.Context, tx *sql.Tx, id int64, reason string) error {
-	_, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventRetrySQL, reason, id)
-	return err
+// MarkPublished 使用 fencing token 确认 Kafka 已成功接收消息。
+func (r *Repository) MarkPublished(ctx context.Context, id int64, leaseToken string) (bool, error) {
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventPublishedSQL, id, leaseToken)
+	return hgOutboxUpdateResult(result, err)
 }
 
-// MarkDeadTx 将超过重试上限的事件标记为 dead，避免无限重试拖垮队列。
-func (r *Repository) MarkDeadTx(ctx context.Context, tx *sql.Tx, id int64, reason string) error {
-	_, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventDeadSQL, reason, id)
-	return err
+// MarkRetry 释放租约并安排指数退避后的下一次投递。
+func (r *Repository) MarkRetry(ctx context.Context, id int64, leaseToken string, reason string, delay time.Duration) (bool, error) {
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventRetrySQL, hgTruncateOutboxError(reason), int64(delay/time.Second), id, leaseToken)
+	return hgOutboxUpdateResult(result, err)
 }
 
-// dbConn 返回底层数据库连接，仅供 dispatcher 统一开启事务。
-func (r *Repository) dbConn() *sql.DB { return r.db }
+// MarkDead 使用 fencing token 将超过上限的消息移入 dead 状态。
+func (r *Repository) MarkDead(ctx context.Context, id int64, leaseToken string, reason string) (bool, error) {
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.MarkOutboxEventDeadSQL, hgTruncateOutboxError(reason), id, leaseToken)
+	return hgOutboxUpdateResult(result, err)
+}
+
+func hgOutboxUpdateResult(result sql.Result, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func hgTruncateOutboxError(reason string) string {
+	const maxRunes = 1000
+	if utf8.RuneCountInString(reason) <= maxRunes {
+		return reason
+	}
+	runes := []rune(reason)
+	return string(runes[:maxRunes])
+}

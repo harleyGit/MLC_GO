@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"MLC_GO/internal/events"
 	"errors"
 	"testing"
 )
@@ -25,5 +26,17 @@ func TestDecodeEnvelopeGeneratesStableLegacyEventID(t *testing.T) {
 	}
 	if first.EventID == "" || first.EventID != second.EventID {
 		t.Fatalf("legacy event IDs = %q and %q, want stable non-empty fallback", first.EventID, second.EventID)
+	}
+	if first.Version != events.EventVersionV1 {
+		t.Fatalf("legacy version = %d, want %d", first.Version, events.EventVersionV1)
+	}
+}
+
+func TestDecodeEnvelopeRejectsUnsupportedVersion(t *testing.T) {
+	value := []byte(`{"eventId":"event-1","eventName":"video.published","eventKey":"submission-1","version":2,"timestamp":1783152000123,"payload":{"submissionId":"submission-1"}}`)
+
+	_, err := DecodeEnvelope(value)
+	if !errors.Is(err, ErrUnsupportedEnvelopeVersion) {
+		t.Fatalf("DecodeEnvelope() error = %v, want ErrUnsupportedEnvelopeVersion", err)
 	}
 }

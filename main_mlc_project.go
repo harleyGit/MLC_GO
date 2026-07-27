@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -345,4 +346,8 @@ func buildListenAddr(port string) string {
 	}
 
 	return ":" + port
+}
+
+func buildManagementListenAddr(host string, port string) string {
+	return net.JoinHostPort(host, strings.TrimPrefix(port, ":"))
 }

@@ -7,3 +7,4 @@ mlc_server
 *.dylib
 uploads/
 .aider*
+deployments/monitoring/secrets/alertmanager_webhook_url

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -145,4 +146,16 @@ func GetManagementPort() string {
 		return port
 	}
 	return "9091"
+}
+
+// GetManagementHost 返回管理面监听地址。默认仅监听 loopback，跨容器抓取必须由部署显式放开并配合网络策略。
+func GetManagementHost() string {
+	host := strings.TrimSpace(os.Getenv("MANAGEMENT_HOST"))
+	if host != "" {
+		return host
+	}
+	if host = strings.TrimSpace(viper.GetString("management.host")); host != "" {
+		return host
+	}
+	return "127.0.0.1"
 }

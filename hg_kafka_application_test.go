@@ -9,6 +9,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+func TestBuildManagementListenAddrUsesExplicitHost(t *testing.T) {
+	if got := buildManagementListenAddr("127.0.0.1", "9091"); got != "127.0.0.1:9091" {
+		t.Fatalf("buildManagementListenAddr() = %q, want 127.0.0.1:9091", got)
+	}
+}
+
 func TestInitKafkaIfConfiguredRejectsEmptyConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -2,6 +2,7 @@ package VideoUploadServicePackage
 
 import (
 	"MLC_GO/internal/events"
+	VideoEventsPackage "MLC_GO/internal/events/video"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	"context"
@@ -52,6 +53,14 @@ func TestVideoListCounterUpdate(t *testing.T) {
 				t.Fatalf("videoListCounterUpdate(%q, %q) = (%q, %d), want (%q, %d)", tt.oldStatus, tt.newStatus, gotStatus, gotDelta, tt.wantStatus, tt.wantDelta)
 			}
 		})
+	}
+}
+
+func TestSubmissionEventsEmitsPublishedTransition(t *testing.T) {
+	service := &Service{}
+	events := service.submissionEvents(context.Background(), "user-1", VideoUploadDtoPackage.SaveSubmissionRequest{SubmissionID: "submission-1", Status: "published"})
+	if len(events) != 1 || events[0].EventName() != VideoEventsPackage.VideoPublishedEventName {
+		t.Fatalf("events = %#v, want one video.published event", events)
 	}
 }
 

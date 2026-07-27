@@ -14,17 +14,20 @@ type hgFeedProjectorStub struct {
 	deletedEventID   string
 	submissionID     string
 	score            int64
+	delivery         Delivery
 	err              error
 }
 
-func (s *hgFeedProjectorStub) Publish(_ context.Context, eventID string, submissionID string, score int64) error {
+func (s *hgFeedProjectorStub) Publish(_ context.Context, delivery Delivery, eventID string, submissionID string, score int64) error {
+	s.delivery = delivery
 	s.publishedEventID = eventID
 	s.submissionID = submissionID
 	s.score = score
 	return s.err
 }
 
-func (s *hgFeedProjectorStub) Delete(_ context.Context, eventID string, submissionID string) error {
+func (s *hgFeedProjectorStub) Delete(_ context.Context, delivery Delivery, eventID string, submissionID string) error {
+	s.delivery = delivery
 	s.deletedEventID = eventID
 	s.submissionID = submissionID
 	return s.err
@@ -33,20 +36,32 @@ func (s *hgFeedProjectorStub) Delete(_ context.Context, eventID string, submissi
 func TestConsumerPublishesVideoToFeed(t *testing.T) {
 	projector := &hgFeedProjectorStub{}
 	envelope := hgFeedEnvelope(t, VideoEventsPackage.VideoPublishedEventName)
+	ctx := WithDelivery(context.Background(), Delivery{Topic: "mlc.domain.events", Partition: 7, Offset: 19})
 
-	if err := NewConsumer(projector).Handle(context.Background(), envelope); err != nil {
+	if err := NewConsumer(projector).Handle(ctx, envelope); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
 	if projector.publishedEventID != "event-1" || projector.submissionID != "submission-1" || projector.score != 1783152000123 {
 		t.Fatalf("projector = %#v, want published event fields", projector)
+	}
+	if projector.delivery.Topic != "mlc.domain.events" || projector.delivery.Partition != 7 || projector.delivery.Offset != 19 {
+		t.Fatalf("delivery = %#v, want kafka source coordinates", projector.delivery)
+	}
+}
+
+func TestConsumerRejectsFeedEventWithoutDeliveryMetadata(t *testing.T) {
+	err := NewConsumer(&hgFeedProjectorStub{}).Handle(context.Background(), hgFeedEnvelope(t, VideoEventsPackage.VideoPublishedEventName))
+	if err == nil {
+		t.Fatal("Handle() error = nil, want missing delivery metadata error")
 	}
 }
 
 func TestConsumerDeletesVideoFromFeed(t *testing.T) {
 	projector := &hgFeedProjectorStub{}
 	envelope := hgFeedEnvelope(t, VideoEventsPackage.VideoDeletedEventName)
+	ctx := WithDelivery(context.Background(), Delivery{Topic: "mlc.domain.events", Partition: 7, Offset: 20})
 
-	if err := NewConsumer(projector).Handle(context.Background(), envelope); err != nil {
+	if err := NewConsumer(projector).Handle(ctx, envelope); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
 	if projector.deletedEventID != "event-1" || projector.submissionID != "submission-1" {
@@ -66,7 +81,8 @@ func TestConsumerRejectsEventWithoutEventID(t *testing.T) {
 
 func TestConsumerReturnsProjectorError(t *testing.T) {
 	want := errors.New("redis unavailable")
-	err := NewConsumer(&hgFeedProjectorStub{err: want}).Handle(context.Background(), hgFeedEnvelope(t, VideoEventsPackage.VideoPublishedEventName))
+	ctx := WithDelivery(context.Background(), Delivery{Topic: "mlc.domain.events", Partition: 7, Offset: 19})
+	err := NewConsumer(&hgFeedProjectorStub{err: want}).Handle(ctx, hgFeedEnvelope(t, VideoEventsPackage.VideoPublishedEventName))
 	if !errors.Is(err, want) {
 		t.Fatalf("Handle() error = %v, want %v", err, want)
 	}

@@ -2,8 +2,8 @@ package outbox
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -17,60 +17,85 @@ type Producer interface {
 
 // Dispatcher 负责把 outbox_events 中的 pending 事件可靠投递到 Kafka。
 type Dispatcher struct {
-	repo     *Repository
+	repo     dispatcherRepository
 	producer Producer
 	maxRetry int
+	lease    time.Duration
+	workers  int
+}
+
+type dispatcherRepository interface {
+	Claim(ctx context.Context, limit int, leaseDuration time.Duration) ([]Event, error)
+	MarkPublished(ctx context.Context, id int64, leaseToken string) (bool, error)
+	MarkRetry(ctx context.Context, id int64, leaseToken string, reason string, delay time.Duration) (bool, error)
+	MarkDead(ctx context.Context, id int64, leaseToken string, reason string) (bool, error)
 }
 
 // NewDispatcher 创建 Outbox 投递器。
 func NewDispatcher(repo *Repository, producer Producer) *Dispatcher {
-	return &Dispatcher{repo: repo, producer: producer, maxRetry: defaultMaxRetry}
+	return NewDispatcherWithRepository(repo, producer)
+}
+
+// NewDispatcherWithRepository 创建支持测试替身的短事务 Outbox dispatcher。
+func NewDispatcherWithRepository(repo dispatcherRepository, producer Producer) *Dispatcher {
+	return &Dispatcher{repo: repo, producer: producer, maxRetry: defaultMaxRetry, lease: 30 * time.Second, workers: 8}
 }
 
 // DispatchOnce 拉取并处理一批 Outbox 事件。
 // 成功：标记 published；失败：标记 retry；超过最大次数：标记 dead，等待人工排查或补偿。
 func (d *Dispatcher) DispatchOnce(ctx context.Context, batchSize int) error {
-	if d == nil || d.repo == nil || d.repo.dbConn() == nil {
+	if d == nil || d.repo == nil {
 		return fmt.Errorf("outbox dispatcher repository cannot be nil")
 	}
 	if d.producer == nil {
 		return fmt.Errorf("outbox dispatcher producer cannot be nil")
 	}
 
-	// 每批事件放在同一个事务内完成锁定和状态更新，避免多个 dispatcher 重复处理同一批行。
-	tx, err := d.repo.dbConn().BeginTx(ctx, &sql.TxOptions{})
+	if batchSize <= 0 || batchSize > d.workers {
+		batchSize = d.workers
+	}
+	events, err := d.repo.Claim(ctx, batchSize, d.lease)
 	if err != nil {
 		return err
 	}
-	// Commit 成功后 Rollback 会返回 sql.ErrTxDone；这里忽略即可，保证异常路径释放事务。
-	defer tx.Rollback()
-
-	events, err := d.repo.FetchPendingTx(ctx, tx, batchSize)
-	if err != nil {
-		return err
-	}
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(events))
 	for _, event := range events {
-		// 先投递 Kafka，再更新本地状态；若状态更新失败，下一轮可能重复投递，所以消费侧必须按 EventID/EventKey 做幂等。
-		if err := d.producer.Send(ctx, event.Topic, event.EventKey, event.Payload); err != nil {
-			if event.RetryCount+1 >= d.maxRetry {
-				// 达到上限后转 dead，避免坏消息一直占用 dispatcher 处理能力。
-				if markErr := d.repo.MarkDeadTx(ctx, tx, event.ID, err.Error()); markErr != nil {
-					return markErr
+		event := event
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var markErr error
+			if sendErr := d.producer.Send(ctx, event.Topic, event.EventKey, event.Payload); sendErr != nil {
+				if event.RetryCount+1 >= d.maxRetry {
+					_, markErr = d.repo.MarkDead(ctx, event.ID, event.LeaseToken, sendErr.Error())
+				} else {
+					_, markErr = d.repo.MarkRetry(ctx, event.ID, event.LeaseToken, sendErr.Error(), hgOutboxRetryDelay(event.RetryCount))
 				}
-				continue
+			} else {
+				_, markErr = d.repo.MarkPublished(ctx, event.ID, event.LeaseToken)
 			}
-			if markErr := d.repo.MarkRetryTx(ctx, tx, event.ID, err.Error()); markErr != nil {
-				return markErr
+			if markErr != nil {
+				errCh <- markErr
 			}
-			continue
-		}
-		// Kafka 已确认写入后再标记 published。
-		if err := d.repo.MarkPublishedTx(ctx, tx, event.ID); err != nil {
-			return err
-		}
+		}()
 	}
+	wg.Wait()
+	close(errCh)
+	for dispatchErr := range errCh {
+		return dispatchErr
+	}
+	return nil
+}
 
-	return tx.Commit()
+func hgOutboxRetryDelay(retryCount int) time.Duration {
+	if retryCount < 0 {
+		retryCount = 0
+	}
+	if retryCount > 8 {
+		retryCount = 8
+	}
+	return time.Second * time.Duration(1<<retryCount)
 }
 
 // Run 按固定间隔持续投递 Outbox，通常由 scheduler 或应用启动钩子拉起。

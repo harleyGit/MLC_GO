@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlc-go-management
+  namespace: mlc
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mlc-go
+  ports:
+    - name: management
+      port: 9091
+      targetPort: management
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mlc-go-management-ingress
+  namespace: mlc
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mlc-go
+  policyTypes:
+    - Ingress
+  ingress:
+    # 业务端口仍允许集群内 Service/Ingress Controller 访问；公网暴露由独立业务 Service/Ingress 控制。
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+    # 管理端口只允许 monitoring namespace，不应加入业务 Ingress 或 LoadBalancer Service。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9091
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mlc-go
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  namespaceSelector:
+    matchNames:
+      - mlc
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mlc-go
+  endpoints:
+    - port: management
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 5s

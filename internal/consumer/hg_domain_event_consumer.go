@@ -9,9 +9,35 @@ import (
 	"fmt"
 )
 
+type hgDeliveryContextKey struct{}
+
+// Delivery 描述 Kafka 消息的稳定来源坐标，用于按 topic/partition/offset 做有界永久幂等。
+type Delivery struct {
+	Topic     string
+	Partition int32
+	Offset    int64
+}
+
+// WithDelivery 把 Kafka 来源坐标附加到业务 Handler context。
+func WithDelivery(ctx context.Context, delivery Delivery) context.Context {
+	return context.WithValue(ctx, hgDeliveryContextKey{}, delivery)
+}
+
+// DeliveryFromContext 读取 Kafka 来源坐标。
+func DeliveryFromContext(ctx context.Context) (Delivery, bool) {
+	if ctx == nil {
+		return Delivery{}, false
+	}
+	delivery, ok := ctx.Value(hgDeliveryContextKey{}).(Delivery)
+	return delivery, ok
+}
+
 // ErrHandlerNotImplemented 表示消费者识别该事件，但业务投影尚未实现。
 // 该错误必须阻止 offset 提交，避免 TODO Handler 静默吞掉领域事件。
 var ErrHandlerNotImplemented = errors.New("consumer handler not implemented")
+
+// ErrUnsupportedEnvelopeVersion 表示消息使用了当前进程无法安全解释的未来协议版本。
+var ErrUnsupportedEnvelopeVersion = errors.New("unsupported domain event envelope version")
 
 // NewHandlerNotImplementedError 返回带消费者和事件上下文的可识别错误。
 func NewHandlerNotImplementedError(consumerName string, eventName string) error {
@@ -35,6 +61,13 @@ func DecodeEnvelope(value []byte) (events.EventEnvelope, error) {
 	if envelope.EventName == "" {
 		// EventName 是消费侧路由的最小字段，缺失时不能安全分发。
 		return envelope, fmt.Errorf("domain event name cannot be empty")
+	}
+	if envelope.Version == 0 {
+		// 升级前的历史 Envelope 没有显式版本，按最早稳定协议 v1 解读。
+		envelope.Version = events.EventVersionV1
+	}
+	if envelope.Version != events.EventVersionV1 {
+		return envelope, fmt.Errorf("%w: version=%d", ErrUnsupportedEnvelopeVersion, envelope.Version)
 	}
 	if envelope.EventID == "" {
 		// 兼容升级前已持久化到 Outbox/Kafka 的旧 Envelope。完整消息字节的 SHA-256 在重试和重放时稳定，

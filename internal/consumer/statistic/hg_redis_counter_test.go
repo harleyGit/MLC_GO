@@ -22,16 +22,18 @@ func (s *hgRedisEvalStub) Eval(_ context.Context, script string, keys []string, 
 
 func TestRedisCounterIncrementsAtomicallyWithEventIdempotency(t *testing.T) {
 	client := &hgRedisEvalStub{}
-	counter := NewRedisCounter(client, 604800)
+	counter := NewRedisCounter(client, 64, "v2")
+	delivery := Delivery{Topic: "mlc.domain.events", Partition: 3, Offset: 11}
 
-	if err := counter.Increment(context.Background(), "event-1", "video.published"); err != nil {
+	if err := counter.Increment(context.Background(), delivery, "event-1", "video.published"); err != nil {
 		t.Fatalf("Increment() error = %v", err)
 	}
-	wantKeys := []string{PersistenceRedisPackage.VideoEventCounterKey, PersistenceRedisPackage.GetVideoStatisticIdempotencyKey("event-1")}
+	shard := PersistenceRedisPackage.GetStatisticShard(delivery.Partition, 64)
+	wantKeys := []string{PersistenceRedisPackage.GetVideoEventCounterKey("v2", shard), PersistenceRedisPackage.GetVideoStatisticOffsetWatermarkKey("v2", shard)}
 	if client.script != PersistenceRedisPackage.VideoStatisticIncrementLuaScript || !reflect.DeepEqual(client.keys, wantKeys) {
 		t.Fatalf("script=%q keys=%v, want statistic script and %v", client.script, client.keys, wantKeys)
 	}
-	wantArgs := []any{"video.published", int64(604800)}
+	wantArgs := []any{"video.published", "mlc.domain.events:3", int64(11)}
 	if !reflect.DeepEqual(client.args, wantArgs) {
 		t.Fatalf("args=%#v, want %#v", client.args, wantArgs)
 	}

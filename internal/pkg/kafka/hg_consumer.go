@@ -12,6 +12,7 @@ package HGKafkaPackage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -21,6 +22,24 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
+
+type hgTerminalError struct{ cause error }
+
+func (e hgTerminalError) Error() string { return e.cause.Error() }
+func (e hgTerminalError) Unwrap() error { return e.cause }
+
+// HGNewTerminalError 标记无法通过重试恢复的协议或数据错误；成功写入 DLQ 后可推进源 offset。
+func HGNewTerminalError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return hgTerminalError{cause: err}
+}
+
+func hgIsTerminalError(err error) bool {
+	var terminal hgTerminalError
+	return errors.As(err, &terminal)
+}
 
 const hgConsumerMaxPollRecords = 500
 
@@ -110,14 +129,16 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 		}
 
 		batchStartedAt := time.Now()
-		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) {
+		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) bool {
 			hgKafkaHandlerFailures.Add(1)
 			logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, handleErr)
 			hgKafkaDLQWrites.Add(1)
 			if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, handleErr.Error()); dlqErr != nil {
 				hgKafkaDLQFailures.Add(1)
 				logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
+				return false
 			}
+			return hgIsTerminalError(handleErr)
 		})
 		hgObserveConsumeBatch(fetches.NumRecords(), time.Since(batchStartedAt))
 
@@ -143,7 +164,7 @@ func hgProcessFetchBatch(
 	ctx context.Context,
 	fetches kgo.Fetches,
 	handle HGRecordHandler,
-	onFailure func(context.Context, *kgo.Record, error),
+	onFailure func(context.Context, *kgo.Record, error) bool,
 ) ([]*kgo.Record, map[string]map[int32]kgo.EpochOffset) {
 	commitRecords := make([]*kgo.Record, 0, len(fetches))
 	failedOffsets := make(map[string]map[int32]kgo.EpochOffset)
@@ -155,8 +176,13 @@ func hgProcessFetchBatch(
 				for _, record := range partition.Records {
 					traceCtx := HGExtractTraceFromRecordContext(ctx, record)
 					if err := hgInvokeRecordHandler(traceCtx, handle, record); err != nil {
+						parked := false
 						if onFailure != nil {
-							onFailure(traceCtx, record, err)
+							parked = onFailure(traceCtx, record, err)
+						}
+						if parked {
+							lastSucceeded = record
+							continue
 						}
 						if failedOffsets[record.Topic] == nil {
 							failedOffsets[record.Topic] = make(map[int32]kgo.EpochOffset)

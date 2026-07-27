@@ -1,0 +1,14 @@
+search_consumer:
+  enabled: false
+  activation_requirements:
+    - versioned index mapping and alias rollover policy
+    - snapshot or reference event model selected explicitly
+    - bulk upsert/delete limits, timeout and bounded concurrency
+    - external version ordering based on aggregate revision
+    - retryable/permanent error classification and replayable DLQ
+    - secret-sourced TLS and authentication configuration
+  defaults:
+    bulk_max_actions: 500
+    bulk_max_bytes: 5242880
+    request_timeout: 5s
+    max_concurrency: 8

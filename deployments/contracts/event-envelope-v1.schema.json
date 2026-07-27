@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mlc.internal/contracts/event-envelope-v1.schema.json",
+  "title": "MLC Domain Event Envelope v1",
+  "type": "object",
+  "required": ["eventName", "eventKey", "timestamp", "payload"],
+  "properties": {
+    "eventId": {"type": "string", "minLength": 1},
+    "eventName": {"type": "string", "minLength": 1},
+    "eventKey": {"type": "string"},
+    "version": {"type": "integer", "enum": [1]},
+    "traceId": {"type": "string"},
+    "requestId": {"type": "string"},
+    "timestamp": {"type": "integer", "minimum": 1},
+    "sourceService": {"type": "string"},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": true,
+  "description": "Consumers must ignore unknown fields. Legacy records may omit eventId/version; version 0 or missing is normalized to v1 and eventId is derived from the original bytes. Versions greater than 1 must be parked rather than interpreted as v1."
+}

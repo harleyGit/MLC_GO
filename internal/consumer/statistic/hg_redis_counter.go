@@ -6,7 +6,10 @@ import (
 	"fmt"
 )
 
-const hgDefaultStatisticIdempotencyTTL = int64(30 * 24 * 60 * 60)
+const (
+	hgDefaultStatisticShardCount = 64
+	hgDefaultStatisticGeneration = "v2"
+)
 
 // RedisEvalClient 是统计原子计数所需的最小 Redis Lua 接口。
 type RedisEvalClient interface {
@@ -15,23 +18,28 @@ type RedisEvalClient interface {
 
 // RedisCounter 使用 Lua 原子完成 EventID 去重和 Hash 计数。
 type RedisCounter struct {
-	client         RedisEvalClient
-	idempotencyTTL int64
+	client     RedisEvalClient
+	shardCount int
+	generation string
 }
 
 // NewRedisCounter 创建 Redis 统计计数器。
-func NewRedisCounter(client RedisEvalClient, idempotencyTTLSeconds int64) *RedisCounter {
-	if idempotencyTTLSeconds <= 0 {
-		idempotencyTTLSeconds = hgDefaultStatisticIdempotencyTTL
+func NewRedisCounter(client RedisEvalClient, shardCount int, generation string) *RedisCounter {
+	if shardCount <= 0 {
+		shardCount = hgDefaultStatisticShardCount
 	}
-	return &RedisCounter{client: client, idempotencyTTL: idempotencyTTLSeconds}
+	if generation == "" {
+		generation = hgDefaultStatisticGeneration
+	}
+	return &RedisCounter{client: client, shardCount: shardCount, generation: generation}
 }
 
 // Increment 原子去重后将事件名对应计数加一。
-func (c *RedisCounter) Increment(ctx context.Context, eventID string, metric string) error {
+func (c *RedisCounter) Increment(ctx context.Context, delivery Delivery, eventID string, metric string) error {
 	if c == nil || c.client == nil {
 		return fmt.Errorf("statistic redis client cannot be nil")
 	}
-	keys := []string{PersistenceRedisPackage.VideoEventCounterKey, PersistenceRedisPackage.GetVideoStatisticIdempotencyKey(eventID)}
-	return c.client.Eval(ctx, PersistenceRedisPackage.VideoStatisticIncrementLuaScript, keys, metric, c.idempotencyTTL)
+	shard := PersistenceRedisPackage.GetStatisticShard(delivery.Partition, c.shardCount)
+	keys := []string{PersistenceRedisPackage.GetVideoEventCounterKey(c.generation, shard), PersistenceRedisPackage.GetVideoStatisticOffsetWatermarkKey(c.generation, shard)}
+	return c.client.Eval(ctx, PersistenceRedisPackage.VideoStatisticIncrementLuaScript, keys, metric, fmt.Sprintf("%s:%d", delivery.Topic, delivery.Partition), delivery.Offset)
 }

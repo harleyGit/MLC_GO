@@ -49,7 +49,7 @@ func TestHGProcessFetchBatchStopsFailedPartitionWithoutBlockingOthers(t *testing
 			return errors.New("handle failed")
 		}
 		return nil
-	}, func(_ context.Context, _ *kgo.Record, _ error) {})
+	}, func(_ context.Context, _ *kgo.Record, _ error) bool { return false })
 
 	if !reflect.DeepEqual(handled, []int64{10, 11, 20}) {
 		t.Fatalf("处理 offset=%v, want [10 11 20]", handled)
@@ -62,6 +62,29 @@ func TestHGProcessFetchBatchStopsFailedPartitionWithoutBlockingOthers(t *testing
 	}
 	if !reflect.DeepEqual(failed, wantFailed) {
 		t.Fatalf("失败 offset=%v, want %v", failed, wantFailed)
+	}
+}
+
+func TestHGProcessFetchBatchAdvancesTerminalRecordAfterSuccessfulParking(t *testing.T) {
+	statuses := make([]int64, 0, 2)
+	fetches := hgTestFetches(hgTestRecord("orders", 0, 10), hgTestRecord("orders", 0, 11))
+
+	commits, failed := hgProcessFetchBatch(context.Background(), fetches, func(_ context.Context, record *kgo.Record) error {
+		statuses = append(statuses, record.Offset)
+		if record.Offset == 10 {
+			return HGNewTerminalError(errors.New("unsupported schema"))
+		}
+		return nil
+	}, func(_ context.Context, _ *kgo.Record, _ error) bool { return true })
+
+	if failed != nil {
+		t.Fatalf("failed offsets = %v, want nil after terminal record parked", failed)
+	}
+	if got := hgRecordOffsets(commits); !reflect.DeepEqual(got, []int64{11}) {
+		t.Fatalf("commit offsets = %v, want [11]", got)
+	}
+	if !reflect.DeepEqual(statuses, []int64{10, 11}) {
+		t.Fatalf("handled offsets = %v, want [10 11]", statuses)
 	}
 }
 

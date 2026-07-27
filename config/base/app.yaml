@@ -4,4 +4,5 @@ server:
 
 management:
   # 管理端口仅承载 healthz、readyz 和 metrics，生产网络策略不得向公网暴露。
+  host: 127.0.0.1
   port: 9091

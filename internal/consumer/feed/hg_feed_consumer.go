@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"MLC_GO/internal/consumer"
 	"MLC_GO/internal/events"
 	VideoEventsPackage "MLC_GO/internal/events/video"
 	"context"
@@ -8,10 +9,18 @@ import (
 	"fmt"
 )
 
+// Delivery 是 Feed 投影使用的 Kafka 来源坐标。
+type Delivery = consumer.Delivery
+
+// WithDelivery 供直接调用 Feed Handler 的测试和非 Kafka 适配器注入来源坐标。
+func WithDelivery(ctx context.Context, delivery Delivery) context.Context {
+	return consumer.WithDelivery(ctx, delivery)
+}
+
 // Projector 定义 Feed 读模型写入边界；实现必须按 EventID 原子幂等。
 type Projector interface {
-	Publish(ctx context.Context, eventID string, submissionID string, score int64) error
-	Delete(ctx context.Context, eventID string, submissionID string) error
+	Publish(ctx context.Context, delivery Delivery, eventID string, submissionID string, score int64) error
+	Delete(ctx context.Context, delivery Delivery, eventID string, submissionID string) error
 }
 
 // Consumer 维护公开 Feed 读模型。
@@ -36,6 +45,10 @@ func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) er
 	if envelope.EventID == "" {
 		return fmt.Errorf("feed event id cannot be empty")
 	}
+	delivery, ok := consumer.DeliveryFromContext(ctx)
+	if !ok || delivery.Topic == "" || delivery.Partition < 0 || delivery.Offset < 0 {
+		return fmt.Errorf("feed kafka delivery metadata is invalid")
+	}
 
 	var event VideoEventsPackage.VideoPublishedEvent
 	if err := json.Unmarshal(envelope.Payload, &event); err != nil {
@@ -45,7 +58,7 @@ func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) er
 		return fmt.Errorf("feed submission id cannot be empty")
 	}
 	if envelope.EventName == VideoEventsPackage.VideoDeletedEventName {
-		if err := c.projector.Delete(ctx, envelope.EventID, event.SubmissionID); err != nil {
+		if err := c.projector.Delete(ctx, delivery, envelope.EventID, event.SubmissionID); err != nil {
 			return fmt.Errorf("delete feed projection: %w", err)
 		}
 		return nil
@@ -53,7 +66,7 @@ func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) er
 	if envelope.Timestamp <= 0 {
 		return fmt.Errorf("feed published timestamp must be positive")
 	}
-	if err := c.projector.Publish(ctx, envelope.EventID, event.SubmissionID, envelope.Timestamp); err != nil {
+	if err := c.projector.Publish(ctx, delivery, envelope.EventID, event.SubmissionID, envelope.Timestamp); err != nil {
 		return fmt.Errorf("publish feed projection: %w", err)
 	}
 	return nil

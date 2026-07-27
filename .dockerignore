@@ -1,0 +1,14 @@
+.git
+.DS_Store
+.idea
+.vscode
+TestNotes
+uploads
+*.key
+*.pem
+*.log
+*.out
+coverage*
+dump.rdb
+config/MLC.env
+config/**/*.local.*

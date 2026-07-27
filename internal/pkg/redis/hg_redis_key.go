@@ -10,8 +10,50 @@ package PersistenceRedisPackage
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 )
+
+// GetFeedShard 使用稳定哈希把同一 submission 固定到同一 Feed shard。
+func GetFeedShard(submissionID string, shardCount int) int {
+	if shardCount <= 1 {
+		return 0
+	}
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(submissionID))
+	return int(hasher.Sum32() % uint32(shardCount))
+}
+
+// GetFeedPublishedZSetKey 返回版本化分片 Feed ZSET；hash tag 将同 shard 的 Lua keys 固定到同一 slot。
+func GetFeedPublishedZSetKey(generation string, shard int) string {
+	return fmt.Sprintf("feed:%s:{feed-%04d}:published", generation, shard)
+}
+
+// GetFeedOffsetWatermarkKey 返回每个 Feed shard 的 Kafka partition offset 水位 Hash。
+func GetFeedOffsetWatermarkKey(generation string, shard int) string {
+	return fmt.Sprintf("feed:%s:{feed-%04d}:offsets", generation, shard)
+}
+
+// GetStatisticShard 将 Kafka partition 稳定分散到统计 counter shards。
+func GetStatisticShard(partition int32, shardCount int) int {
+	if shardCount <= 1 {
+		return 0
+	}
+	if partition < 0 {
+		partition = -partition
+	}
+	return int(partition) % shardCount
+}
+
+// GetVideoEventCounterKey 返回版本化统计分片 Hash。
+func GetVideoEventCounterKey(generation string, shard int) string {
+	return fmt.Sprintf("statistic:%s:{stat-%04d}:events", generation, shard)
+}
+
+// GetVideoStatisticOffsetWatermarkKey 返回统计分片的 Kafka offset 水位 Hash。
+func GetVideoStatisticOffsetWatermarkKey(generation string, shard int) string {
+	return fmt.Sprintf("statistic:%s:{stat-%04d}:offsets", generation, shard)
+}
 
 /*
 验证码：

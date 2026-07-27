@@ -5,4 +5,4 @@ mysql:
   # 占位值。正式部署必须通过密钥管理系统生成受控配置，禁止提交真实密码。
   password: "********"
   database: HG_MLC_PROD_DB
-  migrate_expect_version: 9
+  migrate_expect_version: 10

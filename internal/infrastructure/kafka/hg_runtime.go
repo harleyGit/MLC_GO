@@ -57,14 +57,14 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		{
 			name:        "feed",
 			config:      cfg.Consumers.Feed,
-			handler:     FeedConsumerPackage.NewConsumer(FeedConsumerPackage.NewRedisProjector(deps.Redis, 0, 0)),
+			handler:     FeedConsumerPackage.NewConsumer(FeedConsumerPackage.NewRedisProjector(deps.Redis, 0, 0, "")),
 			implemented: true,
 		},
 		{name: "search", config: cfg.Consumers.Search, handler: SearchConsumerPackage.NewConsumer()},
 		{
 			name:        "statistic",
 			config:      cfg.Consumers.Statistic,
-			handler:     StatisticConsumerPackage.NewConsumer(StatisticConsumerPackage.NewRedisCounter(deps.Redis, 0)),
+			handler:     StatisticConsumerPackage.NewConsumer(StatisticConsumerPackage.NewRedisCounter(deps.Redis, 0, "")),
 			implemented: true,
 		},
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},

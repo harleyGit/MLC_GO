@@ -6,13 +6,18 @@ groups:
         for: 2m
         labels:
           severity: critical
+          service: mlc-go
+          component: kafka
         annotations:
           summary: MLC management metrics target is down
+          runbook_url: https://runbooks.internal/mlc/target-down
       - alert: MLCKafkaProduceFailures
         expr: increase(mlc_kafka_produce_failures_total[5m]) > 0
         for: 2m
         labels:
           severity: warning
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka producer failures detected
       - alert: MLCKafkaCommitFailures
@@ -20,6 +25,8 @@ groups:
         for: 2m
         labels:
           severity: warning
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka offset commit failures detected
       - alert: MLCKafkaHandlerFailures
@@ -27,6 +34,8 @@ groups:
         for: 2m
         labels:
           severity: warning
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka domain event handler failures detected
       - alert: MLCKafkaDLQWriteFailures
@@ -34,6 +43,8 @@ groups:
         for: 1m
         labels:
           severity: critical
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka DLQ writes are failing
       - alert: MLCKafkaConsumerPanics
@@ -41,6 +52,8 @@ groups:
         for: 0m
         labels:
           severity: critical
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka consumer handler panic recovered
       - alert: MLCKafkaPartitionsLost
@@ -48,5 +61,7 @@ groups:
         for: 0m
         labels:
           severity: critical
+          service: mlc-go
+          component: kafka
         annotations:
           summary: Kafka consumer partitions were lost

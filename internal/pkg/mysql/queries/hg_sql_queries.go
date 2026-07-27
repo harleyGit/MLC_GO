@@ -578,30 +578,39 @@ VALUES (?, ?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)`
 SELECT id, event_id, event_name, event_key, topic, payload, retry_count
 FROM outbox_events
 WHERE status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP
-ORDER BY id ASC
-LIMIT ?
-FOR UPDATE SKIP LOCKED`
+	ORDER BY next_retry_at ASC, id ASC
+	LIMIT ?
+	FOR UPDATE SKIP LOCKED`
+
+	// ClaimOutboxEventSQL 在短事务内写入租约。索引扫描和行锁在事务提交后立即释放，Kafka I/O 不进入事务。
+	ClaimOutboxEventSQL = `
+	UPDATE outbox_events
+	SET lease_token = ?,
+	    next_retry_at = TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP),
+	    updated_at = CURRENT_TIMESTAMP
+	WHERE id = ? AND status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP`
 
 	// MarkOutboxEventPublishedSQL 标记事件已投递 Kafka。
 	MarkOutboxEventPublishedSQL = `
 UPDATE outbox_events
-SET status = 'published', published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`
+	SET status = 'published', published_at = CURRENT_TIMESTAMP, last_error = '', lease_token = NULL, updated_at = CURRENT_TIMESTAMP
+	WHERE id = ? AND status = 'pending' AND lease_token = ?`
 
 	// MarkOutboxEventRetrySQL 投递失败时递增重试次数，并按 retry_count 拉长下次重试时间。
 	MarkOutboxEventRetrySQL = `
 UPDATE outbox_events
 SET retry_count = retry_count + 1,
     last_error = ?,
-    next_retry_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL LEAST(retry_count + 1, 60) SECOND),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`
+	    next_retry_at = TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP),
+	    lease_token = NULL,
+	    updated_at = CURRENT_TIMESTAMP
+	WHERE id = ? AND status = 'pending' AND lease_token = ?`
 
 	// MarkOutboxEventDeadSQL 超过最大重试次数后进入死信状态，避免一条毒消息阻塞整个队列。
 	MarkOutboxEventDeadSQL = `
 UPDATE outbox_events
-SET status = 'dead', last_error = ?, updated_at = CURRENT_TIMESTAMP
-WHERE id = ?`
+	SET status = 'dead', retry_count = retry_count + 1, last_error = ?, lease_token = NULL, updated_at = CURRENT_TIMESTAMP
+	WHERE id = ? AND status = 'pending' AND lease_token = ?`
 )
 
 // 聊天模块

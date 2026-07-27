@@ -1,0 +1,14 @@
+audit_consumer:
+  enabled: false
+  activation_requirements:
+    - entered-review versus completed-review event semantics agreed
+    - request and response schemas versioned
+    - EventID idempotency header accepted by the moderation service
+    - timeout, exponential backoff and retryable status codes agreed
+    - global and tenant concurrency/rate limits configured
+    - replayable DLQ and immutable audit trail retention defined
+    - secret-sourced TLS and authentication configuration
+  defaults:
+    request_timeout: 3s
+    max_attempts: 5
+    max_concurrency: 32

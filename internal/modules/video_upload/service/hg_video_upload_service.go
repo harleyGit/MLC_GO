@@ -302,15 +302,21 @@ func (s *Service) publishSubmissionEvents(ctx context.Context, userID string, re
 
 func (s *Service) submissionEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) []events.DomainEvent {
 	// 只返回需要和业务事务一起提交的事件，调用方负责写入 Outbox。
-	if req.Status != "reviewing" {
-		return nil
-	}
-	return []events.DomainEvent{
-		VideoEventsPackage.VideoReviewedEvent{
+	switch req.Status {
+	case "reviewing":
+		return []events.DomainEvent{VideoEventsPackage.VideoReviewedEvent{
 			EventMeta:    events.NewEventMeta(ctx),
 			SubmissionID: req.SubmissionID,
 			UserID:       userID,
-		},
+		}}
+	case "published":
+		return []events.DomainEvent{VideoEventsPackage.VideoPublishedEvent{
+			EventMeta:    events.NewEventMeta(ctx),
+			SubmissionID: req.SubmissionID,
+			UserID:       userID,
+		}}
+	default:
+		return nil
 	}
 }
 
