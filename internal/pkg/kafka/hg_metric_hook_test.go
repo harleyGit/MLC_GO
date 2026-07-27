@@ -1,12 +1,23 @@
 package HGKafkaPackage
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestHGKafkaMetricsHandlerAppendsComponentMetrics(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	HGKafkaMetricsHandler(func(w io.Writer) { _, _ = fmt.Fprint(w, "mlc_component_metric 1\n") }).ServeHTTP(recorder, request)
+	if !strings.Contains(recorder.Body.String(), "mlc_component_metric 1") {
+		t.Fatalf("metrics = %s", recorder.Body.String())
+	}
+}
 
 func TestHGKafkaMetricsHandlerExposesConsumerMetrics(t *testing.T) {
 	hgResetKafkaMetricsForTest()

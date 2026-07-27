@@ -1,11 +1,18 @@
 package kafka
 
 import (
+	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"strings"
 	"testing"
 )
+
+type hgRuntimeStatisticStoreStub struct{}
+
+func (hgRuntimeStatisticStoreStub) StoreStatisticEvent(context.Context, ClickHousePackage.HGStatisticEvent) error {
+	return nil
+}
 
 type hgRuntimeRedisStub struct{}
 
@@ -58,6 +65,16 @@ func TestNewRuntimeRejectsEnabledFeedWithoutRedis(t *testing.T) {
 	}, RuntimeDependencies{})
 	if err == nil || !strings.Contains(err.Error(), "redis") {
 		t.Fatalf("error = %v, want redis dependency error", err)
+	}
+}
+
+func TestNewRuntimeRejectsEnabledStatisticWithoutAuthorityStore(t *testing.T) {
+	_, err := NewRuntime(context.Background(), HGKafkaPackage.HGClusterConfig{
+		Brokers: []string{"127.0.0.1:9092"}, Topics: []string{"mlc.domain.events"},
+		Consumers: HGKafkaPackage.HGConsumerGroupConfigs{Statistic: HGKafkaPackage.HGConsumerConfig{Enabled: true, GroupID: "statistic"}},
+	}, RuntimeDependencies{Redis: hgRuntimeRedisStub{}})
+	if err == nil || !strings.Contains(err.Error(), "ClickHouse") {
+		t.Fatalf("error = %v, want ClickHouse dependency error", err)
 	}
 }
 

@@ -10,11 +10,16 @@ package ConfigPackage
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
+
+var hgStatisticGenerationPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
 // HGMySQLConfig 描述当前环境的 MySQL 连接和 schema 版本约束。
 type HGMySQLConfig struct {
@@ -33,6 +38,41 @@ type HGMySQLConfig struct {
 type HGRedisConfig struct {
 	Host string `yaml:"host" mapstructure:"host"`
 	Port string `yaml:"port" mapstructure:"port"`
+}
+
+// HGClickHouseConfig 描述 Statistic 权威事件存储的 HTTP 连接配置。
+type HGClickHouseConfig struct {
+	Enabled              bool          `yaml:"enabled" mapstructure:"enabled"`
+	Scheme               string        `yaml:"scheme" mapstructure:"scheme"`
+	Host                 string        `yaml:"host" mapstructure:"host"`
+	Port                 string        `yaml:"port" mapstructure:"port"`
+	Database             string        `yaml:"database" mapstructure:"database"`
+	User                 string        `yaml:"user" mapstructure:"user"`
+	Password             string        `yaml:"password" mapstructure:"password"`
+	StatisticEventsTable string        `yaml:"statistic_events_table" mapstructure:"statistic_events_table"`
+	StatisticTotalsTable string        `yaml:"statistic_totals_table" mapstructure:"statistic_totals_table"`
+	WriteTimeout         string        `yaml:"write_timeout" mapstructure:"write_timeout"`
+	QueryTimeout         string        `yaml:"query_timeout" mapstructure:"query_timeout"`
+	WriteTimeoutDuration time.Duration `yaml:"-" mapstructure:"-"`
+	QueryTimeoutDuration time.Duration `yaml:"-" mapstructure:"-"`
+}
+
+// HGStatisticConfig 描述 Redis 投影版本和检测式对账参数。
+type HGStatisticConfig struct {
+	RedisGeneration   string `yaml:"redis_generation" mapstructure:"redis_generation"`
+	RedisShardCount   int    `yaml:"redis_shard_count" mapstructure:"redis_shard_count"`
+	ReconcileEnabled  bool   `yaml:"reconcile_enabled" mapstructure:"reconcile_enabled"`
+	ReconcileInterval string `yaml:"reconcile_interval" mapstructure:"reconcile_interval"`
+	ReconcileTimeout  string `yaml:"reconcile_timeout" mapstructure:"reconcile_timeout"`
+}
+
+// HGStatisticInfrastructureConfig 是校验完成、可直接构造运行期依赖的配置。
+type HGStatisticInfrastructureConfig struct {
+	RedisGeneration   string
+	RedisShardCount   int
+	ReconcileEnabled  bool
+	ReconcileInterval time.Duration
+	ReconcileTimeout  time.Duration
 }
 
 // GetMySQLConfig 从已加载的模块化 YAML 中读取并校验 MySQL 配置。
@@ -73,6 +113,67 @@ func GetRedisConfig() (HGRedisConfig, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// GetStatisticInfrastructureConfig 读取并校验 ClickHouse 和 Statistic 投影配置。
+func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastructureConfig, error) {
+	var clickHouse HGClickHouseConfig
+	var rawStatistic HGStatisticConfig
+	var statistic HGStatisticInfrastructureConfig
+	if err := viper.UnmarshalKey("clickhouse", &clickHouse); err != nil {
+		return clickHouse, statistic, fmt.Errorf("读取 ClickHouse 配置失败: %w", err)
+	}
+	if err := viper.UnmarshalKey("statistic", &rawStatistic); err != nil {
+		return clickHouse, statistic, fmt.Errorf("读取 Statistic 配置失败: %w", err)
+	}
+	clickHouse.Scheme = strings.TrimSpace(clickHouse.Scheme)
+	clickHouse.Host = strings.TrimSpace(clickHouse.Host)
+	clickHouse.Port = strings.TrimSpace(clickHouse.Port)
+	clickHouse.Database = strings.TrimSpace(clickHouse.Database)
+	clickHouse.User = strings.TrimSpace(clickHouse.User)
+	clickHouse.StatisticEventsTable = strings.TrimSpace(clickHouse.StatisticEventsTable)
+	clickHouse.StatisticTotalsTable = strings.TrimSpace(clickHouse.StatisticTotalsTable)
+	if password := os.Getenv("CLICKHOUSE_PASSWORD"); password != "" {
+		clickHouse.Password = password
+	}
+	if clickHouse.Scheme != "http" && clickHouse.Scheme != "https" {
+		return clickHouse, statistic, fmt.Errorf("clickhouse.scheme 仅支持 http 或 https")
+	}
+	if clickHouse.Host == "" || clickHouse.Database == "" || clickHouse.User == "" || clickHouse.StatisticEventsTable == "" || clickHouse.StatisticTotalsTable == "" {
+		return clickHouse, statistic, fmt.Errorf("clickhouse.host、database、user 和统计表名不能为空")
+	}
+	if err := hgValidatePort("clickhouse.port", clickHouse.Port); err != nil {
+		return clickHouse, statistic, err
+	}
+	writeTimeout, err := time.ParseDuration(clickHouse.WriteTimeout)
+	if err != nil || writeTimeout <= 0 {
+		return clickHouse, statistic, fmt.Errorf("clickhouse.write_timeout 必须是正 duration")
+	}
+	queryTimeout, err := time.ParseDuration(clickHouse.QueryTimeout)
+	if err != nil || queryTimeout <= 0 {
+		return clickHouse, statistic, fmt.Errorf("clickhouse.query_timeout 必须是正 duration")
+	}
+	clickHouse.WriteTimeoutDuration = writeTimeout
+	clickHouse.QueryTimeoutDuration = queryTimeout
+
+	statistic.RedisGeneration = strings.TrimSpace(rawStatistic.RedisGeneration)
+	statistic.RedisShardCount = rawStatistic.RedisShardCount
+	statistic.ReconcileEnabled = rawStatistic.ReconcileEnabled
+	if !hgStatisticGenerationPattern.MatchString(statistic.RedisGeneration) {
+		return clickHouse, statistic, fmt.Errorf("statistic.redis_generation 仅允许 1-32 位字母、数字、下划线和连字符")
+	}
+	if statistic.RedisShardCount < 1 || statistic.RedisShardCount > 4096 {
+		return clickHouse, statistic, fmt.Errorf("statistic.redis_shard_count 必须在 1-4096 之间")
+	}
+	statistic.ReconcileInterval, err = time.ParseDuration(rawStatistic.ReconcileInterval)
+	if err != nil || statistic.ReconcileInterval <= 0 {
+		return clickHouse, statistic, fmt.Errorf("statistic.reconcile_interval 必须是正 duration")
+	}
+	statistic.ReconcileTimeout, err = time.ParseDuration(rawStatistic.ReconcileTimeout)
+	if err != nil || statistic.ReconcileTimeout <= 0 || statistic.ReconcileTimeout >= statistic.ReconcileInterval {
+		return clickHouse, statistic, fmt.Errorf("statistic.reconcile_timeout 必须为正且小于 reconcile_interval")
+	}
+	return clickHouse, statistic, nil
 }
 
 func hgValidatePort(name string, value string) error {

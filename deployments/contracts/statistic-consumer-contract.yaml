@@ -1,0 +1,30 @@
+version: 1
+consumer: statistic
+status: disabled_until_pre_acceptance
+semantics:
+  metric: cumulative_domain_event_count
+  authority: clickhouse.statistic_events
+  fast_projection: redis_sharded_hash
+  delivery: at_least_once
+  authority_deduplication: uniqExact(event_id)
+write_order:
+  - clickhouse_acknowledged_insert
+  - redis_atomic_projection
+  - kafka_offset_commit
+reconciliation:
+  mode: detect_only
+  automatic_redis_overwrite: forbidden
+  reason: online overwrite can lose concurrent increments
+  repair_runbook:
+    - pause_statistic_consumer
+    - build_new_redis_generation_from_clickhouse
+    - verify_new_generation
+    - switch_generation_configuration
+    - resume_consumer
+production_gates:
+  - clickhouse_schema_applied
+  - clickhouse_tls_and_secret_configured
+  - pre_environment_reconciliation_has_zero_sustained_drift
+  - clickhouse_write_failure_alert_verified
+  - reconciliation_staleness_alert_verified
+  - kafka_consumer_lag_alert_verified

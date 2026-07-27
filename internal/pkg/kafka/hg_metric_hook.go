@@ -3,6 +3,7 @@ package HGKafkaPackage
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -99,7 +100,7 @@ func hgPartitionCount(partitions map[string][]int32) int {
 }
 
 // HGKafkaMetricsHandler 返回 Prometheus text exposition 格式的内存指标，不访问外部依赖。
-func HGKafkaMetricsHandler() http.Handler {
+func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -133,6 +134,11 @@ func HGKafkaMetricsHandler() http.Handler {
 		writeCounter("mlc_kafka_partitions_lost_total", "Kafka partitions lost by this process.", hgKafkaPartitionsLost.Load())
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_assigned_partitions Current Kafka partitions assigned to this process.\n# TYPE mlc_kafka_assigned_partitions gauge\n")
 		_, _ = fmt.Fprintf(w, "mlc_kafka_assigned_partitions %d\n", hgKafkaAssignedPartitionGauge.Load())
+		for _, writeMetrics := range componentWriters {
+			if writeMetrics != nil {
+				writeMetrics(w)
+			}
+		}
 	})
 }
 

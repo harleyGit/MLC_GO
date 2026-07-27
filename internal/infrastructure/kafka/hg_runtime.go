@@ -28,18 +28,26 @@ type hgConsumerWorker struct {
 // RuntimeDependencies 是 Kafka 读模型运行期依赖。
 // Redis 复用应用长生命周期连接池，避免每个 Consumer 重复创建连接池放大资源占用。
 type RuntimeDependencies struct {
-	Redis FeedConsumerPackage.RedisEvalClient
+	Redis                      FeedConsumerPackage.RedisEvalClient
+	StatisticStore             StatisticConsumerPackage.EventStore
+	StatisticAggregate         StatisticConsumerPackage.AggregateReader
+	StatisticRedis             StatisticConsumerPackage.RedisHashReader
+	StatisticConfig            StatisticConsumerPackage.HGProjectionConfig
+	StatisticReconcileConfig   StatisticConsumerPackage.HGReconcileConfig
+	StatisticReconcileInterval time.Duration
 }
 
 // HGRuntime 管理各读模型独立消费组的创建、运行与关闭。
 type HGRuntime struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	workers []hgConsumerWorker
-	wg      sync.WaitGroup
-	once    sync.Once
-	errMu   sync.RWMutex
-	err     error
+	ctx               context.Context
+	cancel            context.CancelFunc
+	workers           []hgConsumerWorker
+	wg                sync.WaitGroup
+	once              sync.Once
+	errMu             sync.RWMutex
+	err               error
+	reconciler        *StatisticConsumerPackage.HGReconciler
+	reconcileInterval time.Duration
 }
 
 // NewRuntime 创建已启用的消费组；未实现消费者默认禁用，不会创建连接。
@@ -53,6 +61,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		runtime.Close()
 		return nil, fmt.Errorf("redis-backed kafka consumer dependency cannot be nil")
 	}
+	if cfg.Consumers.Statistic.Enabled && deps.StatisticStore == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("Statistic ClickHouse authority store dependency cannot be nil")
+	}
 	specs := []hgConsumerWorker{
 		{
 			name:        "feed",
@@ -62,9 +74,13 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		},
 		{name: "search", config: cfg.Consumers.Search, handler: SearchConsumerPackage.NewConsumer()},
 		{
-			name:        "statistic",
-			config:      cfg.Consumers.Statistic,
-			handler:     StatisticConsumerPackage.NewConsumer(StatisticConsumerPackage.NewRedisCounter(deps.Redis, 0, "")),
+			name:   "statistic",
+			config: cfg.Consumers.Statistic,
+			handler: StatisticConsumerPackage.NewConsumer(
+				StatisticConsumerPackage.NewRedisCounter(deps.Redis, deps.StatisticConfig.RedisShardCount, deps.StatisticConfig.RedisGeneration),
+				deps.StatisticStore,
+				deps.StatisticConfig,
+			),
 			implemented: true,
 		},
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},
@@ -89,6 +105,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		}
 		runtime.workers = append(runtime.workers, spec)
 	}
+	if cfg.Consumers.Statistic.Enabled && deps.StatisticAggregate != nil && deps.StatisticRedis != nil && deps.StatisticReconcileInterval > 0 {
+		runtime.reconciler = StatisticConsumerPackage.NewHGReconciler(deps.StatisticAggregate, deps.StatisticRedis, deps.StatisticReconcileConfig)
+		runtime.reconcileInterval = deps.StatisticReconcileInterval
+	}
 	return runtime, nil
 }
 
@@ -110,6 +130,22 @@ func (r *HGRuntime) Start() {
 				}
 				r.errMu.Unlock()
 				r.cancel()
+			}
+		}()
+	}
+	if r.reconciler != nil {
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			ticker := time.NewTicker(r.reconcileInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-r.ctx.Done():
+					return
+				case <-ticker.C:
+					_, _ = r.reconciler.Reconcile(r.ctx)
+				}
 			}
 		}()
 	}

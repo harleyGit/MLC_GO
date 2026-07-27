@@ -241,6 +241,14 @@ func (redisService *RedisService) Eval(ctx context.Context, script string, keys 
 	return redisService.client.Eval(ctx, script, keys, args...).Err()
 }
 
+// HGetAll 读取完整 Hash，供固定小基数的 Statistic shard 对账使用。
+func (redisService *RedisService) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	if redisService == nil || redisService.client == nil {
+		return nil, redis.Nil
+	}
+	return redisService.client.HGetAll(ctx, key).Result()
+}
+
 func getEnvInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {

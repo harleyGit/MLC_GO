@@ -77,8 +77,8 @@ func LoadConfig(env string) error {
 	}
 
 	// baseConfigFiles 定义基础配置文件列表，[...]string 编译器根据初始化数量自动推断长度。
-	baseConfigFiles := [...]string{"app.yaml", "log.yaml", "mysql.yaml", "redis.yaml", "kafka.yaml", "tracing.yaml"}
-	environmentConfigFiles := [...]string{"app.yaml", "log.yaml", "mysql.yaml", "redis.yaml", "kafka.yaml"}
+	baseConfigFiles := [...]string{"app.yaml", "log.yaml", "mysql.yaml", "redis.yaml", "kafka.yaml", "clickhouse.yaml", "tracing.yaml"}
+	environmentConfigFiles := [...]string{"app.yaml", "log.yaml", "mysql.yaml", "redis.yaml", "kafka.yaml", "clickhouse.yaml"}
 	configFiles := make([]string, 0, len(baseConfigFiles)+len(environmentConfigFiles))
 	// 注意：这里base要在前，debug/prod/pre要在后，保证环境配置覆盖基础配置
 	for _, name := range baseConfigFiles {

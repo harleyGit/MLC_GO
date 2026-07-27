@@ -9,9 +9,11 @@
 package main
 
 import (
+	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	InfrastructureEventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	InfrastructureKafkaPackage "MLC_GO/internal/infrastructure/kafka"
 	"MLC_GO/internal/outbox"
+	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
@@ -58,8 +60,49 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		producerCloser()
 		return nil, err
 	}
-	consumerRuntime, err := InfrastructureKafkaPackage.NewRuntime(context.Background(), cfg.Business, InfrastructureKafkaPackage.RuntimeDependencies{Redis: redisService})
+	clickHouseConfig, statisticConfig, err := ConfigPackage.GetStatisticInfrastructureConfig()
 	if err != nil {
+		producerCloser()
+		return nil, fmt.Errorf("Statistic基础设施配置失败: %w", err)
+	}
+	var clickHouseClient *ClickHousePackage.HGClient
+	if cfg.Business.Consumers.Statistic.Enabled {
+		if !clickHouseConfig.Enabled {
+			producerCloser()
+			return nil, fmt.Errorf("Statistic消费者启用时 ClickHouse 必须启用")
+		}
+		clickHouseClient, err = ClickHousePackage.NewHGClient(ClickHousePackage.HGConfig{
+			Endpoint: fmt.Sprintf("%s://%s:%s", clickHouseConfig.Scheme, clickHouseConfig.Host, clickHouseConfig.Port),
+			Database: clickHouseConfig.Database, Username: clickHouseConfig.User, Password: clickHouseConfig.Password,
+			StatisticEventsTable: clickHouseConfig.StatisticEventsTable, StatisticTotalsTable: clickHouseConfig.StatisticTotalsTable,
+			WriteTimeout: clickHouseConfig.WriteTimeoutDuration, QueryTimeout: clickHouseConfig.QueryTimeoutDuration,
+		})
+		if err != nil {
+			producerCloser()
+			return nil, fmt.Errorf("ClickHouse客户端初始化失败: %w", err)
+		}
+		pingCtx, cancel := context.WithTimeout(context.Background(), clickHouseConfig.QueryTimeoutDuration)
+		err = clickHouseClient.PingContext(pingCtx)
+		cancel()
+		if err != nil {
+			_ = clickHouseClient.Close()
+			producerCloser()
+			return nil, fmt.Errorf("ClickHouse连接失败: %w", err)
+		}
+	}
+	runtimeDeps := InfrastructureKafkaPackage.RuntimeDependencies{
+		Redis: redisService, StatisticStore: clickHouseClient, StatisticAggregate: clickHouseClient, StatisticRedis: redisService,
+		StatisticConfig: StatisticConsumerPackage.HGProjectionConfig{RedisGeneration: statisticConfig.RedisGeneration, RedisShardCount: statisticConfig.RedisShardCount},
+	}
+	if statisticConfig.ReconcileEnabled {
+		runtimeDeps.StatisticReconcileConfig = StatisticConsumerPackage.HGReconcileConfig{Generation: statisticConfig.RedisGeneration, ShardCount: statisticConfig.RedisShardCount, Timeout: statisticConfig.ReconcileTimeout}
+		runtimeDeps.StatisticReconcileInterval = statisticConfig.ReconcileInterval
+	}
+	consumerRuntime, err := InfrastructureKafkaPackage.NewRuntime(context.Background(), cfg.Business, runtimeDeps)
+	if err != nil {
+		if clickHouseClient != nil {
+			_ = clickHouseClient.Close()
+		}
 		producerCloser()
 		return nil, fmt.Errorf("Kafka消费者初始化失败: %w", err)
 	}
@@ -86,6 +129,9 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		cancelDispatcher()
 		dispatcherWG.Wait()
 		consumerRuntime.Close()
+		if clickHouseClient != nil {
+			_ = clickHouseClient.Close()
+		}
 		producerCloser()
 	}, nil
 }

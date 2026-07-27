@@ -1,6 +1,7 @@
 package main
 
 import (
+	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	HGHandlerPackage "MLC_GO/internal/handler"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
@@ -166,7 +167,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics),
 	})
 
 	srv := &http.Server{
@@ -181,7 +182,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		MaxHeaderBytes:    mlcServerMaxHeaderBytes,
 	}
 	managementServer := &http.Server{
-		Addr:              buildListenAddr(ConfigPackage.GetManagementPort()),
+		Addr:              buildManagementListenAddr(ConfigPackage.GetManagementHost(), ConfigPackage.GetManagementPort()),
 		Handler:           managementMux,
 		ReadHeaderTimeout: mlcServerReadHeaderTimeout,
 		ReadTimeout:       mlcManagementReadTimeout,

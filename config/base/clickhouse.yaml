@@ -1,0 +1,18 @@
+clickhouse:
+  enabled: false
+  scheme: http
+  database: mlc
+  user: default
+  password: ""
+  statistic_events_table: statistic_events
+  statistic_totals_table: statistic_event_totals
+  write_timeout: 5s
+  query_timeout: 15s
+
+statistic:
+  redis_generation: v2
+  redis_shard_count: 64
+  # 首版只检测 Redis/ClickHouse 漂移并告警，不在线覆盖正在接收增量的 Redis。
+  reconcile_enabled: true
+  reconcile_interval: 5m
+  reconcile_timeout: 20s

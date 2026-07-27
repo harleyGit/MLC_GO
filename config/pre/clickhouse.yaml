@@ -1,0 +1,6 @@
+clickhouse:
+  enabled: false
+  host: pre-clickhouse.internal
+  port: "8123"
+  user: mlc_statistic
+  password: ""

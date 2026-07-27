@@ -1,0 +1,53 @@
+groups:
+  - name: mlc-statistic
+    rules:
+      - alert: MLCStatisticClickHouseWriteFailures
+        expr: increase(mlc_statistic_clickhouse_write_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: mlc-go
+          component: statistic
+        annotations:
+          summary: Statistic authority writes to ClickHouse are failing
+          runbook_url: https://runbooks.internal/mlc/statistic-clickhouse-write-failure
+      - alert: MLCStatisticRedisProjectionFailures
+        expr: increase(mlc_statistic_redis_projection_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: mlc-go
+          component: statistic
+        annotations:
+          summary: Statistic Redis projection is failing after authority writes
+          runbook_url: https://runbooks.internal/mlc/statistic-redis-projection-failure
+      - alert: MLCStatisticReconciliationFailures
+        expr: increase(mlc_statistic_reconcile_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: mlc-go
+          component: statistic
+        annotations:
+          summary: Statistic reconciliation cannot complete
+          runbook_url: https://runbooks.internal/mlc/statistic-reconciliation-failure
+      - alert: MLCStatisticSustainedDrift
+        expr: mlc_statistic_reconcile_current_drift > 0
+        for: 15m
+        labels:
+          severity: critical
+          service: mlc-go
+          component: statistic
+        annotations:
+          summary: Redis statistic projection differs from ClickHouse authority
+          runbook_url: https://runbooks.internal/mlc/statistic-drift
+      - alert: MLCStatisticReconciliationStale
+        expr: time() - mlc_statistic_reconcile_last_success_unixtime > 900
+        for: 5m
+        labels:
+          severity: warning
+          service: mlc-go
+          component: statistic
+        annotations:
+          summary: Statistic reconciliation has not succeeded recently
+          runbook_url: https://runbooks.internal/mlc/statistic-reconciliation-stale
