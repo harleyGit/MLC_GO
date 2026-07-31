@@ -535,16 +535,52 @@ show columns from 表名;
 
 ### 执行 `migrations`文件夹下的 `xxx.up.sql` 文件,在终端：
 
-```sh
-# xxx.sql 文件里已经有使用具体的某个数据库，如：USE HG_MLC_DB;
-mysql -uroot -p < xxx.sql.up.sql
+在项目根目录 `/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO` 执行 `000002_crate_user.up.sql`：
 
-
-# 若是xxx.sql 某有指明使用哪个数据库使用
-mysql -uroot -p HG_MLC_DB < xxx.sql.up.sql
+```bash
+# 推荐交互输入 MySQL 密码，避免密码出现在 Shell 历史和进程参数中。
+mysql -h127.0.0.1 -P3306 -uroot -p HG_MLC_DB < migrations/000002_crate_user.up.sql
 ```
 
-但是通常使用 ** migrate 工具** 是最主流的，可以使用这个。
+如果当前终端不在项目根目录，使用绝对路径：
+
+```bash
+mysql -h127.0.0.1 -P3306 -uroot -p HG_MLC_DB \
+  < /Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/migrations/000002_crate_user.up.sql
+```
+
+该文件会执行以下操作：
+
+- 不存在时创建 `users` 表；
+- 按唯一手机号 `17681317668` 查询初始化账号；
+- 用户不存在时插入，已存在时只把密码重置为 `123456` 对应的加盐哈希；
+- 不覆盖已有用户的业务 `user_id`、用户名、邮箱等资料。
+
+执行后可以验证账号：
+
+```bash
+mysql -h127.0.0.1 -P3306 -uroot -p HG_MLC_DB -e \
+  "SELECT user_id,user_name,phone,salt FROM users WHERE phone='17681317668';"
+```
+
+注意：`000002` 只负责创建用户表和初始化登录账号。`admin_user`、`role` 等权限表在后续迁移中才创建，因此要获得完整 `super-admin` 权限，必须继续执行全部迁移到版本 19：
+
+```bash
+migrate -path migrations \
+  -database 'mysql://root:你的密码@tcp(127.0.0.1:3306)/HG_MLC_DB' \
+  up
+```
+
+本地 debug 环境也可以使用项目启动前检查命令，它会按版本幂等执行全部迁移：
+
+```bash
+go run ./cmd/hg_config_check \
+  --env debug \
+  --config-dir ./config \
+  --migrations-dir ./migrations
+```
+
+迁移已经是最新版本时输出 `no change` 属于正常结果。不要在已经由 `golang-migrate` 管理版本的共享环境中反复手工执行单个旧迁移；pre/prod 应由发布流程按顺序执行完整迁移并确认 `schema_migrations.version=19`、`dirty=0`。
 
 <br/><br/>
 

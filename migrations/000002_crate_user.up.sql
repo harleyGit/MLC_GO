@@ -19,3 +19,15 @@ CREATE TABLE IF NOT EXISTS `users`(
     UNIQUE KEY `uk_email` (`email`),
     UNIQUE KEY `uk_phone` (`phone`)
 )engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表';
+
+-- 本地/初始化环境超级管理员登录账号。先按手机号更新，再在不存在时插入，不覆盖已有业务 user_id 和资料。
+-- 当前登录实现使用 SHA256(password + salt)；固定盐 HGSA1768 对应密码 123456 的哈希如下。
+UPDATE `users`
+SET `password_hash` = '19149107dec71205435b4f6b76b43554c9a20794e6211dc1ccab594df349fe27',
+    `salt` = 'HGSA1768'
+WHERE `phone` = '17681317668';
+
+INSERT INTO `users` (`user_id`, `user_name`, `email`, `phone`, `password_hash`, `salt`)
+SELECT 'hgid_super_admin_17681317668', 'super_admin_17681317668', NULL, '17681317668',
+       '19149107dec71205435b4f6b76b43554c9a20794e6211dc1ccab594df349fe27', 'HGSA1768'
+WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `phone` = '17681317668');
