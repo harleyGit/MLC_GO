@@ -48,7 +48,8 @@ func (r *Repository) ListAssetPermissions(ctx context.Context, userID string) ([
 	return permissions, rows.Err()
 }
 
-// AppendAssetAudit appends an immutable control-plane audit row. Updates/deletes are intentionally not exposed.
+// AppendAssetAudit appends an immutable control-plane audit row and treats a repeated event key as a successful idempotent replay.
+// Updates/deletes are intentionally not exposed; the SQL duplicate branch only assigns event_key to itself and cannot alter the first payload.
 func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.HGAssetAuditRecord) error {
 	record.EventKey = strings.TrimSpace(record.EventKey)
 	if record.EventKey == "" || len(record.EventKey) > 255 {
@@ -62,6 +63,7 @@ func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.
 	if err != nil {
 		return fmt.Errorf("read ops asset audit insert result: %w", err)
 	}
+	// MySQL reports zero affected rows for the no-op duplicate branch, so only actual event-key replays increment the conflict metric.
 	if rows == 0 {
 		hgObserveAssetAuditEventKeyConflict(record.SourceIP)
 	}
