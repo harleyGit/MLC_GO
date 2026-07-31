@@ -200,6 +200,7 @@ type hgFakeCorrections struct {
 	pending               OpsDtoPackage.HGCoinCorrectionResponse
 	completedCorrectionID string
 	completedApproverID   string
+	completeErr           error
 }
 
 func (f *hgFakeCorrections) CreateCoinCorrection(context.Context, HGAssetOperator, OpsDtoPackage.HGCoinCorrectionRequest, int64) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
@@ -211,7 +212,7 @@ func (f *hgFakeCorrections) GetCoinCorrectionForApproval(context.Context, string
 func (f *hgFakeCorrections) CompleteCoinCorrection(_ context.Context, correctionID, approverID string, _ CoinModelPackage.HGMutationResult, _ string) error {
 	f.completedCorrectionID = correctionID
 	f.completedApproverID = approverID
-	return nil
+	return f.completeErr
 }
 func (f *hgFakeCorrections) ListCoinCorrections(context.Context, uint64, int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error) {
 	return nil, 0, false, nil
@@ -272,6 +273,31 @@ func TestHGOperationalServiceRetriesApprovingCorrectionWithOriginalRequestID(t *
 	}
 	if len(audit.records) != 1 || audit.records[0].Outcome != "succeeded" {
 		t.Fatalf("audit=%+v", audit.records)
+	}
+}
+
+func TestHGOperationalServiceReusesCorrectionAuditEventKeyAfterCompletionFailure(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{balance: 10, result: CoinModelPackage.HGMutationResult{Committed: false, TransactionID: 84, BalanceAfter: 13}}
+	corrections := &hgFakeCorrections{completeErr: errors.New("temporary completion timeout")}
+	audit := &hgFakeAssetAudit{}
+	service := NewHGOperationalService(HGOperationalDeps{CoinAssets: assets, Corrections: corrections, Audit: audit})
+	pending := OpsDtoPackage.HGCoinCorrectionResponse{
+		CorrectionID: "COR-84", UserID: "user-84", RequestID: "request-original-84", Delta: "3",
+		Reason: "approved ticket", ApplicantID: "admin-applicant", ApproverID: "admin-approver", Status: "approving",
+	}
+
+	if err := service.ReplayApprovingCoinCorrection(context.Background(), pending); err == nil {
+		t.Fatal("expected first completion failure")
+	}
+	if err := service.ReplayApprovingCoinCorrection(context.Background(), pending); err == nil {
+		t.Fatal("expected second completion failure")
+	}
+	if len(audit.records) != 2 {
+		t.Fatalf("audit count=%d, want 2 attempted writes", len(audit.records))
+	}
+	const wantEventKey = "v1|coin.correction.apply|succeeded|request-original-84"
+	if audit.records[0].EventKey != wantEventKey || audit.records[1].EventKey != wantEventKey {
+		t.Fatalf("event keys=%q,%q, want %q", audit.records[0].EventKey, audit.records[1].EventKey, wantEventKey)
 	}
 }
 

@@ -249,8 +249,8 @@ const (
 	SelectOpsPermissionIDByCodeSQL      = "SELECT `id` FROM `permission` WHERE `code` = ? AND `status` = 1 ORDER BY `id` DESC LIMIT 1"
 	InsertOpsRolePermissionSQL          = "INSERT INTO `role_permission` (`role_id`,`permission_id`,`create_by`,`update_by`) VALUES (?,?,?,?)"
 	SelectOpsRolePermissionCodesSQL     = "SELECT p.`code` FROM `role` r JOIN `role_permission` rp ON rp.`role_id` = r.`id` JOIN `permission` p ON p.`id` = rp.`permission_id` AND p.`status` = 1 WHERE r.`role_id` = ? AND r.`status` = 1 ORDER BY p.`code` LIMIT 256"
-	// InsertOpsAssetAuditSQL is append-only. The service documents that coin mutation commits before this separate ops audit insert.
-	InsertOpsAssetAuditSQL                = "INSERT INTO `ops_asset_audit` (`operator_id`,`action`,`target_user_id`,`source_ip`,`request_id`,`tid`,`old_balance`,`new_balance`,`applicant_id`,`approver_id`,`outcome`,`error_message`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+	// InsertOpsAssetAuditSQL uses the unique event key to collapse retries while preserving immutable payload columns.
+	InsertOpsAssetAuditSQL                = "INSERT INTO `ops_asset_audit` (`event_key`,`operator_id`,`action`,`target_user_id`,`source_ip`,`request_id`,`tid`,`old_balance`,`new_balance`,`applicant_id`,`approver_id`,`outcome`,`error_message`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE `event_key` = `event_key`"
 	InsertOpsCoinCorrectionSQL            = "INSERT INTO `ops_coin_correction` (`correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`source_ip`,`tid`,`status`) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending')"
 	SelectOpsCoinCorrectionForApprovalSQL = "SELECT `correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`approver_id`,`status`,COALESCE(`transaction_id`,0),COALESCE(`balance_after`,0),`created_at`,`updated_at` FROM `ops_coin_correction` WHERE `correction_id` = ? LIMIT 1 FOR UPDATE"
 	UpdateOpsCoinCorrectionApprovingSQL   = "UPDATE `ops_coin_correction` SET `approver_id` = ?, `status` = 'approving', `approved_at` = NOW() WHERE `correction_id` = ? AND `status` = 'pending' AND `applicant_id` <> ?"

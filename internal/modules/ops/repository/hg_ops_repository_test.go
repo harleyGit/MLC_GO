@@ -93,9 +93,17 @@ func TestHasAssetPermissionUsesDatabaseRBAC(t *testing.T) {
 func TestAppendAssetAuditWritesImmutableRecord(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)
-	err := repo.AppendAssetAudit(context.Background(), OpsDtoPackage.HGAssetAuditRecord{OperatorID: "UID-101", Action: "coin.grant", TargetUserID: "UID-202", SourceIP: "203.0.113.8", RequestID: "REQ-1", TID: "TID-1", OldBalance: 4, NewBalance: 5, Outcome: "succeeded"})
+	err := repo.AppendAssetAudit(context.Background(), OpsDtoPackage.HGAssetAuditRecord{EventKey: "v1|coin.grant|succeeded|REQ-1", OperatorID: "UID-101", Action: "coin.grant", TargetUserID: "UID-202", SourceIP: "203.0.113.8", RequestID: "REQ-1", TID: "TID-1", OldBalance: 4, NewBalance: 5, Outcome: "succeeded"})
 	if err != nil {
 		t.Fatalf("AppendAssetAudit returned error: %v", err)
+	}
+}
+
+func TestAppendAssetAuditRejectsMissingEventKey(t *testing.T) {
+	db := newHGTestDB(t)
+	err := NewRepository(db).AppendAssetAudit(context.Background(), OpsDtoPackage.HGAssetAuditRecord{OperatorID: "UID-101", Action: "coin.grant", RequestID: "REQ-1", Outcome: "succeeded"})
+	if err == nil || !strings.Contains(err.Error(), "event key") {
+		t.Fatalf("error=%v, want missing event key error", err)
 	}
 }
 
@@ -337,7 +345,10 @@ func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, err
 		}
 		return hgOpsTestResult(2), nil
 	case strings.Contains(query, "INSERT INTO `ops_asset_audit`"):
-		if len(args) != 12 || args[0] != "UID-101" || args[1] != "coin.grant" || args[2] != "UID-202" || args[3] != "203.0.113.8" || args[4] != "REQ-1" || args[5] != "TID-1" || args[6] != int64(4) || args[7] != int64(5) || args[10] != "succeeded" {
+		if !strings.Contains(query, "ON DUPLICATE KEY UPDATE") {
+			return nil, fmt.Errorf("audit insert is not idempotent: %s", query)
+		}
+		if len(args) != 13 || args[0] != "v1|coin.grant|succeeded|REQ-1" || args[1] != "UID-101" || args[2] != "coin.grant" || args[3] != "UID-202" || args[4] != "203.0.113.8" || args[5] != "REQ-1" || args[6] != "TID-1" || args[7] != int64(4) || args[8] != int64(5) || args[11] != "succeeded" {
 			return nil, fmt.Errorf("unexpected audit args: %v", args)
 		}
 		return hgOpsTestResult(1), nil

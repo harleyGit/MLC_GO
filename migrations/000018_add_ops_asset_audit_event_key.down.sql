@@ -1,0 +1,1 @@
+-- Immutable audit data and its idempotency key are retained on rollback. Production rollback is roll-forward only.

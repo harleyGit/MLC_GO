@@ -440,6 +440,9 @@ func (s *HGOperationalService) hgLimitWrite(ctx context.Context, operator HGAsse
 }
 
 func (s *HGOperationalService) hgAudit(ctx context.Context, operator HGAssetOperator, action, target, requestID string, oldBalance, newBalance uint64, applicant, approver, outcome string, actionErr error) error {
+	action = strings.TrimSpace(action)
+	requestID = strings.TrimSpace(requestID)
+	outcome = strings.TrimSpace(outcome)
 	message := ""
 	if actionErr != nil {
 		message = actionErr.Error()
@@ -447,7 +450,8 @@ func (s *HGOperationalService) hgAudit(ctx context.Context, operator HGAssetOper
 			message = message[:500]
 		}
 	}
-	if err := s.deps.Audit.AppendAssetAudit(ctx, HGAssetAuditRecord{OperatorID: operator.ID, Action: action, TargetUserID: strings.TrimSpace(target), SourceIP: operator.SourceIP, RequestID: strings.TrimSpace(requestID), TID: operator.TID, OldBalance: oldBalance, NewBalance: newBalance, ApplicantID: applicant, ApproverID: approver, Outcome: outcome, ErrorMessage: message}); err != nil {
+	eventKey := fmt.Sprintf("v1|%s|%s|%s", action, outcome, requestID)
+	if err := s.deps.Audit.AppendAssetAudit(ctx, HGAssetAuditRecord{EventKey: eventKey, OperatorID: operator.ID, Action: action, TargetUserID: strings.TrimSpace(target), SourceIP: operator.SourceIP, RequestID: requestID, TID: operator.TID, OldBalance: oldBalance, NewBalance: newBalance, ApplicantID: applicant, ApproverID: approver, Outcome: outcome, ErrorMessage: message}); err != nil {
 		return fmt.Errorf("append immutable ops asset audit after action boundary: %w", err)
 	}
 	return nil

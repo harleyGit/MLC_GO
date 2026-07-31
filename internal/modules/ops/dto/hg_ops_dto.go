@@ -317,6 +317,7 @@ type HGAssetOperator struct {
 
 // HGAssetAuditRecord is the repository input for an immutable asset audit row.
 type HGAssetAuditRecord struct {
+	EventKey     string
 	OperatorID   string
 	Action       string
 	TargetUserID string

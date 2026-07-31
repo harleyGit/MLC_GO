@@ -50,7 +50,11 @@ func (r *Repository) ListAssetPermissions(ctx context.Context, userID string) ([
 
 // AppendAssetAudit appends an immutable control-plane audit row. Updates/deletes are intentionally not exposed.
 func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.HGAssetAuditRecord) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsAssetAuditSQL, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage)
+	record.EventKey = strings.TrimSpace(record.EventKey)
+	if record.EventKey == "" || len(record.EventKey) > 255 {
+		return fmt.Errorf("ops asset audit event key is required and must not exceed 255 bytes")
+	}
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsAssetAuditSQL, record.EventKey, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage)
 	if err != nil {
 		return fmt.Errorf("insert ops asset audit: %w", err)
 	}
