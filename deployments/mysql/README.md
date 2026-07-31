@@ -8,6 +8,7 @@
 - Verify copied row count and checksums before allowing source deletion. Never run an unbounded `INSERT ... SELECT` or `DELETE`.
 - Provision accounts with `ops_asset_audit_accounts.sql.example`; replace placeholders through DBA automation and Secret management. The reader receives only `SELECT`; the archiver is separate and receives only the table-specific privileges required for bounded copy/delete.
 - Do not run migration 000016 down in an environment containing audit or correction records. Recovery and audit schema changes are roll-forward only.
+- See `ops_asset_audit_event_key_rehearsal.md` for migration 000018 measurements, remaining production-like pre checks, and post-deployment conflict PromQL.
 
 ## Migration Rehearsal
 

@@ -18,3 +18,12 @@ groups:
         annotations:
           summary: "Lot consolidation duration is approaching its timeout"
           description: "Average successful run duration exceeded 15 seconds; keep or reduce the canary batch."
+
+      - alert: MLCOpsAssetAuditUnexpectedEventKeyConflicts
+        expr: increase(mlc_ops_asset_audit_event_key_conflicts_total{source="ops_api"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Asset audit event keys are colliding outside correction recovery"
+          description: "Inspect request ID reuse and caller retry behavior. Expected duplicate audit writes should originate from correction_recovery."

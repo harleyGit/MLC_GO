@@ -54,9 +54,16 @@ func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.
 	if record.EventKey == "" || len(record.EventKey) > 255 {
 		return fmt.Errorf("ops asset audit event key is required and must not exceed 255 bytes")
 	}
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsAssetAuditSQL, record.EventKey, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage)
+	result, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsAssetAuditSQL, record.EventKey, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage)
 	if err != nil {
 		return fmt.Errorf("insert ops asset audit: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read ops asset audit insert result: %w", err)
+	}
+	if rows == 0 {
+		hgObserveAssetAuditEventKeyConflict(record.SourceIP)
 	}
 	return nil
 }

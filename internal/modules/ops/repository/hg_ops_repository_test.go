@@ -107,6 +107,40 @@ func TestAppendAssetAuditRejectsMissingEventKey(t *testing.T) {
 	}
 }
 
+func TestAppendAssetAuditObservesDuplicateEventKeyByFixedSource(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	record := OpsDtoPackage.HGAssetAuditRecord{EventKey: "v1|coin.correction.apply|succeeded|REQ-2", OperatorID: "UID-101", Action: "coin.correction.apply", SourceIP: "system:correction-recovery", RequestID: "REQ-2", Outcome: "succeeded"}
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOpsAssetAuditSQL)).
+		WithArgs(record.EventKey, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	apiRecord := record
+	apiRecord.EventKey = "v1|coin.correction.apply|succeeded|REQ-3"
+	apiRecord.RequestID = "REQ-3"
+	apiRecord.SourceIP = "203.0.113.8"
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOpsAssetAuditSQL)).
+		WithArgs(apiRecord.EventKey, apiRecord.OperatorID, apiRecord.Action, apiRecord.TargetUserID, apiRecord.SourceIP, apiRecord.RequestID, apiRecord.TID, apiRecord.OldBalance, apiRecord.NewBalance, apiRecord.ApplicantID, apiRecord.ApproverID, apiRecord.Outcome, apiRecord.ErrorMessage).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := NewRepository(db).AppendAssetAudit(context.Background(), record); err != nil {
+		t.Fatalf("AppendAssetAudit returned error: %v", err)
+	}
+	if err := NewRepository(db).AppendAssetAudit(context.Background(), apiRecord); err != nil {
+		t.Fatalf("AppendAssetAudit API duplicate returned error: %v", err)
+	}
+	var output strings.Builder
+	HGWritePrometheusMetrics(&output)
+	if !strings.Contains(output.String(), `mlc_ops_asset_audit_event_key_conflicts_total{source="correction_recovery"} 1`) {
+		t.Fatalf("metrics=%q", output.String())
+	}
+	if !strings.Contains(output.String(), `mlc_ops_asset_audit_event_key_conflicts_total{source="ops_api"} 1`) {
+		t.Fatalf("metrics=%q", output.String())
+	}
+}
+
 func TestCompleteCoinCorrectionRejectsLostStateTransition(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
