@@ -1,0 +1,2 @@
+-- Reprojection buckets and consolidation provenance are retained on rollback.
+-- Removing them would break running workers or destroy immutable audit links; use a separately approved roll-forward migration.

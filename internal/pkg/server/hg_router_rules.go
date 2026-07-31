@@ -354,6 +354,9 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 		{Path: "/coin/grant", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{Path: "/coin/refund", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{Path: "/coin/correct", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/coin/corrections/approve", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/coin/corrections/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
+		{Path: "/asset-permissions/current", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/observability/asset-pipeline", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 	}
 }

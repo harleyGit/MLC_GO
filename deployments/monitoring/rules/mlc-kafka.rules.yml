@@ -92,3 +92,30 @@ groups:
           component: kafka
         annotations:
           summary: Kafka consumer lag is above 10000 records
+      # exporter 持续不可达时，broker 端已提交位点积压无法被独立观测。
+      - alert: MLCKafkaCommittedOffsetExporterDown
+        expr: up{job="kafka-committed-offset-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: kafka-committed-offset
+        annotations:
+          summary: Kafka committed-offset exporter is down
+      # 按消费组和 topic 汇总分区 committed lag，避免 partition 等高基数标签进入告警。
+      - alert: MLCKafkaCommittedLagWarning
+        expr: sum by (service, environment, consumergroup, topic) (kafka_consumergroup_lag) > 1000
+        for: 15m
+        labels:
+          severity: warning
+          component: kafka-committed-offset
+        annotations:
+          summary: Kafka committed-offset lag is above 1000 records
+      # broker 端已提交位点持续严重落后时升级告警，并抑制同维度 warning。
+      - alert: MLCKafkaCommittedLagCritical
+        expr: sum by (service, environment, consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 10m
+        labels:
+          severity: critical
+          component: kafka-committed-offset
+        annotations:
+          summary: Kafka committed-offset lag is above 10000 records

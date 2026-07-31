@@ -53,34 +53,42 @@ const (
 	CompleteCoinCommandSQL = `UPDATE user_coin_commands SET status = 'completed', updated_at = NOW()
 		WHERE request_id = ? AND user_id = ? AND status = 'processing'`
 
-	// Projection page queries use migration 14 indexes and stable keysets. LIMIT is always hard-capped by the caller.
-	SelectVideoStateProjectionPageSQL = `SELECT id, user_id, submission_id, interaction_type, active, quantity, updated_at
-		FROM video_user_interactions FORCE INDEX (idx_video_interaction_projection)
-		WHERE updated_at <= ? AND (updated_at > ? OR (updated_at = ? AND id > ?))
-		ORDER BY updated_at, id LIMIT ?`
-	SelectFollowStateProjectionPageSQL = `SELECT id, follower_id, followee_id, active, updated_at
-		FROM user_follow_relations FORCE INDEX (idx_follow_projection)
-		WHERE updated_at <= ? AND (updated_at > ? OR (updated_at = ? AND id > ?))
-		ORDER BY updated_at, id LIMIT ?`
+	// Projection page queries use migration 15 bucket-first indexes and stable keysets. The stored bucket avoids runtime CRC/MOD scans.
+	SelectVideoStateProjectionPageSQL = `SELECT reproject_bucket, id, user_id, submission_id, interaction_type, active, quantity, updated_at
+		FROM video_user_interactions FORCE INDEX (idx_video_interaction_reproject_bucket)
+		WHERE reproject_bucket >= ? AND reproject_bucket < ? AND updated_at <= ? AND
+		(reproject_bucket > ? OR (reproject_bucket = ? AND updated_at > ?) OR (reproject_bucket = ? AND updated_at = ? AND id > ?))
+		ORDER BY reproject_bucket, updated_at, id LIMIT ?`
+	SelectFollowStateProjectionPageSQL = `SELECT reproject_bucket, id, follower_id, followee_id, active, updated_at
+		FROM user_follow_relations FORCE INDEX (idx_follow_reproject_bucket)
+		WHERE reproject_bucket >= ? AND reproject_bucket < ? AND updated_at <= ? AND
+		(reproject_bucket > ? OR (reproject_bucket = ? AND updated_at > ?) OR (reproject_bucket = ? AND updated_at = ? AND id > ?))
+		ORDER BY reproject_bucket, updated_at, id LIMIT ?`
 	SelectVideoCountProjectionPageSQL = `WITH changed AS (
-		SELECT updated_at, submission_id, shard_id
-		FROM video_interaction_stat_shards FORCE INDEX (idx_video_count_projection)
-		WHERE updated_at <= ? AND (updated_at > ? OR (updated_at = ? AND submission_id > ?) OR (updated_at = ? AND submission_id = ? AND shard_id > ?))
-		ORDER BY updated_at, submission_id, shard_id LIMIT ?
+		SELECT reproject_bucket, updated_at, submission_id, shard_id
+		FROM video_interaction_stat_shards FORCE INDEX (idx_video_count_reproject_bucket)
+		WHERE reproject_bucket >= ? AND reproject_bucket < ? AND updated_at <= ? AND
+		(reproject_bucket > ? OR (reproject_bucket = ? AND updated_at > ?) OR
+		(reproject_bucket = ? AND updated_at = ? AND submission_id > ?) OR
+		(reproject_bucket = ? AND updated_at = ? AND submission_id = ? AND shard_id > ?))
+		ORDER BY reproject_bucket, updated_at, submission_id, shard_id LIMIT ?
 	)
-	SELECT changed.updated_at, changed.submission_id, changed.shard_id,
+	SELECT changed.reproject_bucket, changed.updated_at, changed.submission_id, changed.shard_id,
 		SUM(stats.like_count), SUM(stats.coin_count), SUM(stats.favorite_count), SUM(stats.share_count)
 	FROM changed JOIN video_interaction_stat_shards stats ON stats.submission_id = changed.submission_id
-	GROUP BY changed.updated_at, changed.submission_id, changed.shard_id
-	ORDER BY changed.updated_at, changed.submission_id, changed.shard_id`
+	GROUP BY changed.reproject_bucket, changed.updated_at, changed.submission_id, changed.shard_id
+	ORDER BY changed.reproject_bucket, changed.updated_at, changed.submission_id, changed.shard_id`
 	SelectFollowCountProjectionPageSQL = `WITH changed AS (
-		SELECT updated_at, user_id, shard_id
-		FROM user_follow_stat_shards FORCE INDEX (idx_follow_count_projection)
-		WHERE updated_at <= ? AND (updated_at > ? OR (updated_at = ? AND user_id > ?) OR (updated_at = ? AND user_id = ? AND shard_id > ?))
-		ORDER BY updated_at, user_id, shard_id LIMIT ?
+		SELECT reproject_bucket, updated_at, user_id, shard_id
+		FROM user_follow_stat_shards FORCE INDEX (idx_follow_count_reproject_bucket)
+		WHERE reproject_bucket >= ? AND reproject_bucket < ? AND updated_at <= ? AND
+		(reproject_bucket > ? OR (reproject_bucket = ? AND updated_at > ?) OR
+		(reproject_bucket = ? AND updated_at = ? AND user_id > ?) OR
+		(reproject_bucket = ? AND updated_at = ? AND user_id = ? AND shard_id > ?))
+		ORDER BY reproject_bucket, updated_at, user_id, shard_id LIMIT ?
 	)
-	SELECT changed.updated_at, changed.user_id, changed.shard_id, SUM(stats.follower_count)
+	SELECT changed.reproject_bucket, changed.updated_at, changed.user_id, changed.shard_id, SUM(stats.follower_count)
 	FROM changed JOIN user_follow_stat_shards stats ON stats.user_id = changed.user_id
-	GROUP BY changed.updated_at, changed.user_id, changed.shard_id
-	ORDER BY changed.updated_at, changed.user_id, changed.shard_id`
+	GROUP BY changed.reproject_bucket, changed.updated_at, changed.user_id, changed.shard_id
+	ORDER BY changed.reproject_bucket, changed.updated_at, changed.user_id, changed.shard_id`
 )

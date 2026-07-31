@@ -1,0 +1,76 @@
+name: Monitoring CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate Prometheus configuration
+        run: >-
+          docker run --rm
+          -v "$PWD/deployments/monitoring:/etc/prometheus:ro"
+          --entrypoint promtool
+          prom/prometheus:v2.54.1
+          check config /etc/prometheus/prometheus.yml
+
+      - name: Validate all Prometheus rule files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rule_file in deployments/monitoring/rules/*.yml; do
+            docker run --rm \
+              -v "$PWD/deployments/monitoring/rules:/etc/prometheus/rules:ro" \
+              --entrypoint promtool \
+              prom/prometheus:v2.54.1 \
+              check rules "/etc/prometheus/rules/$(basename "$rule_file")"
+          done
+
+      - name: Validate Alertmanager configuration
+        run: >-
+          docker run --rm
+          -v "$PWD/deployments/monitoring:/etc/alertmanager:ro"
+          --entrypoint amtool
+          prom/alertmanager:v0.27.0
+          check-config /etc/alertmanager/alertmanager.yml
+
+      - name: Validate Docker Compose configuration
+        env:
+          ALERTMANAGER_WEBHOOK_URL_FILE: ./monitoring/secrets/alertmanager_webhook_url.example
+        run: docker compose -f deployments/docker-compose.kafka.yml config --quiet
+
+      - name: Test business Go packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=()
+          while IFS= read -r package; do
+            if [[ "$package" != MLC_GO/TestNotes && "$package" != MLC_GO/TestNotes/* ]]; then
+              packages+=("$package")
+            fi
+          done < <(go list ./...)
+          go test "${packages[@]}"
+
+      - name: Build business commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -o /tmp/mlc-go .
+          go build -o /tmp/mlc-server ./cmd/server
+          go build -o /tmp/mlc-config-check ./cmd/hg_config_check

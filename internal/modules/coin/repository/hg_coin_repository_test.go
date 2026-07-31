@@ -5,6 +5,7 @@ import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
+	"database/sql"
 	"errors"
 	"regexp"
 	"testing"
@@ -191,5 +192,57 @@ func TestHGRepositoryTreatsCompletedLegacyVideoCoinAsReplay(t *testing.T) {
 	})
 	if err != nil || result.Committed || result.BalanceAfter != 8 {
 		t.Fatalf("Mutate() result=%+v err=%v", result, err)
+	}
+}
+
+func TestHGRepositoryConsolidatesSameExpiryLotsWithImmutableLinks(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	expiresAt := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinConsolidationUsersSQL)).
+		WithArgs(uint64(0), uint64(10), 2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id"}).AddRow(7, "user-1"))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinWalletForUpdateSQL)).WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(20))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinLotsForConsolidationSQL)).WithArgs("user-1", uint64(10), 8).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "remaining_amount", "expires_at"}).AddRow(2, 3, expiresAt).AddRow(3, 4, expiresAt))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinRequestSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinTransactionSQL)).WillReturnResult(sqlmock.NewResult(11, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.CompleteCoinRequestSQL)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinLotSQL)).WithArgs("user-1", uint64(11), uint64(7), uint64(7), expiresAt).
+		WillReturnResult(sqlmock.NewResult(12, 1))
+	for _, lot := range []struct{ id, amount uint64 }{{2, 3}, {3, 4}} {
+		mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateCoinLotRemainingSQL)).WithArgs(uint64(0), lot.id).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinAllocationSQL)).WithArgs(uint64(11), lot.id, lot.amount, "consolidate_source").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinConsolidationLinkSQL)).WithArgs(uint64(11), lot.id, uint64(12), lot.amount).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinAllocationSQL)).WithArgs(uint64(11), uint64(12), uint64(7), "consolidate_target").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	processed, next, err := NewHGRepository(db, "").ConsolidateBatch(context.Background(), 0, 2, 8, 10)
+	if err != nil || processed != 1 || next != 0 {
+		t.Fatalf("ConsolidateBatch() processed=%d next=%d err=%v", processed, next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGSelectConsolidationGroupSkipsSingletonExpiry(t *testing.T) {
+	expiresFirst := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	expiresSecond := expiresFirst.Add(24 * time.Hour)
+	lots := []hgConsolidationLot{
+		{id: 1, amount: 1, expiresAt: sql.NullTime{Time: expiresFirst, Valid: true}},
+		{id: 2, amount: 2, expiresAt: sql.NullTime{Time: expiresSecond, Valid: true}},
+		{id: 3, amount: 3, expiresAt: sql.NullTime{Time: expiresSecond, Valid: true}},
+	}
+
+	group := hgSelectConsolidationGroup(lots)
+	if len(group) != 2 || group[0].id != 2 || group[1].id != 3 {
+		t.Fatalf("group=%+v, want lots 2 and 3", group)
 	}
 }

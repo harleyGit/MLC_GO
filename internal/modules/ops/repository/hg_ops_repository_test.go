@@ -1,15 +1,20 @@
 package OpsRepositoryPackage
 
 import (
+	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 var hgOpsTestDriverOnce sync.Once
@@ -69,6 +74,54 @@ func TestGetRoleListReturnsBusinessRoleID(t *testing.T) {
 	}
 	if got := list[0]["idInt"]; got != int64(101) {
 		t.Fatalf("role cursor id = %v, want 101", got)
+	}
+}
+
+func TestHasAssetPermissionUsesDatabaseRBAC(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+	allowed, err := repo.HasAssetPermission(context.Background(), "UID-101", "asset.coin.grant")
+	if err != nil {
+		t.Fatalf("HasAssetPermission returned error: %v", err)
+	}
+	if !allowed {
+		t.Fatal("HasAssetPermission = false, want true")
+	}
+}
+
+func TestAppendAssetAuditWritesImmutableRecord(t *testing.T) {
+	db := newHGTestDB(t)
+	repo := NewRepository(db)
+	err := repo.AppendAssetAudit(context.Background(), OpsDtoPackage.HGAssetAuditRecord{OperatorID: "UID-101", Action: "coin.grant", TargetUserID: "UID-202", SourceIP: "203.0.113.8", RequestID: "REQ-1", TID: "TID-1", OldBalance: 4, NewBalance: 5, Outcome: "succeeded"})
+	if err != nil {
+		t.Fatalf("AppendAssetAudit returned error: %v", err)
+	}
+}
+
+func TestAssignRolePermissionsReplacesBoundedPermissionSetAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsRoleInternalIDForUpdateSQL)).WithArgs("ROLE-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DeleteOpsRolePermissionsSQL)).WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsPermissionIDByCodeSQL)).WithArgs("asset.coin.grant").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(11))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOpsRolePermissionSQL)).WithArgs(int64(7), int64(11), "admin-1", "admin-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = NewRepository(db).AssignRolePermissions(context.Background(), "admin-1", "ROLE-1", nil, []string{"asset.coin.grant", "asset.coin.grant"})
+	if err != nil {
+		t.Fatalf("AssignRolePermissions() error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -266,6 +319,11 @@ func (hgOpsTestConn) Exec(query string, args []driver.Value) (driver.Result, err
 			}
 		}
 		return hgOpsTestResult(2), nil
+	case strings.Contains(query, "INSERT INTO `ops_asset_audit`"):
+		if len(args) != 12 || args[0] != "UID-101" || args[1] != "coin.grant" || args[2] != "UID-202" || args[3] != "203.0.113.8" || args[4] != "REQ-1" || args[5] != "TID-1" || args[6] != int64(4) || args[7] != int64(5) || args[10] != "succeeded" {
+			return nil, fmt.Errorf("unexpected audit args: %v", args)
+		}
+		return hgOpsTestResult(1), nil
 	default:
 		return nil, fmt.Errorf("unexpected exec: %s args=%v", query, args)
 	}
@@ -295,6 +353,8 @@ func (hgOpsTestConn) Query(query string, args []driver.Value) (driver.Rows, erro
 		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
 	case strings.Contains(query, "SELECT `id` FROM `admin_user`") && strings.Contains(query, "`user_id` = ?") && args[0] == "UID-101":
 		return newHGTestRows([]string{"id"}, [][]driver.Value{{int64(101)}}), nil
+	case strings.Contains(query, "JOIN `role_permission`") && strings.Contains(query, "p.`code` = ?") && args[0] == "UID-101" && args[1] == "asset.coin.grant":
+		return newHGTestRows([]string{"allowed"}, [][]driver.Value{{int64(1)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`mobile` LIKE") && args[0] == "%3800%":
 		return newHGTestRows([]string{"user_id", "name", "nick_name", "email", "mobile", "status"}, [][]driver.Value{{"UID-101", "Alice Admin", "Alice", "alice@example.com", "13800138000", int64(1)}}), nil
 	case strings.Contains(query, "FROM `admin_user`") && strings.Contains(query, "`user_id` = ?") && args[0] == "UID-101":

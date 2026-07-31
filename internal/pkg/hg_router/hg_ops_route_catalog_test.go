@@ -30,6 +30,9 @@ func TestOpsRouteCatalogContainsCoinOperations(t *testing.T) {
 		"/api/v1/ops/coin/grant":                   http.MethodPost,
 		"/api/v1/ops/coin/refund":                  http.MethodPost,
 		"/api/v1/ops/coin/correct":                 http.MethodPost,
+		"/api/v1/ops/coin/corrections/approve":     http.MethodPost,
+		"/api/v1/ops/coin/corrections/list":        http.MethodGet,
+		"/api/v1/ops/asset-permissions/current":    http.MethodGet,
 		"/api/v1/ops/observability/asset-pipeline": http.MethodGet,
 	}
 	for _, item := range OpsRouteCatalog() {

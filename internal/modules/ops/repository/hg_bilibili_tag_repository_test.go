@@ -89,3 +89,9 @@ func TestDeleteBilibiliTagUsesBusinessTagID(t *testing.T) {
 		t.Fatalf("sql expectations: %v", err)
 	}
 }
+
+func TestIsActiveAdminRequiresEnabledAdminStatus(t *testing.T) {
+	if !regexp.MustCompile("(?i)`status`\\s*=\\s*1").MatchString(SQLQueriesPackage.SelectOpsActiveAdminInternalIDByUserIDSQL) {
+		t.Fatalf("SelectOpsActiveAdminInternalIDByUserIDSQL = %q, want active status predicate", SQLQueriesPackage.SelectOpsActiveAdminInternalIDByUserIDSQL)
+	}
+}

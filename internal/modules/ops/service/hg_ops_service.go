@@ -283,14 +283,36 @@ func (s *Service) GetMenuList(ctx context.Context) (*OpsDtoPackage.MenuListRespo
 
 // AssignRolePermissions 分配角色权限
 func (s *Service) AssignRolePermissions(ctx context.Context, userID string, req OpsDtoPackage.AssignRolePermissionsRequest) error {
-	// TODO: 实现分配角色权限逻辑
-	return nil
+	if s == nil || s.repo == nil || !hgOpsValidText(req.RoleID, 255) {
+		return errors.New("角色ID不能为空")
+	}
+	allowed, err := s.repo.HasAssetPermission(ctx, userID, "ops.rbac.manage")
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrHGOperationsForbidden
+	}
+	return s.repo.AssignRolePermissions(ctx, userID, req.RoleID, req.MenuIDs, req.Permissions)
 }
 
 // GetRolePermissions 获取角色权限
-func (s *Service) GetRolePermissions(ctx context.Context, roleID string) (*OpsDtoPackage.RolePermissionResponse, error) {
-	// TODO: 实现获取角色权限逻辑
-	return nil, nil
+func (s *Service) GetRolePermissions(ctx context.Context, userID, roleID string) (*OpsDtoPackage.RolePermissionResponse, error) {
+	if s == nil || s.repo == nil || !hgOpsValidText(roleID, 255) {
+		return nil, errors.New("角色ID不能为空")
+	}
+	allowed, err := s.repo.HasAssetPermission(ctx, userID, "ops.rbac.manage")
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, ErrHGOperationsForbidden
+	}
+	menuIDs, permissions, err := s.repo.GetRolePermissions(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+	return &OpsDtoPackage.RolePermissionResponse{RoleID: strings.TrimSpace(roleID), MenuIDs: menuIDs, Permissions: permissions}, nil
 }
 
 // UploadFile 上传文件

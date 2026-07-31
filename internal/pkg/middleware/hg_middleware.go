@@ -60,19 +60,73 @@ func RecoverInterceptor(next http.Handler) http.Handler {
 
 // CORSMiddleware 统一处理跨域请求与预检响应。
 func CORSMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	allowedOrigins := loadCORSAllowedOrigins()
+	allowMethods := "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+	allowHeaders := strings.Join(corsAllowedHeaders, ", ")
 
-		if r.Method == http.MethodOptions {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			w.Header().Add("Vary", "Origin")
+		}
+		_, originAllowed := allowedOrigins[origin]
+		if originAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+
+		if r.Method == http.MethodOptions && origin != "" {
+			if !originAllowed || !corsPreflightAllowed(r) {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+			w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func loadCORSAllowedOrigins() map[string]struct{} {
+	raw := strings.TrimSpace(os.Getenv(corsAllowedOriginsEnv))
+	origins := corsDefaultAllowedOrigins
+	if raw != "" {
+		origins = strings.Split(raw, ",")
+	}
+	allowed := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			allowed[origin] = struct{}{}
+		}
+	}
+	return allowed
+}
+
+func corsPreflightAllowed(r *http.Request) bool {
+	method := strings.ToUpper(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")))
+	if _, ok := corsAllowedMethods[method]; !ok {
+		return false
+	}
+	for _, header := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
+		header = strings.TrimSpace(header)
+		if header != "" && !corsHeaderAllowed(header) {
+			return false
+		}
+	}
+	return true
+}
+
+func corsHeaderAllowed(header string) bool {
+	for _, allowed := range corsAllowedHeaders {
+		if strings.EqualFold(header, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 // CORSInterceptor 兼容旧方法名。
@@ -118,6 +172,38 @@ func TIDMiddleware(next http.Handler) http.Handler {
 
 const accessLogTag = "access_log"
 const accessLogSampleRateEnv = "HG_ACCESS_LOG_SAMPLE_RATE"
+
+const corsAllowedOriginsEnv = "HG_CORS_ALLOWED_ORIGINS"
+
+var corsDefaultAllowedOrigins = []string{
+	"http://localhost:5173",
+	"http://localhost:5174",
+	"http://127.0.0.1:5173",
+	"http://127.0.0.1:5174",
+}
+
+var corsAllowedMethods = map[string]struct{}{
+	http.MethodGet:     {},
+	http.MethodPost:    {},
+	http.MethodPut:     {},
+	http.MethodDelete:  {},
+	http.MethodPatch:   {},
+	http.MethodOptions: {},
+}
+
+var corsAllowedHeaders = []string{
+	"Accept",
+	"Authorization",
+	"Content-Type",
+	"X-API-Version",
+	"X-Client-Type",
+	"X-Client-Version",
+	"X-Device-ID",
+	"X-Language",
+	"X-Request-ID",
+	"X-Signature",
+	"X-Timestamp",
+}
 
 var accessLogSampleRate = loadAccessLogSampleRate()
 

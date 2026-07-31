@@ -55,8 +55,22 @@ const (
 	SelectCoinInitializerCheckpointSQL = `SELECT cursor_value FROM coin_job_checkpoints WHERE job_name = 'wallet_initializer'`
 	UpsertCoinInitializerCheckpointSQL = `INSERT INTO coin_job_checkpoints (job_name, cursor_value) VALUES ('wallet_initializer', ?)
 		ON DUPLICATE KEY UPDATE cursor_value = GREATEST(cursor_value, VALUES(cursor_value)), updated_at = NOW()`
+	SelectCoinReconciliationCheckpointSQL = `SELECT cursor_value FROM coin_job_checkpoints WHERE job_name = 'wallet_reconciliation'`
+	UpsertCoinReconciliationCheckpointSQL = `INSERT INTO coin_job_checkpoints (job_name, cursor_value) VALUES ('wallet_reconciliation', ?)
+		ON DUPLICATE KEY UPDATE cursor_value = VALUES(cursor_value), updated_at = NOW()`
+	SelectCoinConsolidationCheckpointSQL = `SELECT cursor_value FROM coin_job_checkpoints WHERE job_name = 'lot_consolidation'`
+	UpsertCoinConsolidationCheckpointSQL = `INSERT INTO coin_job_checkpoints (job_name, cursor_value) VALUES ('lot_consolidation', ?)
+		ON DUPLICATE KEY UPDATE cursor_value = VALUES(cursor_value), updated_at = NOW()`
 	SelectCoinReconciliationPageSQL = `SELECT users.id, wallet.user_id, wallet.balance,
 		(SELECT COALESCE(SUM(lot.remaining_amount), 0) FROM coin_asset_lots lot FORCE INDEX (idx_coin_lot_fefo) WHERE lot.user_id = wallet.user_id)
 		FROM users JOIN user_coin_wallets wallet ON wallet.user_id = users.user_id
 		WHERE users.id > ? ORDER BY users.id LIMIT ?`
+	// Consolidation discovery uses users.id keyset plus the lot small-candidate index; each selected wallet is processed in a separate short transaction.
+	SelectCoinConsolidationUsersSQL = `SELECT users.id, wallet.user_id FROM users JOIN user_coin_wallets wallet ON wallet.user_id = users.user_id
+		WHERE users.id > ? AND EXISTS (SELECT 1 FROM coin_asset_lots lot FORCE INDEX (idx_coin_lot_consolidation)
+		WHERE lot.user_id = wallet.user_id AND lot.remaining_amount > 0 AND lot.remaining_amount <= ?) ORDER BY users.id LIMIT ?`
+	SelectCoinLotsForConsolidationSQL = `SELECT id, remaining_amount, expires_at FROM coin_asset_lots FORCE INDEX (idx_coin_lot_consolidation)
+		WHERE user_id = ? AND remaining_amount > 0 AND remaining_amount <= ? ORDER BY remaining_amount, expires_sort, id LIMIT ? FOR UPDATE`
+	InsertCoinConsolidationLinkSQL = `INSERT INTO coin_lot_consolidation_links
+		(consolidation_transaction_id, source_lot_id, target_lot_id, amount) VALUES (?, ?, ?, ?)`
 )

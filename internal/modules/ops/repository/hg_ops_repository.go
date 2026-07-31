@@ -1,6 +1,8 @@
 package OpsRepositoryPackage
 
 import (
+	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
@@ -14,6 +16,163 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 )
+
+// HasAssetPermission performs a server-side indexed RBAC lookup for one exact asset action.
+func (r *Repository) HasAssetPermission(ctx context.Context, userID, permission string) (bool, error) {
+	var allowed int
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsAssetPermissionSQL, strings.TrimSpace(userID), strings.TrimSpace(permission)).Scan(&allowed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query asset permission: %w", err)
+	}
+	return allowed == 1, nil
+}
+
+// ListAssetPermissions returns the current operator's active database-backed asset permission codes.
+func (r *Repository) ListAssetPermissions(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsAssetPermissionsSQL, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, fmt.Errorf("query asset permissions: %w", err)
+	}
+	defer rows.Close()
+	permissions := make([]string, 0, 8)
+	for rows.Next() {
+		var permission string
+		if err := rows.Scan(&permission); err != nil {
+			return nil, err
+		}
+		permissions = append(permissions, permission)
+	}
+	return permissions, rows.Err()
+}
+
+// AppendAssetAudit appends an immutable control-plane audit row. Updates/deletes are intentionally not exposed.
+func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.HGAssetAuditRecord) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsAssetAuditSQL, record.OperatorID, record.Action, record.TargetUserID, record.SourceIP, record.RequestID, record.TID, record.OldBalance, record.NewBalance, record.ApplicantID, record.ApproverID, record.Outcome, record.ErrorMessage)
+	if err != nil {
+		return fmt.Errorf("insert ops asset audit: %w", err)
+	}
+	return nil
+}
+
+// CreateCoinCorrection persists the applicant identity and ticket before any balance mutation is possible.
+func (r *Repository) CreateCoinCorrection(ctx context.Context, operator OpsDtoPackage.HGAssetOperator, req OpsDtoPackage.HGCoinCorrectionRequest, delta int64) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	correctionID := UtilsPackage.GenerateBusinessID("COR")
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOpsCoinCorrectionSQL, correctionID, strings.TrimSpace(req.UserID), strings.TrimSpace(req.RequestID), strings.TrimSpace(req.TicketID), strings.TrimSpace(req.WorkOrderID), delta, strings.TrimSpace(req.Reason), operator.ID, operator.SourceIP, operator.TID)
+	if err != nil {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, fmt.Errorf("insert coin correction request: %w", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return OpsDtoPackage.HGCoinCorrectionResponse{CorrectionID: correctionID, UserID: strings.TrimSpace(req.UserID), RequestID: strings.TrimSpace(req.RequestID), TicketID: strings.TrimSpace(req.TicketID), WorkOrderID: strings.TrimSpace(req.WorkOrderID), Delta: strconv.FormatInt(delta, 10), Reason: strings.TrimSpace(req.Reason), ApplicantID: operator.ID, Status: "pending", CreatedAt: now, UpdatedAt: now}, nil
+}
+
+// GetCoinCorrectionForApproval atomically claims a pending row for a distinct approver.
+func (r *Repository) GetCoinCorrectionForApproval(ctx context.Context, correctionID, approverID string) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, err
+	}
+	defer tx.Rollback()
+	item, _, err := hgScanCoinCorrection(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsCoinCorrectionForApprovalSQL, correctionID), false)
+	if err != nil {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, fmt.Errorf("load correction for approval: %w", err)
+	}
+	if item.ApplicantID == approverID {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, OpsDtoPackage.ErrHGAssetCorrectionInvalidApprover
+	}
+	if item.Status == "approving" && item.ApproverID == approverID {
+		if err := tx.Commit(); err != nil {
+			return OpsDtoPackage.HGCoinCorrectionResponse{}, err
+		}
+		return item, nil
+	}
+	if item.Status != "pending" {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, fmt.Errorf("correction is not pending")
+	}
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.UpdateOpsCoinCorrectionApprovingSQL, approverID, correctionID, approverID)
+	if err != nil {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil || rows != 1 {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, fmt.Errorf("correction is not pending")
+	}
+	if err := tx.Commit(); err != nil {
+		return OpsDtoPackage.HGCoinCorrectionResponse{}, err
+	}
+	item.ApproverID, item.Status = approverID, "approving"
+	return item, nil
+}
+
+// CompleteCoinCorrection records the external coin transaction result after the coin domain transaction returns.
+func (r *Repository) CompleteCoinCorrection(ctx context.Context, correctionID, approverID string, result CoinModelPackage.HGMutationResult, errorMessage string) error {
+	status := "applied"
+	if errorMessage != "" {
+		status = "failed"
+	}
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateOpsCoinCorrectionCompleteSQL, status, result.TransactionID, result.BalanceAfter, errorMessage, status, correctionID, approverID)
+	return err
+}
+
+// ListCoinCorrections reads at most pageSize+1 rows using the primary-key cursor.
+func (r *Repository) ListCoinCorrections(ctx context.Context, cursor uint64, pageSize int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error) {
+	query, args := SQLQueriesPackage.SelectOpsCoinCorrectionListFirstSQL, []any{pageSize + 1}
+	if cursor > 0 {
+		query, args = SQLQueriesPackage.SelectOpsCoinCorrectionListByCursorSQL, []any{cursor, pageSize + 1}
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer rows.Close()
+	items := make([]OpsDtoPackage.HGCoinCorrectionResponse, 0, pageSize+1)
+	ids := make([]uint64, 0, pageSize+1)
+	for rows.Next() {
+		item, id, err := hgScanCoinCorrection(rows, true)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		items, ids = append(items, item), append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, false, err
+	}
+	more := len(items) > pageSize
+	if more {
+		items, ids = items[:pageSize], ids[:pageSize]
+	}
+	next := uint64(0)
+	if len(ids) > 0 {
+		next = ids[len(ids)-1]
+	}
+	return items, next, more, nil
+}
+
+type hgCoinCorrectionScanner interface{ Scan(...any) error }
+
+func hgScanCoinCorrection(scanner hgCoinCorrectionScanner, withID bool) (OpsDtoPackage.HGCoinCorrectionResponse, uint64, error) {
+	var item OpsDtoPackage.HGCoinCorrectionResponse
+	var id, transactionID, balance uint64
+	var delta int64
+	var createdAt, updatedAt time.Time
+	dest := []any{&item.CorrectionID, &item.UserID, &item.RequestID, &item.TicketID, &item.WorkOrderID, &delta, &item.Reason, &item.ApplicantID, &item.ApproverID, &item.Status, &transactionID, &balance, &createdAt, &updatedAt}
+	if withID {
+		dest = append([]any{&id}, dest...)
+	}
+	if err := scanner.Scan(dest...); err != nil {
+		return item, 0, err
+	}
+	item.Delta, item.CreatedAt, item.UpdatedAt = strconv.FormatInt(delta, 10), createdAt.UTC().Format(time.RFC3339Nano), updatedAt.UTC().Format(time.RFC3339Nano)
+	if transactionID > 0 {
+		item.TransactionID = strconv.FormatUint(transactionID, 10)
+	}
+	if balance > 0 {
+		item.BalanceAfter = strconv.FormatUint(balance, 10)
+	}
+	return item, id, nil
+}
 
 // Repository 定义运维管理数据访问接口
 type Repository struct {
@@ -38,7 +197,7 @@ func NewRepository(db *sql.DB) *Repository {
 // IsActiveAdmin 按 admin_user.user_id 唯一业务标识执行索引点查，作为资金运维接口的服务端二次授权边界。
 func (r *Repository) IsActiveAdmin(ctx context.Context, userID string) (bool, error) {
 	var id int64
-	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsAdminInternalIDByUserIDSQL, strings.TrimSpace(userID)).Scan(&id)
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsActiveAdminInternalIDByUserIDSQL, strings.TrimSpace(userID)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -960,15 +1119,66 @@ func (r *Repository) GetMenuList(ctx context.Context) ([]map[string]interface{},
 }
 
 // AssignRolePermissions 分配角色权限
-func (r *Repository) AssignRolePermissions(ctx context.Context, roleID string, menuIDs, permissions []string) error {
-	// TODO: 实现分配角色权限逻辑
+func (r *Repository) AssignRolePermissions(ctx context.Context, operatorID, roleID string, menuIDs, permissions []string) error {
+	if len(menuIDs)+len(permissions) > 256 {
+		return fmt.Errorf("role permission set is too large")
+	}
+	codes := make([]string, 0, len(menuIDs)+len(permissions))
+	seen := make(map[string]struct{}, cap(codes))
+	for _, code := range append(append([]string{}, menuIDs...), permissions...) {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin role permission assignment: %w", err)
+	}
+	defer tx.Rollback()
+	var internalRoleID int64
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsRoleInternalIDForUpdateSQL, strings.TrimSpace(roleID)).Scan(&internalRoleID); err != nil {
+		return fmt.Errorf("lock role for permission assignment: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.DeleteOpsRolePermissionsSQL, internalRoleID); err != nil {
+		return fmt.Errorf("delete old role permissions: %w", err)
+	}
+	for _, code := range codes {
+		var permissionID int64
+		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsPermissionIDByCodeSQL, code).Scan(&permissionID); err != nil {
+			return fmt.Errorf("resolve permission %q: %w", code, err)
+		}
+		if _, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertOpsRolePermissionSQL, internalRoleID, permissionID, operatorID, operatorID); err != nil {
+			return fmt.Errorf("insert role permission %q: %w", code, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit role permission assignment: %w", err)
+	}
 	return nil
 }
 
 // GetRolePermissions 获取角色权限
 func (r *Repository) GetRolePermissions(ctx context.Context, roleID string) ([]string, []string, error) {
-	// TODO: 实现获取角色权限逻辑
-	return nil, nil, nil
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsRolePermissionCodesSQL, strings.TrimSpace(roleID))
+	if err != nil {
+		return nil, nil, fmt.Errorf("query role permissions: %w", err)
+	}
+	defer rows.Close()
+	permissions := make([]string, 0, 32)
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, nil, err
+		}
+		permissions = append(permissions, code)
+	}
+	return []string{}, permissions, rows.Err()
 }
 
 // CreateFile 创建文件记录

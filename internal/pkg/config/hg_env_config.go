@@ -77,29 +77,43 @@ type HGStatisticInfrastructureConfig struct {
 
 // HGInteractionReprojectConfig bounds the periodic MySQL-to-Redis interaction repair worker.
 type HGInteractionReprojectConfig struct {
-	Enabled   bool
-	Interval  time.Duration
-	Timeout   time.Duration
-	SafetyLag time.Duration
-	LeaseTTL  time.Duration
-	PageSize  int
+	Enabled     bool
+	Interval    time.Duration
+	Timeout     time.Duration
+	SafetyLag   time.Duration
+	LeaseTTL    time.Duration
+	PageSize    int
+	WorkerCount int
+	HashRanges  []HGInteractionReprojectHashRange
+}
+
+// HGInteractionReprojectHashRange is a fixed half-open range in the 1024 stored hash buckets.
+type HGInteractionReprojectHashRange struct {
+	Start uint16 `mapstructure:"start"`
+	End   uint16 `mapstructure:"end"`
 }
 
 // HGCoinJobConfig bounds initialization, expiration, and reconciliation database work.
 type HGCoinJobConfig struct {
-	Enabled   bool
-	Interval  time.Duration
-	Timeout   time.Duration
-	BatchSize int
+	Enabled                   bool
+	Interval                  time.Duration
+	Timeout                   time.Duration
+	BatchSize                 int
+	ConsolidationBatchSize    int
+	ConsolidationSourceLimit  int
+	ConsolidationMaxLotAmount uint64
 }
 
 // GetCoinJobConfig validates the fixed upper bounds used by coin background work.
 func GetCoinJobConfig() (HGCoinJobConfig, error) {
 	var raw struct {
-		Enabled   bool   `mapstructure:"enabled"`
-		Interval  string `mapstructure:"interval"`
-		Timeout   string `mapstructure:"timeout"`
-		BatchSize int    `mapstructure:"batch_size"`
+		Enabled                   bool   `mapstructure:"enabled"`
+		Interval                  string `mapstructure:"interval"`
+		Timeout                   string `mapstructure:"timeout"`
+		BatchSize                 int    `mapstructure:"batch_size"`
+		ConsolidationBatchSize    int    `mapstructure:"consolidation_batch_size"`
+		ConsolidationSourceLimit  int    `mapstructure:"consolidation_source_limit"`
+		ConsolidationMaxLotAmount uint64 `mapstructure:"consolidation_max_lot_amount"`
 	}
 	var cfg HGCoinJobConfig
 	if err := viper.UnmarshalKey("coin_jobs", &raw); err != nil {
@@ -120,18 +134,29 @@ func GetCoinJobConfig() (HGCoinJobConfig, error) {
 	if cfg.BatchSize < 1 || cfg.BatchSize > 1000 {
 		return cfg, fmt.Errorf("coin_jobs.batch_size 必须在 1-1000 之间")
 	}
+	cfg.ConsolidationBatchSize = raw.ConsolidationBatchSize
+	cfg.ConsolidationSourceLimit = raw.ConsolidationSourceLimit
+	cfg.ConsolidationMaxLotAmount = raw.ConsolidationMaxLotAmount
+	if cfg.ConsolidationBatchSize < 0 || cfg.ConsolidationBatchSize > 1000 {
+		return cfg, fmt.Errorf("coin_jobs.consolidation_batch_size 必须在 0-1000 之间")
+	}
+	if cfg.ConsolidationBatchSize > 0 && (cfg.ConsolidationSourceLimit < 2 || cfg.ConsolidationSourceLimit > 1000 || cfg.ConsolidationMaxLotAmount == 0) {
+		return cfg, fmt.Errorf("coin_jobs consolidation 配置无效")
+	}
 	return cfg, nil
 }
 
 // GetInteractionReprojectConfig reads and validates the standalone interaction reprojector limits.
 func GetInteractionReprojectConfig() (HGInteractionReprojectConfig, error) {
 	var raw struct {
-		Enabled   bool   `mapstructure:"enabled"`
-		Interval  string `mapstructure:"interval"`
-		Timeout   string `mapstructure:"timeout"`
-		SafetyLag string `mapstructure:"safety_lag"`
-		LeaseTTL  string `mapstructure:"lease_ttl"`
-		PageSize  int    `mapstructure:"page_size"`
+		Enabled     bool                              `mapstructure:"enabled"`
+		Interval    string                            `mapstructure:"interval"`
+		Timeout     string                            `mapstructure:"timeout"`
+		SafetyLag   string                            `mapstructure:"safety_lag"`
+		LeaseTTL    string                            `mapstructure:"lease_ttl"`
+		PageSize    int                               `mapstructure:"page_size"`
+		WorkerCount int                               `mapstructure:"worker_count"`
+		HashRanges  []HGInteractionReprojectHashRange `mapstructure:"hash_ranges"`
 	}
 	var cfg HGInteractionReprojectConfig
 	if err := viper.UnmarshalKey("interaction_reproject", &raw); err != nil {
@@ -157,6 +182,22 @@ func GetInteractionReprojectConfig() (HGInteractionReprojectConfig, error) {
 	cfg.PageSize = raw.PageSize
 	if cfg.PageSize < 1 || cfg.PageSize > 1000 {
 		return cfg, fmt.Errorf("interaction_reproject.page_size 必须在 1-1000 之间")
+	}
+	cfg.WorkerCount = raw.WorkerCount
+	if cfg.WorkerCount == 0 {
+		cfg.WorkerCount = 1
+	}
+	if cfg.WorkerCount < 1 || cfg.WorkerCount > 32 {
+		return cfg, fmt.Errorf("interaction_reproject.worker_count 必须在 1-32 之间")
+	}
+	cfg.HashRanges = raw.HashRanges
+	if len(cfg.HashRanges) == 0 {
+		cfg.HashRanges = []HGInteractionReprojectHashRange{{Start: 0, End: 1024}}
+	}
+	for i, hashRange := range cfg.HashRanges {
+		if hashRange.Start >= hashRange.End || hashRange.End > 1024 || (i > 0 && cfg.HashRanges[i-1].End > hashRange.Start) {
+			return cfg, fmt.Errorf("interaction_reproject.hash_ranges 配置无效")
+		}
 	}
 	return cfg, nil
 }

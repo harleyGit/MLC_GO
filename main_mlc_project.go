@@ -167,12 +167,17 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	var interactionReprojector *VideoInteractionTaskPackage.HGReprojector
 	if interactionConfig.Enabled {
+		hashRanges := make([]VideoInteractionTaskPackage.HGProjectionHashRange, 0, len(interactionConfig.HashRanges))
+		for _, hashRange := range interactionConfig.HashRanges {
+			hashRanges = append(hashRanges, VideoInteractionTaskPackage.HGProjectionHashRange{Start: hashRange.Start, End: hashRange.End})
+		}
 		interactionReprojector, err = VideoInteractionTaskPackage.NewHGReprojector(
 			VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
 			VideoInteractionCachePackage.NewCache(redisService),
 			VideoInteractionTaskPackage.HGReprojectConfig{
 				Interval: interactionConfig.Interval, Timeout: interactionConfig.Timeout, SafetyLag: interactionConfig.SafetyLag,
 				LeaseTTL: interactionConfig.LeaseTTL, PageSize: interactionConfig.PageSize,
+				WorkerCount: interactionConfig.WorkerCount, HashRanges: hashRanges,
 			},
 		)
 		if err != nil {
@@ -203,6 +208,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if coinJobConfig.Enabled {
 		coinJobs, err = CoinTaskPackage.NewHGJobs(CoinRepositoryPackage.NewHGRepository(sqlManager.GetSQLDB(), "mlc.domain.events"), CoinTaskPackage.HGJobConfig{
 			Interval: coinJobConfig.Interval, Timeout: coinJobConfig.Timeout, BatchSize: coinJobConfig.BatchSize,
+			ConsolidationBatchSize: coinJobConfig.ConsolidationBatchSize, ConsolidationSourceLimit: coinJobConfig.ConsolidationSourceLimit,
+			ConsolidationMaxLotAmount: coinJobConfig.ConsolidationMaxLotAmount,
 		}, CoinTaskPackage.NewHGRedisJobLease(redisService))
 		if err != nil {
 			if interactionReprojector != nil {

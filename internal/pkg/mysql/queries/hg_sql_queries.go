@@ -237,6 +237,27 @@ const (
 	// 前端角色分配页传递的是 admin_user.user_id；关联表仍使用 admin_user.id，写入前必须做一次索引点查映射。
 	SelectOpsAdminInternalIDByUserIDSQL = "SELECT `id` FROM `admin_user` WHERE `user_id` = ? AND `is_delete` = 0 LIMIT 1"
 
+	// SelectOpsActiveAdminInternalIDByUserIDSQL 按唯一 user_id 点查启用且未删除的管理员，作为受信服务端授权边界。
+	SelectOpsActiveAdminInternalIDByUserIDSQL = "SELECT `id` FROM `admin_user` WHERE `user_id` = ? AND `status` = 1 AND `is_delete` = 0 LIMIT 1"
+
+	// SelectOpsAssetPermissionSQL authorizes one exact permission through active admin, role and permission rows. All predicates hit unique/foreign-key indexes.
+	SelectOpsAssetPermissionSQL = "SELECT 1 FROM `admin_user` au JOIN `admin_user_role` aur ON aur.`admin_user_id` = au.`id` JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 JOIN `role_permission` rp ON rp.`role_id` = r.`id` JOIN `permission` p ON p.`id` = rp.`permission_id` AND p.`status` = 1 WHERE au.`user_id` = ? AND au.`status` = 1 AND au.`is_delete` = 0 AND p.`code` = ? LIMIT 1"
+	// SelectOpsAssetPermissionsSQL returns the bounded asset permission set for one operator; asset permissions are a fixed low-cardinality control-plane catalog.
+	SelectOpsAssetPermissionsSQL        = "SELECT DISTINCT p.`code` FROM `admin_user` au JOIN `admin_user_role` aur ON aur.`admin_user_id` = au.`id` JOIN `role` r ON r.`id` = aur.`role_id` AND r.`status` = 1 JOIN `role_permission` rp ON rp.`role_id` = r.`id` JOIN `permission` p ON p.`id` = rp.`permission_id` AND p.`status` = 1 WHERE au.`user_id` = ? AND au.`status` = 1 AND au.`is_delete` = 0 AND p.`code` LIKE 'asset.%' ORDER BY p.`code` LIMIT 32"
+	SelectOpsRoleInternalIDForUpdateSQL = "SELECT `id` FROM `role` WHERE `role_id` = ? AND `status` = 1 FOR UPDATE"
+	DeleteOpsRolePermissionsSQL         = "DELETE FROM `role_permission` WHERE `role_id` = ?"
+	SelectOpsPermissionIDByCodeSQL      = "SELECT `id` FROM `permission` WHERE `code` = ? AND `status` = 1 ORDER BY `id` DESC LIMIT 1"
+	InsertOpsRolePermissionSQL          = "INSERT INTO `role_permission` (`role_id`,`permission_id`,`create_by`,`update_by`) VALUES (?,?,?,?)"
+	SelectOpsRolePermissionCodesSQL     = "SELECT p.`code` FROM `role` r JOIN `role_permission` rp ON rp.`role_id` = r.`id` JOIN `permission` p ON p.`id` = rp.`permission_id` AND p.`status` = 1 WHERE r.`role_id` = ? AND r.`status` = 1 ORDER BY p.`code` LIMIT 256"
+	// InsertOpsAssetAuditSQL is append-only. The service documents that coin mutation commits before this separate ops audit insert.
+	InsertOpsAssetAuditSQL                 = "INSERT INTO `ops_asset_audit` (`operator_id`,`action`,`target_user_id`,`source_ip`,`request_id`,`tid`,`old_balance`,`new_balance`,`applicant_id`,`approver_id`,`outcome`,`error_message`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+	InsertOpsCoinCorrectionSQL             = "INSERT INTO `ops_coin_correction` (`correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`source_ip`,`tid`,`status`) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending')"
+	SelectOpsCoinCorrectionForApprovalSQL  = "SELECT `correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`approver_id`,`status`,COALESCE(`transaction_id`,0),COALESCE(`balance_after`,0),`created_at`,`updated_at` FROM `ops_coin_correction` WHERE `correction_id` = ? LIMIT 1 FOR UPDATE"
+	UpdateOpsCoinCorrectionApprovingSQL    = "UPDATE `ops_coin_correction` SET `approver_id` = ?, `status` = 'approving', `approved_at` = NOW() WHERE `correction_id` = ? AND `status` = 'pending' AND `applicant_id` <> ?"
+	UpdateOpsCoinCorrectionCompleteSQL     = "UPDATE `ops_coin_correction` SET `status` = ?, `transaction_id` = NULLIF(?,0), `balance_after` = NULLIF(?,0), `error_message` = ?, `applied_at` = CASE WHEN ? = 'applied' THEN NOW() ELSE NULL END WHERE `correction_id` = ? AND `approver_id` = ? AND `status` = 'approving'"
+	SelectOpsCoinCorrectionListFirstSQL    = "SELECT `id`,`correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`approver_id`,`status`,COALESCE(`transaction_id`,0),COALESCE(`balance_after`,0),`created_at`,`updated_at` FROM `ops_coin_correction` ORDER BY `id` DESC LIMIT ?"
+	SelectOpsCoinCorrectionListByCursorSQL = "SELECT `id`,`correction_id`,`user_id`,`request_id`,`ticket_id`,`work_order_id`,`delta`,`reason`,`applicant_id`,`approver_id`,`status`,COALESCE(`transaction_id`,0),COALESCE(`balance_after`,0),`created_at`,`updated_at` FROM `ops_coin_correction` WHERE `id` < ? ORDER BY `id` DESC LIMIT ?"
+
 	// SelectOpsUserPhoneByIDSQL 按 users.id 读取手机号。
 	// 命中 users 主键，用于 admin_user 唯一键冲突时回查已存在管理员。
 	SelectOpsUserPhoneByIDSQL = "SELECT COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)) FROM `users` WHERE `id` = ?"

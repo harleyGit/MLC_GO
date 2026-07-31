@@ -21,7 +21,7 @@ const (
 	UserFollowCountKeyPrefix                = "user:follow:count:"
 	InteractionReprojectLeaseKeyPrefix      = "interaction:reproject:{control}:lease:"
 	InteractionReprojectCheckpointKeyPrefix = "interaction:reproject:{control}:checkpoint:"
-	CoinJobLeaseKey                         = "coin:jobs:{global}:lease"
+	CoinJobLeaseKeyPrefix                   = "coin:jobs:{global}:lease:"
 )
 
 func GetVideoInteractionStateKey(userID string, submissionID string) string {
@@ -35,6 +35,8 @@ func GetInteractionReprojectLeaseKey(stream string) string {
 func GetInteractionReprojectCheckpointKey(stream string) string {
 	return InteractionReprojectCheckpointKeyPrefix + stream
 }
+
+func GetCoinJobLeaseKey(task string) string { return CoinJobLeaseKeyPrefix + task }
 
 func GetVideoInteractionCountKey(submissionID string) string {
 	return fmt.Sprintf("%s{%s}", VideoInteractionCountKeyPrefix, submissionID)
@@ -143,7 +145,9 @@ const (
 	VideoEventCounterKey               = "statistic:{video}:events"
 	VideoStatisticIdempotencyKeyPrefix = "statistic:{video}:idempotency:"
 	// OpsBilibiliActiveTagListKey 缓存动画页启用标签，写操作提交后直接删除该固定 key。
-	OpsBilibiliActiveTagListKey = "ops:bilibili:douga_tags:active"
+	OpsBilibiliActiveTagListKey        = "ops:bilibili:douga_tags:active"
+	OpsAssetWriteOperatorRateKeyPrefix = "ops:asset:write:rate:operator:"
+	OpsAssetWriteIPRateKeyPrefix       = "ops:asset:write:rate:ip:"
 )
 
 // GetFeedIdempotencyKey 生成 Feed 投影事件幂等 key。

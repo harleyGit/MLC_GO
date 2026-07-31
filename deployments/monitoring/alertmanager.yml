@@ -31,6 +31,18 @@ inhibit_rules:
     target_matchers:
       - alertname="MLCKafkaConsumerLagWarning"
     equal: [service, environment, group, topic]
+  # committed-offset critical 生效后，抑制同一消费组和 topic 的 committed warning。
+  - source_matchers:
+      - alertname="MLCKafkaCommittedLagCritical"
+    target_matchers:
+      - alertname="MLCKafkaCommittedLagWarning"
+    equal: [service, environment, consumergroup, topic]
+  # exporter 不可用时，抑制依赖其数据的 committed-lag 次级告警。
+  - source_matchers:
+      - alertname="MLCKafkaCommittedOffsetExporterDown"
+    target_matchers:
+      - alertname=~"MLCKafkaCommittedLagWarning|MLCKafkaCommittedLagCritical"
+    equal: [service, environment]
 
 receivers:
   # 默认接收器仅聚合告警，不向外部渠道发送通知。

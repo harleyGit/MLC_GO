@@ -4,6 +4,7 @@ import (
 	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -17,6 +18,9 @@ const (
 // CreateBilibiliTag 创建动画标签并失效活跃列表缓存。
 // 唯一键冲突由 Repository 转换为“标签名称已存在”，用于并发重复提交时稳定返回冲突语义。
 func (s *Service) CreateBilibiliTag(ctx context.Context, operatorID string, req OpsDtoPackage.BilibiliTagRequest) (*OpsDtoPackage.BilibiliTagItem, error) {
+	if err := s.authorizeBilibiliTagMutation(ctx, operatorID); err != nil {
+		return nil, err
+	}
 	name, err := normalizeBilibiliTagName(req.Name)
 	if err != nil {
 		return nil, err
@@ -39,6 +43,9 @@ func (s *Service) CreateBilibiliTag(ctx context.Context, operatorID string, req 
 
 // UpdateBilibiliTag 更新动画标签并失效活跃列表缓存。
 func (s *Service) UpdateBilibiliTag(ctx context.Context, operatorID string, req OpsDtoPackage.UpdateBilibiliTagRequest) (*OpsDtoPackage.BilibiliTagItem, error) {
+	if err := s.authorizeBilibiliTagMutation(ctx, operatorID); err != nil {
+		return nil, err
+	}
 	tagID, err := normalizeBilibiliTagID(req.TagID)
 	if err != nil {
 		return nil, err
@@ -66,6 +73,9 @@ func (s *Service) UpdateBilibiliTag(ctx context.Context, operatorID string, req 
 // DeleteBilibiliTag 软删除动画标签并失效活跃列表缓存。
 // 删除只影响标签目录，历史 video_tags 标签快照不做级联更新，避免大表批量写和历史语义变化。
 func (s *Service) DeleteBilibiliTag(ctx context.Context, operatorID string, req OpsDtoPackage.DeleteBilibiliTagRequest) error {
+	if err := s.authorizeBilibiliTagMutation(ctx, operatorID); err != nil {
+		return err
+	}
 	tagID, err := normalizeBilibiliTagID(req.TagID)
 	if err != nil {
 		return err
@@ -74,6 +84,21 @@ func (s *Service) DeleteBilibiliTag(ctx context.Context, operatorID string, req 
 		return err
 	}
 	s.invalidateBilibiliTagCache(ctx)
+	return nil
+}
+
+// authorizeBilibiliTagMutation uses the authenticated user ID for a server-side active-admin lookup.
+func (s *Service) authorizeBilibiliTagMutation(ctx context.Context, operatorID string) error {
+	if s == nil || s.repo == nil || strings.TrimSpace(operatorID) == "" {
+		return ErrHGOperationsForbidden
+	}
+	allowed, err := s.repo.IsActiveAdmin(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("authorize bilibili tag mutation: %w", err)
+	}
+	if !allowed {
+		return ErrHGOperationsForbidden
+	}
 	return nil
 }
 

@@ -10,13 +10,14 @@ import (
 type HGOperation string
 
 const (
-	HGOperationInitialize HGOperation = "initialize"
-	HGOperationRecharge   HGOperation = "recharge"
-	HGOperationGrant      HGOperation = "grant"
-	HGOperationDebit      HGOperation = "debit"
-	HGOperationRefund     HGOperation = "refund"
-	HGOperationExpire     HGOperation = "expire"
-	HGOperationCorrection HGOperation = "correction"
+	HGOperationInitialize  HGOperation = "initialize"
+	HGOperationRecharge    HGOperation = "recharge"
+	HGOperationGrant       HGOperation = "grant"
+	HGOperationDebit       HGOperation = "debit"
+	HGOperationRefund      HGOperation = "refund"
+	HGOperationExpire      HGOperation = "expire"
+	HGOperationCorrection  HGOperation = "correction"
+	HGOperationConsolidate HGOperation = "consolidate"
 )
 
 // HGCommand 是进入权威资产事务的内部命令。

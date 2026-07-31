@@ -21,17 +21,17 @@ func NewHGRedisJobLease(redisService *PersistenceRedisPackage.RedisService) *HGR
 }
 
 // Acquire 尝试获取有 TTL 的单轮所有权；未获得时调用方不会访问 MySQL。
-func (l *HGRedisJobLease) Acquire(ctx context.Context, ttl time.Duration) (string, bool, error) {
+func (l *HGRedisJobLease) Acquire(ctx context.Context, task string, ttl time.Duration) (string, bool, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", false, fmt.Errorf("generate coin job lease token: %w", err)
 	}
 	token := hex.EncodeToString(raw[:])
-	acquired, err := l.redis.Client().SetNX(ctx, PersistenceRedisPackage.CoinJobLeaseKey, token, ttl).Result()
+	acquired, err := l.redis.Client().SetNX(ctx, PersistenceRedisPackage.GetCoinJobLeaseKey(task), token, ttl).Result()
 	return token, acquired, err
 }
 
 // Release 仅在 token 仍匹配当前 owner 时删除 lease。
-func (l *HGRedisJobLease) Release(ctx context.Context, token string) error {
-	return l.redis.Eval(ctx, PersistenceRedisPackage.ReleaseSubmitLockLuaScript, []string{PersistenceRedisPackage.CoinJobLeaseKey}, token)
+func (l *HGRedisJobLease) Release(ctx context.Context, task string, token string) error {
+	return l.redis.Eval(ctx, PersistenceRedisPackage.ReleaseSubmitLockLuaScript, []string{PersistenceRedisPackage.GetCoinJobLeaseKey(task)}, token)
 }

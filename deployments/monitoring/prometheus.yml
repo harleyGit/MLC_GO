@@ -26,3 +26,14 @@ scrape_configs:
           service: mlc-go
           environment: local
           component: application
+
+  # 低频抓取 broker 端 committed-offset lag，与应用进程内处理进度指标保持独立。
+  - job_name: kafka-committed-offset-exporter
+    scrape_interval: 60s
+    scrape_timeout: 15s
+    static_configs:
+      - targets: [kafka-committed-offset-exporter:9308]
+        labels:
+          service: mlc-kafka
+          environment: local
+          component: kafka-committed-offset

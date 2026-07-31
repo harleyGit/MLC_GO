@@ -43,6 +43,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/grant", true, "人工赠币", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/refund", true, "原扣款退款", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/correct", true, "硬币资产修正", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/corrections/approve", true, "审批并应用硬币资产修正", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/corrections/list", true, "查询硬币资产修正", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/asset-permissions/current", true, "查询当前资产权限", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", nil),
 		}
 	}
@@ -73,6 +76,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/grant", true, "人工赠币", opsHandler.GrantCoin),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/refund", true, "原扣款退款", opsHandler.RefundCoin),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/correct", true, "硬币资产修正", opsHandler.CorrectCoin),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/corrections/approve", true, "审批并应用硬币资产修正", opsHandler.ApproveCoinCorrection),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/corrections/list", true, "查询硬币资产修正", opsHandler.ListCoinCorrections),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/asset-permissions/current", true, "查询当前资产权限", opsHandler.GetCurrentAssetPermissions),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", opsHandler.GetAssetPipelineStatus),
 	}
 }

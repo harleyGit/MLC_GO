@@ -6,6 +6,7 @@ import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 )
@@ -336,8 +337,13 @@ func (h *Handler) AssignRolePermissions(w http.ResponseWriter, r *http.Request) 
 
 	err := h.service.AssignRolePermissions(r.Context(), userID, req)
 	if err != nil {
+		if errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden) {
+			w.WriteHeader(http.StatusForbidden)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限分配失败"})
 		return
 	}
 
@@ -346,7 +352,7 @@ func (h *Handler) AssignRolePermissions(w http.ResponseWriter, r *http.Request) 
 
 // GetRolePermissions 获取角色权限
 func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
-	_, ok := HGContextPackage.CurrentUserID(r)
+	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
 		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
@@ -360,10 +366,15 @@ func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.service.GetRolePermissions(r.Context(), roleID)
+	resp, err := h.service.GetRolePermissions(r.Context(), userID, roleID)
 	if err != nil {
+		if errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden) {
+			w.WriteHeader(http.StatusForbidden)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限查询失败"})
 		return
 	}
 

@@ -11,12 +11,22 @@ import (
 )
 
 type hgFakeOpsAuthorizer struct {
-	allowed bool
-	err     error
+	permissions map[string]bool
+	err         error
 }
 
-func (f hgFakeOpsAuthorizer) IsActiveAdmin(context.Context, string) (bool, error) {
-	return f.allowed, f.err
+func (f hgFakeOpsAuthorizer) HasAssetPermission(_ context.Context, _ string, permission string) (bool, error) {
+	return f.permissions[permission], f.err
+}
+
+func (f hgFakeOpsAuthorizer) ListAssetPermissions(context.Context, string) ([]string, error) {
+	permissions := make([]string, 0, len(f.permissions))
+	for permission, allowed := range f.permissions {
+		if allowed {
+			permissions = append(permissions, permission)
+		}
+	}
+	return permissions, f.err
 }
 
 type hgFakeOpsCoinAssets struct {
@@ -64,18 +74,33 @@ func (f hgFakeProjectionCheckpoints) LoadCheckpoint(_ context.Context, stream st
 }
 
 func TestHGOperationalServiceRejectsNonAdminBeforeAssetAccess(t *testing.T) {
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: false}})
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{}}})
 	_, err := service.GetCoinAccount(context.Background(), "user", "target")
 	if !errors.Is(err, ErrHGOperationsForbidden) {
 		t.Fatalf("error=%v, want ErrHGOperationsForbidden", err)
 	}
 }
 
+func TestHGOperationalServiceUsesSeparateDatabasePermissions(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{balance: 9}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionBalanceRead: true}},
+		CoinAssets: assets,
+	})
+	if _, err := service.GetCoinAccount(context.Background(), "admin-1", "user-1"); err != nil {
+		t.Fatalf("GetCoinAccount() error=%v", err)
+	}
+	_, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{UserID: "user-1", RequestID: "grant-1", Amount: "1", Reason: "ticket", BusinessKey: "T-1"})
+	if !errors.Is(err, ErrHGOperationsForbidden) {
+		t.Fatalf("GrantCoin() error=%v, want ErrHGOperationsForbidden", err)
+	}
+}
+
 func TestHGOperationalServiceGrantAddsImmutableOperatorAudit(t *testing.T) {
 	assets := &hgFakeOpsCoinAssets{result: CoinModelPackage.HGMutationResult{Committed: true, TransactionID: 7, BalanceAfter: 15}}
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: true}, CoinAssets: assets})
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true}}, CoinAssets: assets, RateLimiter: hgFakeAssetRateLimiter{allowed: true}, Audit: &hgFakeAssetAudit{}})
 
-	result, err := service.GrantCoin(context.Background(), "admin-1", OpsDtoPackage.HGCoinGrantRequest{
+	result, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{
 		UserID: "user-1", RequestID: "ticket-7", Amount: "5", Reason: "manual compensation", BusinessKey: "T-7",
 	})
 	if err != nil {
@@ -91,9 +116,9 @@ func TestHGOperationalServiceGrantAddsImmutableOperatorAudit(t *testing.T) {
 
 func TestHGOperationalServiceRejectsEmptyOrOversizedAuditReason(t *testing.T) {
 	assets := &hgFakeOpsCoinAssets{}
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: true}, CoinAssets: assets})
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true}}, CoinAssets: assets, RateLimiter: hgFakeAssetRateLimiter{allowed: true}, Audit: &hgFakeAssetAudit{}})
 	for _, reason := range []string{"   ", string(make([]byte, 240))} {
-		_, err := service.GrantCoin(context.Background(), "admin-identifier", OpsDtoPackage.HGCoinGrantRequest{
+		_, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-identifier", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{
 			UserID: "user-1", RequestID: "ticket-8", Amount: "1", Reason: reason, BusinessKey: "T-8",
 		})
 		if !errors.Is(err, ErrHGOperationsInvalid) {
@@ -104,8 +129,8 @@ func TestHGOperationalServiceRejectsEmptyOrOversizedAuditReason(t *testing.T) {
 
 func TestHGOperationalServiceRejectsOversizedAssetIdentifiers(t *testing.T) {
 	assets := &hgFakeOpsCoinAssets{}
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: true}, CoinAssets: assets})
-	_, err := service.GrantCoin(context.Background(), "admin-1", OpsDtoPackage.HGCoinGrantRequest{
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true}}, CoinAssets: assets, RateLimiter: hgFakeAssetRateLimiter{allowed: true}, Audit: &hgFakeAssetAudit{}})
+	_, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{
 		UserID: string(make([]byte, 256)), RequestID: string(make([]byte, 129)), Amount: "1", Reason: "ticket", BusinessKey: string(make([]byte, 256)),
 	})
 	if !errors.Is(err, ErrHGOperationsInvalid) {
@@ -119,7 +144,7 @@ func TestHGOperationalServiceListsTransactionsWithOpaqueCursor(t *testing.T) {
 		transactions: []CoinModelPackage.HGTransaction{{ID: 8, UserID: "user-1", Amount: 3, SignedDelta: -3, CreatedAt: createdAt}},
 		next:         CoinModelPackage.HGTransactionCursor{CreatedAt: createdAt, ID: 8}, hasMore: true,
 	}
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: true}, CoinQueries: queries})
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionTransactionRead: true}}, CoinQueries: queries})
 
 	result, err := service.GetCoinTransactions(context.Background(), "admin-1", "user-1", "", 20)
 	if err != nil {
@@ -135,7 +160,7 @@ func TestHGOperationalServiceListsTransactionsWithOpaqueCursor(t *testing.T) {
 
 func TestHGOperationalServiceBuildsBoundedPipelineSnapshot(t *testing.T) {
 	service := NewHGOperationalService(HGOperationalDeps{
-		Authorizer:            hgFakeOpsAuthorizer{allowed: true},
+		Authorizer:            hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionPipelineRead: true}},
 		CoinQueries:           &hgFakeOpsCoinQueries{},
 		ProjectionCheckpoints: hgFakeProjectionCheckpoints{"video_state": `{"updatedAt":"2026-07-31T10:00:00Z","id":8}`},
 	})
@@ -146,5 +171,74 @@ func TestHGOperationalServiceBuildsBoundedPipelineSnapshot(t *testing.T) {
 	}
 	if result.CoinInitializerCursor != "91" || len(result.InteractionStreams) != 4 || result.Kafka.Measurement == "" {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+type hgFakeAssetRateLimiter struct {
+	allowed bool
+	err     error
+}
+
+func (f hgFakeAssetRateLimiter) Allow(context.Context, string, string) (bool, error) {
+	return f.allowed, f.err
+}
+
+type hgFakeAssetAudit struct {
+	records []HGAssetAuditRecord
+}
+
+func (f *hgFakeAssetAudit) AppendAssetAudit(_ context.Context, record HGAssetAuditRecord) error {
+	f.records = append(f.records, record)
+	return nil
+}
+
+type hgFakeCorrections struct {
+	pending OpsDtoPackage.HGCoinCorrectionResponse
+}
+
+func (f hgFakeCorrections) CreateCoinCorrection(context.Context, HGAssetOperator, OpsDtoPackage.HGCoinCorrectionRequest, int64) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	return f.pending, nil
+}
+func (f hgFakeCorrections) GetCoinCorrectionForApproval(context.Context, string, string) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	return f.pending, nil
+}
+func (f hgFakeCorrections) CompleteCoinCorrection(context.Context, string, string, CoinModelPackage.HGMutationResult, string) error {
+	return nil
+}
+func (f hgFakeCorrections) ListCoinCorrections(context.Context, uint64, int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error) {
+	return nil, 0, false, nil
+}
+
+func TestHGOperationalServiceFailsClosedWhenRateLimiterFails(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer:  hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true}},
+		CoinAssets:  assets,
+		RateLimiter: hgFakeAssetRateLimiter{err: errors.New("redis unavailable")},
+		Audit:       &hgFakeAssetAudit{},
+	})
+	_, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{UserID: "user-1", RequestID: "grant-1", Amount: "1", Reason: "ticket", BusinessKey: "T-1"})
+	if !errors.Is(err, ErrHGOperationsRateLimitUnavailable) {
+		t.Fatalf("error=%v, want ErrHGOperationsRateLimitUnavailable", err)
+	}
+	if assets.grantCommand.UserID != "" {
+		t.Fatalf("asset mutation reached after limiter failure: %+v", assets.grantCommand)
+	}
+}
+
+func TestHGOperationalServiceCorrectionRequiresDifferentApprover(t *testing.T) {
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{
+			HGAssetPermissionCorrectionApprove: true,
+			HGAssetPermissionCorrectionApply:   true,
+		}},
+		RateLimiter: hgFakeAssetRateLimiter{allowed: true},
+		Corrections: hgFakeCorrections{pending: OpsDtoPackage.HGCoinCorrectionResponse{CorrectionID: "COR-1", ApplicantID: "admin-1"}},
+		CoinAssets:  &hgFakeOpsCoinAssets{},
+		Audit:       &hgFakeAssetAudit{},
+	})
+	_, err := service.ApproveCoinCorrection(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, "COR-1")
+	if !errors.Is(err, ErrHGOperationsInvalidApprover) {
+		t.Fatalf("error=%v, want ErrHGOperationsInvalidApprover", err)
 	}
 }

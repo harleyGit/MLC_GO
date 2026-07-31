@@ -426,7 +426,7 @@ func (r *HGRepository) hgRecordMutation(ctx context.Context, tx *sql.Tx, command
 	if command.Operation == CoinModelPackage.HGOperationCorrection {
 		signedDelta = command.SignedDelta
 	}
-	if command.Operation == CoinModelPackage.HGOperationInitialize {
+	if command.Operation == CoinModelPackage.HGOperationInitialize || command.Operation == CoinModelPackage.HGOperationConsolidate {
 		signedDelta = 0
 	}
 	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertCoinTransactionSQL, command.UserID, command.RequestID, command.Operation, command.Amount, signedDelta, balanceAfter, command.Reason, command.BusinessType, command.BusinessKey, command.ReferenceTransactionID)

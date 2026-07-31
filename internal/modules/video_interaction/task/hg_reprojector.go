@@ -14,6 +14,14 @@ import (
 // HGMaxProjectionPageSize 是每条流的硬上限，配置值不能扩大单轮 MySQL/Redis 压力。
 const HGMaxProjectionPageSize = 1000
 
+const (
+	HGProjectionHashBucketCount = 1024
+	HGMaxProjectionWorkerCount  = 32
+)
+
+// HGProjectionHashRange 是固定的半开 bucket 范围；同一实体由 MySQL stored bucket 稳定归属一个范围。
+type HGProjectionHashRange = VideoInteractionRepositoryPackage.HGProjectionHashRange
+
 // HGProjectionStream 标识四条固定、低基数修复流；不得动态使用 user_id 或 submission_id 作为 stream。
 type HGProjectionStream string
 
@@ -31,19 +39,21 @@ var hgProjectionStreams = [...]HGProjectionStream{
 // HGReprojectConfig 定义调度、单轮超时、写入安全延迟、lease TTL 和分页上限。
 // Timeout 必须小于 LeaseTTL 和 Interval，确保 owner 正常情况下不会在租约过期后继续提交 checkpoint。
 type HGReprojectConfig struct {
-	Interval  time.Duration
-	Timeout   time.Duration
-	SafetyLag time.Duration
-	LeaseTTL  time.Duration
-	PageSize  int
+	Interval    time.Duration
+	Timeout     time.Duration
+	SafetyLag   time.Duration
+	LeaseTTL    time.Duration
+	PageSize    int
+	WorkerCount int
+	HashRanges  []HGProjectionHashRange
 }
 
 // HGProjectionRepository 是 worker 所需的最小 MySQL keyset 读取接口；实现禁止 OFFSET 和无界结果集。
 type HGProjectionRepository interface {
-	ListVideoStates(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int) ([]VideoInteractionRepositoryPackage.HGVideoStateProjection, error)
-	ListFollowStates(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int) ([]VideoInteractionRepositoryPackage.HGFollowStateProjection, error)
-	ListVideoCounts(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int) ([]VideoInteractionRepositoryPackage.HGVideoCountProjection, error)
-	ListFollowCounts(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int) ([]VideoInteractionRepositoryPackage.HGFollowCountProjection, error)
+	ListVideoStates(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int, HGProjectionHashRange) ([]VideoInteractionRepositoryPackage.HGVideoStateProjection, error)
+	ListFollowStates(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int, HGProjectionHashRange) ([]VideoInteractionRepositoryPackage.HGFollowStateProjection, error)
+	ListVideoCounts(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int, HGProjectionHashRange) ([]VideoInteractionRepositoryPackage.HGVideoCountProjection, error)
+	ListFollowCounts(context.Context, VideoInteractionRepositoryPackage.HGProjectionCursor, time.Time, int, HGProjectionHashRange) ([]VideoInteractionRepositoryPackage.HGFollowCountProjection, error)
 }
 
 // HGProjectionCache 是带 owner fencing 的 Redis 投影接口。
@@ -79,6 +89,20 @@ func NewHGReprojector(repository HGProjectionRepository, cache HGProjectionCache
 	if config.PageSize > HGMaxProjectionPageSize {
 		config.PageSize = HGMaxProjectionPageSize
 	}
+	if len(config.HashRanges) == 0 {
+		config.HashRanges = []HGProjectionHashRange{{Start: 0, End: HGProjectionHashBucketCount}}
+	}
+	for i, hashRange := range config.HashRanges {
+		if hashRange.Start >= hashRange.End || hashRange.End > HGProjectionHashBucketCount || (i > 0 && config.HashRanges[i-1].End > hashRange.Start) {
+			return nil, errors.New("interaction reprojector hash ranges are invalid")
+		}
+	}
+	if config.WorkerCount == 0 {
+		config.WorkerCount = 1
+	}
+	if config.WorkerCount < 1 || config.WorkerCount > HGMaxProjectionWorkerCount {
+		return nil, errors.New("interaction reprojector worker count is invalid")
+	}
 	return &HGReprojector{repository: repository, cache: cache, config: config, hgNow: time.Now}, nil
 }
 
@@ -99,6 +123,9 @@ func (r *HGReprojector) Start(parent context.Context) {
 				logHG.ErrFInfo("Interaction reprojector panic: %v", recovered)
 			}
 		}()
+		if err := r.hgRunSafely(ctx); err != nil && ctx.Err() == nil {
+			logHG.ErrFInfo("Interaction reprojector startup run failed: %v", err)
+		}
 		ticker := time.NewTicker(r.config.Interval)
 		defer ticker.Stop()
 		for {
@@ -140,18 +167,51 @@ func (r *HGReprojector) RunOnce(ctx context.Context) error {
 	runCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 	cutoff := r.hgNow().UTC().Add(-r.config.SafetyLag)
-	var joined error
-	for _, stream := range hgProjectionStreams {
-		if err := r.hgRunStream(runCtx, stream, cutoff); err != nil {
-			joined = errors.Join(joined, fmt.Errorf("reproject %s: %w", stream, err))
+	type hgProjectionWork struct {
+		stream    HGProjectionStream
+		hashRange HGProjectionHashRange
+	}
+	work := make(chan hgProjectionWork)
+	errs := make(chan error, len(hgProjectionStreams)*len(r.config.HashRanges))
+	var workers sync.WaitGroup
+	workerCount := r.config.WorkerCount
+	if total := len(hgProjectionStreams) * len(r.config.HashRanges); workerCount > total {
+		workerCount = total
+	}
+	for i := 0; i < workerCount; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for item := range work {
+				if err := r.hgRunStreamRange(runCtx, item.stream, cutoff, item.hashRange); err != nil {
+					errs <- fmt.Errorf("reproject %s: %w", item.stream, err)
+				}
+			}
+		}()
+	}
+	for _, hashRange := range r.config.HashRanges {
+		for _, stream := range hgProjectionStreams {
+			work <- hgProjectionWork{stream: stream, hashRange: hashRange}
 		}
+	}
+	close(work)
+	workers.Wait()
+	close(errs)
+	var joined error
+	for err := range errs {
+		joined = errors.Join(joined, err)
 	}
 	return joined
 }
 
 func (r *HGReprojector) hgRunStream(ctx context.Context, stream HGProjectionStream, cutoff time.Time) error {
+	return r.hgRunStreamRange(ctx, stream, cutoff, r.config.HashRanges[0])
+}
+
+func (r *HGReprojector) hgRunStreamRange(ctx context.Context, stream HGProjectionStream, cutoff time.Time, hashRange HGProjectionHashRange) error {
 	started := time.Now()
-	token, acquired, err := r.cache.AcquireLease(ctx, string(stream), r.config.LeaseTTL)
+	streamKey := r.hgStreamKey(stream, hashRange)
+	token, acquired, err := r.cache.AcquireLease(ctx, streamKey, r.config.LeaseTTL)
 	if err != nil || !acquired {
 		hgObserveProjection(stream, 0, time.Since(started), err, acquired)
 		return err
@@ -159,10 +219,10 @@ func (r *HGReprojector) hgRunStream(ctx context.Context, stream HGProjectionStre
 	released := false
 	defer func() {
 		if !released {
-			_ = r.cache.ReleaseLease(context.WithoutCancel(ctx), string(stream), token)
+			_ = r.cache.ReleaseLease(context.WithoutCancel(ctx), streamKey, token)
 		}
 	}()
-	rawCursor, err := r.cache.LoadCheckpoint(ctx, string(stream))
+	rawCursor, err := r.cache.LoadCheckpoint(ctx, streamKey)
 	if err != nil {
 		return err
 	}
@@ -172,9 +232,10 @@ func (r *HGReprojector) hgRunStream(ctx context.Context, stream HGProjectionStre
 			return fmt.Errorf("decode checkpoint: %w", err)
 		}
 	} else {
+		cursor.Bucket = hashRange.Start
 		cursor.UpdatedAt = time.Unix(0, 0).UTC()
 	}
-	processed, next, err := r.hgProjectPage(ctx, stream, cursor, cutoff)
+	processed, next, err := r.hgProjectPage(ctx, stream, cursor, cutoff, hashRange)
 	if err != nil {
 		hgObserveProjection(stream, processed, time.Since(started), err, true)
 		return err
@@ -188,7 +249,7 @@ func (r *HGReprojector) hgRunStream(ctx context.Context, stream HGProjectionStre
 		}
 		nextCheckpoint = string(encoded)
 	}
-	if err := r.cache.CommitCheckpoint(ctx, string(stream), token, nextCheckpoint); err != nil {
+	if err := r.cache.CommitCheckpoint(ctx, streamKey, token, nextCheckpoint); err != nil {
 		hgObserveProjection(stream, processed, time.Since(started), err, true)
 		return err
 	}
@@ -197,10 +258,17 @@ func (r *HGReprojector) hgRunStream(ctx context.Context, stream HGProjectionStre
 	return nil
 }
 
-func (r *HGReprojector) hgProjectPage(ctx context.Context, stream HGProjectionStream, cursor VideoInteractionRepositoryPackage.HGProjectionCursor, cutoff time.Time) (int, VideoInteractionRepositoryPackage.HGProjectionCursor, error) {
+func (r *HGReprojector) hgStreamKey(stream HGProjectionStream, hashRange HGProjectionHashRange) string {
+	if len(r.config.HashRanges) == 1 && hashRange.Start == 0 && hashRange.End == HGProjectionHashBucketCount {
+		return string(stream)
+	}
+	return fmt.Sprintf("%s:%04d-%04d", stream, hashRange.Start, hashRange.End)
+}
+
+func (r *HGReprojector) hgProjectPage(ctx context.Context, stream HGProjectionStream, cursor VideoInteractionRepositoryPackage.HGProjectionCursor, cutoff time.Time, hashRange HGProjectionHashRange) (int, VideoInteractionRepositoryPackage.HGProjectionCursor, error) {
 	switch stream {
 	case HGProjectionStreamVideoState:
-		rows, err := r.repository.ListVideoStates(ctx, cursor, cutoff, r.config.PageSize)
+		rows, err := r.repository.ListVideoStates(ctx, cursor, cutoff, r.config.PageSize, hashRange)
 		if err != nil || len(rows) == 0 {
 			return len(rows), cursor, err
 		}
@@ -209,7 +277,7 @@ func (r *HGReprojector) hgProjectPage(ctx context.Context, stream HGProjectionSt
 		}
 		return len(rows), rows[len(rows)-1].Cursor, nil
 	case HGProjectionStreamFollowState:
-		rows, err := r.repository.ListFollowStates(ctx, cursor, cutoff, r.config.PageSize)
+		rows, err := r.repository.ListFollowStates(ctx, cursor, cutoff, r.config.PageSize, hashRange)
 		if err != nil || len(rows) == 0 {
 			return len(rows), cursor, err
 		}
@@ -218,7 +286,7 @@ func (r *HGReprojector) hgProjectPage(ctx context.Context, stream HGProjectionSt
 		}
 		return len(rows), rows[len(rows)-1].Cursor, nil
 	case HGProjectionStreamVideoCounts:
-		rows, err := r.repository.ListVideoCounts(ctx, cursor, cutoff, r.config.PageSize)
+		rows, err := r.repository.ListVideoCounts(ctx, cursor, cutoff, r.config.PageSize, hashRange)
 		if err != nil || len(rows) == 0 {
 			return len(rows), cursor, err
 		}
@@ -227,7 +295,7 @@ func (r *HGReprojector) hgProjectPage(ctx context.Context, stream HGProjectionSt
 		}
 		return len(rows), rows[len(rows)-1].Cursor, nil
 	case HGProjectionStreamFollowCounts:
-		rows, err := r.repository.ListFollowCounts(ctx, cursor, cutoff, r.config.PageSize)
+		rows, err := r.repository.ListFollowCounts(ctx, cursor, cutoff, r.config.PageSize, hashRange)
 		if err != nil || len(rows) == 0 {
 			return len(rows), cursor, err
 		}

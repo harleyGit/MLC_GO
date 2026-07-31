@@ -28,14 +28,15 @@ func TestHGRealMySQLOperationalCoinFlow(t *testing.T) {
 	defer cancel()
 	coinRepository := CoinRepositoryPackage.NewHGRepository(db, "mlc.domain.events")
 	coinAssets := CoinServicePackage.NewHGService(coinRepository)
-	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{allowed: true}, CoinAssets: coinAssets, CoinQueries: coinRepository})
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true, HGAssetPermissionRefund: true, HGAssetPermissionBalanceRead: true, HGAssetPermissionTransactionRead: true}}, CoinAssets: coinAssets, CoinQueries: coinRepository, RateLimiter: hgFakeAssetRateLimiter{allowed: true}, Audit: &hgFakeAssetAudit{}})
 	userID := fmt.Sprintf("ops-coin-%d", time.Now().UnixNano())
 
-	grant, err := service.GrantCoin(ctx, "admin-1", OpsDtoPackage.HGCoinGrantRequest{UserID: userID, RequestID: "grant-1", Amount: "10", Reason: "integration ticket", BusinessKey: "T-1"})
+	operator := HGAssetOperator{ID: "admin-1", SourceIP: "127.0.0.1"}
+	grant, err := service.GrantCoin(ctx, operator, OpsDtoPackage.HGCoinGrantRequest{UserID: userID, RequestID: "grant-1", Amount: "10", Reason: "integration ticket", BusinessKey: "T-1"})
 	if err != nil || grant.BalanceAfter != "10" {
 		t.Fatalf("grant=%+v err=%v", grant, err)
 	}
-	replay, err := service.GrantCoin(ctx, "admin-1", OpsDtoPackage.HGCoinGrantRequest{UserID: userID, RequestID: "grant-1", Amount: "10", Reason: "integration ticket", BusinessKey: "T-1"})
+	replay, err := service.GrantCoin(ctx, operator, OpsDtoPackage.HGCoinGrantRequest{UserID: userID, RequestID: "grant-1", Amount: "10", Reason: "integration ticket", BusinessKey: "T-1"})
 	if err != nil || !replay.IdempotentReplay || replay.BalanceAfter != "10" {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
@@ -43,16 +44,12 @@ func TestHGRealMySQLOperationalCoinFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("debit: %v", err)
 	}
-	refund, err := service.RefundCoin(ctx, "admin-1", OpsDtoPackage.HGCoinRefundRequest{UserID: userID, RequestID: "refund-1", Amount: "1", Reason: "integration refund", ReferenceTransactionID: fmt.Sprint(debit.TransactionID)})
+	refund, err := service.RefundCoin(ctx, operator, OpsDtoPackage.HGCoinRefundRequest{UserID: userID, RequestID: "refund-1", Amount: "1", Reason: "integration refund", ReferenceTransactionID: fmt.Sprint(debit.TransactionID)})
 	if err != nil || refund.BalanceAfter != "8" {
 		t.Fatalf("refund=%+v err=%v", refund, err)
 	}
-	corrected, err := service.CorrectCoin(ctx, "admin-1", OpsDtoPackage.HGCoinCorrectionRequest{UserID: userID, RequestID: "correct-1", Delta: "-2", Reason: "confirmed drift"})
-	if err != nil || corrected.BalanceAfter != "6" {
-		t.Fatalf("correction=%+v err=%v", corrected, err)
-	}
 	account, err := service.GetCoinAccount(ctx, "admin-1", userID)
-	if err != nil || account.Balance != "6" {
+	if err != nil || account.Balance != "8" {
 		t.Fatalf("account=%+v err=%v", account, err)
 	}
 	transactions, err := service.GetCoinTransactions(ctx, "admin-1", userID, "", 2)

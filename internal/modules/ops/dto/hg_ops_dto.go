@@ -1,6 +1,11 @@
 package OpsDtoPackage
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrHGAssetCorrectionInvalidApprover = errors.New("correction approver must differ from applicant")
 
 // CreateRoleRequest 创建角色请求
 type CreateRoleRequest struct {
@@ -260,10 +265,70 @@ type HGCoinRefundRequest struct {
 
 // HGCoinCorrectionRequest 通过不可变 correction 流水修正资产，禁止直接覆盖余额。
 type HGCoinCorrectionRequest struct {
-	UserID    string `json:"userId"`
-	RequestID string `json:"requestId"`
-	Delta     string `json:"delta"`
-	Reason    string `json:"reason"`
+	UserID      string `json:"userId"`
+	RequestID   string `json:"requestId"`
+	TicketID    string `json:"ticketId"`
+	WorkOrderID string `json:"workOrderId,omitempty"`
+	Delta       string `json:"delta"`
+	Reason      string `json:"reason"`
+}
+
+// HGCoinCorrectionApproveRequest approves and applies a pending correction by its immutable request ID.
+type HGCoinCorrectionApproveRequest struct {
+	CorrectionID string `json:"correctionId"`
+}
+
+// HGCoinCorrectionResponse describes the durable two-step correction workflow state.
+type HGCoinCorrectionResponse struct {
+	CorrectionID  string `json:"correctionId"`
+	UserID        string `json:"userId"`
+	RequestID     string `json:"requestId"`
+	TicketID      string `json:"ticketId"`
+	WorkOrderID   string `json:"workOrderId,omitempty"`
+	Delta         string `json:"delta"`
+	Reason        string `json:"reason"`
+	ApplicantID   string `json:"applicantId"`
+	ApproverID    string `json:"approverId,omitempty"`
+	Status        string `json:"status"`
+	TransactionID string `json:"transactionId,omitempty"`
+	BalanceAfter  string `json:"balanceAfter,omitempty"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
+// HGCoinCorrectionListResponse uses an ID cursor and a bounded page size.
+type HGCoinCorrectionListResponse struct {
+	List       []HGCoinCorrectionResponse `json:"list"`
+	NextCursor string                     `json:"nextCursor"`
+	HasMore    bool                       `json:"hasMore"`
+}
+
+// HGAssetPermissionsResponse exposes the current JWT operator's database-backed asset permissions.
+type HGAssetPermissionsResponse struct {
+	Permissions []string `json:"permissions"`
+}
+
+// HGAssetOperator contains trusted request metadata populated outside the JSON body.
+type HGAssetOperator struct {
+	ID       string
+	SourceIP string
+	TID      string
+}
+
+// HGAssetAuditRecord is the repository input for an immutable asset audit row.
+type HGAssetAuditRecord struct {
+	OperatorID   string
+	Action       string
+	TargetUserID string
+	SourceIP     string
+	RequestID    string
+	TID          string
+	OldBalance   uint64
+	NewBalance   uint64
+	ApplicantID  string
+	ApproverID   string
+	Outcome      string
+	ErrorMessage string
 }
 
 // HGCoinAccountResponse 返回 MySQL 权威余额。

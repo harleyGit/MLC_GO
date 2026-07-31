@@ -18,13 +18,44 @@ import (
 )
 
 var (
-	// ErrHGOperationsForbidden 表示当前 JWT 用户未在 admin_user 中处于有效状态。
-	ErrHGOperationsForbidden = errors.New("operations permission denied")
-	ErrHGOperationsInvalid   = errors.New("invalid operations request")
+	// ErrHGOperationsForbidden means the JWT operator lacks the required database-backed permission.
+	ErrHGOperationsForbidden            = errors.New("operations permission denied")
+	ErrHGOperationsInvalid              = errors.New("invalid operations request")
+	ErrHGOperationsRateLimited          = errors.New("operations rate limited")
+	ErrHGOperationsRateLimitUnavailable = errors.New("operations rate limiter unavailable")
+	ErrHGOperationsInvalidApprover      = OpsDtoPackage.ErrHGAssetCorrectionInvalidApprover
 )
 
 type hgOpsAuthorizer interface {
-	IsActiveAdmin(context.Context, string) (bool, error)
+	HasAssetPermission(context.Context, string, string) (bool, error)
+	ListAssetPermissions(context.Context, string) ([]string, error)
+}
+
+const (
+	HGAssetPermissionBalanceRead       = "asset.coin.balance.read"
+	HGAssetPermissionTransactionRead   = "asset.coin.transaction.read"
+	HGAssetPermissionGrant             = "asset.coin.grant"
+	HGAssetPermissionRefund            = "asset.coin.refund"
+	HGAssetPermissionCorrectionRequest = "asset.coin.correction.request"
+	HGAssetPermissionCorrectionApprove = "asset.coin.correction.approve"
+	HGAssetPermissionCorrectionApply   = "asset.coin.correction.apply"
+	HGAssetPermissionPipelineRead      = "asset.pipeline.read"
+)
+
+type HGAssetOperator = OpsDtoPackage.HGAssetOperator
+type HGAssetAuditRecord = OpsDtoPackage.HGAssetAuditRecord
+
+type hgOpsAssetAudit interface {
+	AppendAssetAudit(context.Context, HGAssetAuditRecord) error
+}
+type hgOpsAssetRateLimiter interface {
+	Allow(context.Context, string, string) (bool, error)
+}
+type hgOpsCorrections interface {
+	CreateCoinCorrection(context.Context, OpsDtoPackage.HGAssetOperator, OpsDtoPackage.HGCoinCorrectionRequest, int64) (OpsDtoPackage.HGCoinCorrectionResponse, error)
+	GetCoinCorrectionForApproval(context.Context, string, string) (OpsDtoPackage.HGCoinCorrectionResponse, error)
+	CompleteCoinCorrection(context.Context, string, string, CoinModelPackage.HGMutationResult, string) error
+	ListCoinCorrections(context.Context, uint64, int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error)
 }
 
 type hgOpsCoinAssets interface {
@@ -49,6 +80,9 @@ type HGOperationalDeps struct {
 	CoinAssets            hgOpsCoinAssets
 	CoinQueries           hgOpsCoinQueries
 	ProjectionCheckpoints hgOpsProjectionCheckpoints
+	Audit                 hgOpsAssetAudit
+	RateLimiter           hgOpsAssetRateLimiter
+	Corrections           hgOpsCorrections
 }
 
 // HGOperationalService 编排受信运维资产操作和低成本链路状态读取。
@@ -59,11 +93,11 @@ func NewHGOperationalService(deps HGOperationalDeps) *HGOperationalService {
 	return &HGOperationalService{deps: deps}
 }
 
-func (s *HGOperationalService) hgAuthorize(ctx context.Context, operatorID string) error {
+func (s *HGOperationalService) hgAuthorize(ctx context.Context, operatorID, permission string) error {
 	if s == nil || s.deps.Authorizer == nil || strings.TrimSpace(operatorID) == "" {
 		return ErrHGOperationsForbidden
 	}
-	allowed, err := s.deps.Authorizer.IsActiveAdmin(ctx, operatorID)
+	allowed, err := s.deps.Authorizer.HasAssetPermission(ctx, operatorID, permission)
 	if err != nil {
 		return fmt.Errorf("authorize operations user: %w", err)
 	}
@@ -75,7 +109,7 @@ func (s *HGOperationalService) hgAuthorize(ctx context.Context, operatorID strin
 
 // GetCoinAccount 返回 MySQL 权威余额，并在查询前执行管理员数据库身份二次校验。
 func (s *HGOperationalService) GetCoinAccount(ctx context.Context, operatorID, userID string) (*OpsDtoPackage.HGCoinAccountResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+	if err := s.hgAuthorize(ctx, operatorID, HGAssetPermissionBalanceRead); err != nil {
 		return nil, err
 	}
 	userID = strings.TrimSpace(userID)
@@ -91,7 +125,7 @@ func (s *HGOperationalService) GetCoinAccount(ctx context.Context, operatorID, u
 
 // GetCoinTransactions 按复合 keyset 游标读取最多 100 条流水。
 func (s *HGOperationalService) GetCoinTransactions(ctx context.Context, operatorID, userID, encodedCursor string, pageSize int) (*OpsDtoPackage.HGCoinTransactionListResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+	if err := s.hgAuthorize(ctx, operatorID, HGAssetPermissionTransactionRead); err != nil {
 		return nil, err
 	}
 	userID = strings.TrimSpace(userID)
@@ -131,60 +165,199 @@ func (s *HGOperationalService) GetCoinTransactions(ctx context.Context, operator
 }
 
 // GrantCoin 只开放赠币语义，支付充值仍必须由已验签支付 Adapter 完成。
-func (s *HGOperationalService) GrantCoin(ctx context.Context, operatorID string, req OpsDtoPackage.HGCoinGrantRequest) (*OpsDtoPackage.HGCoinMutationResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+func (s *HGOperationalService) GrantCoin(ctx context.Context, operator HGAssetOperator, req OpsDtoPackage.HGCoinGrantRequest) (*OpsDtoPackage.HGCoinMutationResponse, error) {
+	if err := s.hgAuthorize(ctx, operator.ID, HGAssetPermissionGrant); err != nil {
+		return nil, err
+	}
+	if err := s.hgLimitWrite(ctx, operator); err != nil {
 		return nil, err
 	}
 	amount, err := hgParsePositiveCoinAmount(req.Amount)
-	reason, reasonErr := hgOpsAuditReason(req.Reason, operatorID)
-	if err != nil || reasonErr != nil || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || !hgOpsValidText(req.BusinessKey, 255) || s.deps.CoinAssets == nil {
+	reason, reasonErr := hgOpsAuditReason(req.Reason, operator.ID)
+	if err != nil || reasonErr != nil || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || !hgOpsValidText(req.BusinessKey, 255) || s.deps.CoinAssets == nil || s.deps.Audit == nil {
 		return nil, ErrHGOperationsInvalid
+	}
+	oldBalance, err := s.deps.CoinAssets.Balance(ctx, strings.TrimSpace(req.UserID))
+	if err != nil {
+		return nil, err
 	}
 	result, err := s.deps.CoinAssets.Grant(ctx, CoinServicePackage.HGCreditCommand{UserID: strings.TrimSpace(req.UserID), RequestID: strings.TrimSpace(req.RequestID), Amount: amount, Reason: reason, BusinessType: "ops_grant", BusinessKey: strings.TrimSpace(req.BusinessKey), ExpiresAt: req.ExpiresAt})
 	if err != nil {
+		_ = s.hgAudit(ctx, operator, "coin.grant", req.UserID, req.RequestID, oldBalance, oldBalance, "", "", "failed", err)
+		return nil, err
+	}
+	if result.Committed {
+		oldBalance = result.BalanceAfter - amount
+	} else {
+		oldBalance = result.BalanceAfter
+	}
+	if err := s.hgAudit(ctx, operator, "coin.grant", req.UserID, req.RequestID, oldBalance, result.BalanceAfter, "", "", "succeeded", nil); err != nil {
 		return nil, err
 	}
 	return hgCoinMutationResponse(result), nil
 }
 
 // RefundCoin 退款必须引用原 debit transaction，累计上限由权威资产事务校验。
-func (s *HGOperationalService) RefundCoin(ctx context.Context, operatorID string, req OpsDtoPackage.HGCoinRefundRequest) (*OpsDtoPackage.HGCoinMutationResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+func (s *HGOperationalService) RefundCoin(ctx context.Context, operator HGAssetOperator, req OpsDtoPackage.HGCoinRefundRequest) (*OpsDtoPackage.HGCoinMutationResponse, error) {
+	if err := s.hgAuthorize(ctx, operator.ID, HGAssetPermissionRefund); err != nil {
+		return nil, err
+	}
+	if err := s.hgLimitWrite(ctx, operator); err != nil {
 		return nil, err
 	}
 	amount, amountErr := hgParsePositiveCoinAmount(req.Amount)
 	reference, referenceErr := strconv.ParseUint(strings.TrimSpace(req.ReferenceTransactionID), 10, 64)
-	reason, reasonErr := hgOpsAuditReason(req.Reason, operatorID)
-	if amountErr != nil || referenceErr != nil || reasonErr != nil || reference == 0 || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || s.deps.CoinAssets == nil {
+	reason, reasonErr := hgOpsAuditReason(req.Reason, operator.ID)
+	if amountErr != nil || referenceErr != nil || reasonErr != nil || reference == 0 || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || s.deps.CoinAssets == nil || s.deps.Audit == nil {
 		return nil, ErrHGOperationsInvalid
+	}
+	oldBalance, err := s.deps.CoinAssets.Balance(ctx, strings.TrimSpace(req.UserID))
+	if err != nil {
+		return nil, err
 	}
 	result, err := s.deps.CoinAssets.Refund(ctx, CoinServicePackage.HGRefundCommand{UserID: strings.TrimSpace(req.UserID), RequestID: strings.TrimSpace(req.RequestID), Amount: amount, Reason: reason, ReferenceTransactionID: reference})
 	if err != nil {
+		_ = s.hgAudit(ctx, operator, "coin.refund", req.UserID, req.RequestID, oldBalance, oldBalance, "", "", "failed", err)
+		return nil, err
+	}
+	if result.Committed {
+		oldBalance = result.BalanceAfter - amount
+	} else {
+		oldBalance = result.BalanceAfter
+	}
+	if err := s.hgAudit(ctx, operator, "coin.refund", req.UserID, req.RequestID, oldBalance, result.BalanceAfter, "", "", "succeeded", nil); err != nil {
 		return nil, err
 	}
 	return hgCoinMutationResponse(result), nil
 }
 
-// CorrectCoin 通过有界正负 delta 写 correction 流水，不提供余额覆盖接口。
-func (s *HGOperationalService) CorrectCoin(ctx context.Context, operatorID string, req OpsDtoPackage.HGCoinCorrectionRequest) (*OpsDtoPackage.HGCoinMutationResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+// CorrectCoin creates a pending correction request; it never mutates the balance.
+func (s *HGOperationalService) CorrectCoin(ctx context.Context, operator HGAssetOperator, req OpsDtoPackage.HGCoinCorrectionRequest) (*OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	if err := s.hgAuthorize(ctx, operator.ID, HGAssetPermissionCorrectionRequest); err != nil {
+		return nil, err
+	}
+	if err := s.hgLimitWrite(ctx, operator); err != nil {
 		return nil, err
 	}
 	delta, err := strconv.ParseInt(strings.TrimSpace(req.Delta), 10, 64)
-	reason, reasonErr := hgOpsAuditReason(req.Reason, operatorID)
-	if err != nil || reasonErr != nil || delta == 0 || delta > int64(CoinServicePackage.HGMaxMutationAmount) || delta < -int64(CoinServicePackage.HGMaxMutationAmount) || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || s.deps.CoinAssets == nil {
+	hasTicket := hgOpsValidText(req.TicketID, 128)
+	hasWorkOrder := hgOpsValidText(req.WorkOrderID, 128)
+	if err != nil || delta == 0 || delta > int64(CoinServicePackage.HGMaxMutationAmount) || delta < -int64(CoinServicePackage.HGMaxMutationAmount) || !hgOpsValidText(req.UserID, 255) || !hgOpsValidText(req.RequestID, 128) || (!hasTicket && !hasWorkOrder) || !hgOpsValidText(req.Reason, 255) || s.deps.Corrections == nil || s.deps.Audit == nil {
 		return nil, ErrHGOperationsInvalid
 	}
-	result, err := s.deps.CoinAssets.Correct(ctx, CoinServicePackage.HGCorrectionCommand{UserID: strings.TrimSpace(req.UserID), RequestID: strings.TrimSpace(req.RequestID), Delta: delta, Reason: reason})
+	created, err := s.deps.Corrections.CreateCoinCorrection(ctx, operator, req, delta)
 	if err != nil {
 		return nil, err
 	}
-	return hgCoinMutationResponse(result), nil
+	if err := s.hgAudit(ctx, operator, "coin.correction.request", req.UserID, req.RequestID, 0, 0, operator.ID, "", "pending", nil); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// ApproveCoinCorrection requires a distinct approver and applies the correction after durable approval claim.
+func (s *HGOperationalService) ApproveCoinCorrection(ctx context.Context, operator HGAssetOperator, correctionID string) (*OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	if err := s.hgAuthorize(ctx, operator.ID, HGAssetPermissionCorrectionApprove); err != nil {
+		return nil, err
+	}
+	if err := s.hgAuthorize(ctx, operator.ID, HGAssetPermissionCorrectionApply); err != nil {
+		return nil, err
+	}
+	if err := s.hgLimitWrite(ctx, operator); err != nil {
+		return nil, err
+	}
+	if !hgOpsValidText(correctionID, 64) || s.deps.Corrections == nil || s.deps.CoinAssets == nil || s.deps.Audit == nil {
+		return nil, ErrHGOperationsInvalid
+	}
+	pending, err := s.deps.Corrections.GetCoinCorrectionForApproval(ctx, strings.TrimSpace(correctionID), operator.ID)
+	if errors.Is(err, ErrHGOperationsInvalidApprover) {
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	if pending.ApplicantID == operator.ID {
+		return nil, ErrHGOperationsInvalidApprover
+	}
+	oldBalance, err := s.deps.CoinAssets.Balance(ctx, pending.UserID)
+	if err != nil {
+		return nil, err
+	}
+	delta, err := strconv.ParseInt(pending.Delta, 10, 64)
+	if err != nil {
+		return nil, ErrHGOperationsInvalid
+	}
+	reason, err := hgOpsAuditReason(pending.Reason, operator.ID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.deps.CoinAssets.Correct(ctx, CoinServicePackage.HGCorrectionCommand{UserID: pending.UserID, RequestID: pending.RequestID, Delta: delta, Reason: reason})
+	if err != nil {
+		_ = s.deps.Corrections.CompleteCoinCorrection(ctx, pending.CorrectionID, operator.ID, CoinModelPackage.HGMutationResult{}, err.Error())
+		_ = s.hgAudit(ctx, operator, "coin.correction.apply", pending.UserID, pending.RequestID, oldBalance, oldBalance, pending.ApplicantID, operator.ID, "failed", err)
+		return nil, err
+	}
+	if result.Committed {
+		if delta > 0 {
+			oldBalance = result.BalanceAfter - uint64(delta)
+		} else {
+			oldBalance = result.BalanceAfter + uint64(-delta)
+		}
+	} else {
+		oldBalance = result.BalanceAfter
+	}
+	if err := s.deps.Corrections.CompleteCoinCorrection(ctx, pending.CorrectionID, operator.ID, result, ""); err != nil {
+		return nil, err
+	}
+	if err := s.hgAudit(ctx, operator, "coin.correction.apply", pending.UserID, pending.RequestID, oldBalance, result.BalanceAfter, pending.ApplicantID, operator.ID, "succeeded", nil); err != nil {
+		return nil, err
+	}
+	pending.ApproverID, pending.Status, pending.TransactionID, pending.BalanceAfter = operator.ID, "applied", strconv.FormatUint(result.TransactionID, 10), strconv.FormatUint(result.BalanceAfter, 10)
+	return &pending, nil
+}
+
+func (s *HGOperationalService) ListCoinCorrections(ctx context.Context, operatorID, cursorValue string, pageSize int) (*OpsDtoPackage.HGCoinCorrectionListResponse, error) {
+	if err := s.hgAuthorize(ctx, operatorID, HGAssetPermissionCorrectionRequest); err != nil {
+		return nil, err
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	cursor, err := strconv.ParseUint(strings.TrimSpace(cursorValue), 10, 64)
+	if strings.TrimSpace(cursorValue) == "" {
+		cursor, err = 0, nil
+	}
+	if err != nil || s.deps.Corrections == nil {
+		return nil, ErrHGOperationsInvalid
+	}
+	items, next, more, err := s.deps.Corrections.ListCoinCorrections(ctx, cursor, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	nextValue := ""
+	if more {
+		nextValue = strconv.FormatUint(next, 10)
+	}
+	return &OpsDtoPackage.HGCoinCorrectionListResponse{List: items, NextCursor: nextValue, HasMore: more}, nil
+}
+
+func (s *HGOperationalService) GetCurrentAssetPermissions(ctx context.Context, operatorID string) (*OpsDtoPackage.HGAssetPermissionsResponse, error) {
+	if s == nil || s.deps.Authorizer == nil || strings.TrimSpace(operatorID) == "" {
+		return nil, ErrHGOperationsForbidden
+	}
+	permissions, err := s.deps.Authorizer.ListAssetPermissions(ctx, operatorID)
+	if err != nil {
+		return nil, fmt.Errorf("list asset permissions: %w", err)
+	}
+	return &OpsDtoPackage.HGAssetPermissionsResponse{Permissions: permissions}, nil
 }
 
 // GetAssetPipelineStatus 聚合原子指标和固定 checkpoint，不执行大表扫描或 Kafka Admin 请求。
 func (s *HGOperationalService) GetAssetPipelineStatus(ctx context.Context, operatorID string) (*OpsDtoPackage.HGAssetPipelineStatusResponse, error) {
-	if err := s.hgAuthorize(ctx, operatorID); err != nil {
+	if err := s.hgAuthorize(ctx, operatorID, HGAssetPermissionPipelineRead); err != nil {
 		return nil, err
 	}
 	response := &OpsDtoPackage.HGAssetPipelineStatusResponse{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), CoinReconciliationDrifts: strconv.FormatUint(CoinTaskPackage.HGReconciliationMetricsSnapshot(), 10), InteractionStreams: []OpsDtoPackage.HGInteractionStreamStatus{}, Kafka: OpsDtoPackage.HGKafkaStatus{Measurement: "observed_application_processing_lag", AssignedPartitions: strconv.FormatInt(HGKafkaPackage.HGAssignedPartitionsSnapshot(), 10), Items: []OpsDtoPackage.HGKafkaLagItem{}}}
@@ -211,6 +384,34 @@ func (s *HGOperationalService) GetAssetPipelineStatus(ctx context.Context, opera
 		response.Kafka.Items = append(response.Kafka.Items, OpsDtoPackage.HGKafkaLagItem{Group: item.Group, Topic: item.Topic, LagRecords: strconv.FormatInt(item.LagRecords, 10)})
 	}
 	return response, nil
+}
+
+func (s *HGOperationalService) hgLimitWrite(ctx context.Context, operator HGAssetOperator) error {
+	if s.deps.RateLimiter == nil || strings.TrimSpace(operator.ID) == "" || strings.TrimSpace(operator.SourceIP) == "" {
+		return ErrHGOperationsRateLimitUnavailable
+	}
+	allowed, err := s.deps.RateLimiter.Allow(ctx, operator.ID, operator.SourceIP)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrHGOperationsRateLimitUnavailable, err)
+	}
+	if !allowed {
+		return ErrHGOperationsRateLimited
+	}
+	return nil
+}
+
+func (s *HGOperationalService) hgAudit(ctx context.Context, operator HGAssetOperator, action, target, requestID string, oldBalance, newBalance uint64, applicant, approver, outcome string, actionErr error) error {
+	message := ""
+	if actionErr != nil {
+		message = actionErr.Error()
+		if len(message) > 500 {
+			message = message[:500]
+		}
+	}
+	if err := s.deps.Audit.AppendAssetAudit(ctx, HGAssetAuditRecord{OperatorID: operator.ID, Action: action, TargetUserID: strings.TrimSpace(target), SourceIP: operator.SourceIP, RequestID: strings.TrimSpace(requestID), TID: operator.TID, OldBalance: oldBalance, NewBalance: newBalance, ApplicantID: applicant, ApproverID: approver, Outcome: outcome, ErrorMessage: message}); err != nil {
+		return fmt.Errorf("append immutable ops asset audit after action boundary: %w", err)
+	}
+	return nil
 }
 
 func hgParsePositiveCoinAmount(value string) (uint64, error) {

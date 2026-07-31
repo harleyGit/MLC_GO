@@ -2,9 +2,11 @@ package OpsHandlerPackage
 
 import (
 	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
+	OpsServicePackage "MLC_GO/internal/modules/ops/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,13 +96,17 @@ func (h *Handler) GetBilibiliTagList(w http.ResponseWriter, r *http.Request) {
 
 // writeBilibiliTagServiceError 将稳定业务错误映射为 HTTP 状态，并屏蔽数据库内部错误上下文。
 func writeBilibiliTagServiceError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden) {
+		writeBilibiliTagError(w, r, http.StatusForbidden, "权限校验失败")
+		return
+	}
 	message := err.Error()
 	status := http.StatusBadRequest
 	if strings.Contains(message, "已存在") {
 		status = http.StatusConflict
 	} else if strings.Contains(message, "不存在") {
 		status = http.StatusNotFound
-	} else if strings.Contains(message, "create bilibili") || strings.Contains(message, "query bilibili") {
+	} else if strings.Contains(message, "create bilibili") || strings.Contains(message, "query bilibili") || strings.Contains(message, "authorize bilibili") {
 		status = http.StatusInternalServerError
 		message = "标签服务暂不可用"
 	}
