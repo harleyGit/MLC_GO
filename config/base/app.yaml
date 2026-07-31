@@ -6,3 +6,17 @@ management:
   # 管理端口仅承载 healthz、readyz 和 metrics，生产网络策略不得向公网暴露。
   host: 127.0.0.1
   port: 9091
+
+interaction_reproject:
+  enabled: true
+  interval: 1m
+  timeout: 20s
+  safety_lag: 5s
+  lease_ttl: 30s
+  page_size: 500
+
+coin_jobs:
+  enabled: true
+  interval: 1m
+  timeout: 20s
+  batch_size: 200

@@ -17,3 +17,9 @@
 `alertmanager_webhook_url` 和它的示例文件必须只包含一行完整 URL，不能在文件顶部或行尾添加注释。Alertmanager 的 `url_file` 会将文件内容整体作为 URL 读取，加入注释会导致通知地址解析失败。
 
 生产环境应通过部署平台或 Secret 管理系统提供该文件，不要将真实 Webhook URL、Token 或其他凭据提交到仓库。
+
+## Kafka 消费积压
+
+`mlc_kafka_consumer_lag_records` 由每个消费运行器显式注册，内部按分区维护高水位与处理进度，对外仅暴露 `group`、`topic` 标签。成功处理和成功写入 DLQ 的终止错误会推进进度；可重试错误不会推进，运行器退出时对应指标会被清理。
+
+告警在 Prometheus 中按 `service`、`environment`、`group`、`topic` 汇总所有实例：积压持续 10 分钟超过 1000 条触发 warning，持续 5 分钟超过 10000 条触发 critical。同一维度 critical 生效时，Alertmanager 会抑制 warning。

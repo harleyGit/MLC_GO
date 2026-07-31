@@ -5,6 +5,8 @@ import (
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -64,6 +66,31 @@ func TestNewRuntimeCreatesEnabledFeedConsumer(t *testing.T) {
 	if len(runtime.workers) != 1 || runtime.workers[0].name != "feed" {
 		t.Fatalf("workers = %#v, want one feed worker", runtime.workers)
 	}
+	if metrics := hgRuntimeKafkaMetrics(); !strings.Contains(metrics, `mlc_kafka_consumer_lag_records{group="feed",topic="mlc.domain.events"} 0`) {
+		t.Fatalf("worker lag identity missing: %s", metrics)
+	}
+}
+
+func TestRuntimeCloseBeforeStartRemovesConsumerLagObserver(t *testing.T) {
+	runtime, err := NewRuntime(context.Background(), HGKafkaPackage.HGClusterConfig{
+		Brokers: []string{"127.0.0.1:9092"},
+		Topics:  []string{"mlc.domain.events"},
+		Consumers: HGKafkaPackage.HGConsumerGroupConfigs{
+			Feed: HGKafkaPackage.HGConsumerConfig{Enabled: true, GroupID: "feed-close-test", ClientID: "feed"},
+		},
+	}, RuntimeDependencies{Redis: hgRuntimeRedisStub{}})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	if metrics := hgRuntimeKafkaMetrics(); !strings.Contains(metrics, `group="feed-close-test"`) {
+		t.Fatalf("registered observer missing before close: %s", metrics)
+	}
+
+	runtime.Close()
+
+	if metrics := hgRuntimeKafkaMetrics(); strings.Contains(metrics, `group="feed-close-test"`) {
+		t.Fatalf("observer remains after close: %s", metrics)
+	}
 }
 
 func TestNewRuntimeRejectsEnabledFeedWithoutRedis(t *testing.T) {
@@ -110,4 +137,11 @@ func TestRuntimeReadyFailsWhenInteractionWorkerStops(t *testing.T) {
 	if err := runtime.Ready(); err == nil || !strings.Contains(err.Error(), "interaction") {
 		t.Fatalf("Ready() error = %v, want interaction stopped", err)
 	}
+}
+
+func hgRuntimeKafkaMetrics() string {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	HGKafkaPackage.HGKafkaMetricsHandler().ServeHTTP(recorder, request)
+	return recorder.Body.String()
 }

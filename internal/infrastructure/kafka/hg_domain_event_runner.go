@@ -21,11 +21,22 @@ func StartDomainEventConsumer(ctx context.Context, cli *kgo.Client, dlqTopic str
 
 // RunDomainEventConsumer 同步运行领域事件消费者，退出由 ctx 控制。
 func RunDomainEventConsumer(ctx context.Context, cli *kgo.Client, dlqTopic string, handler consumer.Handler) error {
+	return RunDomainEventConsumerObserved(ctx, cli, dlqTopic, "", nil, handler)
+}
+
+// RunDomainEventConsumerObserved synchronously runs a consumer with explicit lag metric identity.
+func RunDomainEventConsumerObserved(ctx context.Context, cli *kgo.Client, dlqTopic string, group string, topics []string, handler consumer.Handler) error {
+	return RunDomainEventConsumerWithLagObserver(ctx, cli, dlqTopic, HGKafkaPackage.HGNewConsumerLagObserver(group, topics), handler)
+}
+
+// RunDomainEventConsumerWithLagObserver runs a consumer with a pre-registered lag observer.
+func RunDomainEventConsumerWithLagObserver(ctx context.Context, cli *kgo.Client, dlqTopic string, observer *HGKafkaPackage.HGConsumerLagObserver, handler consumer.Handler) error {
 	if handler == nil {
+		observer.Close()
 		return fmt.Errorf("domain event handler cannot be nil")
 	}
 	// HGNewBaseConsumer 负责 poll、提交 offset、失败进 DLQ 等 Kafka 通用能力。
-	base := HGKafkaPackage.HGNewBaseConsumer(cli, dlqTopic)
+	base := HGKafkaPackage.HGNewBaseConsumerWithObserver(cli, dlqTopic, observer)
 	if batchHandler, ok := handler.(consumer.BatchHandler); ok {
 		return base.HGRunConsumeBatch(ctx, hgDomainEventBatchHandler(batchHandler))
 	}

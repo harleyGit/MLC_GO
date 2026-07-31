@@ -75,6 +75,92 @@ type HGStatisticInfrastructureConfig struct {
 	ReconcileTimeout  time.Duration
 }
 
+// HGInteractionReprojectConfig bounds the periodic MySQL-to-Redis interaction repair worker.
+type HGInteractionReprojectConfig struct {
+	Enabled   bool
+	Interval  time.Duration
+	Timeout   time.Duration
+	SafetyLag time.Duration
+	LeaseTTL  time.Duration
+	PageSize  int
+}
+
+// HGCoinJobConfig bounds initialization, expiration, and reconciliation database work.
+type HGCoinJobConfig struct {
+	Enabled   bool
+	Interval  time.Duration
+	Timeout   time.Duration
+	BatchSize int
+}
+
+// GetCoinJobConfig validates the fixed upper bounds used by coin background work.
+func GetCoinJobConfig() (HGCoinJobConfig, error) {
+	var raw struct {
+		Enabled   bool   `mapstructure:"enabled"`
+		Interval  string `mapstructure:"interval"`
+		Timeout   string `mapstructure:"timeout"`
+		BatchSize int    `mapstructure:"batch_size"`
+	}
+	var cfg HGCoinJobConfig
+	if err := viper.UnmarshalKey("coin_jobs", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 Coin jobs 配置失败: %w", err)
+	}
+	cfg.Enabled = raw.Enabled
+	if !cfg.Enabled {
+		return cfg, nil
+	}
+	var err error
+	if cfg.Interval, err = time.ParseDuration(raw.Interval); err != nil || cfg.Interval <= 0 {
+		return cfg, fmt.Errorf("coin_jobs.interval 必须是正 duration")
+	}
+	if cfg.Timeout, err = time.ParseDuration(raw.Timeout); err != nil || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
+		return cfg, fmt.Errorf("coin_jobs.timeout 必须为正且小于 interval")
+	}
+	cfg.BatchSize = raw.BatchSize
+	if cfg.BatchSize < 1 || cfg.BatchSize > 1000 {
+		return cfg, fmt.Errorf("coin_jobs.batch_size 必须在 1-1000 之间")
+	}
+	return cfg, nil
+}
+
+// GetInteractionReprojectConfig reads and validates the standalone interaction reprojector limits.
+func GetInteractionReprojectConfig() (HGInteractionReprojectConfig, error) {
+	var raw struct {
+		Enabled   bool   `mapstructure:"enabled"`
+		Interval  string `mapstructure:"interval"`
+		Timeout   string `mapstructure:"timeout"`
+		SafetyLag string `mapstructure:"safety_lag"`
+		LeaseTTL  string `mapstructure:"lease_ttl"`
+		PageSize  int    `mapstructure:"page_size"`
+	}
+	var cfg HGInteractionReprojectConfig
+	if err := viper.UnmarshalKey("interaction_reproject", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 Interaction reproject 配置失败: %w", err)
+	}
+	cfg.Enabled = raw.Enabled
+	if !cfg.Enabled {
+		return cfg, nil
+	}
+	var err error
+	if cfg.Interval, err = time.ParseDuration(raw.Interval); err != nil || cfg.Interval <= 0 {
+		return cfg, fmt.Errorf("interaction_reproject.interval 必须是正 duration")
+	}
+	if cfg.Timeout, err = time.ParseDuration(raw.Timeout); err != nil || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
+		return cfg, fmt.Errorf("interaction_reproject.timeout 必须为正且小于 interval")
+	}
+	if cfg.SafetyLag, err = time.ParseDuration(raw.SafetyLag); err != nil || cfg.SafetyLag <= 0 {
+		return cfg, fmt.Errorf("interaction_reproject.safety_lag 必须是正 duration")
+	}
+	if cfg.LeaseTTL, err = time.ParseDuration(raw.LeaseTTL); err != nil || cfg.LeaseTTL <= cfg.Timeout {
+		return cfg, fmt.Errorf("interaction_reproject.lease_ttl 必须大于 timeout")
+	}
+	cfg.PageSize = raw.PageSize
+	if cfg.PageSize < 1 || cfg.PageSize > 1000 {
+		return cfg, fmt.Errorf("interaction_reproject.page_size 必须在 1-1000 之间")
+	}
+	return cfg, nil
+}
+
 // GetMySQLConfig 从已加载的模块化 YAML 中读取并校验 MySQL 配置。
 func GetMySQLConfig() (HGMySQLConfig, error) {
 	var cfg HGMySQLConfig

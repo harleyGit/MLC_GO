@@ -3,6 +3,8 @@ package VideoInteractionServicePackage
 import (
 	"MLC_GO/internal/events"
 	InteractionEventsPackage "MLC_GO/internal/events/interaction"
+	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	VideoInteractionDtoPackage "MLC_GO/internal/modules/video_interaction/dto"
 	"context"
 	"errors"
@@ -16,19 +18,19 @@ type hgFakeCoinStore struct {
 	committed bool
 }
 
-func (f *hgFakeCoinStore) SubmitCoin(_ context.Context, requestID string, event InteractionEventsPackage.VideoInteractionChangedEvent) (bool, error) {
+func (f *hgFakeCoinStore) Debit(_ context.Context, command CoinServicePackage.HGDebitCommand) (CoinModelPackage.HGMutationResult, error) {
 	f.calls++
-	f.event = event
-	if requestID == "" {
-		return false, errors.New("request id missing")
+	f.event, _ = command.Event.(InteractionEventsPackage.VideoInteractionChangedEvent)
+	if command.RequestID == "" {
+		return CoinModelPackage.HGMutationResult{}, errors.New("request id missing")
 	}
 	if f.err != nil {
-		return false, f.err
+		return CoinModelPackage.HGMutationResult{}, f.err
 	}
 	if !f.committed {
-		return false, nil
+		return CoinModelPackage.HGMutationResult{}, nil
 	}
-	return true, nil
+	return CoinModelPackage.HGMutationResult{Committed: true}, nil
 }
 
 type hgFakeEventBus struct {

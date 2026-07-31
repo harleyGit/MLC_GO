@@ -1,0 +1,3 @@
+-- Authoritative wallet, transaction, lot, allocation, and audit data are retained on rollback.
+-- Destructive asset rollback requires a separately approved data migration.
+-- 应用回滚采用 roll-forward schema 兼容策略；禁止自动 DROP 余额、流水、lot 或 allocation。

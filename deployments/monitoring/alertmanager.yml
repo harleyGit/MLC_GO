@@ -25,6 +25,12 @@ inhibit_rules:
     target_matchers:
       - severity=~"warning|info"
     equal: [service, environment]
+  # 同一消费组和 topic 已触发 critical lag 时，不再重复发送 warning lag。
+  - source_matchers:
+      - alertname="MLCKafkaConsumerLagCritical"
+    target_matchers:
+      - alertname="MLCKafkaConsumerLagWarning"
+    equal: [service, environment, group, topic]
 
 receivers:
   # 默认接收器仅聚合告警，不向外部渠道发送通知。

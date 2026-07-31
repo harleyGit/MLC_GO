@@ -144,7 +144,7 @@ func hgVerifyCoinTransaction(t *testing.T, ctx context.Context, db *sql.DB, user
 	if err := db.QueryRowContext(ctx, `SELECT balance FROM user_coin_wallets WHERE user_id = ?`, userID).Scan(&balance); err != nil {
 		t.Fatalf("read coin wallet: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_coin_ledger WHERE user_id = ? AND request_id = ?`, userID, "acceptance-request-1").Scan(&ledgerRows); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM coin_asset_transactions WHERE user_id = ? AND request_id = ? AND operation = 'debit'`, userID, "acceptance-request-1").Scan(&ledgerRows); err != nil {
 		t.Fatalf("read coin ledger: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox_events WHERE event_key = ? AND event_name = ?`, event.EventKey(), event.EventName()).Scan(&outboxRows); err != nil {

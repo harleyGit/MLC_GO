@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +30,7 @@ var (
 	hgKafkaRetryableFailures      atomic.Uint64
 	hgKafkaTerminalFailures       atomic.Uint64
 	hgKafkaConsumerLagSequence    atomic.Uint64
-	hgKafkaConsumerLags           sync.Map
+	hgKafkaConsumerLagObservers   sync.Map
 	hgKafkaCommits                atomic.Uint64
 	hgKafkaCommitFailures         atomic.Uint64
 	hgKafkaCommitPartitions       atomic.Uint64
@@ -42,6 +45,141 @@ var (
 
 // HGMetricHook 收集 Kafka Producer 和 Consumer 的低开销进程级指标。
 type HGMetricHook struct{}
+
+type hgConsumerLagPartition struct {
+	highWatermark int64
+	nextOffset    int64
+	initialized   bool
+}
+
+// HGConsumerLagObserver 跟踪一个 Consumer 实例所拥有 partition 的应用处理位置。
+//
+// 内部保留 partition 粒度是为了在 rebalance 时精确清理，但 Prometheus 只导出 group/topic 聚合，
+// 避免 partition、client_id 等标签放大时间序列。该指标表示“已观察到的应用处理 lag”，不是通过
+// Kafka Admin API 查询的严格 committed-offset lag；commit 失败由独立 counter 和告警监控。
+type HGConsumerLagObserver struct {
+	id         uint64
+	group      string
+	mu         sync.RWMutex
+	partitions map[string]map[int32]hgConsumerLagPartition
+	closeOnce  sync.Once
+}
+
+// HGNewConsumerLagObserver 为明确的消费组和 topic 集合注册 observer，并提前暴露零值序列。
+func HGNewConsumerLagObserver(group string, topics []string) *HGConsumerLagObserver {
+	observer := &HGConsumerLagObserver{
+		id:         hgKafkaConsumerLagSequence.Add(1),
+		group:      group,
+		partitions: make(map[string]map[int32]hgConsumerLagPartition, len(topics)),
+	}
+	for _, topic := range topics {
+		if topic != "" && observer.partitions[topic] == nil {
+			observer.partitions[topic] = make(map[int32]hgConsumerLagPartition)
+		}
+	}
+	hgKafkaConsumerLagObservers.Store(observer.id, observer)
+	return observer
+}
+
+// ObserveFetch 只更新 broker high watermark，不把已拉取但尚未成功处理的记录误算为完成。
+func (o *HGConsumerLagObserver) ObserveFetch(fetches kgo.Fetches) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, fetch := range fetches {
+		for _, topic := range fetch.Topics {
+			partitions := o.partitions[topic.Topic]
+			if partitions == nil {
+				partitions = make(map[int32]hgConsumerLagPartition)
+				o.partitions[topic.Topic] = partitions
+			}
+			for _, partition := range topic.Partitions {
+				state := partitions[partition.Partition]
+				state.highWatermark = partition.HighWatermark
+				if !state.initialized && len(partition.Records) > 0 {
+					state.nextOffset = partition.Records[0].Offset
+					state.initialized = true
+				}
+				partitions[partition.Partition] = state
+			}
+		}
+	}
+}
+
+// ObserveSuccessful 在业务 Handler 成功后推进应用处理位置。
+func (o *HGConsumerLagObserver) ObserveSuccessful(record *kgo.Record) {
+	o.hgAdvance(record)
+}
+
+// ObserveRetryable 保留失败记录为未完成，下一轮从该 offset 重试时 lag 仍包含它。
+func (o *HGConsumerLagObserver) ObserveRetryable(_ *kgo.Record) {}
+
+// ObserveTerminal 仅在终止错误已可靠写入 DLQ 后推进位置。
+func (o *HGConsumerLagObserver) ObserveTerminal(record *kgo.Record) {
+	o.hgAdvance(record)
+}
+
+// ObservePartitionsRevoked 删除当前实例已不再拥有的 partition，防止 rebalance 后残留陈旧 lag。
+func (o *HGConsumerLagObserver) ObservePartitionsRevoked(partitions map[string][]int32) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for topic, partitionIDs := range partitions {
+		states := o.partitions[topic]
+		for _, partitionID := range partitionIDs {
+			delete(states, partitionID)
+		}
+	}
+}
+
+func (o *HGConsumerLagObserver) hgAdvance(record *kgo.Record) {
+	if o == nil || record == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	partitions := o.partitions[record.Topic]
+	if partitions == nil {
+		partitions = make(map[int32]hgConsumerLagPartition)
+		o.partitions[record.Topic] = partitions
+	}
+	state := partitions[record.Partition]
+	nextOffset := record.Offset + 1
+	if !state.initialized || nextOffset > state.nextOffset {
+		state.nextOffset = nextOffset
+		state.initialized = true
+	}
+	partitions[record.Partition] = state
+}
+
+// Close 注销该 Consumer 实例的全部 lag 状态；Runtime 关闭和 client 创建失败路径都必须调用。
+func (o *HGConsumerLagObserver) Close() {
+	if o == nil {
+		return
+	}
+	o.closeOnce.Do(func() {
+		hgKafkaConsumerLagObservers.Delete(o.id)
+	})
+}
+
+func (o *HGConsumerLagObserver) hgTopicLags() map[string]int64 {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	lags := make(map[string]int64, len(o.partitions))
+	for topic, partitions := range o.partitions {
+		lags[topic] = 0
+		for _, state := range partitions {
+			if state.initialized && state.highWatermark > state.nextOffset {
+				lags[topic] += state.highWatermark - state.nextOffset
+			}
+		}
+	}
+	return lags
+}
 
 // OnProduceRecordUnbuffered 统计最终完成的生产记录和失败数。
 func (HGMetricHook) OnProduceRecordUnbuffered(_ *kgo.Record, err error) {
@@ -79,32 +217,19 @@ func hgObserveCommit(partitions int, elapsed time.Duration, err error) {
 	}
 }
 
-func hgObserveConsumerLag(metricID uint64, fetches kgo.Fetches) {
-	var lag int64
-	for _, fetch := range fetches {
-		for _, topic := range fetch.Topics {
-			for _, partition := range topic.Partitions {
-				if len(partition.Records) == 0 {
-					continue
-				}
-				nextOffset := partition.Records[len(partition.Records)-1].Offset + 1
-				if partition.HighWatermark > nextOffset {
-					lag += partition.HighWatermark - nextOffset
-				}
-			}
+func hgKafkaConsumerLagSeries() map[string]int64 {
+	series := make(map[string]int64)
+	hgKafkaConsumerLagObservers.Range(func(_, value any) bool {
+		observer, ok := value.(*HGConsumerLagObserver)
+		if !ok || observer == nil {
+			return true
 		}
-	}
-	hgKafkaConsumerLags.Store(metricID, lag)
-}
-
-func hgKafkaTotalConsumerLag() int64 {
-	var total int64
-	hgKafkaConsumerLags.Range(func(_, value any) bool {
-		lag, _ := value.(int64)
-		total += lag
+		for topic, lag := range observer.hgTopicLags() {
+			series[observer.group+"\x00"+topic] += lag
+		}
 		return true
 	})
-	return total
+	return series
 }
 
 func hgKafkaOnPartitionsAssigned(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
@@ -123,6 +248,21 @@ func hgKafkaOnPartitionsLost(_ context.Context, _ *kgo.Client, partitions map[st
 	count := hgPartitionCount(partitions)
 	hgKafkaPartitionsLost.Add(uint64(count))
 	hgKafkaAssignedPartitionGauge.Add(-int64(count))
+}
+
+// HGConsumerLagObserverOpts 将原有分区计数与 observer 的 revoke/lost 清理组合到同一组 franz-go 回调。
+func HGConsumerLagObserverOpts(observer *HGConsumerLagObserver) []kgo.Opt {
+	return []kgo.Opt{
+		kgo.OnPartitionsAssigned(hgKafkaOnPartitionsAssigned),
+		kgo.OnPartitionsRevoked(func(ctx context.Context, client *kgo.Client, partitions map[string][]int32) {
+			hgKafkaOnPartitionsRevoked(ctx, client, partitions)
+			observer.ObservePartitionsRevoked(partitions)
+		}),
+		kgo.OnPartitionsLost(func(ctx context.Context, client *kgo.Client, partitions map[string][]int32) {
+			hgKafkaOnPartitionsLost(ctx, client, partitions)
+			observer.ObservePartitionsRevoked(partitions)
+		}),
+	}
 }
 
 func hgPartitionCount(partitions map[string][]int32) int {
@@ -172,7 +312,17 @@ func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_assigned_partitions Current Kafka partitions assigned to this process.\n# TYPE mlc_kafka_assigned_partitions gauge\n")
 		_, _ = fmt.Fprintf(w, "mlc_kafka_assigned_partitions %d\n", hgKafkaAssignedPartitionGauge.Load())
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_consumer_lag_records Latest observed Kafka consumer lag in records.\n# TYPE mlc_kafka_consumer_lag_records gauge\n")
-		_, _ = fmt.Fprintf(w, "mlc_kafka_consumer_lag_records %d\n", hgKafkaTotalConsumerLag())
+		lagSeries := hgKafkaConsumerLagSeries()
+		keys := make([]string, 0, len(lagSeries))
+		for key := range lagSeries {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			separator := strings.IndexByte(key, 0)
+			group, topic := key[:separator], key[separator+1:]
+			_, _ = fmt.Fprintf(w, "mlc_kafka_consumer_lag_records{group=%s,topic=%s} %d\n", strconv.Quote(group), strconv.Quote(topic), lagSeries[key])
+		}
 		for _, writeMetrics := range componentWriters {
 			if writeMetrics != nil {
 				writeMetrics(w)
@@ -195,7 +345,7 @@ func hgResetKafkaMetricsForTest() {
 	hgKafkaDLQSuccesses.Store(0)
 	hgKafkaRetryableFailures.Store(0)
 	hgKafkaTerminalFailures.Store(0)
-	hgKafkaConsumerLags = sync.Map{}
+	hgKafkaConsumerLagObservers = sync.Map{}
 	hgKafkaCommits.Store(0)
 	hgKafkaCommitFailures.Store(0)
 	hgKafkaCommitPartitions.Store(0)

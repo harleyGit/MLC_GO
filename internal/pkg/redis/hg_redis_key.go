@@ -15,14 +15,25 @@ import (
 )
 
 const (
-	VideoInteractionStateKeyPrefix = "video:interaction:state:"
-	VideoInteractionCountKeyPrefix = "video:interaction:count:"
-	UserFollowStateKeyPrefix       = "user:follow:state:"
-	UserFollowCountKeyPrefix       = "user:follow:count:"
+	VideoInteractionStateKeyPrefix          = "video:interaction:state:"
+	VideoInteractionCountKeyPrefix          = "video:interaction:count:"
+	UserFollowStateKeyPrefix                = "user:follow:state:"
+	UserFollowCountKeyPrefix                = "user:follow:count:"
+	InteractionReprojectLeaseKeyPrefix      = "interaction:reproject:{control}:lease:"
+	InteractionReprojectCheckpointKeyPrefix = "interaction:reproject:{control}:checkpoint:"
+	CoinJobLeaseKey                         = "coin:jobs:{global}:lease"
 )
 
 func GetVideoInteractionStateKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s{%s}:%s", VideoInteractionStateKeyPrefix, submissionID, userID)
+}
+
+func GetInteractionReprojectLeaseKey(stream string) string {
+	return InteractionReprojectLeaseKeyPrefix + stream
+}
+
+func GetInteractionReprojectCheckpointKey(stream string) string {
+	return InteractionReprojectCheckpointKeyPrefix + stream
 }
 
 func GetVideoInteractionCountKey(submissionID string) string {

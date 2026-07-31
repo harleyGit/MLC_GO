@@ -4,6 +4,8 @@ import (
 	"MLC_GO/internal/events"
 	InteractionEventsPackage "MLC_GO/internal/events/interaction"
 	EventBusPackage "MLC_GO/internal/infrastructure/eventbus"
+	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	VideoInteractionDtoPackage "MLC_GO/internal/modules/video_interaction/dto"
 	"context"
 	"errors"
@@ -26,7 +28,7 @@ type hgInteractionCache interface {
 }
 
 type hgCoinStore interface {
-	SubmitCoin(context.Context, string, InteractionEventsPackage.VideoInteractionChangedEvent) (bool, error)
+	Debit(context.Context, CoinServicePackage.HGDebitCommand) (CoinModelPackage.HGMutationResult, error)
 }
 
 // Service 负责校验互动命令、发布 Kafka 事件及更新实时 Redis 投影。
@@ -84,11 +86,14 @@ func (s *Service) SetVideoInteraction(ctx context.Context, userID string, req Vi
 		if s.coinStore == nil {
 			return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("coin transaction store cannot be nil")
 		}
-		committed, err := s.coinStore.SubmitCoin(ctx, req.RequestID, event)
+		result, err := s.coinStore.Debit(ctx, CoinServicePackage.HGDebitCommand{
+			UserID: userID, RequestID: req.RequestID, Amount: uint64(req.Quantity), Reason: "video_coin",
+			BusinessType: "video_coin", BusinessKey: req.SubmissionID, BusinessLimit: 2, Event: event,
+		})
 		if err != nil {
 			return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("submit coin transaction: %w", err)
 		}
-		if committed && s.cache != nil {
+		if result.Committed && s.cache != nil {
 			_ = s.cache.ApplyOptimistic(ctx, userID, req.SubmissionID, "", req.Action, true, req.Quantity)
 		}
 		return VideoInteractionDtoPackage.AcceptedResponse{Accepted: true, Action: req.Action, Active: true, Quantity: req.Quantity}, nil

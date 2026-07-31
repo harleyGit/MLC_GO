@@ -38,6 +38,23 @@ if nextCount < 0 then redis.call('HSET', countKey, field, 0) end
 return 1
 `
 
+// InteractionReprojectCommitLuaScript atomically fences the lease owner, stores its checkpoint, and releases the lease.
+// KEYS[1] is the lease and KEYS[2] is the checkpoint; ARGV[1] is the owner token and ARGV[2] is the encoded cursor.
+const InteractionReprojectCommitLuaScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[2], ARGV[2])
+redis.call('DEL', KEYS[1])
+return 1`
+
+// InteractionReprojectReleaseLuaScript releases only the lease owned by the supplied token.
+const InteractionReprojectReleaseLuaScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0`
+
 const (
 	// TokenBucketRateLimitLuaScript 是令牌桶限流脚本，用于替代固定窗口 INCR + EXPIRE。
 	// 固定窗口的问题：例如每分钟限制 120 次，用户可能在 00:59 打 120 次、01:00 再打 120 次，瞬间形成 240 次临界突刺。

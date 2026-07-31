@@ -79,15 +79,29 @@ func hgBatchFailureIndex(err error, length int) int {
 //
 // 它封装手动提交 offset、panic 保护、DLQ 投递与 context 退出；具体业务消费者只需要实现 HGRecordHandler。
 type HGBaseConsumer struct {
-	cli      *kgo.Client
-	dlqTopic string
-	metricID uint64
-	once     sync.Once
+	cli         *kgo.Client
+	dlqTopic    string
+	lagObserver *HGConsumerLagObserver
+	once        sync.Once
 }
 
 // HGNewBaseConsumer 创建统一消费基类。
 func HGNewBaseConsumer(cli *kgo.Client, dlqTopic string) *HGBaseConsumer {
-	return &HGBaseConsumer{cli: cli, dlqTopic: dlqTopic, metricID: hgKafkaConsumerLagSequence.Add(1)}
+	return &HGBaseConsumer{cli: cli, dlqTopic: dlqTopic}
+}
+
+// HGNewBaseConsumerWithLagObserver creates a consumer with explicit group/topic lag identity.
+func HGNewBaseConsumerWithLagObserver(cli *kgo.Client, dlqTopic string, group string, topics []string) *HGBaseConsumer {
+	return HGNewBaseConsumerWithObserver(cli, dlqTopic, HGNewConsumerLagObserver(group, topics))
+}
+
+// HGNewBaseConsumerWithObserver creates a consumer using an observer registered during client setup.
+func HGNewBaseConsumerWithObserver(cli *kgo.Client, dlqTopic string, observer *HGConsumerLagObserver) *HGBaseConsumer {
+	return &HGBaseConsumer{
+		cli:         cli,
+		dlqTopic:    dlqTopic,
+		lagObserver: observer,
+	}
 }
 
 // HGStartConsume 启动消费循环，支持多topic、自动负载均衡
@@ -136,7 +150,9 @@ func (b *HGBaseConsumer) HGRunConsumeBatch(ctx context.Context, handle HGRecordB
 }
 
 func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBatchHandler) {
-	defer hgKafkaConsumerLags.Delete(b.metricID)
+	if b.lagObserver != nil {
+		defer b.lagObserver.Close()
+	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			hgKafkaConsumerPanics.Add(1)
@@ -154,7 +170,7 @@ func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBa
 			b.cli.AllowRebalance()
 			continue
 		}
-		hgObserveConsumerLag(b.metricID, fetches)
+		b.lagObserver.ObserveFetch(fetches)
 		startedAt := time.Now()
 		var commitRecords []*kgo.Record
 		failedOffsets := make(map[string]map[int32]kgo.EpochOffset)
@@ -167,6 +183,9 @@ func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBa
 					traceCtx := HGExtractTraceFromRecordContext(ctx, partition.Records[0])
 					err := hgInvokeRecordBatchHandler(traceCtx, handle, partition.Records)
 					if err == nil {
+						for _, record := range partition.Records {
+							b.lagObserver.ObserveSuccessful(record)
+						}
 						commitRecords = append(commitRecords, partition.Records[len(partition.Records)-1])
 						continue
 					}
@@ -181,6 +200,10 @@ func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBa
 					hgKafkaDLQWrites.Add(1)
 					if dlqErr := HGSendDLQ(traceCtx, failedRecord, b.dlqTopic, err.Error()); dlqErr == nil && hgIsTerminalError(err) {
 						hgKafkaDLQSuccesses.Add(1)
+						for _, record := range partition.Records[:failureIndex] {
+							b.lagObserver.ObserveSuccessful(record)
+						}
+						b.lagObserver.ObserveTerminal(failedRecord)
 						commitRecords = append(commitRecords, failedRecord)
 						if failureIndex+1 < len(partition.Records) {
 							next := partition.Records[failureIndex+1]
@@ -190,6 +213,10 @@ func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBa
 							failedOffsets[next.Topic][next.Partition] = kgo.EpochOffset{Epoch: next.LeaderEpoch, Offset: next.Offset}
 						}
 					} else {
+						for _, record := range partition.Records[:failureIndex] {
+							b.lagObserver.ObserveSuccessful(record)
+						}
+						b.lagObserver.ObserveRetryable(failedRecord)
 						if dlqErr != nil {
 							hgKafkaDLQFailures.Add(1)
 						}
@@ -228,7 +255,9 @@ func (b *HGBaseConsumer) hgCommitAndRestore(ctx context.Context, commitRecords [
 }
 
 func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler) {
-	defer hgKafkaConsumerLags.Delete(b.metricID)
+	if b.lagObserver != nil {
+		defer b.lagObserver.Close()
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			hgKafkaConsumerPanics.Add(1)
@@ -260,10 +289,10 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 			b.cli.AllowRebalance()
 			continue
 		}
-		hgObserveConsumerLag(b.metricID, fetches)
+		b.lagObserver.ObserveFetch(fetches)
 
 		batchStartedAt := time.Now()
-		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) bool {
+		commitRecords, failedOffsets := hgProcessFetchBatchObserved(ctx, fetches, handle, b.lagObserver, func(traceCtx context.Context, record *kgo.Record, handleErr error) bool {
 			hgKafkaHandlerFailures.Add(1)
 			logHG.ErrFInfo("kafka consume handle failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, handleErr)
 			hgKafkaDLQWrites.Add(1)
@@ -306,6 +335,16 @@ func hgProcessFetchBatch(
 	handle HGRecordHandler,
 	onFailure func(context.Context, *kgo.Record, error) bool,
 ) ([]*kgo.Record, map[string]map[int32]kgo.EpochOffset) {
+	return hgProcessFetchBatchObserved(ctx, fetches, handle, nil, onFailure)
+}
+
+func hgProcessFetchBatchObserved(
+	ctx context.Context,
+	fetches kgo.Fetches,
+	handle HGRecordHandler,
+	lagObserver *HGConsumerLagObserver,
+	onFailure func(context.Context, *kgo.Record, error) bool,
+) ([]*kgo.Record, map[string]map[int32]kgo.EpochOffset) {
 	commitRecords := make([]*kgo.Record, 0, len(fetches))
 	failedOffsets := make(map[string]map[int32]kgo.EpochOffset)
 
@@ -321,9 +360,11 @@ func hgProcessFetchBatch(
 							parked = onFailure(traceCtx, record, err)
 						}
 						if parked {
+							lagObserver.ObserveTerminal(record)
 							lastSucceeded = record
 							continue
 						}
+						lagObserver.ObserveRetryable(record)
 						if failedOffsets[record.Topic] == nil {
 							failedOffsets[record.Topic] = make(map[int32]kgo.EpochOffset)
 						}
@@ -333,6 +374,7 @@ func hgProcessFetchBatch(
 						}
 						break
 					}
+					lagObserver.ObserveSuccessful(record)
 					lastSucceeded = record
 				}
 				if lastSucceeded != nil {

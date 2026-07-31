@@ -74,3 +74,21 @@ groups:
           component: kafka
         annotations:
           summary: Kafka consumer partitions were lost
+      # 按服务、环境、消费组和 topic 聚合实例 lag，持续十分钟超过 1000 条时预警。
+      - alert: MLCKafkaConsumerLagWarning
+        expr: sum by (service, environment, group, topic) (mlc_kafka_consumer_lag_records) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: Kafka consumer lag is above 1000 records
+      # 更高积压需要更快响应；critical 触发后由 Alertmanager 抑制同维度 warning。
+      - alert: MLCKafkaConsumerLagCritical
+        expr: sum by (service, environment, group, topic) (mlc_kafka_consumer_lag_records) > 10000
+        for: 5m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: Kafka consumer lag is above 10000 records

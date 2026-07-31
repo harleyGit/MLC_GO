@@ -3,11 +3,15 @@ package main
 import (
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	HGHandlerPackage "MLC_GO/internal/handler"
+	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
+	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
+	VideoInteractionTaskPackage "MLC_GO/internal/modules/video_interaction/task"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
@@ -59,12 +63,14 @@ const (
 // 2. 容器/K8s 发布时会发送 SIGTERM，应用需要先停止接新流量，再释放连接池。
 // 3. 把资源放到一个应用对象里，启动失败和关闭失败都能集中处理，便于维护和测试。
 type MLCApplication struct {
-	server           *http.Server
-	managementServer *http.Server
-	redisService     *PersistenceRedisPackage.RedisService
-	sqlManager       *PersistenceSQLPackage.HGSQLManager
-	kafkaCloser      kafkaCloser
-	kafkaRuntime     kafkaReadyChecker
+	server                 *http.Server
+	managementServer       *http.Server
+	redisService           *PersistenceRedisPackage.RedisService
+	sqlManager             *PersistenceSQLPackage.HGSQLManager
+	kafkaCloser            kafkaCloser
+	kafkaRuntime           kafkaReadyChecker
+	interactionReprojector *VideoInteractionTaskPackage.HGReprojector
+	coinJobs               *CoinTaskPackage.HGJobs
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -149,6 +155,69 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, err
 	}
+	interactionConfig, err := ConfigPackage.GetInteractionReprojectConfig()
+	if err != nil {
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Interaction reproject配置失败: %w", err)
+	}
+	var interactionReprojector *VideoInteractionTaskPackage.HGReprojector
+	if interactionConfig.Enabled {
+		interactionReprojector, err = VideoInteractionTaskPackage.NewHGReprojector(
+			VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
+			VideoInteractionCachePackage.NewCache(redisService),
+			VideoInteractionTaskPackage.HGReprojectConfig{
+				Interval: interactionConfig.Interval, Timeout: interactionConfig.Timeout, SafetyLag: interactionConfig.SafetyLag,
+				LeaseTTL: interactionConfig.LeaseTTL, PageSize: interactionConfig.PageSize,
+			},
+		)
+		if err != nil {
+			if kafkaCloser != nil {
+				kafkaCloser()
+			}
+			_ = sqlManager.Close()
+			_ = redisService.Close()
+			HGLoggerPackage.CloseLogger()
+			return nil, fmt.Errorf("Interaction reproject初始化失败: %w", err)
+		}
+		interactionReprojector.Start(context.Background())
+	}
+	coinJobConfig, err := ConfigPackage.GetCoinJobConfig()
+	if err != nil {
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Coin jobs配置失败: %w", err)
+	}
+	var coinJobs *CoinTaskPackage.HGJobs
+	if coinJobConfig.Enabled {
+		coinJobs, err = CoinTaskPackage.NewHGJobs(CoinRepositoryPackage.NewHGRepository(sqlManager.GetSQLDB(), "mlc.domain.events"), CoinTaskPackage.HGJobConfig{
+			Interval: coinJobConfig.Interval, Timeout: coinJobConfig.Timeout, BatchSize: coinJobConfig.BatchSize,
+		}, CoinTaskPackage.NewHGRedisJobLease(redisService))
+		if err != nil {
+			if interactionReprojector != nil {
+				interactionReprojector.Close()
+			}
+			if kafkaCloser != nil {
+				kafkaCloser()
+			}
+			_ = sqlManager.Close()
+			_ = redisService.Close()
+			HGLoggerPackage.CloseLogger()
+			return nil, fmt.Errorf("Coin jobs初始化失败: %w", err)
+		}
+		coinJobs.Start(context.Background())
+	}
 
 	// 2. 注册所有模块（每个模块内部创建自己的 handler）。
 	// ClearModules 用来避免测试或重复构建应用时，全局注册表被 append 出重复模块。
@@ -171,7 +240,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics),
 	})
 
 	srv := &http.Server{
@@ -196,12 +265,14 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 
 	return &MLCApplication{
-		server:           srv,
-		managementServer: managementServer,
-		redisService:     redisService,
-		sqlManager:       sqlManager,
-		kafkaCloser:      kafkaCloser,
-		kafkaRuntime:     kafkaRuntime,
+		server:                 srv,
+		managementServer:       managementServer,
+		redisService:           redisService,
+		sqlManager:             sqlManager,
+		kafkaCloser:            kafkaCloser,
+		kafkaRuntime:           kafkaRuntime,
+		interactionReprojector: interactionReprojector,
+		coinJobs:               coinJobs,
 	}, nil
 }
 
@@ -312,7 +383,13 @@ func (app *MLCApplication) Close() {
 	if app == nil {
 		return
 	}
-	// 先停止并等待 Kafka Consumer，避免 Handler 在数据库和 Redis 已关闭后继续处理消息。
+	// 先停止并等待后台 worker，避免数据库和 Redis 关闭后仍有投影或消息处理。
+	if app.interactionReprojector != nil {
+		app.interactionReprojector.Close()
+	}
+	if app.coinJobs != nil {
+		app.coinJobs.Close()
+	}
 	if app.kafkaCloser != nil {
 		app.kafkaCloser()
 	}

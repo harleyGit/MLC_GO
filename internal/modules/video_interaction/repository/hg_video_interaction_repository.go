@@ -3,7 +3,8 @@ package VideoInteractionRepositoryPackage
 import (
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	InteractionEventsPackage "MLC_GO/internal/events/interaction"
-	"MLC_GO/internal/outbox"
+	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
+	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
@@ -138,74 +139,26 @@ func hgJSONEqual(left string, right string) bool {
 
 // SubmitCoin 在一个 MySQL 事务内完成幂等占位、资产扣减、不可变流水和 Outbox 写入。
 func (r *Repository) SubmitCoin(ctx context.Context, requestID string, event InteractionEventsPackage.VideoInteractionChangedEvent) (bool, error) {
-	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if err != nil {
-		return false, fmt.Errorf("begin coin transaction: %w", err)
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertCoinCommandSQL, event.ActorUserID, requestID, event.SubmissionID, event.Quantity)
-	if err != nil {
-		return false, fmt.Errorf("insert coin command: %w", err)
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("read coin command result: %w", err)
-	}
-	if inserted == 0 {
-		var submissionID string
-		var quantity int
-		var status string
-		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCoinCommandSQL, event.ActorUserID, requestID).Scan(&submissionID, &quantity, &status); err != nil {
-			return false, fmt.Errorf("select duplicate coin command: %w", err)
-		}
-		if submissionID != event.SubmissionID || quantity != event.Quantity || status != "completed" {
-			return false, ErrCoinIdempotencyConflict
-		}
-		return false, tx.Commit()
-	}
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.EnsureCoinWalletSQL, event.ActorUserID); err != nil {
-		return false, fmt.Errorf("ensure coin wallet: %w", err)
-	}
-	var currentBalance uint64
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCoinWalletForUpdateSQL, event.ActorUserID).Scan(&currentBalance); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, ErrInsufficientCoinBalance
-		}
-		return false, fmt.Errorf("lock coin wallet: %w", err)
-	}
-	var completedQuantity int
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCompletedCoinQuantitySQL, event.ActorUserID, event.SubmissionID).Scan(&completedQuantity); err != nil {
-		return false, fmt.Errorf("select completed coin quantity: %w", err)
-	}
-	if completedQuantity+event.Quantity > 2 {
-		return false, ErrCoinLimitExceeded
-	}
-	result, err = tx.ExecContext(ctx, SQLQueriesPackage.DebitCoinWalletSQL, event.Quantity, event.ActorUserID, event.Quantity)
-	if err != nil {
-		return false, fmt.Errorf("debit coin wallet: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("read coin debit result: %w", err)
-	}
-	if affected != 1 {
+	result, err := CoinServicePackage.NewHGService(CoinRepositoryPackage.NewHGRepository(r.db, r.topic)).Debit(ctx, CoinServicePackage.HGDebitCommand{
+		UserID: event.ActorUserID, RequestID: requestID, Amount: uint64(event.Quantity), Reason: "video_coin",
+		BusinessType: "video_coin", BusinessKey: event.SubmissionID, BusinessLimit: 2, Event: event,
+	})
+	if errors.Is(err, CoinRepositoryPackage.ErrHGInsufficientBalance) {
 		return false, ErrInsufficientCoinBalance
 	}
-	balanceAfter := currentBalance - uint64(event.Quantity)
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertCoinLedgerSQL, event.ActorUserID, requestID, event.SubmissionID, -event.Quantity, balanceAfter); err != nil {
-		return false, fmt.Errorf("insert coin ledger: %w", err)
+	if errors.Is(err, CoinRepositoryPackage.ErrHGBusinessLimit) {
+		return false, ErrCoinLimitExceeded
 	}
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.CompleteCoinCommandSQL, requestID, event.ActorUserID); err != nil {
-		return false, fmt.Errorf("complete coin command: %w", err)
+	if errors.Is(err, CoinRepositoryPackage.ErrHGIdempotencyConflict) {
+		return false, ErrCoinIdempotencyConflict
 	}
-	if err := outbox.NewRepository(r.db, r.topic).SaveTx(ctx, tx, event); err != nil {
-		return false, fmt.Errorf("save coin outbox: %w", err)
+	if err != nil {
+		return false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit coin transaction: %w", err)
+	if result.Committed {
+		hgObserveWalletDebit()
 	}
-	hgObserveWalletDebit()
-	return true, nil
+	return result.Committed, nil
 }
 
 func hgApplyVideoInteraction(ctx context.Context, tx *sql.Tx, event InteractionConsumerPackage.PersistedEvent) error {

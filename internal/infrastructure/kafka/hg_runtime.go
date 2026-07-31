@@ -24,6 +24,7 @@ type hgConsumerWorker struct {
 	handler     consumer.Handler
 	implemented bool
 	client      *kgo.Client
+	lagObserver *HGKafkaPackage.HGConsumerLagObserver
 }
 
 // RuntimeDependencies 是 Kafka 读模型运行期依赖。
@@ -108,8 +109,11 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 			runtime.Close()
 			return nil, fmt.Errorf("build %s kafka consumer: %w", spec.name, err)
 		}
+		spec.lagObserver = HGKafkaPackage.HGNewConsumerLagObserver(spec.config.GroupID, cfg.Topics)
+		opts = append(opts, HGKafkaPackage.HGConsumerLagObserverOpts(spec.lagObserver)...)
 		spec.client, err = kgo.NewClient(opts...)
 		if err != nil {
+			spec.lagObserver.Close()
 			runtime.Close()
 			return nil, fmt.Errorf("new %s kafka consumer: %w", spec.name, err)
 		}
@@ -133,7 +137,7 @@ func (r *HGRuntime) Start() {
 		go func() {
 			defer r.wg.Done()
 			r.hgMarkWorkerStarted(worker.name)
-			err := RunDomainEventConsumer(r.ctx, worker.client, "business", worker.handler)
+			err := RunDomainEventConsumerWithLagObserver(r.ctx, worker.client, "business", worker.lagObserver, worker.handler)
 			if r.ctx.Err() == nil {
 				r.hgMarkWorkerStopped(worker.name, err)
 			}
@@ -227,6 +231,7 @@ func (r *HGRuntime) Close() {
 		case <-time.After(hgConsumerShutdownTimeout):
 		}
 		for i := range r.workers {
+			r.workers[i].lagObserver.Close()
 			r.workers[i].client.Close()
 		}
 	})

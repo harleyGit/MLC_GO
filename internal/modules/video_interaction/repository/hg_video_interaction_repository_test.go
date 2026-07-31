@@ -4,6 +4,7 @@ import (
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	"MLC_GO/internal/events"
 	InteractionEventsPackage "MLC_GO/internal/events/interaction"
+	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"errors"
@@ -88,28 +89,33 @@ func TestSubmitCoinDebitsWalletWritesLedgerAndOutboxInOneTransaction(t *testing.
 	}
 	defer db.Close()
 
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinCommandSQL)).
-		WithArgs("user-1", "request-1", "submission-1", 2).
-		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureCoinWalletSQL)).
 		WithArgs("user-1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinWalletForUpdateSQL)).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(10))
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCompletedCoinQuantitySQL)).
-		WithArgs("user-1", "submission-1").
-		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(0))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DebitCoinWalletSQL)).
-		WithArgs(2, "user-1", 2).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinLedgerSQL)).
-		WithArgs("user-1", "request-1", "submission-1", -2, 8).
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectLegacyCoinCommandSQL)).
+		WithArgs("user-1", "request-1").
+		WillReturnRows(sqlmock.NewRows([]string{"submission_id", "quantity", "status"}))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinRequestSQL)).
+		WithArgs("user-1", "request-1", CoinModelPackage.HGOperationDebit, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.CompleteCoinCommandSQL)).
-		WithArgs("request-1", "user-1").
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinBusinessDebitTotalSQL)).
+		WithArgs("user-1", "video_coin", "submission-1", "video_coin", "user-1", "submission-1").
+		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinLotsForDebitSQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "remaining_amount", "expires_at"}).AddRow(1, 10, nil))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DebitCoinWalletSQL)).
+		WithArgs(uint64(2), "user-1", uint64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinTransactionSQL)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.CompleteCoinRequestSQL)).
+		WithArgs(uint64(1), uint64(8), "user-1", "request-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateCoinLotRemainingSQL)).WithArgs(uint64(8), uint64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinAllocationSQL)).WithArgs(uint64(1), uint64(1), uint64(2), "debit").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO outbox_events").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -129,13 +135,22 @@ func TestSubmitCoinRejectsRequestIDReusedForDifferentCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinCommandSQL)).
-		WithArgs("user-1", "request-1", "submission-2", 1).
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureCoinWalletSQL)).
+		WithArgs("user-1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinCommandSQL)).
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinWalletForUpdateSQL)).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(8))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectLegacyCoinCommandSQL)).
 		WithArgs("user-1", "request-1").
-		WillReturnRows(sqlmock.NewRows([]string{"submission_id", "quantity", "status"}).AddRow("submission-1", 2, "completed"))
+		WillReturnRows(sqlmock.NewRows([]string{"submission_id", "quantity", "status"}))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinRequestSQL)).
+		WithArgs("user-1", "request-1", CoinModelPackage.HGOperationDebit, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCoinRequestSQL)).
+		WithArgs("user-1", "request-1").
+		WillReturnRows(sqlmock.NewRows([]string{"operation", "command_hash", "status", "transaction_id", "balance_after"}).AddRow("debit", "different", "completed", 1, 8))
 	mock.ExpectRollback()
 
 	repo := NewRepository(db)

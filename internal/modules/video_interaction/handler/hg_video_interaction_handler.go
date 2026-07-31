@@ -1,6 +1,7 @@
 package VideoInteractionHandlerPackage
 
 import (
+	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	VideoInteractionDtoPackage "MLC_GO/internal/modules/video_interaction/dto"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoInteractionServicePackage "MLC_GO/internal/modules/video_interaction/service"
@@ -101,17 +102,17 @@ func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
 func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusBadRequest
 	code := HGResponsePakcage.InvalidParam.Code
-	if errors.Is(err, VideoInteractionRepositoryPackage.ErrInsufficientCoinBalance) {
+	if errors.Is(err, CoinRepositoryPackage.ErrHGInsufficientBalance) || errors.Is(err, VideoInteractionRepositoryPackage.ErrInsufficientCoinBalance) {
 		w.WriteHeader(http.StatusForbidden)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InsufficientBalance)
 		return
 	}
-	if errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinLimitExceeded) {
+	if errors.Is(err, CoinRepositoryPackage.ErrHGBusinessLimit) || errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinLimitExceeded) {
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
 		return
 	}
-	if errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinIdempotencyConflict) {
+	if errors.Is(err, CoinRepositoryPackage.ErrHGIdempotencyConflict) || errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinIdempotencyConflict) {
 		w.WriteHeader(http.StatusConflict)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
 		return
