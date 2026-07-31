@@ -16,6 +16,8 @@ var (
 	ErrInvalidTarget    = errors.New("互动目标不能为空")
 	ErrInvalidQuantity  = errors.New("投币数量必须为 1 或 2，且单视频累计不超过 2")
 	ErrCannotFollowSelf = errors.New("不能关注自己")
+	ErrInvalidRequestID = errors.New("投币请求幂等标识不能为空")
+	ErrInsufficientCoin = errors.New("硬币余额不足")
 )
 
 type hgInteractionCache interface {
@@ -23,14 +25,23 @@ type hgInteractionCache interface {
 	ApplyOptimistic(ctx context.Context, userID string, submissionID string, targetID string, action string, active bool, quantity int) error
 }
 
-// Service 负责校验互动命令、发布 Kafka 事件及更新实时 Redis 投影。
-type Service struct {
-	eventBus EventBusPackage.EventBus
-	cache    hgInteractionCache
+type hgCoinStore interface {
+	SubmitCoin(context.Context, string, InteractionEventsPackage.VideoInteractionChangedEvent) (bool, error)
 }
 
-func NewService(eventBus EventBusPackage.EventBus, cache hgInteractionCache) *Service {
-	return &Service{eventBus: eventBus, cache: cache}
+// Service 负责校验互动命令、发布 Kafka 事件及更新实时 Redis 投影。
+type Service struct {
+	eventBus  EventBusPackage.EventBus
+	cache     hgInteractionCache
+	coinStore hgCoinStore
+}
+
+func NewService(eventBus EventBusPackage.EventBus, cache hgInteractionCache, coinStores ...hgCoinStore) *Service {
+	var coinStore hgCoinStore
+	if len(coinStores) > 0 {
+		coinStore = coinStores[0]
+	}
+	return &Service{eventBus: eventBus, cache: cache, coinStore: coinStore}
 }
 
 func (s *Service) GetState(ctx context.Context, userID string, submissionID string, authorID string) (VideoInteractionDtoPackage.StateResponse, error) {
@@ -55,12 +66,9 @@ func (s *Service) SetVideoInteraction(ctx context.Context, userID string, req Vi
 		if req.Quantity < 1 || req.Quantity > 2 {
 			return VideoInteractionDtoPackage.AcceptedResponse{}, ErrInvalidQuantity
 		}
-		state, err := s.cache.GetState(ctx, userID, req.SubmissionID, "")
-		if err != nil {
-			return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("read coin state: %w", err)
-		}
-		if state.UserCoinCount+int64(req.Quantity) > 2 {
-			return VideoInteractionDtoPackage.AcceptedResponse{}, ErrInvalidQuantity
+		req.RequestID = strings.TrimSpace(req.RequestID)
+		if req.RequestID == "" {
+			return VideoInteractionDtoPackage.AcceptedResponse{}, ErrInvalidRequestID
 		}
 	default:
 		return VideoInteractionDtoPackage.AcceptedResponse{}, ErrInvalidAction
@@ -71,6 +79,19 @@ func (s *Service) SetVideoInteraction(ctx context.Context, userID string, req Vi
 	event := InteractionEventsPackage.VideoInteractionChangedEvent{
 		EventMeta: events.NewEventMeta(ctx), ActorUserID: userID, SubmissionID: req.SubmissionID,
 		Action: req.Action, Active: req.Active, Quantity: req.Quantity,
+	}
+	if req.Action == "coin" {
+		if s.coinStore == nil {
+			return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("coin transaction store cannot be nil")
+		}
+		committed, err := s.coinStore.SubmitCoin(ctx, req.RequestID, event)
+		if err != nil {
+			return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("submit coin transaction: %w", err)
+		}
+		if committed && s.cache != nil {
+			_ = s.cache.ApplyOptimistic(ctx, userID, req.SubmissionID, "", req.Action, true, req.Quantity)
+		}
+		return VideoInteractionDtoPackage.AcceptedResponse{Accepted: true, Action: req.Action, Active: true, Quantity: req.Quantity}, nil
 	}
 	if err := s.eventBus.Publish(ctx, event); err != nil {
 		return VideoInteractionDtoPackage.AcceptedResponse{}, fmt.Errorf("publish interaction event: %w", err)

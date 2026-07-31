@@ -35,9 +35,9 @@ func TestInfrastructureConfiguredForEveryEnvironment(t *testing.T) {
 	}
 
 	expectedByEnv := map[string]expectedConfig{
-		"debug": {"127.0.0.1", "3306", "root", "hh109", "HG_MLC_DB", "127.0.0.1", "6379", 11, "127.0.0.1", "v2"},
-		"pre":   {"127.0.0.1", "3308", "root", "hh109", "HG_MLC_PRE_DB", "127.0.0.1", "6380", 11, "pre-clickhouse.internal", "v2"},
-		"prod":  {"prod-mysql.internal", "3306", "app", "********", "HG_MLC_PROD_DB", "prod-redis.internal", "6379", 11, "prod-clickhouse.internal", "v2"},
+		"debug": {"127.0.0.1", "3306", "root", "hh109", "HG_MLC_DB", "127.0.0.1", "6379", 12, "127.0.0.1", "v2"},
+		"pre":   {"127.0.0.1", "3308", "root", "hh109", "HG_MLC_PRE_DB", "127.0.0.1", "6380", 12, "pre-clickhouse.internal", "v2"},
+		"prod":  {"prod-mysql.internal", "3306", "app", "********", "HG_MLC_PROD_DB", "prod-redis.internal", "6379", 12, "prod-clickhouse.internal", "v2"},
 	}
 
 	for _, env := range []string{"debug", "pre", "prod"} {

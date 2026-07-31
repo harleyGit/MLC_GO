@@ -48,18 +48,46 @@ const hgConsumerMaxPollRecords = 500
 // handler 返回 nil 后才提交 offset；返回 error 时消息会进入 DLQ，失败分区从当前消息继续重试。
 type HGRecordHandler func(ctx context.Context, record *kgo.Record) error
 
+// HGRecordBatchHandler 处理同一 topic/partition 内保持 offset 顺序的有界记录批次。
+type HGRecordBatchHandler func(context.Context, []*kgo.Record) error
+
+type hgBatchRecordError struct {
+	index int
+	err   error
+}
+
+func (e hgBatchRecordError) Error() string { return e.err.Error() }
+func (e hgBatchRecordError) Unwrap() error { return e.err }
+
+// HGNewBatchRecordError 标记批次中具体失败记录，防止 DLQ 和 offset 错误跳过合法消息。
+func HGNewBatchRecordError(index int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return hgBatchRecordError{index: index, err: err}
+}
+
+func hgBatchFailureIndex(err error, length int) int {
+	var batchErr hgBatchRecordError
+	if errors.As(err, &batchErr) && batchErr.index >= 0 && batchErr.index < length {
+		return batchErr.index
+	}
+	return 0
+}
+
 // HGBaseConsumer 是 franz-go 消费基类。
 //
 // 它封装手动提交 offset、panic 保护、DLQ 投递与 context 退出；具体业务消费者只需要实现 HGRecordHandler。
 type HGBaseConsumer struct {
 	cli      *kgo.Client
 	dlqTopic string
+	metricID uint64
 	once     sync.Once
 }
 
 // HGNewBaseConsumer 创建统一消费基类。
 func HGNewBaseConsumer(cli *kgo.Client, dlqTopic string) *HGBaseConsumer {
-	return &HGBaseConsumer{cli: cli, dlqTopic: dlqTopic}
+	return &HGBaseConsumer{cli: cli, dlqTopic: dlqTopic, metricID: hgKafkaConsumerLagSequence.Add(1)}
 }
 
 // HGStartConsume 启动消费循环，支持多topic、自动负载均衡
@@ -95,7 +123,112 @@ func (b *HGBaseConsumer) HGRunConsume(ctx context.Context, handle HGRecordHandle
 	return ctx.Err()
 }
 
+// HGRunConsumeBatch 同步运行分区内批处理消费循环。
+func (b *HGBaseConsumer) HGRunConsumeBatch(ctx context.Context, handle HGRecordBatchHandler) error {
+	if b == nil || b.cli == nil {
+		return fmt.Errorf("kafka consumer client cannot be nil")
+	}
+	if handle == nil {
+		return fmt.Errorf("kafka consumer batch handler cannot be nil")
+	}
+	b.consumeBatchLoop(ctx, handle)
+	return ctx.Err()
+}
+
+func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBatchHandler) {
+	defer hgKafkaConsumerLags.Delete(b.metricID)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			hgKafkaConsumerPanics.Add(1)
+			logHG.ErrFInfo("kafka batch consumer panic recovered err=%v stack=%s", recovered, string(debug.Stack()))
+		}
+	}()
+	for {
+		fetches := b.cli.PollRecords(ctx, hgConsumerMaxPollRecords)
+		if ctx.Err() != nil {
+			b.cli.AllowRebalance()
+			return
+		}
+		if errs := fetches.Errors(); len(errs) > 0 {
+			hgKafkaFetchErrors.Add(uint64(len(errs)))
+			b.cli.AllowRebalance()
+			continue
+		}
+		hgObserveConsumerLag(b.metricID, fetches)
+		startedAt := time.Now()
+		var commitRecords []*kgo.Record
+		failedOffsets := make(map[string]map[int32]kgo.EpochOffset)
+		for _, fetch := range fetches {
+			for _, topic := range fetch.Topics {
+				for _, partition := range topic.Partitions {
+					if len(partition.Records) == 0 {
+						continue
+					}
+					traceCtx := HGExtractTraceFromRecordContext(ctx, partition.Records[0])
+					err := hgInvokeRecordBatchHandler(traceCtx, handle, partition.Records)
+					if err == nil {
+						commitRecords = append(commitRecords, partition.Records[len(partition.Records)-1])
+						continue
+					}
+					hgKafkaHandlerFailures.Add(1)
+					if hgIsTerminalError(err) {
+						hgKafkaTerminalFailures.Add(1)
+					} else {
+						hgKafkaRetryableFailures.Add(1)
+					}
+					failureIndex := hgBatchFailureIndex(err, len(partition.Records))
+					failedRecord := partition.Records[failureIndex]
+					hgKafkaDLQWrites.Add(1)
+					if dlqErr := HGSendDLQ(traceCtx, failedRecord, b.dlqTopic, err.Error()); dlqErr == nil && hgIsTerminalError(err) {
+						hgKafkaDLQSuccesses.Add(1)
+						commitRecords = append(commitRecords, failedRecord)
+						if failureIndex+1 < len(partition.Records) {
+							next := partition.Records[failureIndex+1]
+							if failedOffsets[next.Topic] == nil {
+								failedOffsets[next.Topic] = make(map[int32]kgo.EpochOffset)
+							}
+							failedOffsets[next.Topic][next.Partition] = kgo.EpochOffset{Epoch: next.LeaderEpoch, Offset: next.Offset}
+						}
+					} else {
+						if dlqErr != nil {
+							hgKafkaDLQFailures.Add(1)
+						}
+						if failedOffsets[failedRecord.Topic] == nil {
+							failedOffsets[failedRecord.Topic] = make(map[int32]kgo.EpochOffset)
+						}
+						failedOffsets[failedRecord.Topic][failedRecord.Partition] = kgo.EpochOffset{Epoch: failedRecord.LeaderEpoch, Offset: failedRecord.Offset}
+					}
+				}
+			}
+		}
+		hgObserveConsumeBatch(fetches.NumRecords(), time.Since(startedAt))
+		b.hgCommitAndRestore(ctx, commitRecords, failedOffsets)
+	}
+}
+
+func hgInvokeRecordBatchHandler(ctx context.Context, handle HGRecordBatchHandler, records []*kgo.Record) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("kafka batch handler panic: %v", recovered)
+		}
+	}()
+	return handle(ctx, records)
+}
+
+func (b *HGBaseConsumer) hgCommitAndRestore(ctx context.Context, commitRecords []*kgo.Record, failedOffsets map[string]map[int32]kgo.EpochOffset) {
+	if len(commitRecords) > 0 {
+		startedAt := time.Now()
+		err := b.cli.CommitRecords(ctx, commitRecords...)
+		hgObserveCommit(len(commitRecords), time.Since(startedAt), err)
+	}
+	if len(failedOffsets) > 0 {
+		b.cli.SetOffsets(failedOffsets)
+	}
+	b.cli.AllowRebalance()
+}
+
 func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler) {
+	defer hgKafkaConsumerLags.Delete(b.metricID)
 	defer func() {
 		if r := recover(); r != nil {
 			hgKafkaConsumerPanics.Add(1)
@@ -127,6 +260,7 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 			b.cli.AllowRebalance()
 			continue
 		}
+		hgObserveConsumerLag(b.metricID, fetches)
 
 		batchStartedAt := time.Now()
 		commitRecords, failedOffsets := hgProcessFetchBatch(ctx, fetches, handle, func(traceCtx context.Context, record *kgo.Record, handleErr error) bool {
@@ -137,6 +271,12 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 				hgKafkaDLQFailures.Add(1)
 				logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 				return false
+			}
+			hgKafkaDLQSuccesses.Add(1)
+			if hgIsTerminalError(handleErr) {
+				hgKafkaTerminalFailures.Add(1)
+			} else {
+				hgKafkaRetryableFailures.Add(1)
 			}
 			return hgIsTerminalError(handleErr)
 		})

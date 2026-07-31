@@ -3,6 +3,7 @@ package VideoInteractionDtoPackage
 // ActionRequest 是点赞、投币、收藏和分享接口的请求体。
 type ActionRequest struct {
 	SubmissionID string `json:"submissionId"`
+	RequestID    string `json:"requestId,omitempty"`
 	Action       string `json:"-"`
 	Active       bool   `json:"active"`
 	Quantity     int    `json:"quantity,omitempty"`

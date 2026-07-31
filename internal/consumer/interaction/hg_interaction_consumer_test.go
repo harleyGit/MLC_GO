@@ -19,6 +19,14 @@ func (f *hgFakeStore) ApplyEvent(_ context.Context, event PersistedEvent) error 
 	return nil
 }
 
+func (f *hgFakeStore) ApplyEvents(_ context.Context, events []PersistedEvent) error {
+	f.calls++
+	if len(events) > 0 {
+		f.event = events[len(events)-1]
+	}
+	return nil
+}
+
 func TestConsumerMapsInteractionEnvelopeToStore(t *testing.T) {
 	store := &hgFakeStore{}
 	handler := NewConsumer(store)
@@ -44,6 +52,22 @@ func TestConsumerMapsInteractionEnvelopeToStore(t *testing.T) {
 	}
 	if store.calls != 1 || store.event.EventID != "event-1" || store.event.KafkaOffset != 9 {
 		t.Fatalf("stored event = %#v calls=%d", store.event, store.calls)
+	}
+}
+
+func TestConsumerPersistsDeliveredEnvelopesAsOneBatch(t *testing.T) {
+	store := &hgFakeStore{}
+	handler := NewConsumer(store)
+	payload := json.RawMessage(`{"actorUserId":"user-1","submissionId":"submission-1","action":"like","active":true}`)
+	delivered := []consumer.DeliveredEnvelope{
+		{Delivery: consumer.Delivery{Topic: "mlc.domain.events", Partition: 1, Offset: 9}, Envelope: events.EventEnvelope{EventID: "event-1", EventName: "video.interaction.changed", EventKey: "key-1", Payload: payload}},
+		{Delivery: consumer.Delivery{Topic: "mlc.domain.events", Partition: 1, Offset: 10}, Envelope: events.EventEnvelope{EventID: "event-2", EventName: "video.interaction.changed", EventKey: "key-2", Payload: payload}},
+	}
+	if err := handler.HandleBatch(context.Background(), delivered); err != nil {
+		t.Fatalf("HandleBatch() error = %v", err)
+	}
+	if store.calls != 1 || store.event.KafkaOffset != 10 {
+		t.Fatalf("calls=%d event=%#v", store.calls, store.event)
 	}
 }
 

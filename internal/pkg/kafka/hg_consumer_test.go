@@ -10,6 +10,25 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+func TestHGInvokeRecordBatchHandlerRecoversPanic(t *testing.T) {
+	err := hgInvokeRecordBatchHandler(context.Background(), func(context.Context, []*kgo.Record) error {
+		panic("boom")
+	}, []*kgo.Record{hgTestRecord("orders", 0, 10)})
+	if err == nil || err.Error() != "kafka batch handler panic: boom" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHGBatchFailureIndexUsesExactPoisonRecord(t *testing.T) {
+	err := HGNewBatchRecordError(2, HGNewTerminalError(errors.New("bad payload")))
+	if got := hgBatchFailureIndex(err, 4); got != 2 {
+		t.Fatalf("failure index = %d, want 2", got)
+	}
+	if !hgIsTerminalError(err) {
+		t.Fatal("wrapped batch record error must preserve terminal marker")
+	}
+}
+
 func TestHGProcessFetchBatchCommitsLastContiguousRecordPerPartition(t *testing.T) {
 	fetches := hgTestFetches(
 		hgTestRecord("orders", 0, 10),

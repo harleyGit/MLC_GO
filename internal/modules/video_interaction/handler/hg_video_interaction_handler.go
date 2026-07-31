@@ -2,6 +2,7 @@ package VideoInteractionHandlerPackage
 
 import (
 	VideoInteractionDtoPackage "MLC_GO/internal/modules/video_interaction/dto"
+	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoInteractionServicePackage "MLC_GO/internal/modules/video_interaction/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
@@ -100,9 +101,25 @@ func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
 func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusBadRequest
 	code := HGResponsePakcage.InvalidParam.Code
+	if errors.Is(err, VideoInteractionRepositoryPackage.ErrInsufficientCoinBalance) {
+		w.WriteHeader(http.StatusForbidden)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InsufficientBalance)
+		return
+	}
+	if errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinLimitExceeded) {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+		return
+	}
+	if errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinIdempotencyConflict) {
+		w.WriteHeader(http.StatusConflict)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+		return
+	}
 	if !errors.Is(err, VideoInteractionServicePackage.ErrInvalidAction) &&
 		!errors.Is(err, VideoInteractionServicePackage.ErrInvalidTarget) &&
 		!errors.Is(err, VideoInteractionServicePackage.ErrInvalidQuantity) &&
+		!errors.Is(err, VideoInteractionServicePackage.ErrInvalidRequestID) &&
 		!errors.Is(err, VideoInteractionServicePackage.ErrCannotFollowSelf) {
 		status = http.StatusServiceUnavailable
 		code = HGResponsePakcage.MQError.Code

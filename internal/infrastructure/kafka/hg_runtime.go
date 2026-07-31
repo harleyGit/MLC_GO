@@ -48,6 +48,9 @@ type HGRuntime struct {
 	once              sync.Once
 	errMu             sync.RWMutex
 	err               error
+	workerMu          sync.RWMutex
+	workerStarted     map[string]bool
+	workerStopped     map[string]error
 	reconciler        *StatisticConsumerPackage.HGReconciler
 	reconcileInterval time.Duration
 }
@@ -58,7 +61,7 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	runtime := &HGRuntime{ctx: ctx, cancel: cancel}
+	runtime := &HGRuntime{ctx: ctx, cancel: cancel, workerStarted: make(map[string]bool), workerStopped: make(map[string]error)}
 	if (cfg.Consumers.Feed.Enabled || cfg.Consumers.Statistic.Enabled) && deps.Redis == nil {
 		runtime.Close()
 		return nil, fmt.Errorf("redis-backed kafka consumer dependency cannot be nil")
@@ -129,7 +132,11 @@ func (r *HGRuntime) Start() {
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
+			r.hgMarkWorkerStarted(worker.name)
 			err := RunDomainEventConsumer(r.ctx, worker.client, "business", worker.handler)
+			if r.ctx.Err() == nil {
+				r.hgMarkWorkerStopped(worker.name, err)
+			}
 			if err != nil && r.ctx.Err() == nil {
 				r.errMu.Lock()
 				if r.err == nil {
@@ -164,8 +171,43 @@ func (r *HGRuntime) Ready() error {
 		return nil
 	}
 	r.errMu.RLock()
-	defer r.errMu.RUnlock()
-	return r.err
+	runtimeErr := r.err
+	r.errMu.RUnlock()
+	if runtimeErr != nil {
+		return runtimeErr
+	}
+	r.workerMu.RLock()
+	defer r.workerMu.RUnlock()
+	for _, worker := range r.workers {
+		if stoppedErr, stopped := r.workerStopped[worker.name]; stopped {
+			return fmt.Errorf("%s kafka consumer stopped: %v", worker.name, stoppedErr)
+		}
+		if !r.workerStarted[worker.name] {
+			return fmt.Errorf("%s kafka consumer not started", worker.name)
+		}
+	}
+	return nil
+}
+
+func (r *HGRuntime) hgMarkWorkerStarted(name string) {
+	r.workerMu.Lock()
+	defer r.workerMu.Unlock()
+	if r.workerStarted == nil {
+		r.workerStarted = make(map[string]bool)
+	}
+	r.workerStarted[name] = true
+}
+
+func (r *HGRuntime) hgMarkWorkerStopped(name string, err error) {
+	r.workerMu.Lock()
+	defer r.workerMu.Unlock()
+	if r.workerStopped == nil {
+		r.workerStopped = make(map[string]error)
+	}
+	if err == nil {
+		err = fmt.Errorf("worker exited unexpectedly")
+	}
+	r.workerStopped[name] = err
 }
 
 // Close 停止并等待消费者，随后关闭各自 Kafka Client。

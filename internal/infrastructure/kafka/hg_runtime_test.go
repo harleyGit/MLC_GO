@@ -1,12 +1,23 @@
 package kafka
 
 import (
+	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"strings"
 	"testing"
 )
+
+type hgRuntimeInteractionStoreStub struct{}
+
+func (hgRuntimeInteractionStoreStub) ApplyEvent(context.Context, InteractionConsumerPackage.PersistedEvent) error {
+	return nil
+}
+
+func (hgRuntimeInteractionStoreStub) ApplyEvents(context.Context, []InteractionConsumerPackage.PersistedEvent) error {
+	return nil
+}
 
 type hgRuntimeStatisticStoreStub struct{}
 
@@ -88,5 +99,15 @@ func TestNewRuntimeRejectsEnabledUnimplementedSearchConsumer(t *testing.T) {
 	}, RuntimeDependencies{Redis: hgRuntimeRedisStub{}})
 	if err == nil || !strings.Contains(err.Error(), "not implemented") {
 		t.Fatalf("error = %v, want not implemented", err)
+	}
+}
+
+func TestRuntimeReadyFailsWhenInteractionWorkerStops(t *testing.T) {
+	runtime := &HGRuntime{workers: []hgConsumerWorker{{name: "interaction"}}}
+	runtime.hgMarkWorkerStarted("interaction")
+	runtime.hgMarkWorkerStopped("interaction", context.Canceled)
+
+	if err := runtime.Ready(); err == nil || !strings.Contains(err.Error(), "interaction") {
+		t.Fatalf("Ready() error = %v, want interaction stopped", err)
 	}
 }

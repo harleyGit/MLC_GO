@@ -59,6 +59,17 @@ type Handler interface {
 	Handle(ctx context.Context, envelope events.EventEnvelope) error
 }
 
+// DeliveredEnvelope 保留批量处理时每条事件各自的 Kafka 来源坐标。
+type DeliveredEnvelope struct {
+	Delivery Delivery
+	Envelope events.EventEnvelope
+}
+
+// BatchHandler 在单分区有界批次内按 Kafka 顺序处理领域事件。
+type BatchHandler interface {
+	HandleBatch(context.Context, []DeliveredEnvelope) error
+}
+
 // DecodeEnvelope 把 Kafka value 解成统一事件外壳。
 func DecodeEnvelope(value []byte) (events.EventEnvelope, error) {
 	var envelope events.EventEnvelope

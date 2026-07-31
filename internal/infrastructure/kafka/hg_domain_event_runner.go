@@ -26,7 +26,32 @@ func RunDomainEventConsumer(ctx context.Context, cli *kgo.Client, dlqTopic strin
 	}
 	// HGNewBaseConsumer 负责 poll、提交 offset、失败进 DLQ 等 Kafka 通用能力。
 	base := HGKafkaPackage.HGNewBaseConsumer(cli, dlqTopic)
+	if batchHandler, ok := handler.(consumer.BatchHandler); ok {
+		return base.HGRunConsumeBatch(ctx, hgDomainEventBatchHandler(batchHandler))
+	}
 	return base.HGRunConsume(ctx, hgDomainEventRecordHandler(handler))
+}
+
+func hgDomainEventBatchHandler(handler consumer.BatchHandler) HGKafkaPackage.HGRecordBatchHandler {
+	return func(ctx context.Context, records []*kgo.Record) error {
+		delivered := make([]consumer.DeliveredEnvelope, 0, len(records))
+		for index, record := range records {
+			envelope, err := consumer.DecodeEnvelope(record.Value)
+			if err != nil {
+				if len(delivered) > 0 {
+					if handleErr := handler.HandleBatch(ctx, delivered); handleErr != nil {
+						return handleErr
+					}
+				}
+				return HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(err))
+			}
+			delivered = append(delivered, consumer.DeliveredEnvelope{
+				Delivery: consumer.Delivery{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset},
+				Envelope: envelope,
+			})
+		}
+		return handler.HandleBatch(ctx, delivered)
+	}
 }
 
 func hgDomainEventRecordHandler(handler consumer.Handler) HGKafkaPackage.HGRecordHandler {

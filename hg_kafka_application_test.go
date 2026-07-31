@@ -2,12 +2,24 @@ package main
 
 import (
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 )
+
+type hgReadyRuntimeStub struct{ err error }
+
+func (s hgReadyRuntimeStub) Ready() error { return s.err }
+
+func TestReadyCheckIncludesKafkaConsumerRuntime(t *testing.T) {
+	check := hgKafkaRuntimeReadyCheck(hgReadyRuntimeStub{err: errors.New("interaction stopped")})
+	if err := check(context.Background()); err == nil || !strings.Contains(err.Error(), "interaction stopped") {
+		t.Fatalf("ready error = %v", err)
+	}
+}
 
 func TestBuildManagementListenAddrUsesExplicitHost(t *testing.T) {
 	if got := buildManagementListenAddr("127.0.0.1", "9091"); got != "127.0.0.1:9091" {

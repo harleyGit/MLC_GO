@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,11 @@ var (
 	hgKafkaHandlerFailures        atomic.Uint64
 	hgKafkaDLQWrites              atomic.Uint64
 	hgKafkaDLQFailures            atomic.Uint64
+	hgKafkaDLQSuccesses           atomic.Uint64
+	hgKafkaRetryableFailures      atomic.Uint64
+	hgKafkaTerminalFailures       atomic.Uint64
+	hgKafkaConsumerLagSequence    atomic.Uint64
+	hgKafkaConsumerLags           sync.Map
 	hgKafkaCommits                atomic.Uint64
 	hgKafkaCommitFailures         atomic.Uint64
 	hgKafkaCommitPartitions       atomic.Uint64
@@ -71,6 +77,34 @@ func hgObserveCommit(partitions int, elapsed time.Duration, err error) {
 	if err != nil {
 		hgKafkaCommitFailures.Add(1)
 	}
+}
+
+func hgObserveConsumerLag(metricID uint64, fetches kgo.Fetches) {
+	var lag int64
+	for _, fetch := range fetches {
+		for _, topic := range fetch.Topics {
+			for _, partition := range topic.Partitions {
+				if len(partition.Records) == 0 {
+					continue
+				}
+				nextOffset := partition.Records[len(partition.Records)-1].Offset + 1
+				if partition.HighWatermark > nextOffset {
+					lag += partition.HighWatermark - nextOffset
+				}
+			}
+		}
+	}
+	hgKafkaConsumerLags.Store(metricID, lag)
+}
+
+func hgKafkaTotalConsumerLag() int64 {
+	var total int64
+	hgKafkaConsumerLags.Range(func(_, value any) bool {
+		lag, _ := value.(int64)
+		total += lag
+		return true
+	})
+	return total
 }
 
 func hgKafkaOnPartitionsAssigned(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
@@ -123,6 +157,9 @@ func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 		writeCounter("mlc_kafka_handler_failures_total", "Domain event handler failures.", hgKafkaHandlerFailures.Load())
 		writeCounter("mlc_kafka_dlq_writes_total", "Kafka DLQ writes.", hgKafkaDLQWrites.Load())
 		writeCounter("mlc_kafka_dlq_failures_total", "Kafka DLQ write failures.", hgKafkaDLQFailures.Load())
+		writeCounter("mlc_kafka_dlq_write_successes_total", "Kafka DLQ records confirmed by the producer.", hgKafkaDLQSuccesses.Load())
+		writeCounter("mlc_kafka_retryable_failures_total", "Retryable Kafka handler failures.", hgKafkaRetryableFailures.Load())
+		writeCounter("mlc_kafka_terminal_failures_total", "Terminal Kafka handler failures.", hgKafkaTerminalFailures.Load())
 		writeCounter("mlc_kafka_commits_total", "Kafka offset commit attempts.", hgKafkaCommits.Load())
 		writeCounter("mlc_kafka_commit_failures_total", "Kafka offset commit failures.", hgKafkaCommitFailures.Load())
 		writeCounter("mlc_kafka_commit_partitions_total", "Kafka partitions included in offset commits.", hgKafkaCommitPartitions.Load())
@@ -134,6 +171,8 @@ func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 		writeCounter("mlc_kafka_partitions_lost_total", "Kafka partitions lost by this process.", hgKafkaPartitionsLost.Load())
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_assigned_partitions Current Kafka partitions assigned to this process.\n# TYPE mlc_kafka_assigned_partitions gauge\n")
 		_, _ = fmt.Fprintf(w, "mlc_kafka_assigned_partitions %d\n", hgKafkaAssignedPartitionGauge.Load())
+		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_consumer_lag_records Latest observed Kafka consumer lag in records.\n# TYPE mlc_kafka_consumer_lag_records gauge\n")
+		_, _ = fmt.Fprintf(w, "mlc_kafka_consumer_lag_records %d\n", hgKafkaTotalConsumerLag())
 		for _, writeMetrics := range componentWriters {
 			if writeMetrics != nil {
 				writeMetrics(w)
@@ -153,6 +192,10 @@ func hgResetKafkaMetricsForTest() {
 	hgKafkaHandlerFailures.Store(0)
 	hgKafkaDLQWrites.Store(0)
 	hgKafkaDLQFailures.Store(0)
+	hgKafkaDLQSuccesses.Store(0)
+	hgKafkaRetryableFailures.Store(0)
+	hgKafkaTerminalFailures.Store(0)
+	hgKafkaConsumerLags = sync.Map{}
 	hgKafkaCommits.Store(0)
 	hgKafkaCommitFailures.Store(0)
 	hgKafkaCommitPartitions.Store(0)

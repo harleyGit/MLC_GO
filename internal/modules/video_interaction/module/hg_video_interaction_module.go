@@ -5,8 +5,10 @@ import (
 	EventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionHandlerPackage "MLC_GO/internal/modules/video_interaction/handler"
+	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoInteractionServicePackage "MLC_GO/internal/modules/video_interaction/service"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"net/http"
 )
@@ -24,8 +26,12 @@ func (m *Module) Handler() http.Handler {
 }
 
 // RegisterModules 组装并注册视频互动模块。
-func RegisterModules(redisService *PersistenceRedisPackage.RedisService) {
+func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) {
 	cache := VideoInteractionCachePackage.NewCache(redisService)
-	service := VideoInteractionServicePackage.NewService(EventBusPackage.NewKafkaEventBus(hgInteractionTopic), cache)
+	var coinStore *VideoInteractionRepositoryPackage.Repository
+	if sqlManager != nil {
+		coinStore = VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
+	}
+	service := VideoInteractionServicePackage.NewService(EventBusPackage.NewKafkaEventBus(hgInteractionTopic), cache, coinStore)
 	HGHandlerPackage.RegisterModule(&Module{handler: VideoInteractionHandlerPackage.NewHandler(service)})
 }

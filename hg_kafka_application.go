@@ -32,6 +32,10 @@ import (
 // kafkaCloser 表示应用关闭阶段需要释放的 Kafka 资源。
 type kafkaCloser func()
 
+type kafkaReadyChecker interface {
+	Ready() error
+}
+
 // initKafkaIfConfigured 按当前运行配置初始化 Kafka。
 //
 // Kafka 是本工程的启动必需基础设施，初始化过程分为三步：
@@ -46,31 +50,32 @@ type kafkaCloser func()
 // 1. 非 nil 表示 Kafka 已完成初始化，Close 阶段必须 flush 并关闭 client。
 // 2. 初始化失败不会返回 closer，调用方应按启动失败路径回滚前置依赖。
 func initKafkaIfConfigured() (kafkaCloser, error) {
-	return initKafkaWithDependencies(nil, nil)
+	closer, _, err := initKafkaWithDependencies(nil, nil)
+	return closer, err
 }
 
 // initKafkaWithDependencies 初始化 Producer、独立 Consumer Group 和 Outbox dispatcher。
 // Redis/MySQL 均复用应用现有连接池，避免后台任务重复创建高成本基础设施连接。
-func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, error) {
+func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, kafkaReadyChecker, error) {
 	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
 	if err != nil || producerCloser == nil {
-		return producerCloser, err
+		return producerCloser, nil, err
 	}
 	cfg, _, err := ConfigPackage.GetKafkaConfig()
 	if err != nil {
 		producerCloser()
-		return nil, err
+		return nil, nil, err
 	}
 	clickHouseConfig, statisticConfig, err := ConfigPackage.GetStatisticInfrastructureConfig()
 	if err != nil {
 		producerCloser()
-		return nil, fmt.Errorf("Statistic基础设施配置失败: %w", err)
+		return nil, nil, fmt.Errorf("Statistic基础设施配置失败: %w", err)
 	}
 	var clickHouseClient *ClickHousePackage.HGClient
 	if cfg.Business.Consumers.Statistic.Enabled {
 		if !clickHouseConfig.Enabled {
 			producerCloser()
-			return nil, fmt.Errorf("Statistic消费者启用时 ClickHouse 必须启用")
+			return nil, nil, fmt.Errorf("Statistic消费者启用时 ClickHouse 必须启用")
 		}
 		clickHouseClient, err = ClickHousePackage.NewHGClient(ClickHousePackage.HGConfig{
 			Endpoint: fmt.Sprintf("%s://%s:%s", clickHouseConfig.Scheme, clickHouseConfig.Host, clickHouseConfig.Port),
@@ -80,7 +85,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		})
 		if err != nil {
 			producerCloser()
-			return nil, fmt.Errorf("ClickHouse客户端初始化失败: %w", err)
+			return nil, nil, fmt.Errorf("ClickHouse客户端初始化失败: %w", err)
 		}
 		pingCtx, cancel := context.WithTimeout(context.Background(), clickHouseConfig.QueryTimeoutDuration)
 		err = clickHouseClient.PingContext(pingCtx)
@@ -88,7 +93,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		if err != nil {
 			_ = clickHouseClient.Close()
 			producerCloser()
-			return nil, fmt.Errorf("ClickHouse连接失败: %w", err)
+			return nil, nil, fmt.Errorf("ClickHouse连接失败: %w", err)
 		}
 	}
 	runtimeDeps := InfrastructureKafkaPackage.RuntimeDependencies{
@@ -96,7 +101,11 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		StatisticConfig: StatisticConsumerPackage.HGProjectionConfig{RedisGeneration: statisticConfig.RedisGeneration, RedisShardCount: statisticConfig.RedisShardCount},
 	}
 	if sqlManager != nil {
-		runtimeDeps.InteractionStore = VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
+		topic := ""
+		if len(cfg.Business.Topics) > 0 {
+			topic = cfg.Business.Topics[0]
+		}
+		runtimeDeps.InteractionStore = VideoInteractionRepositoryPackage.NewRepositoryWithTopic(sqlManager.GetSQLDB(), topic)
 	}
 	if statisticConfig.ReconcileEnabled {
 		runtimeDeps.StatisticReconcileConfig = StatisticConsumerPackage.HGReconcileConfig{Generation: statisticConfig.RedisGeneration, ShardCount: statisticConfig.RedisShardCount, Timeout: statisticConfig.ReconcileTimeout}
@@ -108,7 +117,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 			_ = clickHouseClient.Close()
 		}
 		producerCloser()
-		return nil, fmt.Errorf("Kafka消费者初始化失败: %w", err)
+		return nil, nil, fmt.Errorf("Kafka消费者初始化失败: %w", err)
 	}
 	consumerRuntime.Start()
 
@@ -137,7 +146,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 			_ = clickHouseClient.Close()
 		}
 		producerCloser()
-	}, nil
+	}, consumerRuntime, nil
 }
 
 func hgInitKafkaIfConfigured(initKafka func(HGKafkaPackage.HGKafkaClusterConfig) error) (kafkaCloser, error) {

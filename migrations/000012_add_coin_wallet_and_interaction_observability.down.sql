@@ -1,0 +1,2 @@
+-- Asset balances and immutable ledger data are intentionally retained on rollback.
+-- Removing them requires a separately approved data migration.

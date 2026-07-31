@@ -7,6 +7,7 @@ import (
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
+	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
@@ -63,6 +64,7 @@ type MLCApplication struct {
 	redisService     *PersistenceRedisPackage.RedisService
 	sqlManager       *PersistenceSQLPackage.HGSQLManager
 	kafkaCloser      kafkaCloser
+	kafkaRuntime     kafkaReadyChecker
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -137,7 +139,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 
 	// Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
 	// 成功返回的 closer 会保存到 MLCApplication，在退出阶段统一 flush 并关闭全局 Kafka Client。
-	kafkaCloser, err := initKafkaWithDependencies(redisService, sqlManager)
+	kafkaCloser, kafkaRuntime, err := initKafkaWithDependencies(redisService, sqlManager)
 	if err != nil {
 		logHG.ErrFInfo("Kafka初始化失败: %v", err)
 		// Kafka 排在 Redis/MySQL 之后初始化；一旦 Kafka 配置或网络不可用，必须回滚前置资源。
@@ -155,7 +157,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
-	VideoInteractionModulePackage.RegisterModules(redisService)
+	VideoInteractionModulePackage.RegisterModules(redisService, sqlManager)
 	// 注册运维管理模块
 	OpsModulePackage.RegisterModules(redisService, sqlManager)
 	HGTestHandlerPackage.RegisterModules()
@@ -168,8 +170,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics),
+		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics),
 	})
 
 	srv := &http.Server{
@@ -199,6 +201,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		redisService:     redisService,
 		sqlManager:       sqlManager,
 		kafkaCloser:      kafkaCloser,
+		kafkaRuntime:     kafkaRuntime,
 	}, nil
 }
 
@@ -208,7 +211,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 // Kubernetes/负载均衡可以据此在依赖不可用时摘掉实例，避免把请求打到不可服务的节点。
 // kafkaEnabled 表达本次启动是否已成功初始化 Kafka；生产启动成功后该值必须为 true。
 // Kafka 已初始化时必须持续检查，防止 broker 故障后实例继续被流量入口视为 ready。
-func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool) HGHandlerPackage.DependencyChecker {
+func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool, kafkaRuntime ...kafkaReadyChecker) HGHandlerPackage.DependencyChecker {
 	return func(ctx context.Context) error {
 		if err := redisService.PingContext(ctx); err != nil {
 			return fmt.Errorf("redis not ready: %w", err)
@@ -221,7 +224,21 @@ func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManage
 				return fmt.Errorf("kafka not ready: %w", err)
 			}
 		}
+		if len(kafkaRuntime) > 0 && kafkaRuntime[0] != nil {
+			if err := kafkaRuntime[0].Ready(); err != nil {
+				return fmt.Errorf("kafka consumer runtime not ready: %w", err)
+			}
+		}
 		return nil
+	}
+}
+
+func hgKafkaRuntimeReadyCheck(runtime kafkaReadyChecker) HGHandlerPackage.DependencyChecker {
+	return func(context.Context) error {
+		if runtime == nil {
+			return nil
+		}
+		return runtime.Ready()
 	}
 }
 

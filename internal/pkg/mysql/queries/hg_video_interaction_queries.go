@@ -4,6 +4,10 @@ const (
 	InsertInteractionInboxSQL = `INSERT IGNORE INTO video_interaction_inbox
 		(event_id, event_name, event_key, kafka_topic, kafka_partition, kafka_offset, payload)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	SelectInteractionInboxByEventIDSQL = `SELECT event_id, event_name, event_key, kafka_topic, kafka_partition, kafka_offset, payload
+		FROM video_interaction_inbox WHERE event_id = ?`
+	SelectInteractionInboxByDeliverySQL = `SELECT event_id, event_name, event_key, kafka_topic, kafka_partition, kafka_offset, payload
+		FROM video_interaction_inbox WHERE kafka_topic = ? AND kafka_partition = ? AND kafka_offset = ?`
 
 	SelectVideoInteractionForUpdateSQL = `SELECT active, quantity FROM video_user_interactions
 		WHERE user_id = ? AND submission_id = ? AND interaction_type = ? FOR UPDATE`
@@ -33,4 +37,19 @@ const (
 
 	InsertShareRecordSQL = `INSERT IGNORE INTO video_share_records
 		(event_id, user_id, submission_id, created_at) VALUES (?, ?, ?, NOW())`
+
+	InsertCoinCommandSQL = `INSERT IGNORE INTO user_coin_commands
+		(user_id, request_id, submission_id, quantity, status) VALUES (?, ?, ?, ?, 'processing')`
+	EnsureCoinWalletSQL  = `INSERT IGNORE INTO user_coin_wallets (user_id, balance) VALUES (?, 0)`
+	SelectCoinCommandSQL = `SELECT submission_id, quantity, status FROM user_coin_commands
+		WHERE user_id = ? AND request_id = ?`
+	SelectCoinWalletForUpdateSQL   = `SELECT balance FROM user_coin_wallets WHERE user_id = ? FOR UPDATE`
+	SelectCompletedCoinQuantitySQL = `SELECT COALESCE(SUM(quantity), 0) FROM user_coin_commands
+		WHERE user_id = ? AND submission_id = ? AND status = 'completed' FOR UPDATE`
+	DebitCoinWalletSQL = `UPDATE user_coin_wallets SET balance = balance - ?, updated_at = NOW()
+		WHERE user_id = ? AND balance >= ?`
+	InsertCoinLedgerSQL = `INSERT INTO user_coin_ledger
+		(user_id, request_id, submission_id, delta, balance_after) VALUES (?, ?, ?, ?, ?)`
+	CompleteCoinCommandSQL = `UPDATE user_coin_commands SET status = 'completed', updated_at = NOW()
+		WHERE request_id = ? AND user_id = ? AND status = 'processing'`
 )
