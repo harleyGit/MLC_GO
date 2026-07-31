@@ -432,33 +432,53 @@ ensure_redis_ready() {
 # 本地 debug 依赖固定先保证三节点 Kafka 已运行，再显式初始化业务 Topic。
 # pre/prod 的 Topic 必须由发布系统或 Kafka IaC 管理，本脚本不自动操作共享环境。
 ensure_debug_kafka_ready() {
+    # 只有本机 debug 环境允许脚本自动管理 Kafka。
+    # pre 和 prod 通常是多人共享或真实生产环境，自动启动容器、创建 Topic 都可能造成事故，
+    # 所以遇到这两个环境直接返回成功，把 Kafka 生命周期交给发布系统或 Kafka IaC。
     if [ "${TARGET_ENV}" != "debug" ]; then
         return 0
     fi
 
+    # command -v docker 用来确认当前终端能找到 docker 命令。
+    # 如果 Docker Desktop 未安装、未启动或 PATH 配置错误，这里会给出明确错误并中断调试。
     if ! command -v docker >/dev/null 2>&1; then
         log_error "未找到 docker 命令，无法检查本地 Kafka"
         return 1
     fi
 
+    # local 表示变量只在当前函数内有效，不会影响脚本其他逻辑。
+    # 先假设 Kafka 完整运行；只要三个 broker 中有一个未运行，就改为 false。
     local container
     local kafka_running="true"
+    # KAFKA_CONTAINERS 在脚本开头定义，依次包含 mlc-kafka-1、2、3。
     for container in "${KAFKA_CONTAINERS[@]}"; do
+        # docker inspect -f 只读取容器的 Running 状态。
+        # 2>/dev/null 隐藏“容器不存在”等探测错误；|| true 防止严格模式因探测失败直接退出，
+        # 让下面的判断统一把“不存在”和“未运行”都当作需要执行 compose 启动。
         if [ "$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null || true)" != "true" ]; then
             kafka_running="false"
+            # 已确认至少一个 broker 不可用，无需继续检查剩余容器。
             break
         fi
     done
 
+    # 三个 broker 都是 Running 时什么也不启动，避免每次按 F5 都重复执行 compose。
     if [ "${kafka_running}" = "true" ]; then
         log_info "Kafka 三节点集群已运行，无需重复启动"
     else
         log_info "Kafka 未完整运行，执行本地 compose 启动"
         # compose 文件还包含监控和统计依赖；这里只启动 broker，避免无关端口冲突。
+        # -f 指定 compose 文件，up 表示创建/启动服务，-d 表示放到后台运行，不占住 VS Code 终端。
+        # 显式列出 kafka-1、2、3，避免同时启动 Prometheus、ClickHouse 等无关服务。
         docker compose -f "${KAFKA_COMPOSE_FILE}" up -d kafka-1 kafka-2 kafka-3
     fi
 
-    # kafka-init 会等待 broker 就绪，并校验 Topic 的分区数、副本数和 ISR。
+    # 不管 broker 是本来就在运行，还是刚刚由 compose 启动，都要执行 kafka-init：
+    # 1. Topic 不存在时按约定创建；
+    # 2. Topic 已存在时不重复创建；
+    # 3. 等待 broker 真正可用；
+    # 4. 校验分区数、副本数和每个分区的 ISR 是否完整。
+    # make 会在项目根目录根据 Makefile 找到 kafka-init 目标，再调用 scripts/kafka_init.sh。
     make kafka-init
     log_info "Kafka 业务 Topic 已就绪"
 }
