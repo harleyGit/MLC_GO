@@ -12,6 +12,7 @@ import (
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	InfrastructureEventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	InfrastructureKafkaPackage "MLC_GO/internal/infrastructure/kafka"
+	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	"MLC_GO/internal/outbox"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
 	ConfigPackage "MLC_GO/internal/pkg/config"
@@ -93,6 +94,9 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 	runtimeDeps := InfrastructureKafkaPackage.RuntimeDependencies{
 		Redis: redisService, StatisticStore: clickHouseClient, StatisticAggregate: clickHouseClient, StatisticRedis: redisService,
 		StatisticConfig: StatisticConsumerPackage.HGProjectionConfig{RedisGeneration: statisticConfig.RedisGeneration, RedisShardCount: statisticConfig.RedisShardCount},
+	}
+	if sqlManager != nil {
+		runtimeDeps.InteractionStore = VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
 	}
 	if statisticConfig.ReconcileEnabled {
 		runtimeDeps.StatisticReconcileConfig = StatisticConsumerPackage.HGReconcileConfig{Generation: statisticConfig.RedisGeneration, ShardCount: statisticConfig.RedisShardCount, Timeout: statisticConfig.ReconcileTimeout}

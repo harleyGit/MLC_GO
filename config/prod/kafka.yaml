@@ -30,6 +30,10 @@ kafka:
         enabled: false
         group_id: mlc-go-prod-audit
         client_id: mlc-go-prod-audit
+      interaction:
+        enabled: true
+        group_id: mlc-go-prod-interaction
+        client_id: mlc-go-prod-interaction
   log:
     # 建议与业务集群做物理隔离或至少设置独立资源配额。
     brokers:

@@ -1,20 +1,70 @@
 {
+  "$comment": "文件用途：定义 MLC 写入 Kafka 或 Outbox 的统一领域事件外壳 v1。生产者用它封装业务事件，消费者用它校验公共字段、识别事件类型、保证幂等并关联链路。JSON 不支持普通注释，因此本文件使用 JSON Schema 标准的 $comment、title 和 description 提供说明，这些说明不会改变校验结果。",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mlc.internal/contracts/event-envelope-v1.schema.json",
   "title": "MLC Domain Event Envelope v1",
+  "description": "MLC 领域事件统一外壳 v1。eventName、eventKey、timestamp 和 payload 是协议要求的必填字段。为兼容升级前已经进入 Outbox 或 Kafka 的历史消息，eventId 和 version 没有列入 Schema 必填项：消费者会为缺失的 eventId 根据原始消息字节生成稳定的 legacy ID，并把缺失或值为 0 的 version 归一化为 v1。新生产者仍必须主动生成 eventId 并写入 version=1。消费者必须忽略未知字段；遇到大于 1 的未来版本时必须停止按 v1 解释并将消息隔离处理。",
   "type": "object",
   "required": ["eventName", "eventKey", "timestamp", "payload"],
   "properties": {
-    "eventId": {"type": "string", "minLength": 1},
-    "eventName": {"type": "string", "minLength": 1},
-    "eventKey": {"type": "string"},
-    "version": {"type": "integer", "enum": [1]},
-    "traceId": {"type": "string"},
-    "requestId": {"type": "string"},
-    "timestamp": {"type": "integer", "minimum": 1},
-    "sourceService": {"type": "string"},
-    "payload": {"type": "object"}
+    "eventId": {
+      "$comment": "幂等字段。Kafka 是至少一次投递，同一消息可能重复到达；消费者或下游服务应按 eventId 去重。",
+      "title": "事件唯一标识",
+      "description": "标识一次具体领域状态变更的全局唯一 ID。新事件由生产者生成非空 UUID；重试和重放必须沿用原 ID，不能每次重新生成。历史消息可以缺失，消费者会根据原始消息字节生成稳定的 legacy ID。",
+      "type": "string",
+      "minLength": 1
+    },
+    "eventName": {
+      "$comment": "路由字段。消费者根据稳定事件名选择处理逻辑。",
+      "title": "事件名称",
+      "description": "稳定的领域事件类型名称，例如 video.reviewed、video.published 或 video.deleted。名称属于跨服务协议，不能随意改名；消费者不关心的事件应安全忽略。",
+      "type": "string",
+      "minLength": 1
+    },
+    "eventKey": {
+      "$comment": "分区字段。同一业务对象应持续使用同一个 key，以便相关事件进入同一 Kafka 分区。",
+      "title": "事件业务键",
+      "description": "事件对应业务对象的稳定标识，例如视频投稿的 submissionId。生产 Kafka 消息时通常把它同时作为消息 key，使同一对象的事件在同一分区内保持顺序。允许空字符串是为了兼容通用协议，但具体事件应尽量提供有效业务键。",
+      "type": "string"
+    },
+    "version": {
+      "$comment": "协议版本字段，不是业务数据版本。",
+      "title": "事件外壳协议版本",
+      "description": "表示本事件外壳遵循哪个协议版本。当前只允许整数 1。历史消息缺失或为 0 时由消费者按 v1 兼容；大于 1 的未来版本不能强行按 v1 解析，应隔离等待兼容处理。",
+      "type": "integer",
+      "enum": [1]
+    },
+    "traceId": {
+      "$comment": "分布式链路追踪字段。",
+      "title": "链路追踪标识",
+      "description": "关联一次跨服务调用链的追踪 ID，便于把 HTTP、Kafka、数据库和下游处理日志串联排查。没有上游追踪上下文时可以为空或省略。",
+      "type": "string"
+    },
+    "requestId": {
+      "$comment": "请求排障字段。",
+      "title": "来源请求标识",
+      "description": "触发该领域事件的原始请求 ID，用于定位单次用户请求和相关日志。它与 traceId 用途不同：traceId 面向整条调用链，requestId 面向一次入口请求。没有来源请求时可以为空或省略。",
+      "type": "string"
+    },
+    "timestamp": {
+      "$comment": "业务事件发生时间，单位固定为 Unix 毫秒。",
+      "title": "事件发生时间",
+      "description": "事件在生产者侧发生的 UTC Unix 毫秒时间戳，例如 1767225600000。它不是消费者收到消息的时间，也不是 Kafka broker 写入时间；排序、统计和排障时必须注意该区别。",
+      "type": "integer",
+      "minimum": 1
+    },
+    "sourceService": {
+      "$comment": "事件来源标识。",
+      "title": "来源服务名称",
+      "description": "生成该事件的服务名，当前 MLC 生产者通常写入 mlc-go。该字段用于审计、路由和故障定位；历史消息可能缺失，当前生产者会补默认值。",
+      "type": "string"
+    },
+    "payload": {
+      "$comment": "业务字段容器。公共协议字段放在外壳中，具体事件数据放在此对象中。",
+      "title": "事件业务载荷",
+      "description": "具体领域事件的 JSON 对象。例如视频事件包含 submissionId、userId 以及事件公共元信息。消费者应按 eventName 选择对应载荷结构，并忽略载荷中的未知字段，以支持向后兼容演进。",
+      "type": "object"
+    }
   },
-  "additionalProperties": true,
-  "description": "Consumers must ignore unknown fields. Legacy records may omit eventId/version; version 0 or missing is normalized to v1 and eventId is derived from the original bytes. Versions greater than 1 must be parked rather than interpreted as v1."
+  "additionalProperties": true
 }

@@ -1,14 +1,53 @@
+# 文件用途：记录“搜索索引消费者”允许开发完成和上线启用前，必须确定的索引协议与默认保护参数。
+# 消费目标：接收 video.published 和 video.deleted 事件，把已发布视频写入搜索索引，并在删除时清理索引。
+# 使用对象：开发、测试、架构和运维人员用它进行 ES/OpenSearch 方案评审、联调验收及上线检查。
+# 重要说明：这是契约说明文件，不是程序当前直接加载的运行配置；修改本文件不会启动搜索消费者。
+# 实际开关位于 config/{debug,pre,prod}/kafka.yaml 的 kafka.business.consumers.search.enabled。
+# 当前搜索处理器尚未实现，因此所有条件完成并通过验收前，实际运行开关也必须保持 false。
+
+# search_consumer 是本文件的根配置段，下面所有内容都只描述搜索索引消费者。
 search_consumer:
+  # 契约层面的启用状态。false 表示搜索索引链路尚未达到可上线条件。
   enabled: false
+
+  # activation_requirements 是启用前必须逐项确认的检查清单；任意一项未完成都应保持禁用。
   activation_requirements:
+    # 为 ES/OpenSearch index mapping 建立明确版本，固定字段类型、分词器、是否可搜索和是否可聚合。
+    # 同时约定索引 alias 如何从旧版本原子切换到新版本，以及旧索引何时保留或删除。
     - versioned index mapping and alias rollover policy
+
+    # 明确事件采用“完整快照”还是“数据引用”模型，不能在实现过程中含糊混用。
+    # 快照事件直接携带建索引所需字段；引用事件只带 ID，消费者需要再查询权威服务获取最新数据。
     - snapshot or reference event model selected explicitly
+
+    # 约定每批最多写入/删除多少文档、最大请求字节数、单次超时和并发上限。
+    # 这些限制用于防止大批量请求占满内存、连接池或 ES/OpenSearch 写线程池。
     - bulk upsert/delete limits, timeout and bounded concurrency
+
+    # 使用聚合版本号进行外部版本控制，旧事件不能覆盖新事件生成的索引文档。
+    # aggregate revision 必须由权威业务数据递增产生，不能使用消费者本地时间代替。
     - external version ordering based on aggregate revision
+
+    # 区分可重试错误与永久错误，并为最终失败消息提供可安全重放的死信队列（DLQ）。
+    # 网络超时、限流等通常可重试；非法 mapping 或无效数据等永久错误应尽快进入 DLQ，避免无限循环。
     - retryable/permanent error classification and replayable DLQ
+
+    # TLS 证书、用户名、密码、API Key 等必须由 Secret 管理系统注入，不能写入本文件或提交到仓库。
+    # 同时需要约定证书校验、凭据轮换、索引级最小权限和凭据失效后的处理方式。
     - secret-sourced TLS and authentication configuration
+
+  # defaults 给出搜索批量客户端的建议初始保护值；实现时可按环境覆盖，但必须经过容量和故障测试。
   defaults:
+    # 单次 bulk 请求最多包含 500 个新增、更新或删除动作；达到上限应拆分为下一批。
     bulk_max_actions: 500
+
+    # 单次 bulk 请求正文最大为 5,242,880 字节，即 5 MiB；按序列化后的实际请求字节计算。
+    # 动作数或字节数任意一个先达到上限，都应立即结束当前批次。
     bulk_max_bytes: 5242880
+
+    # 单次调用 ES/OpenSearch 最多等待 5 秒；超时后应取消请求并按错误分类决定是否重试。
     request_timeout: 5s
+
+    # 单个消费者实例最多同时执行 8 个搜索写请求；这是并发上限，不等同于每秒 8 次请求。
+    # 多实例部署时总并发会叠加，因此还需要集群容量评估和服务端限流。
     max_concurrency: 8

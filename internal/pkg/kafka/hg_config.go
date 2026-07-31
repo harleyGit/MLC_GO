@@ -42,10 +42,11 @@ type HGConsumerConfig struct {
 
 // HGConsumerGroupConfigs 为各读模型分配独立消费位点。
 type HGConsumerGroupConfigs struct {
-	Feed      HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
-	Search    HGConsumerConfig `yaml:"search" mapstructure:"search"`
-	Statistic HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
-	Audit     HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
+	Feed        HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
+	Search      HGConsumerConfig `yaml:"search" mapstructure:"search"`
+	Statistic   HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
+	Audit       HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
+	Interaction HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
 }
 
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
@@ -112,10 +113,11 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 		return cfg
 	}
 	return HGConsumerGroupConfigs{
-		Feed:      normalize(groups.Feed),
-		Search:    normalize(groups.Search),
-		Statistic: normalize(groups.Statistic),
-		Audit:     normalize(groups.Audit),
+		Feed:        normalize(groups.Feed),
+		Search:      normalize(groups.Search),
+		Statistic:   normalize(groups.Statistic),
+		Audit:       normalize(groups.Audit),
+		Interaction: normalize(groups.Interaction),
 	}
 }
 

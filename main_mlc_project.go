@@ -6,6 +6,7 @@ import (
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
@@ -154,6 +155,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
+	VideoInteractionModulePackage.RegisterModules(redisService)
 	// 注册运维管理模块
 	OpsModulePackage.RegisterModules(redisService, sqlManager)
 	HGTestHandlerPackage.RegisterModules()
@@ -316,6 +318,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)
 	// 收集 ops 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
 	// 收集 test 模块路由清单
@@ -350,5 +353,6 @@ func buildListenAddr(port string) string {
 }
 
 func buildManagementListenAddr(host string, port string) string {
+	// 把 host 和 port 拼接成标准网络地址 host:port 格式，并且先去掉 port 前面的冒号。注意：若是ipv6使用普通字符串拼接会出现问题，需要使用net.JoinHostPort
 	return net.JoinHostPort(host, strings.TrimPrefix(port, ":"))
 }

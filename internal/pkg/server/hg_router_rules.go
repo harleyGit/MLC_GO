@@ -203,6 +203,18 @@ func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
+func VideoInteractionMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	paths := map[string]string{
+		"/state": http.MethodGet, "/like": http.MethodPost, "/coin": http.MethodPost,
+		"/favorite": http.MethodPost, "/share": http.MethodPost, "/follow": http.MethodPost,
+	}
+	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
+	for path, method := range paths {
+		rules = append(rules, HGMiddlewarePackage.HGAPIRule{Path: path, Version: "v1", Methods: map[string]bool{method: true}, NeedAuth: true})
+	}
+	return rules
+}
+
 func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
 		{

@@ -1,6 +1,9 @@
+# 用途：定义统计链路中 ClickHouse 权威写入、Redis 投影和数据对账的告警规则。
+# 说明：ClickHouse 被视为权威数据源，Redis 为投影；持续偏差和权威写入失败按严重告警处理。
 groups:
   - name: mlc-statistic
     rules:
+      # ClickHouse 权威数据写入失败会直接影响统计数据完整性。
       - alert: MLCStatisticClickHouseWriteFailures
         expr: increase(mlc_statistic_clickhouse_write_failures_total[5m]) > 0
         for: 2m
@@ -11,6 +14,7 @@ groups:
         annotations:
           summary: Statistic authority writes to ClickHouse are failing
           runbook_url: https://runbooks.internal/mlc/statistic-clickhouse-write-failure
+      # 权威写入成功后的 Redis 投影失败会造成读侧数据暂时不一致。
       - alert: MLCStatisticRedisProjectionFailures
         expr: increase(mlc_statistic_redis_projection_failures_total[5m]) > 0
         for: 2m
@@ -21,6 +25,7 @@ groups:
         annotations:
           summary: Statistic Redis projection is failing after authority writes
           runbook_url: https://runbooks.internal/mlc/statistic-redis-projection-failure
+      # 对账任务持续失败时，系统无法自动确认和修复投影偏差。
       - alert: MLCStatisticReconciliationFailures
         expr: increase(mlc_statistic_reconcile_failures_total[10m]) > 0
         for: 5m
@@ -31,6 +36,7 @@ groups:
         annotations:
           summary: Statistic reconciliation cannot complete
           runbook_url: https://runbooks.internal/mlc/statistic-reconciliation-failure
+      # Redis 与 ClickHouse 的偏差持续十五分钟，说明最终一致性未能恢复。
       - alert: MLCStatisticSustainedDrift
         expr: mlc_statistic_reconcile_current_drift > 0
         for: 15m
@@ -41,6 +47,7 @@ groups:
         annotations:
           summary: Redis statistic projection differs from ClickHouse authority
           runbook_url: https://runbooks.internal/mlc/statistic-drift
+      # 最近一次成功对账距今超过十五分钟，并继续持续五分钟时告警。
       - alert: MLCStatisticReconciliationStale
         expr: time() - mlc_statistic_reconcile_last_success_unixtime > 900
         for: 5m

@@ -4,6 +4,7 @@ import (
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	VideoInteractionHandlerPackage "MLC_GO/internal/modules/video_interaction/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGServerPackage "MLC_GO/internal/pkg/server"
@@ -12,10 +13,11 @@ import (
 
 // region 模块路径常量
 const (
-	AuthModuleBasePath        = "/api/v1/auth"         // 认证模块基础路径
-	UserProfileModuleBasePath = "/api/v1/profile"      // 用户信息模块基础路径
-	VideoUploadModuleBasePath = "/api/v1/video_upload" // 视频投稿模块基础路径
-	OpsModuleBasePath         = "/api/v1/ops"          // 运维管理模块基础路径
+	AuthModuleBasePath             = "/api/v1/auth"         // 认证模块基础路径
+	UserProfileModuleBasePath      = "/api/v1/profile"      // 用户信息模块基础路径
+	VideoUploadModuleBasePath      = "/api/v1/video_upload" // 视频投稿模块基础路径
+	OpsModuleBasePath              = "/api/v1/ops"          // 运维管理模块基础路径
+	VideoInteractionModuleBasePath = "/api/v1/video_interactions"
 )
 
 // endregion
@@ -134,6 +136,16 @@ func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Hand
 
 func VideoUploadRouteCatalog() []RouteCatalogItem {
 	return BuildRouteCatalogItems(videoUploadRoutes(nil))
+}
+
+func NewVideoInteractionRouteGroup(handler *VideoInteractionHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(RouteGroupConfig{
+		BasePath: VideoInteractionModuleBasePath, Rules: HGServerPackage.VideoInteractionMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+	}, videoInteractionRoutes(handler))
+}
+
+func VideoInteractionRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(videoInteractionRoutes(nil))
 }
 
 // endregion

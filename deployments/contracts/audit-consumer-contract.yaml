@@ -1,14 +1,52 @@
+# 文件用途：记录“审核事件消费者”在开发完成和允许上线前，调用审核服务必须满足的接口契约与默认保护参数。
+# 使用对象：开发、测试、架构和运维人员用它进行设计评审、联调验收及上线检查。
+# 重要说明：这是契约说明文件，不是程序当前直接加载的运行配置；修改本文件不会启动审核消费者。
+# 实际开关位于 config/{debug,pre,prod}/kafka.yaml 的 kafka.business.consumers.audit.enabled。
+# 当前代码中的审核处理器尚未实现，因此所有条件完成并通过验收前，实际运行开关也必须保持 false。
+
+# audit_consumer 是本文件的根配置段，下面所有内容都只描述审核事件消费者。
 audit_consumer:
+  # 契约层面的启用状态。false 表示该消费者尚未满足上线条件，不能据此批准启用实际运行开关。
   enabled: false
+
+  # activation_requirements 是启用前必须逐项确认的检查清单；任意一项未完成都应保持禁用。
   activation_requirements:
+    # 明确 video.reviewed 事件表示“稿件刚进入审核”还是“稿件已经完成审核”。
+    # 两种语义会触发完全不同的下游动作，生产者和消费者必须使用同一种解释。
     - entered-review versus completed-review event semantics agreed
+
+    # 为调用审核服务的请求体和响应体定义版本号及字段结构，避免接口升级后新旧服务互相误解析。
+    # 还应约定新增字段、删除字段和版本不兼容时分别如何处理。
     - request and response schemas versioned
+
+    # 审核服务必须接受事件唯一标识 EventID 作为幂等键，例如放入 Idempotency-Key 请求头。
+    # Kafka 采用至少一次投递，同一事件可能被重复消费；审核服务应保证相同 EventID 不会重复创建审核任务。
     - EventID idempotency header accepted by the moderation service
+
+    # 双方必须约定单次请求超时、指数退避间隔，以及哪些 HTTP 状态码或网络错误允许重试。
+    # 业务校验失败等永久错误不能盲目重试，否则会持续占用消费和审核服务资源。
     - timeout, exponential backoff and retryable status codes agreed
+
+    # 同时设置全局以及租户级并发数/请求速率上限，防止流量突增压垮审核服务。
+    # 租户级限制还用于阻止单个热点租户占满全部处理能力。
     - global and tenant concurrency/rate limits configured
+
+    # 定义可重放死信队列（DLQ）以及不可篡改审计记录的保存期限、查询方式和清理规则。
+    # 多次处理失败的事件进入 DLQ 后必须能够安全重放，并继续依赖 EventID 保证幂等。
     - replayable DLQ and immutable audit trail retention defined
+
+    # TLS 证书、账号、Token 等认证材料必须由 Secret 管理系统注入，不能写入本文件或提交到仓库。
+    # 同时需要约定证书校验、凭据轮换、最小权限和失效后的处理方式。
     - secret-sourced TLS and authentication configuration
+
+  # defaults 给出审核服务客户端的建议初始保护值；实现时可按环境覆盖，但必须经过容量和故障测试。
   defaults:
+    # 单次调用审核服务最多等待 3 秒；超时后应取消本次请求，再按已约定的重试规则处理。
     request_timeout: 3s
+
+    # 同一事件最多尝试 5 次，通常包含首次调用；达到上限后应进入 DLQ，不能无限重试。
     max_attempts: 5
+
+    # 单个消费者实例最多同时执行 32 个审核请求；这是并发上限，不等同于每秒 32 次请求。
+    # 多实例部署时总并发约为实例数乘以该值，因此仍需审核服务端和租户级限流兜底。
     max_concurrency: 32

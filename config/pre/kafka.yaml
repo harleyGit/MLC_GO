@@ -30,6 +30,10 @@ kafka:
         enabled: false
         group_id: mlc-go-pre-audit
         client_id: mlc-go-pre-audit
+      interaction:
+        enabled: true
+        group_id: mlc-go-pre-interaction
+        client_id: mlc-go-pre-interaction
   log:
     brokers:
       - localhost:19092

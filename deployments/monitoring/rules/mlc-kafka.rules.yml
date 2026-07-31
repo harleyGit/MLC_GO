@@ -1,6 +1,9 @@
+# 用途：定义 mlc-go 的 Kafka 可用性、生产、消费、提交和死信队列告警规则。
+# 说明：规则由 Prometheus 加载；critical 告警会由 Alertmanager 路由至 Webhook。
 groups:
   - name: mlc-kafka
     rules:
+      # 管理指标目标持续不可达，表示后续 Kafka 指标也无法被可靠观测。
       - alert: MLCKafkaTargetDown
         expr: up{job="mlc-go"} == 0
         for: 2m
@@ -11,6 +14,7 @@ groups:
         annotations:
           summary: MLC management metrics target is down
           runbook_url: https://runbooks.internal/mlc/target-down
+      # 生产消息在最近五分钟出现失败并持续两分钟。
       - alert: MLCKafkaProduceFailures
         expr: increase(mlc_kafka_produce_failures_total[5m]) > 0
         for: 2m
@@ -20,6 +24,7 @@ groups:
           component: kafka
         annotations:
           summary: Kafka producer failures detected
+      # 消费位点提交失败可能导致消息重复消费或消费进度回退。
       - alert: MLCKafkaCommitFailures
         expr: increase(mlc_kafka_commit_failures_total[5m]) > 0
         for: 2m
@@ -29,6 +34,7 @@ groups:
           component: kafka
         annotations:
           summary: Kafka offset commit failures detected
+      # 领域事件处理失败表示消息已到达消费者，但业务处理未成功完成。
       - alert: MLCKafkaHandlerFailures
         expr: increase(mlc_kafka_handler_failures_total[5m]) > 0
         for: 2m
@@ -38,6 +44,7 @@ groups:
           component: kafka
         annotations:
           summary: Kafka domain event handler failures detected
+      # 死信队列写入失败会丢失失败消息的后续补偿入口，因此按严重告警处理。
       - alert: MLCKafkaDLQWriteFailures
         expr: increase(mlc_kafka_dlq_failures_total[5m]) > 0
         for: 1m
@@ -47,6 +54,7 @@ groups:
           component: kafka
         annotations:
           summary: Kafka DLQ writes are failing
+      # 消费处理发生 panic 时立即告警，不额外等待持续时间。
       - alert: MLCKafkaConsumerPanics
         expr: increase(mlc_kafka_consumer_panics_total[5m]) > 0
         for: 0m
@@ -56,6 +64,7 @@ groups:
           component: kafka
         annotations:
           summary: Kafka consumer handler panic recovered
+      # 分区丢失可能造成消费中断或未提交数据重放，发生后立即告警。
       - alert: MLCKafkaPartitionsLost
         expr: increase(mlc_kafka_partitions_lost_total[5m]) > 0
         for: 0m

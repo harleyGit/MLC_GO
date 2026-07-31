@@ -79,6 +79,7 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		{name: "search", cfg: groups.Search},
 		{name: "statistic", cfg: groups.Statistic},
 		{name: "audit", cfg: groups.Audit},
+		{name: "interaction", cfg: groups.Interaction},
 	}
 	seen := make(map[string]string, len(configs))
 	for _, item := range configs {

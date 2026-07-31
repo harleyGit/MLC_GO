@@ -1,6 +1,10 @@
+# 用途：配置 MLC 告警的聚合、分级路由、抑制和 Webhook 通知策略。
+# 说明：普通告警进入默认接收器；critical 告警通过 Docker Secret 中的 URL 发送通知。
 global:
+  # 告警源失联后，等待该时长再将未收到更新的告警标记为已恢复。
   resolve_timeout: 5m
 
+# 按服务、环境、组件和告警名聚合，减少同类告警在故障期间重复通知。
 route:
   receiver: default
   group_by: [service, environment, component, alertname]
@@ -8,11 +12,13 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # 严重告警单独发送 Webhook，并提高故障持续期间的重复通知频率。
     - matchers:
         - severity="critical"
       receiver: critical-webhook
       repeat_interval: 30m
 
+# 当指标抓取目标整体不可用时，抑制同服务、同环境下依赖该目标的次级告警。
 inhibit_rules:
   - source_matchers:
       - alertname="MLCKafkaTargetDown"
@@ -21,8 +27,10 @@ inhibit_rules:
     equal: [service, environment]
 
 receivers:
+  # 默认接收器仅聚合告警，不向外部渠道发送通知。
   - name: default
   - name: critical-webhook
     webhook_configs:
+      # URL 从 Secret 文件读取，避免在配置文件和日志中暴露通知凭据。
       - url_file: /run/secrets/alertmanager_webhook_url
         send_resolved: true

@@ -1,6 +1,9 @@
+# 用途：在 Grafana 启动时自动配置 MLC Prometheus 数据源，并启用告警规则管理视图。
+# 说明：Grafana 通过 Compose 内部服务名访问 Prometheus，该数据源不可在界面中修改。
 apiVersion: 1
 
 datasources:
+  # 固定 UID 便于仪表盘和告警配置稳定引用该数据源。
   - name: Prometheus
     uid: mlc-prometheus
     type: prometheus

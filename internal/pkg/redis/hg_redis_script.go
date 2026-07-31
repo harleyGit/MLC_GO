@@ -8,6 +8,36 @@
  */
 package PersistenceRedisPackage
 
+const VideoInteractionOptimisticLuaScript = `
+local stateKey = KEYS[1]
+local countKey = KEYS[2]
+local action = ARGV[1]
+local active = ARGV[2]
+local quantity = tonumber(ARGV[3]) or 0
+local field = action
+
+if action == 'share' then
+  redis.call('HINCRBY', countKey, 'share', 1)
+  return 1
+end
+
+if action == 'coin' then
+  local current = tonumber(redis.call('HGET', stateKey, 'coin') or '0')
+  if current + quantity > 2 then return 0 end
+  redis.call('HINCRBY', stateKey, 'coin', quantity)
+  redis.call('HINCRBY', countKey, 'coin', quantity)
+  return 1
+end
+
+local current = redis.call('HGET', stateKey, field) or '0'
+if current == active then return 0 end
+redis.call('HSET', stateKey, field, active)
+local delta = active == '1' and 1 or -1
+local nextCount = redis.call('HINCRBY', countKey, field, delta)
+if nextCount < 0 then redis.call('HSET', countKey, field, 0) end
+return 1
+`
+
 const (
 	// TokenBucketRateLimitLuaScript 是令牌桶限流脚本，用于替代固定窗口 INCR + EXPIRE。
 	// 固定窗口的问题：例如每分钟限制 120 次，用户可能在 00:59 打 120 次、01:00 再打 120 次，瞬间形成 240 次临界突刺。

@@ -1,3 +1,6 @@
+# 用途：为 mlc-go 暴露集群内管理端口、限制网络访问，并配置 Prometheus Operator 指标抓取。
+# 前提：集群已创建 mlc 与 monitoring namespace，并安装支持 ServiceMonitor 的 Prometheus Operator。
+# 安全边界：9091 管理端口仅供 monitoring namespace 使用，不应暴露到公网 Service 或 Ingress。
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,20 +9,24 @@ metadata:
   labels:
     app.kubernetes.io/name: mlc-go
 spec:
+  # ClusterIP 仅提供集群内部访问；selector 必须与 mlc-go Pod 标签一致。
   type: ClusterIP
   selector:
     app.kubernetes.io/name: mlc-go
   ports:
+    # 命名端口供 ServiceMonitor 按名称引用，targetPort 对应 Pod 的 management 端口。
     - name: management
       port: 9091
       targetPort: management
 ---
+# NetworkPolicy：分别定义业务端口和管理端口的入站来源，隔离监控面与业务面。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: mlc-go-management-ingress
   namespace: mlc
 spec:
+  # 策略应用于 mlc namespace 中所有带 mlc-go 应用标签的 Pod。
   podSelector:
     matchLabels:
       app.kubernetes.io/name: mlc-go
@@ -41,6 +48,7 @@ spec:
         - protocol: TCP
           port: 9091
 ---
+# ServiceMonitor：通知 Prometheus Operator 每 15 秒通过管理 Service 抓取 /metrics。
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -49,6 +57,7 @@ metadata:
   labels:
     app.kubernetes.io/name: mlc-go
 spec:
+  # ServiceMonitor 位于 monitoring namespace，但发现目标 Service 的范围是 mlc namespace。
   namespaceSelector:
     matchNames:
       - mlc
@@ -56,6 +65,7 @@ spec:
     matchLabels:
       app.kubernetes.io/name: mlc-go
   endpoints:
+    # port 引用 Service 中的命名端口，抓取超时必须小于抓取周期。
     - port: management
       path: /metrics
       interval: 15s

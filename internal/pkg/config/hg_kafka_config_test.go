@@ -95,7 +95,7 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 				t.Fatalf("business topics = %v, want [mlc.domain.events]", cfg.Business.Topics)
 			}
 			groups := cfg.Business.Consumers
-			if groups.Feed.GroupID == "" || groups.Search.GroupID == "" || groups.Statistic.GroupID == "" || groups.Audit.GroupID == "" {
+			if groups.Feed.GroupID == "" || groups.Search.GroupID == "" || groups.Statistic.GroupID == "" || groups.Audit.GroupID == "" || groups.Interaction.GroupID == "" {
 				t.Fatalf("consumer groups must be configured: %+v", groups)
 			}
 			if !groups.Feed.Enabled {
@@ -103,6 +103,9 @@ func TestKafkaConfiguredForEveryEnvironment(t *testing.T) {
 			}
 			if groups.Search.Enabled || groups.Statistic.Enabled || groups.Audit.Enabled {
 				t.Fatalf("consumers without complete production dependencies must remain disabled: %+v", groups)
+			}
+			if !groups.Interaction.Enabled {
+				t.Fatalf("interaction consumer must be enabled for asynchronous persistence: %+v", groups)
 			}
 			if cfg.Log.Retry != expected.logRetry || cfg.Log.ClientID != expected.logClient {
 				t.Fatalf("log config = retry %d client_id %q, want retry %d client_id %q", cfg.Log.Retry, cfg.Log.ClientID, expected.logRetry, expected.logClient)

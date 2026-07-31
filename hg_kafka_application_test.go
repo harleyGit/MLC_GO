@@ -92,6 +92,7 @@ func setValidKafkaConfig() {
 	viper.Set("kafka.business.consumers.search.group_id", "mlc-go-test-search")
 	viper.Set("kafka.business.consumers.statistic.group_id", "mlc-go-test-statistic")
 	viper.Set("kafka.business.consumers.audit.group_id", "mlc-go-test-audit")
+	viper.Set("kafka.business.consumers.interaction.group_id", "mlc-go-test-interaction")
 	viper.Set("kafka.log.brokers", []string{"127.0.0.1:19092"})
 	viper.Set("kafka.log.acks", "1")
 	viper.Set("kafka.log.client_id", "mlc-go-test-log")

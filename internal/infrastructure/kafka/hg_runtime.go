@@ -4,6 +4,7 @@ import (
 	"MLC_GO/internal/consumer"
 	AuditConsumerPackage "MLC_GO/internal/consumer/audit"
 	FeedConsumerPackage "MLC_GO/internal/consumer/feed"
+	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	SearchConsumerPackage "MLC_GO/internal/consumer/search"
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
@@ -35,6 +36,7 @@ type RuntimeDependencies struct {
 	StatisticConfig            StatisticConsumerPackage.HGProjectionConfig
 	StatisticReconcileConfig   StatisticConsumerPackage.HGReconcileConfig
 	StatisticReconcileInterval time.Duration
+	InteractionStore           InteractionConsumerPackage.EventStore
 }
 
 // HGRuntime 管理各读模型独立消费组的创建、运行与关闭。
@@ -65,6 +67,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		runtime.Close()
 		return nil, fmt.Errorf("Statistic ClickHouse authority store dependency cannot be nil")
 	}
+	if cfg.Consumers.Interaction.Enabled && deps.InteractionStore == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("interaction mysql store dependency cannot be nil")
+	}
 	specs := []hgConsumerWorker{
 		{
 			name:        "feed",
@@ -84,6 +90,7 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 			implemented: true,
 		},
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},
+		{name: "interaction", config: cfg.Consumers.Interaction, handler: InteractionConsumerPackage.NewConsumer(deps.InteractionStore), implemented: true},
 	}
 	for _, spec := range specs {
 		if !spec.config.Enabled {

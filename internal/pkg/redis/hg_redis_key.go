@@ -14,6 +14,29 @@ import (
 	"strings"
 )
 
+const (
+	VideoInteractionStateKeyPrefix = "video:interaction:state:"
+	VideoInteractionCountKeyPrefix = "video:interaction:count:"
+	UserFollowStateKeyPrefix       = "user:follow:state:"
+	UserFollowCountKeyPrefix       = "user:follow:count:"
+)
+
+func GetVideoInteractionStateKey(userID string, submissionID string) string {
+	return fmt.Sprintf("%s{%s}:%s", VideoInteractionStateKeyPrefix, submissionID, userID)
+}
+
+func GetVideoInteractionCountKey(submissionID string) string {
+	return fmt.Sprintf("%s{%s}", VideoInteractionCountKeyPrefix, submissionID)
+}
+
+func GetUserFollowStateKey(followerID string, followeeID string) string {
+	return fmt.Sprintf("%s{%s}:%s", UserFollowStateKeyPrefix, followeeID, followerID)
+}
+
+func GetUserFollowCountKey(followeeID string) string {
+	return fmt.Sprintf("%s{%s}", UserFollowCountKeyPrefix, followeeID)
+}
+
 // GetFeedShard 使用稳定哈希把同一 submission 固定到同一 Feed shard。
 func GetFeedShard(submissionID string, shardCount int) int {
 	if shardCount <= 1 {
