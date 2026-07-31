@@ -1,0 +1,27 @@
+-- Long-term policy: keep 400 days online and retain the archive for at least 2555 days (7 years).
+-- Execute one small batch per transaction. Verify copied count/checksum before enabling the DELETE transaction.
+START TRANSACTION;
+INSERT IGNORE INTO `ops_asset_audit_archive`
+SELECT *
+FROM `ops_asset_audit` FORCE INDEX (`idx_created_id`)
+WHERE (`created_at`, `id`) < (UTC_TIMESTAMP(6) - INTERVAL 400 DAY, 18446744073709551615)
+ORDER BY `created_at`, `id`
+LIMIT 1000;
+COMMIT;
+
+-- Delete only source rows already present in the immutable archive. Keep this as a separate short transaction.
+START TRANSACTION;
+DELETE source
+FROM `ops_asset_audit` source
+JOIN (
+  SELECT batch.`id`
+  FROM (
+    SELECT candidate.`id`
+    FROM `ops_asset_audit` candidate FORCE INDEX (`idx_created_id`)
+    JOIN `ops_asset_audit_archive` archive ON archive.`id` = candidate.`id`
+    WHERE candidate.`created_at` < UTC_TIMESTAMP(6) - INTERVAL 400 DAY
+    ORDER BY candidate.`created_at`, candidate.`id`
+    LIMIT 1000
+  ) batch
+) archived_batch ON archived_batch.`id` = source.`id`;
+COMMIT;

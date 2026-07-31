@@ -2,7 +2,9 @@ package CoinTaskPackage
 
 import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,6 +147,29 @@ func TestHGJobsUsesTaskSpecificLeases(t *testing.T) {
 	for i := range want {
 		if lease.tasks[i] != want[i] {
 			t.Fatalf("lease tasks = %#v", lease.tasks)
+		}
+	}
+}
+
+func TestHGJobsExportsLotConsolidationCanaryMetrics(t *testing.T) {
+	repository := &hgFakeJobRepository{}
+	jobs, err := NewHGJobs(repository, HGJobConfig{Interval: time.Minute, Timeout: time.Second, BatchSize: 10, ConsolidationBatchSize: 1, ConsolidationSourceLimit: 4, ConsolidationMaxLotAmount: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jobs.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	HGWritePrometheusMetrics(&output)
+	metrics := output.String()
+	for _, expected := range []string{
+		`mlc_coin_job_runs_total{job="lot_consolidation",result="success"}`,
+		`mlc_coin_job_processed_total{job="lot_consolidation"}`,
+		`mlc_coin_job_duration_nanoseconds_total{job="lot_consolidation"}`,
+	} {
+		if !strings.Contains(metrics, expected) {
+			t.Fatalf("metrics missing %q:\n%s", expected, metrics)
 		}
 	}
 }

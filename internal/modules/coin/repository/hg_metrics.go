@@ -39,7 +39,7 @@ func hgObserveCoinMutation(operation CoinModelPackage.HGOperation, committed boo
 // HGWritePrometheusMetrics 仅输出固定 operation/result 标签。
 // 禁止加入 user_id、request_id、business_key 或错误文本，避免资产热点路径产生高基数时间序列。
 func HGWritePrometheusMetrics(w io.Writer) {
-	operations := [...]CoinModelPackage.HGOperation{CoinModelPackage.HGOperationInitialize, CoinModelPackage.HGOperationRecharge, CoinModelPackage.HGOperationGrant, CoinModelPackage.HGOperationDebit, CoinModelPackage.HGOperationRefund, CoinModelPackage.HGOperationExpire, CoinModelPackage.HGOperationCorrection}
+	operations := [...]CoinModelPackage.HGOperation{CoinModelPackage.HGOperationInitialize, CoinModelPackage.HGOperationRecharge, CoinModelPackage.HGOperationGrant, CoinModelPackage.HGOperationDebit, CoinModelPackage.HGOperationRefund, CoinModelPackage.HGOperationExpire, CoinModelPackage.HGOperationCorrection, CoinModelPackage.HGOperationConsolidate}
 	for _, operation := range operations {
 		hgCoinMetricsMu.Lock()
 		metric := hgCoinMetrics[operation]

@@ -293,7 +293,7 @@ func (s *HGOperationalService) ApproveCoinCorrection(ctx context.Context, operat
 	}
 	result, err := s.deps.CoinAssets.Correct(ctx, CoinServicePackage.HGCorrectionCommand{UserID: pending.UserID, RequestID: pending.RequestID, Delta: delta, Reason: reason})
 	if err != nil {
-		_ = s.deps.Corrections.CompleteCoinCorrection(ctx, pending.CorrectionID, operator.ID, CoinModelPackage.HGMutationResult{}, err.Error())
+		// Do not finalize transient infrastructure failures. The durable approving claim is the recovery worker's retry source.
 		_ = s.hgAudit(ctx, operator, "coin.correction.apply", pending.UserID, pending.RequestID, oldBalance, oldBalance, pending.ApplicantID, operator.ID, "failed", err)
 		return nil, err
 	}
@@ -314,6 +314,45 @@ func (s *HGOperationalService) ApproveCoinCorrection(ctx context.Context, operat
 	}
 	pending.ApproverID, pending.Status, pending.TransactionID, pending.BalanceAfter = operator.ID, "applied", strconv.FormatUint(result.TransactionID, 10), strconv.FormatUint(result.BalanceAfter, 10)
 	return &pending, nil
+}
+
+// ReplayApprovingCoinCorrection resumes one durably claimed correction with its persisted approver and original request ID.
+// Transient errors intentionally leave the row in approving so the bounded timeout worker can retry it again.
+func (s *HGOperationalService) ReplayApprovingCoinCorrection(ctx context.Context, pending OpsDtoPackage.HGCoinCorrectionResponse) error {
+	if s == nil || s.deps.Corrections == nil || s.deps.CoinAssets == nil || s.deps.Audit == nil || pending.Status != "approving" || !hgOpsValidText(pending.CorrectionID, 64) || !hgOpsValidText(pending.UserID, 255) || !hgOpsValidText(pending.RequestID, 128) || !hgOpsValidText(pending.ApproverID, 255) || pending.ApplicantID == pending.ApproverID {
+		return ErrHGOperationsInvalid
+	}
+	oldBalance, err := s.deps.CoinAssets.Balance(ctx, pending.UserID)
+	if err != nil {
+		return fmt.Errorf("read correction balance for retry: %w", err)
+	}
+	delta, err := strconv.ParseInt(strings.TrimSpace(pending.Delta), 10, 64)
+	if err != nil || delta == 0 {
+		return ErrHGOperationsInvalid
+	}
+	reason, err := hgOpsAuditReason(pending.Reason, pending.ApproverID)
+	if err != nil {
+		return err
+	}
+	result, err := s.deps.CoinAssets.Correct(ctx, CoinServicePackage.HGCorrectionCommand{UserID: pending.UserID, RequestID: pending.RequestID, Delta: delta, Reason: reason})
+	if err != nil {
+		return fmt.Errorf("replay approving coin correction: %w", err)
+	}
+	if result.Committed {
+		if delta > 0 {
+			oldBalance = result.BalanceAfter - uint64(delta)
+		} else {
+			oldBalance = result.BalanceAfter + uint64(-delta)
+		}
+	} else {
+		oldBalance = result.BalanceAfter
+	}
+	operator := HGAssetOperator{ID: pending.ApproverID, SourceIP: "system:correction-recovery", TID: "correction-recovery"}
+	// Audit before finalizing the control-plane row. If audit persistence fails, approving remains retryable and the coin command replays idempotently.
+	if err := s.hgAudit(ctx, operator, "coin.correction.apply", pending.UserID, pending.RequestID, oldBalance, result.BalanceAfter, pending.ApplicantID, pending.ApproverID, "succeeded", nil); err != nil {
+		return err
+	}
+	return s.deps.Corrections.CompleteCoinCorrection(ctx, pending.CorrectionID, pending.ApproverID, result, "")
 }
 
 func (s *HGOperationalService) ListCoinCorrections(ctx context.Context, operatorID, cursorValue string, pageSize int) (*OpsDtoPackage.HGCoinCorrectionListResponse, error) {

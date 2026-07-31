@@ -23,11 +23,12 @@ type ModuleDeps struct {
 // ModuleComponents 保存模块内部组装出的 repo/service/handler。
 // 统一放在 assembly 中创建，避免 handler 或 service 自己 new 下层依赖。
 type ModuleComponents struct {
-	Repo    *OpsRepositoryPackage.Repository
-	Cache   *OpsCachePackage.Cache
-	TaskPub OpsTaskPackage.Publisher
-	Service *OpsServicePackage.Service
-	Handler *OpsHandlerPackage.Handler
+	Repo        *OpsRepositoryPackage.Repository
+	Cache       *OpsCachePackage.Cache
+	TaskPub     OpsTaskPackage.Publisher
+	Operational *OpsServicePackage.HGOperationalService
+	Service     *OpsServicePackage.Service
+	Handler     *OpsHandlerPackage.Handler
 }
 
 // NewModuleComponents 负责组装 ops 模块依赖链。
@@ -53,10 +54,11 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	handler := OpsHandlerPackage.NewHandler(service)
 
 	return &ModuleComponents{
-		Repo:    repo,
-		Cache:   cache,
-		TaskPub: taskPub,
-		Service: service,
-		Handler: handler,
+		Repo:        repo,
+		Cache:       cache,
+		TaskPub:     taskPub,
+		Operational: operational,
+		Service:     service,
+		Handler:     handler,
 	}
 }

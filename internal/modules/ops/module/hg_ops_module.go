@@ -2,10 +2,10 @@ package OpsModulePackage
 
 import (
 	HGHandlerPackage "MLC_GO/internal/handler"
+	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
-	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	"net/http"
 )
 
@@ -35,7 +35,8 @@ func (m *Module) Handler() http.Handler {
 }
 
 // RegisterModules 注册运维管理模块，内部完成依赖创建并写入全局模块注册表。
-func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) {
+func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) *ModuleComponents {
 	components := NewModuleComponents(ModuleDeps{RedisService: redisService, SQLManager: sqlManager})
 	HGHandlerPackage.RegisterModule(NewModule(components.Handler))
+	return components
 }

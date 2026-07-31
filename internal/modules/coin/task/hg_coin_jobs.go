@@ -150,15 +150,26 @@ func (j *HGJobs) RunOnce(ctx context.Context) error {
 }
 
 func (j *HGJobs) hgRunTask(ctx context.Context, task string, run func(context.Context) error) error {
+	// Every exit path records one fixed-label observation; lease contention is healthy scheduling, not a task failure.
+	started := time.Now()
+	var runErr error
+	defer func() { hgObserveCoinJobRun(task, time.Since(started), runErr) }()
 	if j.lease == nil {
-		return run(ctx)
+		runErr = run(ctx)
+		return runErr
 	}
 	token, acquired, err := j.lease.Acquire(ctx, task, j.config.Timeout+time.Second)
-	if err != nil || !acquired {
+	if err != nil {
+		runErr = err
 		return err
 	}
+	if !acquired {
+		hgObserveCoinJobLeaseSkip(task)
+		return nil
+	}
 	defer func() { _ = j.lease.Release(context.WithoutCancel(ctx), task, token) }()
-	return run(ctx)
+	runErr = run(ctx)
+	return runErr
 }
 
 func (j *HGJobs) hgReconcile(ctx context.Context) error {
@@ -181,10 +192,11 @@ func (j *HGJobs) hgConsolidate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, next, err := j.repository.ConsolidateBatch(ctx, cursor, j.config.ConsolidationBatchSize, j.config.ConsolidationSourceLimit, j.config.ConsolidationMaxLotAmount)
+	processed, next, err := j.repository.ConsolidateBatch(ctx, cursor, j.config.ConsolidationBatchSize, j.config.ConsolidationSourceLimit, j.config.ConsolidationMaxLotAmount)
 	if err != nil {
 		return err
 	}
+	hgObserveCoinJobProcessed("lot_consolidation", processed)
 	return j.repository.SaveConsolidationCheckpoint(ctx, next)
 }
 

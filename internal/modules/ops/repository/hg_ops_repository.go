@@ -112,8 +112,36 @@ func (r *Repository) CompleteCoinCorrection(ctx context.Context, correctionID, a
 	if errorMessage != "" {
 		status = "failed"
 	}
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateOpsCoinCorrectionCompleteSQL, status, result.TransactionID, result.BalanceAfter, errorMessage, status, correctionID, approverID)
-	return err
+	updated, err := r.db.ExecContext(ctx, SQLQueriesPackage.UpdateOpsCoinCorrectionCompleteSQL, status, result.TransactionID, result.BalanceAfter, errorMessage, status, correctionID, approverID)
+	if err != nil {
+		return fmt.Errorf("complete coin correction: %w", err)
+	}
+	rows, err := updated.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read coin correction completion: %w", err)
+	}
+	if rows != 1 {
+		return fmt.Errorf("coin correction state changed before completion")
+	}
+	return nil
+}
+
+// ListStaleApprovingCoinCorrections returns one bounded oldest-first timeout batch using (status,updated_at,id).
+func (r *Repository) ListStaleApprovingCoinCorrections(ctx context.Context, cutoff time.Time, limit int) ([]OpsDtoPackage.HGCoinCorrectionResponse, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsStaleApprovingCoinCorrectionsSQL, cutoff.UTC(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list stale approving coin corrections: %w", err)
+	}
+	defer rows.Close()
+	items := make([]OpsDtoPackage.HGCoinCorrectionResponse, 0, limit)
+	for rows.Next() {
+		item, _, err := hgScanCoinCorrection(rows, false)
+		if err != nil {
+			return nil, fmt.Errorf("scan stale approving coin correction: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 // ListCoinCorrections reads at most pageSize+1 rows using the primary-key cursor.

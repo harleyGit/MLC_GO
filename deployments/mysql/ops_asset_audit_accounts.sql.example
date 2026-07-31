@@ -1,0 +1,9 @@
+-- Run as a DBA after replacing host placeholders. Passwords must come from the deployment secret manager.
+CREATE USER IF NOT EXISTS 'mlc_audit_reader'@'<audit-network>' IDENTIFIED BY '<secret-managed-password>';
+GRANT SELECT ON `HG_MLC_PROD_DB`.`ops_asset_audit` TO 'mlc_audit_reader'@'<audit-network>';
+GRANT SELECT ON `HG_MLC_PROD_DB`.`ops_asset_audit_archive` TO 'mlc_audit_reader'@'<audit-network>';
+GRANT SELECT ON `HG_MLC_PROD_DB`.`ops_coin_correction` TO 'mlc_audit_reader'@'<audit-network>';
+
+CREATE USER IF NOT EXISTS 'mlc_audit_archiver'@'<job-network>' IDENTIFIED BY '<secret-managed-password>';
+GRANT SELECT, DELETE ON `HG_MLC_PROD_DB`.`ops_asset_audit` TO 'mlc_audit_archiver'@'<job-network>';
+GRANT SELECT, INSERT ON `HG_MLC_PROD_DB`.`ops_asset_audit_archive` TO 'mlc_audit_archiver'@'<job-network>';

@@ -29,3 +29,11 @@ coin_jobs:
   consolidation_batch_size: 0
   consolidation_source_limit: 32
   consolidation_max_lot_amount: 10
+
+correction_recovery:
+  enabled: true
+  interval: 1m
+  timeout: 10s
+  # approving 持续 5 分钟后才进入幂等恢复，避开仍在执行的正常审批请求。
+  approving_timeout: 5m
+  batch_size: 20

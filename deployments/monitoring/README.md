@@ -8,6 +8,7 @@
 - `alertmanager.yml`：配置告警聚合、抑制、分级路由和 Webhook 通知。
 - `rules/mlc-kafka.rules.yml`：定义 Kafka 生产、消费、提交、死信队列、committed-offset lag 和目标可用性告警。
 - `rules/mlc-statistic.rules.yml`：定义 ClickHouse 权威写入、Redis 投影和数据对账告警。
+- `rules/mlc-coin.rules.yml`：定义 lot consolidation 失败和接近任务超时的 canary 告警。
 - `grafana/provisioning/datasources/prometheus.yml`：在 Grafana 启动时自动创建 Prometheus 数据源。
 - `secrets/alertmanager_webhook_url.example`：Webhook URL 示例；复制为实际 Secret 文件后替换为真实通知地址。
 - `secrets/alertmanager_webhook_url`：Docker Compose 默认读取的本地 Secret 文件，已被 `.gitignore` 排除。

@@ -1,19 +1,20 @@
 -- Stored buckets make fixed reprojection ranges sargable. The application never evaluates CRC32/MOD while scanning billion-row tables.
+-- MySQL 8.0 cannot add these STORED generated columns with ALGORITHM=INPLACE. COPY rebuilds each table, so production must use an approved maintenance or online-schema-change window.
 ALTER TABLE `video_user_interactions`
     ADD COLUMN `reproject_bucket` SMALLINT UNSIGNED GENERATED ALWAYS AS (MOD(CRC32(`submission_id`), 1024)) STORED,
-    ADD INDEX `idx_video_interaction_reproject_bucket` (`reproject_bucket`, `updated_at`, `id`), ALGORITHM=INPLACE, LOCK=NONE;
+    ADD INDEX `idx_video_interaction_reproject_bucket` (`reproject_bucket`, `updated_at`, `id`), ALGORITHM=COPY;
 
 ALTER TABLE `user_follow_relations`
     ADD COLUMN `reproject_bucket` SMALLINT UNSIGNED GENERATED ALWAYS AS (MOD(CRC32(`followee_id`), 1024)) STORED,
-    ADD INDEX `idx_follow_reproject_bucket` (`reproject_bucket`, `updated_at`, `id`), ALGORITHM=INPLACE, LOCK=NONE;
+    ADD INDEX `idx_follow_reproject_bucket` (`reproject_bucket`, `updated_at`, `id`), ALGORITHM=COPY;
 
 ALTER TABLE `video_interaction_stat_shards`
     ADD COLUMN `reproject_bucket` SMALLINT UNSIGNED GENERATED ALWAYS AS (MOD(CRC32(`submission_id`), 1024)) STORED,
-    ADD INDEX `idx_video_count_reproject_bucket` (`reproject_bucket`, `updated_at`, `submission_id`, `shard_id`), ALGORITHM=INPLACE, LOCK=NONE;
+    ADD INDEX `idx_video_count_reproject_bucket` (`reproject_bucket`, `updated_at`, `submission_id`, `shard_id`), ALGORITHM=COPY;
 
 ALTER TABLE `user_follow_stat_shards`
     ADD COLUMN `reproject_bucket` SMALLINT UNSIGNED GENERATED ALWAYS AS (MOD(CRC32(`user_id`), 1024)) STORED,
-    ADD INDEX `idx_follow_count_reproject_bucket` (`reproject_bucket`, `updated_at`, `user_id`, `shard_id`), ALGORITHM=INPLACE, LOCK=NONE;
+    ADD INDEX `idx_follow_count_reproject_bucket` (`reproject_bucket`, `updated_at`, `user_id`, `shard_id`), ALGORITHM=COPY;
 
 ALTER TABLE `coin_asset_lots`
     ADD INDEX `idx_coin_lot_consolidation` (`user_id`, `remaining_amount`, `expires_sort`, `id`), ALGORITHM=INPLACE, LOCK=NONE;

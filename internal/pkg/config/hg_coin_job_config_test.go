@@ -30,3 +30,25 @@ func TestGetCoinJobConfigValidatesBounds(t *testing.T) {
 		t.Fatal("expected oversized batch to be rejected")
 	}
 }
+
+func TestGetCorrectionRecoveryConfigUsesBoundedTimeouts(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("correction_recovery.enabled", true)
+	viper.Set("correction_recovery.interval", "1m")
+	viper.Set("correction_recovery.timeout", "10s")
+	viper.Set("correction_recovery.approving_timeout", "5m")
+	viper.Set("correction_recovery.batch_size", 20)
+
+	cfg, err := GetCorrectionRecoveryConfig()
+	if err != nil {
+		t.Fatalf("GetCorrectionRecoveryConfig() error=%v", err)
+	}
+	if cfg.Interval != time.Minute || cfg.Timeout != 10*time.Second || cfg.ApprovingTimeout != 5*time.Minute || cfg.BatchSize != 20 {
+		t.Fatalf("config=%+v", cfg)
+	}
+	viper.Set("correction_recovery.batch_size", 101)
+	if _, err := GetCorrectionRecoveryConfig(); err == nil {
+		t.Fatal("expected oversized recovery batch to be rejected")
+	}
+}

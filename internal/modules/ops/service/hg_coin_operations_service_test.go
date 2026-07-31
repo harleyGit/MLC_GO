@@ -31,13 +31,17 @@ func (f hgFakeOpsAuthorizer) ListAssetPermissions(context.Context, string) ([]st
 
 type hgFakeOpsCoinAssets struct {
 	balance           uint64
+	balanceErr        error
 	grantCommand      CoinServicePackage.HGCreditCommand
 	refundCommand     CoinServicePackage.HGRefundCommand
 	correctionCommand CoinServicePackage.HGCorrectionCommand
 	result            CoinModelPackage.HGMutationResult
+	correctionErr     error
 }
 
-func (f *hgFakeOpsCoinAssets) Balance(context.Context, string) (uint64, error) { return f.balance, nil }
+func (f *hgFakeOpsCoinAssets) Balance(context.Context, string) (uint64, error) {
+	return f.balance, f.balanceErr
+}
 func (f *hgFakeOpsCoinAssets) Grant(_ context.Context, command CoinServicePackage.HGCreditCommand) (CoinModelPackage.HGMutationResult, error) {
 	f.grantCommand = command
 	return f.result, nil
@@ -48,7 +52,7 @@ func (f *hgFakeOpsCoinAssets) Refund(_ context.Context, command CoinServicePacka
 }
 func (f *hgFakeOpsCoinAssets) Correct(_ context.Context, command CoinServicePackage.HGCorrectionCommand) (CoinModelPackage.HGMutationResult, error) {
 	f.correctionCommand = command
-	return f.result, nil
+	return f.result, f.correctionErr
 }
 
 type hgFakeOpsCoinQueries struct {
@@ -193,19 +197,23 @@ func (f *hgFakeAssetAudit) AppendAssetAudit(_ context.Context, record HGAssetAud
 }
 
 type hgFakeCorrections struct {
-	pending OpsDtoPackage.HGCoinCorrectionResponse
+	pending               OpsDtoPackage.HGCoinCorrectionResponse
+	completedCorrectionID string
+	completedApproverID   string
 }
 
-func (f hgFakeCorrections) CreateCoinCorrection(context.Context, HGAssetOperator, OpsDtoPackage.HGCoinCorrectionRequest, int64) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+func (f *hgFakeCorrections) CreateCoinCorrection(context.Context, HGAssetOperator, OpsDtoPackage.HGCoinCorrectionRequest, int64) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
 	return f.pending, nil
 }
-func (f hgFakeCorrections) GetCoinCorrectionForApproval(context.Context, string, string) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
+func (f *hgFakeCorrections) GetCoinCorrectionForApproval(context.Context, string, string) (OpsDtoPackage.HGCoinCorrectionResponse, error) {
 	return f.pending, nil
 }
-func (f hgFakeCorrections) CompleteCoinCorrection(context.Context, string, string, CoinModelPackage.HGMutationResult, string) error {
+func (f *hgFakeCorrections) CompleteCoinCorrection(_ context.Context, correctionID, approverID string, _ CoinModelPackage.HGMutationResult, _ string) error {
+	f.completedCorrectionID = correctionID
+	f.completedApproverID = approverID
 	return nil
 }
-func (f hgFakeCorrections) ListCoinCorrections(context.Context, uint64, int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error) {
+func (f *hgFakeCorrections) ListCoinCorrections(context.Context, uint64, int) ([]OpsDtoPackage.HGCoinCorrectionResponse, uint64, bool, error) {
 	return nil, 0, false, nil
 }
 
@@ -233,12 +241,75 @@ func TestHGOperationalServiceCorrectionRequiresDifferentApprover(t *testing.T) {
 			HGAssetPermissionCorrectionApply:   true,
 		}},
 		RateLimiter: hgFakeAssetRateLimiter{allowed: true},
-		Corrections: hgFakeCorrections{pending: OpsDtoPackage.HGCoinCorrectionResponse{CorrectionID: "COR-1", ApplicantID: "admin-1"}},
+		Corrections: &hgFakeCorrections{pending: OpsDtoPackage.HGCoinCorrectionResponse{CorrectionID: "COR-1", ApplicantID: "admin-1"}},
 		CoinAssets:  &hgFakeOpsCoinAssets{},
 		Audit:       &hgFakeAssetAudit{},
 	})
 	_, err := service.ApproveCoinCorrection(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, "COR-1")
 	if !errors.Is(err, ErrHGOperationsInvalidApprover) {
 		t.Fatalf("error=%v, want ErrHGOperationsInvalidApprover", err)
+	}
+}
+
+func TestHGOperationalServiceRetriesApprovingCorrectionWithOriginalRequestID(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{balance: 10, result: CoinModelPackage.HGMutationResult{Committed: false, TransactionID: 81, BalanceAfter: 13}}
+	corrections := &hgFakeCorrections{}
+	audit := &hgFakeAssetAudit{}
+	service := NewHGOperationalService(HGOperationalDeps{CoinAssets: assets, Corrections: corrections, Audit: audit})
+	pending := OpsDtoPackage.HGCoinCorrectionResponse{
+		CorrectionID: "COR-81", UserID: "user-81", RequestID: "request-original-81", Delta: "3",
+		Reason: "approved ticket", ApplicantID: "admin-applicant", ApproverID: "admin-approver", Status: "approving",
+	}
+
+	if err := service.ReplayApprovingCoinCorrection(context.Background(), pending); err != nil {
+		t.Fatalf("ReplayApprovingCoinCorrection() error=%v", err)
+	}
+	if assets.correctionCommand.RequestID != "request-original-81" {
+		t.Fatalf("request ID=%q, want original persisted request ID", assets.correctionCommand.RequestID)
+	}
+	if corrections.completedCorrectionID != "COR-81" || corrections.completedApproverID != "admin-approver" {
+		t.Fatalf("completion=%+v", corrections)
+	}
+	if len(audit.records) != 1 || audit.records[0].Outcome != "succeeded" {
+		t.Fatalf("audit=%+v", audit.records)
+	}
+}
+
+func TestHGOperationalServiceLeavesApprovingCorrectionRetryableOnTransientFailure(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{balance: 10, correctionErr: errors.New("temporary mysql timeout")}
+	corrections := &hgFakeCorrections{}
+	service := NewHGOperationalService(HGOperationalDeps{CoinAssets: assets, Corrections: corrections, Audit: &hgFakeAssetAudit{}})
+	pending := OpsDtoPackage.HGCoinCorrectionResponse{
+		CorrectionID: "COR-82", UserID: "user-82", RequestID: "request-original-82", Delta: "-2",
+		Reason: "approved ticket", ApplicantID: "admin-applicant", ApproverID: "admin-approver", Status: "approving",
+	}
+
+	if err := service.ReplayApprovingCoinCorrection(context.Background(), pending); err == nil {
+		t.Fatal("expected transient replay failure")
+	}
+	if corrections.completedCorrectionID != "" {
+		t.Fatalf("transient failure must remain approving, completion=%+v", corrections)
+	}
+}
+
+func TestHGOperationalServiceApprovalLeavesMutationFailureApprovingForRecovery(t *testing.T) {
+	assets := &hgFakeOpsCoinAssets{balance: 10, correctionErr: errors.New("temporary mysql timeout")}
+	corrections := &hgFakeCorrections{pending: OpsDtoPackage.HGCoinCorrectionResponse{
+		CorrectionID: "COR-83", UserID: "user-83", RequestID: "request-original-83", Delta: "2",
+		Reason: "approved ticket", ApplicantID: "admin-applicant", ApproverID: "admin-approver", Status: "approving",
+	}}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{
+			HGAssetPermissionCorrectionApprove: true,
+			HGAssetPermissionCorrectionApply:   true,
+		}},
+		RateLimiter: hgFakeAssetRateLimiter{allowed: true}, CoinAssets: assets, Corrections: corrections, Audit: &hgFakeAssetAudit{},
+	})
+
+	if _, err := service.ApproveCoinCorrection(context.Background(), HGAssetOperator{ID: "admin-approver", SourceIP: "203.0.113.8"}, "COR-83"); err == nil {
+		t.Fatal("expected correction mutation failure")
+	}
+	if corrections.completedCorrectionID != "" {
+		t.Fatalf("mutation failure must remain approving for timeout recovery, completion=%+v", corrections)
 	}
 }

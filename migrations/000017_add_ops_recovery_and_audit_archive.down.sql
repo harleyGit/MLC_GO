@@ -1,0 +1,1 @@
+-- Immutable audit archives and recovery indexes are retained on rollback. Production rollback is roll-forward only.

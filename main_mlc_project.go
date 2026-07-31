@@ -6,6 +6,7 @@ import (
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
+	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
@@ -71,6 +72,7 @@ type MLCApplication struct {
 	kafkaRuntime           kafkaReadyChecker
 	interactionReprojector *VideoInteractionTaskPackage.HGReprojector
 	coinJobs               *CoinTaskPackage.HGJobs
+	correctionRecovery     *OpsTaskPackage.HGCorrectionRecovery
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -235,7 +237,52 @@ func buildMLCApplication() (*MLCApplication, error) {
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	VideoInteractionModulePackage.RegisterModules(redisService, sqlManager)
 	// 注册运维管理模块
-	OpsModulePackage.RegisterModules(redisService, sqlManager)
+	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
+	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
+	correctionRecoveryConfig, err := ConfigPackage.GetCorrectionRecoveryConfig()
+	if err != nil {
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Correction recovery配置失败: %w", err)
+	}
+	var correctionRecovery *OpsTaskPackage.HGCorrectionRecovery
+	if correctionRecoveryConfig.Enabled {
+		correctionRecovery, err = OpsTaskPackage.NewHGCorrectionRecovery(
+			opsComponents.Repo,
+			opsComponents.Operational,
+			OpsTaskPackage.HGCorrectionRecoveryConfig{
+				Interval: correctionRecoveryConfig.Interval, Timeout: correctionRecoveryConfig.Timeout,
+				ApprovingTimeout: correctionRecoveryConfig.ApprovingTimeout, BatchSize: correctionRecoveryConfig.BatchSize,
+			},
+			CoinTaskPackage.NewHGRedisJobLease(redisService),
+		)
+		if err != nil {
+			if coinJobs != nil {
+				coinJobs.Close()
+			}
+			if interactionReprojector != nil {
+				interactionReprojector.Close()
+			}
+			if kafkaCloser != nil {
+				kafkaCloser()
+			}
+			_ = sqlManager.Close()
+			_ = redisService.Close()
+			HGLoggerPackage.CloseLogger()
+			return nil, fmt.Errorf("Correction recovery初始化失败: %w", err)
+		}
+		correctionRecovery.Start(context.Background())
+	}
 	HGTestHandlerPackage.RegisterModules()
 
 	// 3. 收集所有模块的路由清单
@@ -280,6 +327,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		kafkaRuntime:           kafkaRuntime,
 		interactionReprojector: interactionReprojector,
 		coinJobs:               coinJobs,
+		correctionRecovery:     correctionRecovery,
 	}, nil
 }
 
@@ -396,6 +444,9 @@ func (app *MLCApplication) Close() {
 	}
 	if app.coinJobs != nil {
 		app.coinJobs.Close()
+	}
+	if app.correctionRecovery != nil {
+		app.correctionRecovery.Close()
 	}
 	if app.kafkaCloser != nil {
 		app.kafkaCloser()

@@ -1,0 +1,20 @@
+groups:
+  - name: mlc-coin-jobs
+    rules:
+      - alert: MLCCoinLotConsolidationFailures
+        expr: increase(mlc_coin_job_runs_total{job="lot_consolidation",result="failure"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Lot consolidation is failing"
+          description: "Pause the canary and inspect wallet lock waits, transaction duration, binlog growth, and replica lag."
+
+      - alert: MLCCoinLotConsolidationNearTimeout
+        expr: rate(mlc_coin_job_duration_nanoseconds_total{job="lot_consolidation"}[10m]) / clamp_min(rate(mlc_coin_job_runs_total{job="lot_consolidation",result="success"}[10m]), 0.001) > 15000000000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Lot consolidation duration is approaching its timeout"
+          description: "Average successful run duration exceeded 15 seconds; keep or reduce the canary batch."

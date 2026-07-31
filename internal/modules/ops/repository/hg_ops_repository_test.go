@@ -1,6 +1,7 @@
 package OpsRepositoryPackage
 
 import (
+	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
@@ -95,6 +96,22 @@ func TestAppendAssetAuditWritesImmutableRecord(t *testing.T) {
 	err := repo.AppendAssetAudit(context.Background(), OpsDtoPackage.HGAssetAuditRecord{OperatorID: "UID-101", Action: "coin.grant", TargetUserID: "UID-202", SourceIP: "203.0.113.8", RequestID: "REQ-1", TID: "TID-1", OldBalance: 4, NewBalance: 5, Outcome: "succeeded"})
 	if err != nil {
 		t.Fatalf("AppendAssetAudit returned error: %v", err)
+	}
+}
+
+func TestCompleteCoinCorrectionRejectsLostStateTransition(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateOpsCoinCorrectionCompleteSQL)).
+		WithArgs("applied", uint64(91), uint64(12), "", "applied", "COR-91", "admin-approver").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = NewRepository(db).CompleteCoinCorrection(context.Background(), "COR-91", "admin-approver", CoinModelPackage.HGMutationResult{TransactionID: 91, BalanceAfter: 12}, "")
+	if err == nil {
+		t.Fatal("expected zero-row state transition to fail")
 	}
 }
 

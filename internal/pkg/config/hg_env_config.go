@@ -104,6 +104,49 @@ type HGCoinJobConfig struct {
 	ConsolidationMaxLotAmount uint64
 }
 
+// HGCorrectionRecoveryConfig bounds stale approving scans and idempotent retries.
+type HGCorrectionRecoveryConfig struct {
+	Enabled          bool
+	Interval         time.Duration
+	Timeout          time.Duration
+	ApprovingTimeout time.Duration
+	BatchSize        int
+}
+
+// GetCorrectionRecoveryConfig validates the standalone correction recovery worker limits.
+func GetCorrectionRecoveryConfig() (HGCorrectionRecoveryConfig, error) {
+	var raw struct {
+		Enabled          bool   `mapstructure:"enabled"`
+		Interval         string `mapstructure:"interval"`
+		Timeout          string `mapstructure:"timeout"`
+		ApprovingTimeout string `mapstructure:"approving_timeout"`
+		BatchSize        int    `mapstructure:"batch_size"`
+	}
+	var cfg HGCorrectionRecoveryConfig
+	if err := viper.UnmarshalKey("correction_recovery", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 correction recovery 配置失败: %w", err)
+	}
+	cfg.Enabled = raw.Enabled
+	if !cfg.Enabled {
+		return cfg, nil
+	}
+	var err error
+	if cfg.Interval, err = time.ParseDuration(raw.Interval); err != nil || cfg.Interval <= 0 {
+		return cfg, fmt.Errorf("correction_recovery.interval 必须是正 duration")
+	}
+	if cfg.Timeout, err = time.ParseDuration(raw.Timeout); err != nil || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
+		return cfg, fmt.Errorf("correction_recovery.timeout 必须为正且小于 interval")
+	}
+	if cfg.ApprovingTimeout, err = time.ParseDuration(raw.ApprovingTimeout); err != nil || cfg.ApprovingTimeout <= cfg.Timeout {
+		return cfg, fmt.Errorf("correction_recovery.approving_timeout 必须大于 timeout")
+	}
+	cfg.BatchSize = raw.BatchSize
+	if cfg.BatchSize < 1 || cfg.BatchSize > 100 {
+		return cfg, fmt.Errorf("correction_recovery.batch_size 必须在 1-100 之间")
+	}
+	return cfg, nil
+}
+
 // GetCoinJobConfig validates the fixed upper bounds used by coin background work.
 func GetCoinJobConfig() (HGCoinJobConfig, error) {
 	var raw struct {
