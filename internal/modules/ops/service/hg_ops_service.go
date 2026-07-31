@@ -22,15 +22,23 @@ const (
 
 // Service 定义运维管理业务逻辑
 type Service struct {
-	repo    *OpsRepositoryPackage.Repository
-	cache   *OpsCachePackage.Cache
-	taskPub OpsTaskPackage.Publisher
+	repo        *OpsRepositoryPackage.Repository
+	cache       *OpsCachePackage.Cache
+	taskPub     OpsTaskPackage.Publisher
+	operational *HGOperationalService
 }
 
 // NewService 创建运维管理业务逻辑实例
-func NewService(repo *OpsRepositoryPackage.Repository, cache *OpsCachePackage.Cache, taskPub OpsTaskPackage.Publisher) *Service {
-	return &Service{repo: repo, cache: cache, taskPub: taskPub}
+func NewService(repo *OpsRepositoryPackage.Repository, cache *OpsCachePackage.Cache, taskPub OpsTaskPackage.Publisher, operational ...*HGOperationalService) *Service {
+	service := &Service{repo: repo, cache: cache, taskPub: taskPub}
+	if len(operational) > 0 {
+		service.operational = operational[0]
+	}
+	return service
 }
+
+// Operational 返回已注入的资产与链路运维服务；仅供 ops handler 调用。
+func (s *Service) Operational() *HGOperationalService { return s.operational }
 
 // CreateRole 创建角色
 func (s *Service) CreateRole(ctx context.Context, userID string, req OpsDtoPackage.CreateRoleRequest) (*OpsDtoPackage.CreateRoleResponse, error) {

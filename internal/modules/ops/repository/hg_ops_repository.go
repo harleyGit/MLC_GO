@@ -35,6 +35,19 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// IsActiveAdmin 按 admin_user.user_id 唯一业务标识执行索引点查，作为资金运维接口的服务端二次授权边界。
+func (r *Repository) IsActiveAdmin(ctx context.Context, userID string) (bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectOpsAdminInternalIDByUserIDSQL, strings.TrimSpace(userID)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query active admin: %w", err)
+	}
+	return id > 0, nil
+}
+
 // CreateRole 创建角色
 func (r *Repository) CreateRole(ctx context.Context, name, description string) (string, error) {
 	roleID := UtilsPackage.GenerateRoleID()
@@ -689,7 +702,7 @@ func isDuplicateKeyError(err error) bool {
 	// errors.As 从 error 链中寻找指定类型的错误，并把它转换出来，判断错误是不是 MySQL错误
 	// MySQL 1062 含义：Duplicate entry for key也就是：唯一键冲突。
 	// "Duplicate entry" 直接搜索错误字符串。
-	var mysqlErr *mysql.MySQLError 
+	var mysqlErr *mysql.MySQLError
 	return err != nil && (errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 || strings.Contains(err.Error(), "Duplicate entry"))
 }
 

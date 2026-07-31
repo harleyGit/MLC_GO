@@ -1,13 +1,16 @@
 package OpsModulePackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
+	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	OpsCachePackage "MLC_GO/internal/modules/ops/cache"
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsServicePackage "MLC_GO/internal/modules/ops/service"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
+	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 )
 
 // ModuleDeps 声明 ops 模块依赖的基础设施。
@@ -40,7 +43,12 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	repo := OpsRepositoryPackage.NewRepository(deps.SQLManager.GetSQLDB())
 	cache := OpsCachePackage.NewCache(deps.RedisService)
 	taskPub := OpsTaskPackage.NewMemoryPublisher()
-	service := OpsServicePackage.NewService(repo, cache, taskPub)
+	coinRepository := CoinRepositoryPackage.NewHGRepository(deps.SQLManager.GetSQLDB(), "mlc.domain.events")
+	operational := OpsServicePackage.NewHGOperationalService(OpsServicePackage.HGOperationalDeps{
+		Authorizer: repo, CoinAssets: CoinServicePackage.NewHGService(coinRepository), CoinQueries: coinRepository,
+		ProjectionCheckpoints: VideoInteractionCachePackage.NewCache(deps.RedisService),
+	})
+	service := OpsServicePackage.NewService(repo, cache, taskPub, operational)
 	handler := OpsHandlerPackage.NewHandler(service)
 
 	return &ModuleComponents{

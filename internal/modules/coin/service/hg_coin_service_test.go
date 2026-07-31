@@ -5,6 +5,7 @@ import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 )
@@ -74,5 +75,17 @@ func TestHGServiceRejectsAmountAboveLotReadBound(t *testing.T) {
 	_, err := service.Grant(context.Background(), HGCreditCommand{UserID: "u-1", RequestID: "r-1", Amount: HGMaxMutationAmount + 1})
 	if !errors.Is(err, ErrHGInvalidAmount) {
 		t.Fatalf("error = %v, want ErrHGInvalidAmount", err)
+	}
+}
+
+func TestHGServiceRejectsCorrectionOutsideLotReadBound(t *testing.T) {
+	service := NewHGService(&hgFakeCoinRepository{})
+	for _, delta := range []int64{int64(HGMaxMutationAmount) + 1, -int64(HGMaxMutationAmount) - 1, math.MinInt64} {
+		_, err := service.Correct(context.Background(), HGCorrectionCommand{
+			UserID: "u-1", RequestID: "correction-bound", Delta: delta, Reason: "ticket-42",
+		})
+		if !errors.Is(err, ErrHGInvalidAmount) {
+			t.Fatalf("delta=%d error=%v, want ErrHGInvalidAmount", delta, err)
+		}
 	}
 }

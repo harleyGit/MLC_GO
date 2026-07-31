@@ -6,6 +6,7 @@ import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -116,7 +117,7 @@ func (s *HGService) Refund(ctx context.Context, command HGRefundCommand) (CoinMo
 
 // Correct 通过不可变 correction 流水修正已确认的资产漂移，禁止直接覆盖 wallet.balance。
 func (s *HGService) Correct(ctx context.Context, command HGCorrectionCommand) (CoinModelPackage.HGMutationResult, error) {
-	if command.Delta == 0 {
+	if command.Delta == 0 || command.Delta == math.MinInt64 || command.Delta > int64(HGMaxMutationAmount) || command.Delta < -int64(HGMaxMutationAmount) {
 		return CoinModelPackage.HGMutationResult{}, ErrHGInvalidAmount
 	}
 	if strings.TrimSpace(command.Reason) == "" {

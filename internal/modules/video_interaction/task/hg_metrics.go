@@ -15,6 +15,16 @@ type hgProjectionMetric struct {
 	duration   atomic.Uint64
 }
 
+// HGProjectionMetricSnapshot 是四条固定重投影流的只读低基数指标快照。
+type HGProjectionMetricSnapshot struct {
+	Stream        string
+	Runs          uint64
+	Rows          uint64
+	Failures      uint64
+	LeaseSkips    uint64
+	DurationNanos uint64
+}
+
 var hgProjectionMetrics = map[HGProjectionStream]*hgProjectionMetric{
 	HGProjectionStreamVideoState:   {},
 	HGProjectionStreamFollowState:  {},
@@ -49,4 +59,14 @@ func HGWritePrometheusMetrics(w io.Writer) {
 		_, _ = fmt.Fprintf(w, "mlc_interaction_reproject_lease_skips_total%s %d\n", label, metric.leaseSkips.Load())
 		_, _ = fmt.Fprintf(w, "mlc_interaction_reproject_duration_nanoseconds_total%s %d\n", label, metric.duration.Load())
 	}
+}
+
+// HGProjectionMetricsSnapshot 复制原子计数，调用方无法修改 worker 内部状态。
+func HGProjectionMetricsSnapshot() []HGProjectionMetricSnapshot {
+	result := make([]HGProjectionMetricSnapshot, 0, len(hgProjectionStreams))
+	for _, stream := range hgProjectionStreams {
+		metric := hgProjectionMetrics[stream]
+		result = append(result, HGProjectionMetricSnapshot{Stream: string(stream), Runs: metric.runs.Load(), Rows: metric.rows.Load(), Failures: metric.failures.Load(), LeaseSkips: metric.leaseSkips.Load(), DurationNanos: metric.duration.Load()})
+	}
+	return result
 }

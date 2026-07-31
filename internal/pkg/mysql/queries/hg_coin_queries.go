@@ -42,6 +42,14 @@ const (
 		WHERE expires_at <= ? AND remaining_amount > 0 ORDER BY expires_at, id LIMIT ?`
 	SelectExpiredCoinLotForUpdateSQL = `SELECT remaining_amount FROM coin_asset_lots WHERE id = ? AND user_id = ? AND expires_at <= ? FOR UPDATE`
 	SelectCoinWalletSQL              = `SELECT balance FROM user_coin_wallets WHERE user_id = ?`
+	// 运维流水严格按 user_id 和 created_at,id 复合游标查询，命中 idx_coin_transaction_user_created；多取一条判断 hasMore，不执行 COUNT/OFFSET。
+	SelectCoinTransactionsFirstSQL = `SELECT id, user_id, request_id, operation, amount, signed_delta, balance_after, reason, business_type, business_key, reference_transaction_id, created_at
+		FROM coin_asset_transactions FORCE INDEX (idx_coin_transaction_user_created)
+		WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`
+	SelectCoinTransactionsByCursorSQL = `SELECT id, user_id, request_id, operation, amount, signed_delta, balance_after, reason, business_type, business_key, reference_transaction_id, created_at
+		FROM coin_asset_transactions FORCE INDEX (idx_coin_transaction_user_created)
+		WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?))
+		ORDER BY created_at DESC, id DESC LIMIT ?`
 	// 历史钱包初始化命中 users 主键并使用 keyset cursor，避免 OFFSET 深分页。
 	SelectUsersAfterCoinCursorSQL      = `SELECT id, user_id FROM users WHERE id > ? AND user_id IS NOT NULL ORDER BY id LIMIT ?`
 	SelectCoinInitializerCheckpointSQL = `SELECT cursor_value FROM coin_job_checkpoints WHERE job_name = 'wallet_initializer'`

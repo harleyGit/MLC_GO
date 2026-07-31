@@ -47,6 +47,28 @@ type HGMutationResult struct {
 	BalanceAfter  uint64
 }
 
+// HGTransactionCursor 是资产流水使用的稳定复合游标；CreatedAt 与 ID 同时参与排序，避免同秒记录丢失或重复。
+type HGTransactionCursor struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ID        uint64    `json:"id"`
+}
+
+// HGTransaction 是只读资产审计模型，供受信运维查询使用，不参与权威写事务。
+type HGTransaction struct {
+	ID                     uint64
+	UserID                 string
+	RequestID              string
+	Operation              HGOperation
+	Amount                 uint64
+	SignedDelta            int64
+	BalanceAfter           uint64
+	Reason                 string
+	BusinessType           string
+	BusinessKey            string
+	ReferenceTransactionID uint64
+	CreatedAt              time.Time
+}
+
 // HGUserCursor 是钱包初始化任务使用的 users.id keyset 游标项，禁止用 OFFSET 做历史用户深分页。
 type HGUserCursor struct {
 	ID     uint64

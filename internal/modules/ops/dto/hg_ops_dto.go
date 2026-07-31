@@ -1,5 +1,7 @@
 package OpsDtoPackage
 
+import "time"
+
 // CreateRoleRequest 创建角色请求
 type CreateRoleRequest struct {
 	Name        string `json:"name"`
@@ -235,4 +237,103 @@ type FileItem struct {
 	MimeType  string `json:"mimeType"`
 	URL       string `json:"url"`
 	CreatedAt string `json:"createdAt"`
+}
+
+// HGCoinGrantRequest 是人工赠币请求；Amount 使用十进制字符串避免 JavaScript uint64 精度损失。
+type HGCoinGrantRequest struct {
+	UserID      string     `json:"userId"`
+	RequestID   string     `json:"requestId"`
+	Amount      string     `json:"amount"`
+	Reason      string     `json:"reason"`
+	BusinessKey string     `json:"businessKey"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+}
+
+// HGCoinRefundRequest 必须引用同一用户的原 debit transaction。
+type HGCoinRefundRequest struct {
+	UserID                 string `json:"userId"`
+	RequestID              string `json:"requestId"`
+	Amount                 string `json:"amount"`
+	Reason                 string `json:"reason"`
+	ReferenceTransactionID string `json:"referenceTransactionId"`
+}
+
+// HGCoinCorrectionRequest 通过不可变 correction 流水修正资产，禁止直接覆盖余额。
+type HGCoinCorrectionRequest struct {
+	UserID    string `json:"userId"`
+	RequestID string `json:"requestId"`
+	Delta     string `json:"delta"`
+	Reason    string `json:"reason"`
+}
+
+// HGCoinAccountResponse 返回 MySQL 权威余额。
+type HGCoinAccountResponse struct {
+	UserID    string `json:"userId"`
+	Balance   string `json:"balance"`
+	Authority string `json:"authority"`
+}
+
+// HGCoinMutationResponse 返回一次幂等资产命令的权威结果。
+type HGCoinMutationResponse struct {
+	Committed        bool   `json:"committed"`
+	IdempotentReplay bool   `json:"idempotentReplay"`
+	TransactionID    string `json:"transactionId"`
+	BalanceAfter     string `json:"balanceAfter"`
+}
+
+// HGCoinTransactionItem 是运维端只读资产流水。
+type HGCoinTransactionItem struct {
+	TransactionID          string `json:"transactionId"`
+	RequestID              string `json:"requestId"`
+	Operation              string `json:"operation"`
+	Amount                 string `json:"amount"`
+	SignedDelta            string `json:"signedDelta"`
+	BalanceAfter           string `json:"balanceAfter"`
+	Reason                 string `json:"reason"`
+	BusinessType           string `json:"businessType"`
+	BusinessKey            string `json:"businessKey"`
+	ReferenceTransactionID string `json:"referenceTransactionId,omitempty"`
+	CreatedAt              string `json:"createdAt"`
+}
+
+// HGCoinTransactionListResponse 使用不透明复合游标分页，不返回实时总数。
+type HGCoinTransactionListResponse struct {
+	UserID     string                  `json:"userId"`
+	List       []HGCoinTransactionItem `json:"list"`
+	NextCursor string                  `json:"nextCursor"`
+	HasMore    bool                    `json:"hasMore"`
+}
+
+// HGInteractionStreamStatus 返回固定重投影流的 checkpoint 和低基数累计指标。
+type HGInteractionStreamStatus struct {
+	Stream        string `json:"stream"`
+	Checkpoint    string `json:"checkpoint"`
+	Runs          string `json:"runs"`
+	Rows          string `json:"rows"`
+	Failures      string `json:"failures"`
+	LeaseSkips    string `json:"leaseSkips"`
+	DurationNanos string `json:"durationNanos"`
+}
+
+// HGKafkaLagItem 返回 group/topic 聚合 lag；不暴露 partition。
+type HGKafkaLagItem struct {
+	Group      string `json:"group"`
+	Topic      string `json:"topic"`
+	LagRecords string `json:"lagRecords"`
+}
+
+// HGKafkaStatus 描述应用已观察到的处理 lag，而非 committed-offset lag。
+type HGKafkaStatus struct {
+	Measurement        string           `json:"measurement"`
+	AssignedPartitions string           `json:"assignedPartitions"`
+	Items              []HGKafkaLagItem `json:"items"`
+}
+
+// HGAssetPipelineStatusResponse 聚合低成本进程内快照和四个固定 Redis checkpoint。
+type HGAssetPipelineStatusResponse struct {
+	ObservedAt               string                      `json:"observedAt"`
+	CoinInitializerCursor    string                      `json:"coinInitializerCursor"`
+	CoinReconciliationDrifts string                      `json:"coinReconciliationDrifts"`
+	InteractionStreams       []HGInteractionStreamStatus `json:"interactionStreams"`
+	Kafka                    HGKafkaStatus               `json:"kafka"`
 }

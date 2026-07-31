@@ -58,6 +58,50 @@ func (r *HGRepository) Balance(ctx context.Context, userID string) (uint64, erro
 	return balance, nil
 }
 
+// ListTransactions 按用户和复合 keyset 游标读取有界审计流水；limit 由调用方限制，Repository 再执行防御性收敛。
+func (r *HGRepository) ListTransactions(ctx context.Context, userID string, cursor CoinModelPackage.HGTransactionCursor, limit int) ([]CoinModelPackage.HGTransaction, CoinModelPackage.HGTransactionCursor, bool, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	queryLimit := limit + 1
+	querySQL := SQLQueriesPackage.SelectCoinTransactionsFirstSQL
+	args := []any{userID, queryLimit}
+	if !cursor.CreatedAt.IsZero() && cursor.ID > 0 {
+		querySQL = SQLQueriesPackage.SelectCoinTransactionsByCursorSQL
+		args = []any{userID, cursor.CreatedAt, cursor.CreatedAt, cursor.ID, queryLimit}
+	}
+	rows, err := r.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		return nil, CoinModelPackage.HGTransactionCursor{}, false, fmt.Errorf("list coin transactions: %w", err)
+	}
+	defer rows.Close()
+	items := make([]CoinModelPackage.HGTransaction, 0, queryLimit)
+	for rows.Next() {
+		var item CoinModelPackage.HGTransaction
+		var reference sql.NullInt64
+		if err := rows.Scan(&item.ID, &item.UserID, &item.RequestID, &item.Operation, &item.Amount, &item.SignedDelta, &item.BalanceAfter, &item.Reason, &item.BusinessType, &item.BusinessKey, &reference, &item.CreatedAt); err != nil {
+			return nil, CoinModelPackage.HGTransactionCursor{}, false, fmt.Errorf("scan coin transaction: %w", err)
+		}
+		if reference.Valid && reference.Int64 > 0 {
+			item.ReferenceTransactionID = uint64(reference.Int64)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, CoinModelPackage.HGTransactionCursor{}, false, fmt.Errorf("iterate coin transactions: %w", err)
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	next := CoinModelPackage.HGTransactionCursor{}
+	if len(items) > 0 {
+		last := items[len(items)-1]
+		next = CoinModelPackage.HGTransactionCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return items, next, hasMore, nil
+}
+
 // EnsureWallet idempotently creates an empty wallet without generating a financial transaction or outbox event.
 func (r *HGRepository) EnsureWallet(ctx context.Context, userID string) error {
 	if _, err := r.db.ExecContext(ctx, SQLQueriesPackage.EnsureCoinWalletSQL, userID); err != nil {

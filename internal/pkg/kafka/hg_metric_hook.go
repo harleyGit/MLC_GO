@@ -232,6 +232,32 @@ func hgKafkaConsumerLagSeries() map[string]int64 {
 	return series
 }
 
+// HGConsumerLagSnapshot 是按消费组和 topic 聚合的应用处理 lag，不暴露 partition 等高基数维度。
+type HGConsumerLagSnapshot struct {
+	Group      string
+	Topic      string
+	LagRecords int64
+}
+
+// HGConsumerLagSnapshots 返回排序后的只读快照；该值不是 Kafka Admin API committed-offset lag。
+func HGConsumerLagSnapshots() []HGConsumerLagSnapshot {
+	series := hgKafkaConsumerLagSeries()
+	keys := make([]string, 0, len(series))
+	for key := range series {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]HGConsumerLagSnapshot, 0, len(keys))
+	for _, key := range keys {
+		separator := strings.IndexByte(key, 0)
+		result = append(result, HGConsumerLagSnapshot{Group: key[:separator], Topic: key[separator+1:], LagRecords: series[key]})
+	}
+	return result
+}
+
+// HGAssignedPartitionsSnapshot 返回当前进程已分配 partition 数，不执行 broker I/O。
+func HGAssignedPartitionsSnapshot() int64 { return hgKafkaAssignedPartitionGauge.Load() }
+
 func hgKafkaOnPartitionsAssigned(_ context.Context, _ *kgo.Client, partitions map[string][]int32) {
 	count := hgPartitionCount(partitions)
 	hgKafkaPartitionsAssigned.Add(uint64(count))

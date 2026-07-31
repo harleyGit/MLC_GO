@@ -38,6 +38,12 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/bilibili/tags/list", true, "获取Bilibili动画标签", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/bilibili/tags/update", true, "更新Bilibili动画标签", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/bilibili/tags/delete", true, "删除Bilibili动画标签", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/accounts/detail", true, "查询硬币权威余额", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/transactions/list", true, "查询硬币资产流水", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/grant", true, "人工赠币", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/refund", true, "原扣款退款", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/correct", true, "硬币资产修正", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", nil),
 		}
 	}
 
@@ -62,5 +68,11 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/bilibili/tags/list", true, "获取Bilibili动画标签", opsHandler.GetBilibiliTagList),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/bilibili/tags/update", true, "更新Bilibili动画标签", opsHandler.UpdateBilibiliTag),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/bilibili/tags/delete", true, "删除Bilibili动画标签", opsHandler.DeleteBilibiliTag),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/accounts/detail", true, "查询硬币权威余额", opsHandler.GetCoinAccount),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/transactions/list", true, "查询硬币资产流水", opsHandler.GetCoinTransactions),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/grant", true, "人工赠币", opsHandler.GrantCoin),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/refund", true, "原扣款退款", opsHandler.RefundCoin),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/coin/correct", true, "硬币资产修正", opsHandler.CorrectCoin),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", opsHandler.GetAssetPipelineStatus),
 	}
 }
