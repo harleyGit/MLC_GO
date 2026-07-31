@@ -70,6 +70,11 @@ type hgOpsCoinQueries interface {
 	LoadInitializerCheckpoint(context.Context) (uint64, error)
 }
 
+// hgOpsCoinUserLookup 只暴露资产目标所需的精确身份点查，避免 service 依赖完整用户仓储能力。
+type hgOpsCoinUserLookup interface {
+	FindCoinUserByExactIdentity(context.Context, string, string) (*OpsDtoPackage.HGCoinUserSearchItem, error)
+}
+
 type hgOpsProjectionCheckpoints interface {
 	LoadCheckpoint(context.Context, string) (string, error)
 }
@@ -83,6 +88,53 @@ type HGOperationalDeps struct {
 	Audit                 hgOpsAssetAudit
 	RateLimiter           hgOpsAssetRateLimiter
 	Corrections           hgOpsCorrections
+	UserLookup            hgOpsCoinUserLookup
+}
+
+// SearchCoinUser 按操作人明确选择的唯一身份字段精确查找资产目标，不执行模糊搜索。
+func (s *HGOperationalService) SearchCoinUser(ctx context.Context, operatorID, field, keyword string) (*OpsDtoPackage.HGCoinUserSearchResponse, error) {
+	if err := s.hgAuthorizeCoinUserSearch(ctx, operatorID); err != nil {
+		return nil, err
+	}
+	field, keyword = strings.TrimSpace(field), strings.TrimSpace(keyword)
+	maxRunes := 0
+	switch field {
+	case "userId", "email":
+		maxRunes = 255
+	case "phone":
+		maxRunes = 32
+	default:
+		return nil, ErrHGOperationsInvalid
+	}
+	if !hgOpsValidText(keyword, maxRunes) || s.deps.UserLookup == nil {
+		return nil, ErrHGOperationsInvalid
+	}
+	user, err := s.deps.UserLookup.FindCoinUserByExactIdentity(ctx, field, keyword)
+	if err != nil {
+		return nil, fmt.Errorf("find coin target user: %w", err)
+	}
+	return &OpsDtoPackage.HGCoinUserSearchResponse{User: user}, nil
+}
+
+func (s *HGOperationalService) hgAuthorizeCoinUserSearch(ctx context.Context, operatorID string) error {
+	if s == nil || s.deps.Authorizer == nil || strings.TrimSpace(operatorID) == "" {
+		return ErrHGOperationsForbidden
+	}
+	permissions, err := s.deps.Authorizer.ListAssetPermissions(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("authorize coin target search: %w", err)
+	}
+	// 目标选择同时服务余额、流水和写操作；一次读取固定低基数权限集合，避免逐权限重复查询 RBAC 表。
+	allowed := map[string]struct{}{
+		HGAssetPermissionBalanceRead: {}, HGAssetPermissionTransactionRead: {}, HGAssetPermissionGrant: {},
+		HGAssetPermissionRefund: {}, HGAssetPermissionCorrectionRequest: {},
+	}
+	for _, permission := range permissions {
+		if _, ok := allowed[permission]; ok {
+			return nil
+		}
+	}
+	return ErrHGOperationsForbidden
 }
 
 // HGOperationalService 编排受信运维资产操作和低成本链路状态读取。

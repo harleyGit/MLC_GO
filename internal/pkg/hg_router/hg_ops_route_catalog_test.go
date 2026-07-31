@@ -25,6 +25,7 @@ func TestOpsRouteCatalogContainsBilibiliTagCRUD(t *testing.T) {
 
 func TestOpsRouteCatalogContainsCoinOperations(t *testing.T) {
 	want := map[string]string{
+		"/api/v1/ops/coin/users/search":            http.MethodGet,
 		"/api/v1/ops/coin/accounts/detail":         http.MethodGet,
 		"/api/v1/ops/coin/transactions/list":       http.MethodGet,
 		"/api/v1/ops/coin/grant":                   http.MethodPost,

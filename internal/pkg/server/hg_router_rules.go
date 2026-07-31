@@ -349,6 +349,7 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 		{Path: "/bilibili/tags/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/bilibili/tags/update", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{Path: "/bilibili/tags/delete", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/coin/users/search", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/coin/accounts/detail", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/coin/transactions/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/coin/grant", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},

@@ -339,6 +339,21 @@ type HGCoinAccountResponse struct {
 	Authority string `json:"authority"`
 }
 
+// HGCoinUserSearchItem 是资产操作目标的最小身份确认信息，不返回完整手机号或邮箱。
+type HGCoinUserSearchItem struct {
+	UserID      string `json:"userId"`
+	UserName    string `json:"userName"`
+	NickName    string `json:"nickName"`
+	MaskedEmail string `json:"maskedEmail"`
+	MaskedPhone string `json:"maskedPhone"`
+	MatchedBy   string `json:"matchedBy"`
+}
+
+// HGCoinUserSearchResponse 返回唯一索引精确查询结果；未命中时 user 为 null。
+type HGCoinUserSearchResponse struct {
+	User *HGCoinUserSearchItem `json:"user"`
+}
+
 // HGCoinMutationResponse 返回一次幂等资产命令的权威结果。
 type HGCoinMutationResponse struct {
 	Committed        bool   `json:"committed"`

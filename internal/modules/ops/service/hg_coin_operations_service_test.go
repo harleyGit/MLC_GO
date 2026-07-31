@@ -63,6 +63,19 @@ type hgFakeOpsCoinQueries struct {
 	limit        int
 }
 
+type hgFakeOpsCoinUserLookup struct {
+	field   string
+	keyword string
+	result  *OpsDtoPackage.HGCoinUserSearchItem
+	err     error
+	called  bool
+}
+
+func (f *hgFakeOpsCoinUserLookup) FindCoinUserByExactIdentity(_ context.Context, field, keyword string) (*OpsDtoPackage.HGCoinUserSearchItem, error) {
+	f.field, f.keyword, f.called = field, keyword, true
+	return f.result, f.err
+}
+
 func (f *hgFakeOpsCoinQueries) ListTransactions(_ context.Context, _ string, cursor CoinModelPackage.HGTransactionCursor, limit int) ([]CoinModelPackage.HGTransaction, CoinModelPackage.HGTransactionCursor, bool, error) {
 	f.cursor, f.limit = cursor, limit
 	return f.transactions, f.next, f.hasMore, nil
@@ -97,6 +110,70 @@ func TestHGOperationalServiceUsesSeparateDatabasePermissions(t *testing.T) {
 	_, err := service.GrantCoin(context.Background(), HGAssetOperator{ID: "admin-1", SourceIP: "203.0.113.8"}, OpsDtoPackage.HGCoinGrantRequest{UserID: "user-1", RequestID: "grant-1", Amount: "1", Reason: "ticket", BusinessKey: "T-1"})
 	if !errors.Is(err, ErrHGOperationsForbidden) {
 		t.Fatalf("GrantCoin() error=%v, want ErrHGOperationsForbidden", err)
+	}
+}
+
+func TestHGOperationalServiceSearchCoinUserUsesExactSelectedIdentity(t *testing.T) {
+	lookup := &hgFakeOpsCoinUserLookup{result: &OpsDtoPackage.HGCoinUserSearchItem{UserID: "UID-101", UserName: "alice", NickName: "Alice", MatchedBy: "email"}}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionBalanceRead: true}},
+		UserLookup: lookup,
+	})
+
+	result, err := service.SearchCoinUser(context.Background(), "admin-1", "email", " alice@example.com ")
+	if err != nil {
+		t.Fatalf("SearchCoinUser() error=%v", err)
+	}
+	if lookup.field != "email" || lookup.keyword != "alice@example.com" {
+		t.Fatalf("lookup field=%q keyword=%q", lookup.field, lookup.keyword)
+	}
+	if result.User == nil || result.User.UserID != "UID-101" || result.User.MatchedBy != "email" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestHGOperationalServiceSearchCoinUserRejectsInvalidFieldBeforeLookup(t *testing.T) {
+	lookup := &hgFakeOpsCoinUserLookup{}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionBalanceRead: true}},
+		UserLookup: lookup,
+	})
+
+	_, err := service.SearchCoinUser(context.Background(), "admin-1", "nickname", "alice")
+	if !errors.Is(err, ErrHGOperationsInvalid) {
+		t.Fatalf("error=%v, want ErrHGOperationsInvalid", err)
+	}
+	if lookup.called {
+		t.Fatal("invalid field reached user repository")
+	}
+}
+
+func TestHGOperationalServiceSearchCoinUserRequiresTargetOperationPermission(t *testing.T) {
+	lookup := &hgFakeOpsCoinUserLookup{}
+	service := NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{}}, UserLookup: lookup})
+
+	_, err := service.SearchCoinUser(context.Background(), "admin-1", "phone", "13800138000")
+	if !errors.Is(err, ErrHGOperationsForbidden) {
+		t.Fatalf("error=%v, want ErrHGOperationsForbidden", err)
+	}
+	if lookup.called {
+		t.Fatal("unauthorized search reached user repository")
+	}
+}
+
+func TestHGOperationalServiceSearchCoinUserAllowsGrantOnlyOperator(t *testing.T) {
+	lookup := &hgFakeOpsCoinUserLookup{result: &OpsDtoPackage.HGCoinUserSearchItem{UserID: "UID-202", MatchedBy: "userId"}}
+	service := NewHGOperationalService(HGOperationalDeps{
+		Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{HGAssetPermissionGrant: true}},
+		UserLookup: lookup,
+	})
+
+	result, err := service.SearchCoinUser(context.Background(), "admin-1", "userId", "UID-202")
+	if err != nil {
+		t.Fatalf("SearchCoinUser() error=%v", err)
+	}
+	if result.User == nil || result.User.UserID != "UID-202" {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

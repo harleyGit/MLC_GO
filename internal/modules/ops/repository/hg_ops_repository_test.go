@@ -90,6 +90,59 @@ func TestHasAssetPermissionUsesDatabaseRBAC(t *testing.T) {
 	}
 }
 
+func TestFindCoinUserByExactIdentityUsesSelectedUniqueIndex(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		field   string
+		keyword string
+		wantSQL string
+	}{
+		{name: "business user id", field: "userId", keyword: "UID-101", wantSQL: SQLQueriesPackage.SelectOpsCoinUserByUserIDSQL},
+		{name: "phone", field: "phone", keyword: "13800138000", wantSQL: SQLQueriesPackage.SelectOpsCoinUserByPhoneSQL},
+		{name: "email", field: "email", keyword: "alice@example.com", wantSQL: SQLQueriesPackage.SelectOpsCoinUserByEmailSQL},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectQuery(regexp.QuoteMeta(testCase.wantSQL)).WithArgs(testCase.keyword).
+				WillReturnRows(sqlmock.NewRows([]string{"user_id", "user_name", "nickname", "email", "phone"}).
+					AddRow("UID-101", "alice", "Alice", "alice@example.com", "13800138000"))
+
+			item, err := NewRepository(db).FindCoinUserByExactIdentity(context.Background(), testCase.field, testCase.keyword)
+			if err != nil {
+				t.Fatalf("FindCoinUserByExactIdentity() error=%v", err)
+			}
+			if item == nil || item.UserID != "UID-101" || item.MatchedBy != testCase.field {
+				t.Fatalf("item=%+v", item)
+			}
+			if item.MaskedEmail != "al***@example.com" || item.MaskedPhone != "138****8000" {
+				t.Fatalf("masked identity=%+v", item)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestFindCoinUserByExactIdentityReturnsNilWhenNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsCoinUserByPhoneSQL)).WithArgs("13800138000").
+		WillReturnError(sql.ErrNoRows)
+
+	item, err := NewRepository(db).FindCoinUserByExactIdentity(context.Background(), "phone", "13800138000")
+	if err != nil || item != nil {
+		t.Fatalf("item=%+v error=%v, want nil result", item, err)
+	}
+}
+
 func TestAppendAssetAuditWritesImmutableRecord(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)

@@ -48,6 +48,83 @@ func (r *Repository) ListAssetPermissions(ctx context.Context, userID string) ([
 	return permissions, rows.Err()
 }
 
+// FindCoinUserByExactIdentity 每次只按一个 users 唯一索引点查，避免亿级用户表多字段 OR 或模糊扫描。
+func (r *Repository) FindCoinUserByExactIdentity(ctx context.Context, field, keyword string) (*OpsDtoPackage.HGCoinUserSearchItem, error) {
+	query := ""
+	switch field {
+	case "userId":
+		query = SQLQueriesPackage.SelectOpsCoinUserByUserIDSQL
+	case "phone":
+		query = SQLQueriesPackage.SelectOpsCoinUserByPhoneSQL
+	case "email":
+		query = SQLQueriesPackage.SelectOpsCoinUserByEmailSQL
+	default:
+		return nil, fmt.Errorf("unsupported coin user identity field")
+	}
+
+	var userID, userName, nickName, email, phone sql.NullString
+	err := r.db.QueryRowContext(ctx, query, strings.TrimSpace(keyword)).Scan(&userID, &userName, &nickName, &email, &phone)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query coin target user: %w", err)
+	}
+	return &OpsDtoPackage.HGCoinUserSearchItem{
+		UserID:      userID.String,
+		UserName:    userName.String,
+		NickName:    nickName.String,
+		MaskedEmail: hgMaskOpsEmail(email.String),
+		MaskedPhone: hgMaskOpsPhone(phone.String),
+		MatchedBy:   field,
+	}, nil
+}
+
+func hgMaskOpsPhone(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) >= 7 {
+		return string(runes[:3]) + "****" + string(runes[len(runes)-4:])
+	}
+	if len(runes) <= 2 {
+		return string(runes[:1]) + "***"
+	}
+	prefix, suffix := 2, 2
+	if len(runes) < 4 {
+		prefix, suffix = 1, 1
+	}
+	return string(runes[:prefix]) + "***" + string(runes[len(runes)-suffix:])
+}
+
+// hgMaskOpsEmail 仅保留少量本地部分和完整域名，接口层不暴露数据库中的原始邮箱。
+func hgMaskOpsEmail(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	at := strings.LastIndex(value, "@")
+	if at > 0 && at < len(value)-1 {
+		local := []rune(value[:at])
+		visible := 2
+		if len(local) < visible {
+			visible = len(local)
+		}
+		return string(local[:visible]) + "***" + value[at:]
+	}
+	runes := []rune(value)
+	if len(runes) <= 2 {
+		return string(runes[:1]) + "***"
+	}
+	prefix, suffix := 2, 2
+	if len(runes) < 4 {
+		prefix, suffix = 1, 1
+	}
+	return string(runes[:prefix]) + "***" + string(runes[len(runes)-suffix:])
+}
+
 // AppendAssetAudit appends an immutable control-plane audit row and treats a repeated event key as a successful idempotent replay.
 // Updates/deletes are intentionally not exposed; the SQL duplicate branch only assigns event_key to itself and cannot alter the first payload.
 func (r *Repository) AppendAssetAudit(ctx context.Context, record OpsDtoPackage.HGAssetAuditRecord) error {

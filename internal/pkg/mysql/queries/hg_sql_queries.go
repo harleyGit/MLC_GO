@@ -201,6 +201,15 @@ const (
 	// 命中 users.phone/uk_phone 唯一索引前缀；手机号搜索是添加管理员最常用路径之一。
 	SelectOpsAdminCandidateByPhonePrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
+	// SelectOpsCoinUserByUserIDSQL 按 users.user_id 唯一索引精确定位资产目标，不使用 LIKE、COUNT 或 OFFSET。
+	SelectOpsCoinUserByUserIDSQL = "SELECT `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `user_id` = ? LIMIT 1"
+
+	// SelectOpsCoinUserByPhoneSQL 按 users.phone 唯一索引精确定位资产目标；返回值由 Repository 脱敏后再出 API。
+	SelectOpsCoinUserByPhoneSQL = "SELECT `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `phone` = ? LIMIT 1"
+
+	// SelectOpsCoinUserByEmailSQL 按 users.email 唯一索引精确定位资产目标；单次请求只访问一个身份索引。
+	SelectOpsCoinUserByEmailSQL = "SELECT `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `email` = ? LIMIT 1"
+
 	// InsertOpsAdminFromUserWithEmailSQL 从 users 主键提升为 admin_user，适用于 admin_user.email 已迁移的环境。
 	// 写入 admin_user.user_id 时必须使用 users.user_id，保证新增管理员后 SearchAdminUsers 能按同一个业务用户 ID 搜索和返回。
 	InsertOpsAdminFromUserWithEmailSQL = "INSERT INTO `admin_user` (`user_id`, `name`, `nick_name`, `email`, `mobile`, `lark_open_id`, `password`, `status`, `create_at`, `update_at`, `create_by`, `update_by`, `sex`, `is_delete`) SELECT `user_id`, COALESCE(NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), COALESCE(NULLIF(`nickname`, ''), NULLIF(`user_name`, ''), `user_id`, CONCAT('user_', `id`)), NULLIF(`email`, ''), COALESCE(NULLIF(`phone`, ''), CONCAT('user_', `id`)), '', `password_hash`, 1, NOW(), NOW(), ?, ?, 3, 0 FROM `users` WHERE `id` = ?"

@@ -48,7 +48,7 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	operational := OpsServicePackage.NewHGOperationalService(OpsServicePackage.HGOperationalDeps{
 		Authorizer: repo, CoinAssets: CoinServicePackage.NewHGService(coinRepository), CoinQueries: coinRepository,
 		ProjectionCheckpoints: VideoInteractionCachePackage.NewCache(deps.RedisService),
-		Audit:                 repo, RateLimiter: cache, Corrections: repo,
+		Audit:                 repo, RateLimiter: cache, Corrections: repo, UserLookup: repo,
 	})
 	service := OpsServicePackage.NewService(repo, cache, taskPub, operational)
 	handler := OpsHandlerPackage.NewHandler(service)

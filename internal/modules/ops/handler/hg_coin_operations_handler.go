@@ -16,6 +16,13 @@ import (
 	"strings"
 )
 
+// SearchCoinUser 按 userId、phone 或 email 唯一索引精确定位资产操作目标。
+func (h *Handler) SearchCoinUser(w http.ResponseWriter, r *http.Request) {
+	h.hgWithOperator(w, r, func(operatorID string, operational *OpsServicePackage.HGOperationalService) (any, error) {
+		return operational.SearchCoinUser(r.Context(), operatorID, r.URL.Query().Get("field"), r.URL.Query().Get("keyword"))
+	})
+}
+
 // GetCoinAccount 查询指定用户的 MySQL 权威余额。
 func (h *Handler) GetCoinAccount(w http.ResponseWriter, r *http.Request) {
 	h.hgWithOperator(w, r, func(operatorID string, operational *OpsServicePackage.HGOperationalService) (any, error) {
