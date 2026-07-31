@@ -30,6 +30,8 @@ TARGET_ENV="${1:-debug}"
 # 基础设施连接信息统一来自模块化 YAML，不再读取分环境 .env。
 CONFIG_DIR="${WORKSPACE_DIR}/config"
 PRE_COMPOSE_FILE="${WORKSPACE_DIR}/config/docker/hg_docker_compose.pre.yml"
+KAFKA_COMPOSE_FILE="${WORKSPACE_DIR}/deployments/docker-compose.kafka.yml"
+KAFKA_CONTAINERS=("mlc-kafka-1" "mlc-kafka-2" "mlc-kafka-3")
 
 # 下面先定义默认值。
 # 如果后面没有读到配置文件，脚本就用这些默认值继续执行。
@@ -427,8 +429,42 @@ ensure_redis_ready() {
     log_info "Redis 检查通过"
 }
 
+# 本地 debug 依赖固定先保证三节点 Kafka 已运行，再显式初始化业务 Topic。
+# pre/prod 的 Topic 必须由发布系统或 Kafka IaC 管理，本脚本不自动操作共享环境。
+ensure_debug_kafka_ready() {
+    if [ "${TARGET_ENV}" != "debug" ]; then
+        return 0
+    fi
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "未找到 docker 命令，无法检查本地 Kafka"
+        return 1
+    fi
+
+    local container
+    local kafka_running="true"
+    for container in "${KAFKA_CONTAINERS[@]}"; do
+        if [ "$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null || true)" != "true" ]; then
+            kafka_running="false"
+            break
+        fi
+    done
+
+    if [ "${kafka_running}" = "true" ]; then
+        log_info "Kafka 三节点集群已运行，无需重复启动"
+    else
+        log_info "Kafka 未完整运行，执行本地 compose 启动"
+        # compose 文件还包含监控和统计依赖；这里只启动 broker，避免无关端口冲突。
+        docker compose -f "${KAFKA_COMPOSE_FILE}" up -d kafka-1 kafka-2 kafka-3
+    fi
+
+    # kafka-init 会等待 broker 就绪，并校验 Topic 的分区数、副本数和 ISR。
+    make kafka-init
+    log_info "Kafka 业务 Topic 已就绪"
+}
+
 # main 是脚本主入口函数。
-# 这里先确保 MySQL 就绪，再确保 Redis 就绪。
+# 这里依次确保 MySQL、Redis 和本地 debug Kafka 就绪。
 # 只要其中任何一步失败，整个脚本就会失败。
 # 而这个脚本是 VS Code debug 的 preLaunchTask，
 # 所以一旦脚本失败，调试就会被中断，不会继续启动 Go 程序。
@@ -438,6 +474,7 @@ main() {
     ensure_mysql_ready
     ensure_debug_database_migrated
     ensure_redis_ready
+    ensure_debug_kafka_ready
     log_info "${TARGET_ENV} 环境依赖服务已就绪"
 }
 

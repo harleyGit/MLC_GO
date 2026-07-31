@@ -127,7 +127,9 @@ preLaunchTask: ensure-debug-deps
     ↓
 scripts/ensure_debug_deps.sh debug
     ↓
-go run ./cmd/hg_config_check（读取配置、检查依赖、执行 debug 数据库迁移）
+go run ./cmd/hg_config_check（读取配置、检查 MySQL/Redis、执行 debug 数据库迁移）
+    ↓
+检查本地 Kafka；未运行时执行 docker compose，随后执行 make kafka-init
     ↓
 前置任务成功退出
     ↓
@@ -185,6 +187,17 @@ go run ./cmd/hg_config_check \
 go run ./cmd/hg_config_check --env debug --config-dir ./config --check redis
 ```
 
+5. 仅在 `debug` 环境确保本地 Kafka 已启动并显式初始化业务 Topic：
+
+```bash
+docker compose -f deployments/docker-compose.kafka.yml up -d kafka-1 kafka-2 kafka-3
+make kafka-init
+```
+
+`docker-compose.kafka.yml` 还包含监控和统计依赖，因此 VS Code 前置脚本只启动三个 broker，避免本地无关服务的端口冲突。如果三个 broker 已经运行，前置脚本不会重复执行 `docker compose up`，但仍会执行幂等的 `make kafka-init`，校验 `mlc.domain.events` 的分区数、副本数和 ISR。broker 已关闭自动建 Topic，禁止依赖生产请求触发隐式创建。
+
+`pre` 和 `prod` 不会通过 VS Code 前置脚本自动启动 Kafka 或创建 Topic。对应环境必须由发布系统或 Kafka IaC 显式创建并校验 Topic，避免应用账号持有管理权限，也避免多实例启动时竞争创建。
+
 迁移已经处于最新版本时会输出 `no change`，这是正常结果。`pre` 和 `prod` 前置任务只检查依赖，不自动执行数据库迁移，避免对共享环境或生产数据库意外执行 DDL。
 
 如果前置任务任何一步失败，`scripts/ensure_debug_deps.sh` 会以非零状态退出，VS Code 将终止本次调试，不再启动根目录主工程。
@@ -206,6 +219,9 @@ go run ./cmd/hg_config_check --env debug --config-dir ./config --check redis
 no change
 [INFO] debug 数据库迁移已完成
 [INFO] Redis 已运行
+[INFO] Kafka 三节点集群已运行，无需重复启动
+[INFO] Kafka Topic 拓扑检查通过: partitions=12 replication-factor=3 ISR=完整
+[INFO] Kafka 业务 Topic 已就绪
 [INFO] debug 环境依赖服务已就绪
 ```
 
@@ -239,7 +255,7 @@ no change
 ./scripts/ensure_debug_deps.sh prod
 ```
 
-这个脚本负责前置配置读取、依赖检查，以及 debug 环境的数据库迁移；真正启动根目录 Go 主工程仍由 VS Code 的 debug 配置完成。
+这个脚本负责前置配置读取、依赖检查，以及 debug 环境的数据库迁移和本地 Kafka Topic 初始化；真正启动根目录 Go 主工程仍由 VS Code 的 debug 配置完成。
 
 你说的 IP、端口、密码不对，这个改法很简单，主要改这几类文件。
 

@@ -29,8 +29,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 禁止依赖 broker 自动建 Topic；本地执行 make kafka-init，pre/prod 由发布系统或 Kafka IaC 创建。
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       # consumer offset topic 副本数设为 3，保证任意单节点故障后仍可恢复消费位点。
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       # 事务状态 topic 副本数设为 3；未来启用事务消息时需要该配置。
@@ -67,8 +67,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 禁止依赖 broker 自动建 Topic；本地执行 make kafka-init，pre/prod 由发布系统或 Kafka IaC 创建。
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
@@ -102,8 +102,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       # 指定 controller 监听器名称，必须与 LISTENERS 中的 CONTROLLER 一致。
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # 本地开发允许自动建 topic，生产环境建议关闭并用迁移脚本显式创建。
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 禁止依赖 broker 自动建 Topic；本地执行 make kafka-init，pre/prod 由发布系统或 Kafka IaC 创建。
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
