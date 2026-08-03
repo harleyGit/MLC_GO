@@ -55,7 +55,8 @@ type hgCommentRepository interface {
 }
 
 type hgCommentImageUploader interface {
-	UploadFromReader(context.Context, io.Reader, int64, string) (HGImageUpload, error)
+	Prepare(string) (HGImageUpload, error)
+	UploadFromReader(context.Context, io.Reader, int64, string, string) error
 	Delete(context.Context, string) error
 }
 
@@ -63,9 +64,8 @@ type hgCommentImageGuard interface {
 	Allow(context.Context, string, string) error
 }
 type hgCommentImageAssets interface {
-	ReserveImageQuota(context.Context, string, int64, int64) error
-	ReleaseImageQuota(context.Context, string, int64) error
-	CreateImageAsset(context.Context, VideoCommentRepositoryPackage.HGImageAsset) error
+	ReserveImageAsset(context.Context, VideoCommentRepositoryPackage.HGImageAsset, int64) error
+	ScheduleImageCleanup(context.Context, string, string) error
 }
 
 // HGImageUpload 保留公开 URL、内部存储 key 和实际字节数，供资产登记及失败补偿使用。
@@ -82,13 +82,18 @@ func NewHGUploadAdapter(uploader *HGUploadPackage.Uploader) *HGUploadAdapter {
 	return &HGUploadAdapter{uploader: uploader}
 }
 
-// UploadFromReader 将已校验的 raw image 流写入 video_comment 目录。
-func (a *HGUploadAdapter) UploadFromReader(ctx context.Context, reader io.Reader, size int64, ext string) (HGImageUpload, error) {
-	result, err := a.uploader.UploadFromReaderContext(ctx, reader, size, "video_comment", ext)
+// Prepare 在外部 I/O 前生成稳定对象键和 URL，使数据库可先登记可恢复 reservation。
+func (a *HGUploadAdapter) Prepare(ext string) (HGImageUpload, error) {
+	target, err := a.uploader.PrepareUploadTarget("video_comment", ext)
 	if err != nil {
 		return HGImageUpload{}, err
 	}
-	return HGImageUpload{URL: result.FileURL, StorageKey: result.FilePath, SizeBytes: result.FileSize}, nil
+	return HGImageUpload{URL: target.FileURL, StorageKey: target.FilePath}, nil
+}
+
+// UploadFromReader 将已校验的 raw image 流写入预先登记的对象键。
+func (a *HGUploadAdapter) UploadFromReader(ctx context.Context, reader io.Reader, size int64, ext, key string) error {
+	return a.uploader.UploadFromReaderToKeyContext(ctx, reader, size, key, ext)
 }
 
 func (a *HGUploadAdapter) Delete(ctx context.Context, key string) error {
@@ -262,28 +267,23 @@ func (s *Service) UploadImage(ctx context.Context, userID, sourceIP string, read
 		}
 		return VideoCommentDtoPackage.ImageResponse{}, err
 	}
-	if err := s.imageAssets.ReserveImageQuota(ctx, userID, size, s.imageCapacityBytes); err != nil {
+	upload, err := s.imageUploader.Prepare(ext)
+	if err != nil {
+		return VideoCommentDtoPackage.ImageResponse{}, err
+	}
+	asset := VideoCommentRepositoryPackage.HGImageAsset{ImageID: UtilsPackage.GenerateBusinessID("CIMG"), UserID: userID, StorageKey: upload.StorageKey, ImageURL: upload.URL, SizeBytes: size, ContentType: hgImageContentType(ext)}
+	if err := s.imageAssets.ReserveImageAsset(ctx, asset, s.imageCapacityBytes); err != nil {
 		if errors.Is(err, VideoCommentRepositoryPackage.ErrImageQuotaExceeded) {
 			return VideoCommentDtoPackage.ImageResponse{}, ErrImageQuotaExceeded
 		}
 		return VideoCommentDtoPackage.ImageResponse{}, err
 	}
-	reserved := true
-	defer func() {
-		if reserved {
-			_ = s.imageAssets.ReleaseImageQuota(context.WithoutCancel(ctx), userID, size)
-		}
-	}()
-	upload, err := s.imageUploader.UploadFromReader(ctx, reader, size, ext)
-	if err != nil {
+	if err := s.imageUploader.UploadFromReader(ctx, reader, size, ext, upload.StorageKey); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_ = s.imageAssets.ScheduleImageCleanup(cleanupCtx, asset.ImageID, userID)
 		return VideoCommentDtoPackage.ImageResponse{}, err
 	}
-	asset := VideoCommentRepositoryPackage.HGImageAsset{ImageID: UtilsPackage.GenerateBusinessID("CIMG"), UserID: userID, StorageKey: upload.StorageKey, ImageURL: upload.URL, SizeBytes: upload.SizeBytes, ContentType: hgImageContentType(ext)}
-	if err := s.imageAssets.CreateImageAsset(ctx, asset); err != nil {
-		_ = s.imageUploader.Delete(context.WithoutCancel(ctx), upload.StorageKey)
-		return VideoCommentDtoPackage.ImageResponse{}, err
-	}
-	reserved = false
 	return VideoCommentDtoPackage.ImageResponse{ImageURL: upload.URL}, nil
 }
 

@@ -2,6 +2,7 @@ package VideoCommentRepositoryPackage
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -14,13 +15,14 @@ import (
 )
 
 var (
-	ErrSubmissionNotCommentable = errors.New("submission is not commentable")
-	ErrParentNotAvailable       = errors.New("parent comment is unavailable")
-	ErrCommentNotAvailable      = errors.New("comment is unavailable")
-	ErrCommentHasReplies        = errors.New("comment has replies")
-	ErrCounterConsistency       = errors.New("comment counter consistency check failed")
-	ErrImageQuotaExceeded       = errors.New("comment image quota exceeded")
-	ErrImageNotAvailable        = errors.New("comment image is unavailable")
+	ErrSubmissionNotCommentable   = errors.New("submission is not commentable")
+	ErrParentNotAvailable         = errors.New("parent comment is unavailable")
+	ErrCommentNotAvailable        = errors.New("comment is unavailable")
+	ErrCommentHasReplies          = errors.New("comment has replies")
+	ErrCounterConsistency         = errors.New("comment counter consistency check failed")
+	ErrReactionBackfillIncomplete = errors.New("comment reaction backfill is incomplete")
+	ErrImageQuotaExceeded         = errors.New("comment image quota exceeded")
+	ErrImageNotAvailable          = errors.New("comment image is unavailable")
 )
 
 // HGCreateCommand 是同步创建评论的权威写入参数；线程关系由 repository 从父评论派生。
@@ -79,16 +81,18 @@ type HGReactionResult struct {
 	DislikeCount uint64
 }
 
-// HGImageAsset is the durable ownership record used to bind or clean an uploaded object.
+// HGImageAsset 是对象上传前持久化的 reservation，保存所有者、确定性 storage key、公开 URL、字节数和 MIME 类型。
+// 该记录与用户配额在同一事务写入，因此进程在 PUT 前后崩溃时，维护 worker 仍能定位对象并最终归还容量。
 type HGImageAsset struct {
 	ImageID, UserID, StorageKey, ImageURL, ContentType string
 	SizeBytes                                          int64
 }
 
 // HGImageCleanupAsset 是已进入 deleting 状态、允许执行外部存储删除的最小资产投影。
+// CleanupToken 是本轮 claim 的 fencing token；完成或失败恢复都必须匹配它，陈旧 worker 不得修改新一轮 claim。
 type HGImageCleanupAsset struct {
-	ImageID, UserID, StorageKey string
-	SizeBytes                   int64
+	ImageID, UserID, StorageKey, CleanupToken string
+	SizeBytes                                 int64
 }
 
 // Repository 负责视频评论的同步 MySQL 权威读写。
@@ -97,14 +101,19 @@ type Repository struct{ db *sql.DB }
 // NewRepository 创建基于共享 MySQL 连接池的评论仓储。
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
-// ReserveImageQuota atomically reserves authoritative per-user storage before external I/O.
-func (r *Repository) ReserveImageQuota(ctx context.Context, userID string, sizeBytes, capacityBytes int64) error {
+// ReserveImageAsset 在外部 I/O 前原子预占用户容量并登记确定性对象键，使崩溃后仍可回收。
+// 同一用户会在 quota 主键行上自然串行，不同用户互不竞争；条件 UPDATE 保证并发上传不能突破 capacityBytes。
+// 资产插入失败会回滚同事务内的容量增量，不存在“有配额占用但无可恢复 reservation”的提交状态。
+func (r *Repository) ReserveImageAsset(ctx context.Context, asset HGImageAsset, capacityBytes int64) error {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin image quota transaction: %w", err)
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentImageQuotaSQL, userID, sizeBytes, capacityBytes, capacityBytes)
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.EnsureVideoCommentImageQuotaSQL, asset.UserID); err != nil {
+		return fmt.Errorf("ensure image quota: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.ReserveVideoCommentImageQuotaSQL, asset.SizeBytes, asset.UserID, asset.SizeBytes, capacityBytes)
 	if err != nil {
 		return fmt.Errorf("reserve image quota: %w", err)
 	}
@@ -115,26 +124,21 @@ func (r *Repository) ReserveImageQuota(ctx context.Context, userID string, sizeB
 	if affected == 0 {
 		return ErrImageQuotaExceeded
 	}
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentImageAssetSQL, asset.ImageID, asset.UserID, asset.StorageKey, asset.ImageURL, asset.SizeBytes, asset.ContentType); err != nil {
+		return fmt.Errorf("insert image reservation: %w", err)
+	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit image quota: %w", err)
 	}
 	return nil
 }
 
-// ReleaseImageQuota 在上传失败或对象清理完成后归还用户权威容量，单位为字节。
-func (r *Repository) ReleaseImageQuota(ctx context.Context, userID string, sizeBytes int64) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageQuotaSQL, sizeBytes, sizeBytes, userID)
+// ScheduleImageCleanup 将失败或状态不确定的上传交给持久化清理流程，不在请求线程直接释放配额。
+// PUT 超时可能代表对象已写入，因此只能持久化 delete_pending 并执行幂等 DELETE，不能假设失败后对象不存在。
+func (r *Repository) ScheduleImageCleanup(ctx context.Context, imageID, userID string) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ScheduleVideoCommentImageCleanupSQL, imageID, userID)
 	if err != nil {
-		return fmt.Errorf("release image quota: %w", err)
-	}
-	return nil
-}
-
-// CreateImageAsset 记录 pending 图片的所有者和存储 key，使孤儿对象可被可靠清理。
-func (r *Repository) CreateImageAsset(ctx context.Context, asset HGImageAsset) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentImageAssetSQL, asset.ImageID, asset.UserID, asset.StorageKey, asset.ImageURL, asset.SizeBytes, asset.ContentType)
-	if err != nil {
-		return fmt.Errorf("create image asset: %w", err)
+		return fmt.Errorf("schedule image cleanup: %w", err)
 	}
 	return nil
 }
@@ -313,14 +317,21 @@ func (r *Repository) ListReplies(ctx context.Context, userID, rootCommentID stri
 	return HGRepliesResult{Comments: comments, TotalCount: totalCount}, nil
 }
 
-// SetReaction 锁定评论计数行和当前用户关系行，只应用旧状态到最终状态的差值。
-// 当前实现优先保证同步权威结果；超热点评论后续应将计数迁移到分片或异步投影，避免单行锁竞争。
+// SetReaction 锁定当前用户关系行，只更新其固定 32 分片之一，并返回分片聚合后的权威计数。
+// checkpoint completed=false 时拒绝在线写入，防止历史回填聚合与运行期 delta 双写同时修改 shard；列表和 hot 仍读取异步投影列。
 func (r *Repository) SetReaction(ctx context.Context, userID, commentID, reaction string) (HGReactionResult, error) {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return HGReactionResult{}, fmt.Errorf("begin reaction transaction: %w", err)
 	}
 	defer tx.Rollback()
+	var backfillReady bool
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionBackfillReadySQL).Scan(&backfillReady); err != nil {
+		return HGReactionResult{}, fmt.Errorf("read reaction backfill state: %w", err)
+	}
+	if !backfillReady {
+		return HGReactionResult{}, ErrReactionBackfillIncomplete
+	}
 	var visibleCommentID string
 	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionTargetSQL, commentID).Scan(&visibleCommentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -409,69 +420,104 @@ func (r *Repository) Delete(ctx context.Context, userID, commentID string) (bool
 	return true, nil
 }
 
-// ProjectReactionCounts applies one bounded dirty batch to the denormalized list and hot-sort projection.
+// ProjectReactionCounts 将一个有界 dirty 批次写入 video_comments 的列表/hot 反范式投影。
+// revision 是 CAS 版本：投影期间若有新 reaction，条件 DELETE 不命中，dirty 行保留；随后刷新排队时间把热点项移到队尾，避免阻塞后续评论。
 func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int, error) {
 	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentReactionDirtySQL, limit)
 	if err != nil {
 		return 0, fmt.Errorf("list reaction dirty: %w", err)
 	}
-	var ids []string
+	type dirty struct {
+		id       string
+		revision uint64
+	}
+	var entries []dirty
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var entry dirty
+		if err := rows.Scan(&entry.id, &entry.revision); err != nil {
 			rows.Close()
 			return 0, err
 		}
-		ids = append(ids, id)
+		entries = append(entries, entry)
 	}
 	rows.Close()
-	for _, id := range ids {
+	for _, entry := range entries {
 		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
 			return 0, err
 		}
-		if _, err = tx.ExecContext(ctx, SQLQueriesPackage.ProjectVideoCommentReactionCountsSQL, id); err == nil {
-			_, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentReactionDirtySQL, id)
+		if _, err = tx.ExecContext(ctx, SQLQueriesPackage.ProjectVideoCommentReactionCountsSQL, entry.id); err == nil {
+			var deleteResult sql.Result
+			deleteResult, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentReactionDirtySQL, entry.id, entry.revision)
+			if err == nil {
+				var affected int64
+				affected, err = deleteResult.RowsAffected()
+				if err == nil && affected == 0 {
+					// revision 已变化说明并发 reaction 发生在本轮投影窗口内；保留信号并公平重排，下一轮会再次聚合最新 32 分片。
+					_, err = tx.ExecContext(ctx, SQLQueriesPackage.RequeueVideoCommentReactionDirtySQL, entry.id, entry.revision)
+				}
+			}
 		}
 		if err != nil {
 			_ = tx.Rollback()
-			return 0, fmt.Errorf("project reaction %s: %w", id, err)
+			return 0, fmt.Errorf("project reaction %s: %w", entry.id, err)
 		}
 		if err = tx.Commit(); err != nil {
 			return 0, err
 		}
 	}
-	return len(ids), nil
+	return len(entries), nil
 }
 
 // ClaimImageCleanup 使用索引有界扫描并在同一事务内把候选资产切换为 deleting。
 // 该状态迁移与评论创建的 pending 行锁互斥，防止对象在绑定成功后被并发删除。
-func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Time, limit int) ([]HGImageCleanupAsset, error) {
+// 查询优先级为显式删除、崩溃恢复、过期未绑定图片；每类使用独立复合索引，并共享剩余 limit，避免亿级表上的 OR/index-merge 扫描。
+func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Time, limit int, lease time.Duration) ([]HGImageCleanupAsset, error) {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentImageCleanupForUpdateSQL, orphanBefore, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list image cleanup: %w", err)
-	}
 	assets := make([]HGImageCleanupAsset, 0, limit)
-	for rows.Next() {
-		var asset HGImageCleanupAsset
-		if err := rows.Scan(&asset.ImageID, &asset.UserID, &asset.StorageKey, &asset.SizeBytes); err != nil {
-			return nil, err
+	queries := []struct {
+		sql  string
+		args []any
+	}{
+		// delete_pending 已明确不可再绑定，优先释放对象和用户容量。
+		{SQLQueriesPackage.ListDeletePendingVideoCommentImageCleanupForUpdateSQL, []any{limit}},
+		// deleting 租约过期表示前一 worker 可能崩溃；S3 DELETE 幂等，因此允许新 token 重试。
+		{SQLQueriesPackage.ListExpiredVideoCommentImageCleanupForUpdateSQL, []any{limit}},
+		// pending 仅在超过 orphanBefore 后清理，为客户端上传后创建评论保留足够绑定窗口。
+		{SQLQueriesPackage.ListPendingVideoCommentImageCleanupForUpdateSQL, []any{orphanBefore, limit}},
+	}
+	for _, query := range queries {
+		remaining := limit - len(assets)
+		if remaining <= 0 {
+			break
 		}
-		assets = append(assets, asset)
-	}
-	if err := rows.Err(); err != nil {
+		query.args[len(query.args)-1] = remaining
+		rows, queryErr := tx.QueryContext(ctx, query.sql, query.args...)
+		if queryErr != nil {
+			return nil, fmt.Errorf("list image cleanup: %w", queryErr)
+		}
+		for rows.Next() {
+			var asset HGImageCleanupAsset
+			if scanErr := rows.Scan(&asset.ImageID, &asset.UserID, &asset.StorageKey, &asset.SizeBytes); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			assets = append(assets, asset)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			rows.Close()
+			return nil, rowsErr
+		}
 		rows.Close()
-		return nil, err
 	}
-	rows.Close()
 	claimed := assets[:0]
 	for _, asset := range assets {
-		result, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentImageDeletingSQL, asset.ImageID)
+		asset.CleanupToken = UtilsPackage.GenerateBusinessID("CLM")
+		result, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentImageDeletingSQL, asset.CleanupToken, time.Now().UTC().Add(lease), asset.ImageID)
 		if err != nil {
 			return nil, err
 		}
@@ -490,6 +536,7 @@ func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Ti
 }
 
 // CompleteImageCleanup 在对象删除成功后原子删除资产记录并归还用户容量。
+// 只有当前 CleanupToken 成功删除一条资产记录时才减少 quota，保证重复 DELETE、租约重领和陈旧 worker 不会双重释放。
 func (r *Repository) CompleteImageCleanup(ctx context.Context, asset HGImageCleanupAsset) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -497,7 +544,7 @@ func (r *Repository) CompleteImageCleanup(ctx context.Context, asset HGImageClea
 	}
 	defer tx.Rollback()
 	var result sql.Result
-	if result, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentImageAssetSQL, asset.ImageID); err == nil {
+	if result, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentImageAssetSQL, asset.ImageID, asset.CleanupToken); err == nil {
 		var affected int64
 		affected, err = result.RowsAffected()
 		if err == nil && affected == 1 {
@@ -511,8 +558,8 @@ func (r *Repository) CompleteImageCleanup(ctx context.Context, asset HGImageClea
 }
 
 // ReleaseImageCleanup 在对象删除失败时恢复 pending/delete_pending，允许后续轮次重试。
-func (r *Repository) ReleaseImageCleanup(ctx context.Context, imageID string) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageCleanupSQL, imageID)
+func (r *Repository) ReleaseImageCleanup(ctx context.Context, asset HGImageCleanupAsset) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageCleanupSQL, asset.ImageID, asset.CleanupToken)
 	return err
 }
 

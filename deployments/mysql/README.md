@@ -23,3 +23,18 @@
 - Production starts at one wallet per minute and at most four source lots per wallet.
 - Observe `performance_schema.data_lock_waits`, `performance_schema.events_transactions_summary_global_by_event_name`, binlog bytes, and replica lag before increasing either bound.
 - Stop the canary on recurring lock wait/deadlock errors, p99 transaction duration approaching the 20 second job timeout, sustained binlog growth above the normal write baseline, or replica lag above the service recovery objective.
+
+## Video Comment Reaction Backfill
+
+- Migration 000022 creates reaction shard tables but intentionally does not scan `video_comment_reactions`; schema migrations must not contain an unbounded `INSERT ... SELECT` for this table.
+- Apply migration 000023 first, then stop or reject reaction writes before running the backfill. Running old relationship backfill while the new API also updates shards will double count.
+- Run `go run ./cmd/hg_video_comment_reaction_backfill --env=pre --batch-size=10000 --pause=100ms` in pre first. The checkpoint and each primary-key range aggregation commit in one transaction, so restart resumes without repeating a committed batch.
+- Start with one worker. Reduce `--batch-size` or increase `--pause` when redo/binlog growth, lock wait, transaction duration, or replica lag exceeds the pre baseline.
+- Before reopening reaction writes, compare relationship aggregates and shard totals by `comment_id` and `CRC32(user_id) % 32`, then mark affected comments dirty for list/hot reprojection.
+- Do not claim an online billion-row migration is safe until production-like pre rehearsal records runtime, temporary space, redo/binlog, replica lag, lock waits, and abort thresholds.
+
+## Video Comment S3 Release Gate
+
+- Export the production-equivalent `VIDEO_COMMENT_S3_*` values in the release job and run `MLC_S3_INTEGRATION=1 go test ./internal/pkg/upload -run TestS3StorageIntegrationPutCDNGetDelete -count=1`.
+- The gate performs real PUT, CDN GET, and DELETE using a unique probe key. It must run once per release environment, not once per application replica.
+- Do not print access keys, secret keys, SigV4 authorization headers, or full credential-bearing configuration in release logs.

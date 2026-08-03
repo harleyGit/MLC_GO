@@ -1,6 +1,7 @@
 package HGUploadPackage
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -38,5 +39,38 @@ func TestS3StorageDriverUploadsWithSignatureAndReturnsCDNURL(t *testing.T) {
 	}
 	if url != "https://cdn.example.com/base/video_comment/a.png" {
 		t.Fatalf("UploadStream() url=%q", url)
+	}
+}
+
+func TestNewS3StorageDriverRejectsUnsafeEndpointShape(t *testing.T) {
+	for _, endpoint := range []string{"ftp://s3.example.com", "https://user:pass@s3.example.com", "https:///missing-host"} {
+		_, err := NewS3StorageDriver(S3Config{Endpoint: endpoint, Region: "us-east-1", BucketName: "comments", AccessKeyID: "access", SecretAccessKey: "secret", CDNBaseURL: "https://cdn.example.com", RequestTimeout: time.Second})
+		if err == nil {
+			t.Fatalf("NewS3StorageDriver(%q) expected error", endpoint)
+		}
+	}
+}
+
+type hgTrackingStorage struct {
+	uploaded string
+	deleted  string
+}
+
+func (s *hgTrackingStorage) Upload([]byte, string, string) (string, error) { return "", nil }
+func (s *hgTrackingStorage) UploadStream(reader io.Reader, key, _ string) (string, error) {
+	_, _ = io.ReadAll(reader)
+	s.uploaded = key
+	return "https://cdn.example.com/" + key, nil
+}
+func (s *hgTrackingStorage) Delete(key string) error  { s.deleted = key; return nil }
+func (s *hgTrackingStorage) GetURL(key string) string { return "https://cdn.example.com/" + key }
+
+func TestUploadFromReaderToKeyDeletesObjectWhenDeclaredSizeDiffers(t *testing.T) {
+	storage := &hgTrackingStorage{}
+	uploader := &Uploader{config: UploadConfig{MaxFileSize: 5 << 20, AllowedTypes: []string{"png"}}, storage: storage}
+	png := append([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}, []byte("extra")...)
+	err := uploader.UploadFromReaderToKeyContext(context.Background(), bytes.NewReader(png), int64(len(png)-1), "video_comment/a.png", "png")
+	if err == nil || storage.deleted != "video_comment/a.png" {
+		t.Fatalf("UploadFromReaderToKeyContext() error=%v deleted=%q", err, storage.deleted)
 	}
 }

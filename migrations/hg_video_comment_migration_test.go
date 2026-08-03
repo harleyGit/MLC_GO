@@ -50,3 +50,38 @@ func TestVideoCommentMigration22AddsShardedReactionsAndImageLifecycle(t *testing
 		t.Fatal("migration must use the migrator-selected database")
 	}
 }
+
+func TestVideoCommentSchemaMigrationsDoNotRunUnboundedReactionBackfill(t *testing.T) {
+	data, err := os.ReadFile("000022_productionize_video_comments.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if regexp.MustCompile(`(?is)INSERT\s+INTO\s+` + "`?video_comment_reaction_shards`?" + `.*SELECT.*FROM\s+` + "`?video_comment_reactions`?").Match(data) {
+		t.Fatal("schema migration must not run an unbounded reaction backfill")
+	}
+}
+
+func TestVideoCommentMigration23AddsRecoverableReservationsAndDirtyRevision(t *testing.T) {
+	data, err := os.ReadFile("000023_recover_video_comment_maintenance.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	for _, fragment := range []string{"revision", "cleanup_token", "cleanup_lease_until", "idx_video_comment_images_pending_cleanup", "idx_video_comment_images_deleting_lease", "video_comment_reaction_backfill_state", "EXISTS (SELECT 1 FROM `video_comment_reaction_shards` LIMIT 1)"} {
+		if !strings.Contains(string(data), fragment) {
+			t.Fatalf("migration missing %q", fragment)
+		}
+	}
+}
+
+func TestVideoCommentMigration23DownRequeuesDeletingAssets(t *testing.T) {
+	data, err := os.ReadFile("000023_recover_video_comment_maintenance.down.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if !strings.Contains(string(data), "SET `status` = 'delete_pending'") {
+		t.Fatal("down migration must requeue deleting assets before dropping cleanup lease columns")
+	}
+	if strings.Contains(string(data), "DROP TABLE IF EXISTS `video_comment_reaction_backfill_state`") {
+		t.Fatal("down migration must retain the backfill checkpoint across rollback and re-upgrade")
+	}
+}

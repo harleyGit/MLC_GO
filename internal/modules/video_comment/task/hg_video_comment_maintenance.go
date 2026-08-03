@@ -20,16 +20,17 @@ type HGVideoCommentMaintenanceConfig struct {
 
 type hgMaintenanceRepository interface {
 	ProjectReactionCounts(context.Context, int) (int, error)
-	ClaimImageCleanup(context.Context, time.Time, int) ([]VideoCommentRepositoryPackage.HGImageCleanupAsset, error)
+	ClaimImageCleanup(context.Context, time.Time, int, time.Duration) ([]VideoCommentRepositoryPackage.HGImageCleanupAsset, error)
 	CompleteImageCleanup(context.Context, VideoCommentRepositoryPackage.HGImageCleanupAsset) error
-	ReleaseImageCleanup(context.Context, string) error
+	ReleaseImageCleanup(context.Context, VideoCommentRepositoryPackage.HGImageCleanupAsset) error
 }
 
 type hgMaintenanceStorage interface {
 	Delete(context.Context, string) error
 }
 
-// HGVideoCommentMaintenanceLease 为多副本部署选举单轮执行者，避免重复删除对象和放大数据库压力。
+// HGVideoCommentMaintenanceLease 为多副本部署选举单轮执行者，避免正常情况下重复扫描和放大数据库压力。
+// Redis lease 只负责削峰，不承担图片清理正确性；真正的崩溃恢复和陈旧执行者隔离由 MySQL 行租约与 fencing token 保证。
 type HGVideoCommentMaintenanceLease interface {
 	Acquire(context.Context, string, time.Duration) (string, bool, error)
 	Release(context.Context, string, string) error
@@ -96,8 +97,9 @@ func (w *HGVideoCommentMaintenance) hgRunAndLog(ctx context.Context) {
 	}
 }
 
-// RunOnce 在单个超时和全局 lease 内先投影计数，再清理一个有界图片批次。
-// 图片已由 repository 从 pending/delete_pending 原子切换为 deleting，评论创建无法再绑定这些对象。
+// RunOnce 在单个超时和全局 lease 内有界排空计数投影，并独立清理一个图片批次。
+// 投影错误会被收集但不会阻断图片清理，避免无关计数故障导致对象和用户配额持续积压。
+// 图片已由 repository 原子切换为 deleting；对象存储 I/O 在数据库事务外执行，避免持锁等待网络。
 func (w *HGVideoCommentMaintenance) RunOnce(ctx context.Context) error {
 	runCtx, cancel := context.WithTimeout(ctx, w.config.Timeout)
 	defer cancel()
@@ -108,17 +110,26 @@ func (w *HGVideoCommentMaintenance) RunOnce(ctx context.Context) error {
 		}
 		defer func() { _ = w.lease.Release(context.WithoutCancel(runCtx), hgVideoCommentMaintenanceLeaseName, token) }()
 	}
-	if _, err := w.repository.ProjectReactionCounts(runCtx, w.config.BatchSize); err != nil {
-		return err
-	}
-	assets, err := w.repository.ClaimImageCleanup(runCtx, w.now().UTC().Add(-w.config.OrphanAge), w.config.BatchSize)
-	if err != nil {
-		return err
-	}
 	var joined error
+	// 单轮最多处理 10 个批次，在追赶 dirty backlog 的同时限制数据库占用；runCtx 提供第二层总时限。
+	for batch := 0; batch < 10; batch++ {
+		projected, err := w.repository.ProjectReactionCounts(runCtx, w.config.BatchSize)
+		if err != nil {
+			joined = errors.Join(joined, err)
+			break
+		}
+		if projected < w.config.BatchSize {
+			break
+		}
+	}
+	assets, err := w.repository.ClaimImageCleanup(runCtx, w.now().UTC().Add(-w.config.OrphanAge), w.config.BatchSize, w.config.Timeout+time.Second)
+	if err != nil {
+		return errors.Join(joined, err)
+	}
 	for _, asset := range assets {
 		if err := w.storage.Delete(runCtx, asset.StorageKey); err != nil {
-			_ = w.repository.ReleaseImageCleanup(context.WithoutCancel(runCtx), asset.ImageID)
+			// DELETE 超时属于结果不确定，恢复为不可绑定的 delete_pending；后续轮次使用新 token 幂等重试。
+			_ = w.repository.ReleaseImageCleanup(context.WithoutCancel(runCtx), asset)
 			joined = errors.Join(joined, fmt.Errorf("delete image %s: %w", asset.ImageID, err))
 			continue
 		}

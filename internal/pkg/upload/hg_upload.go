@@ -91,7 +91,8 @@ func DefaultConfig() UploadConfig {
 
 // endregion
 
-// S3StorageDriver implements AWS Signature Version 4 against S3-compatible object storage without an SDK dependency.
+// S3StorageDriver 使用 AWS Signature Version 4 访问 S3-compatible 对象存储，不引入额外 SDK。
+// 当前实现会在内存中读取完整 payload 后计算 SHA-256，只适用于调用方有严格大小上限的小对象；评论图片上限为 5 MiB，不得复用于大型视频上传。
 type S3StorageDriver struct {
 	config S3Config
 	client *http.Client
@@ -105,8 +106,12 @@ func NewS3StorageDriver(config S3Config) (*S3StorageDriver, error) {
 	if config.Endpoint == "" || config.Region == "" || config.BucketName == "" || config.AccessKeyID == "" || config.SecretAccessKey == "" || config.CDNBaseURL == "" || config.RequestTimeout <= 0 {
 		return nil, fmt.Errorf("s3 storage configuration is invalid")
 	}
-	if _, err := url.ParseRequestURI(config.Endpoint); err != nil {
+	endpointURL, err := url.ParseRequestURI(config.Endpoint)
+	if err != nil {
 		return nil, fmt.Errorf("invalid s3 endpoint: %w", err)
+	}
+	if (endpointURL.Scheme != "http" && endpointURL.Scheme != "https") || endpointURL.Host == "" || endpointURL.User != nil {
+		return nil, fmt.Errorf("invalid s3 endpoint scheme, host or userinfo")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConns = 100
@@ -123,6 +128,7 @@ func (d *S3StorageDriver) UploadStream(reader io.Reader, key, contentType string
 }
 
 func (d *S3StorageDriver) UploadStreamContext(ctx context.Context, reader io.Reader, key, contentType string) (string, error) {
+	// SigV4 默认 payload 签名要求请求前得到完整哈希；这里接受有界内存开销以保持实现简单且与 S3-compatible 服务兼容。
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return "", fmt.Errorf("read s3 upload body: %w", err)
@@ -154,6 +160,7 @@ func (d *S3StorageDriver) do(ctx context.Context, method, key, contentType strin
 	}
 	now := d.now().UTC()
 	payloadHash := hgSHA256Hex(body)
+	// canonical request 只签名 Host、payload hash 和时间；Content-Type 不参与签名，避免代理规范化该头后造成签名不一致。
 	req.Header.Set("Host", req.URL.Host)
 	req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
@@ -200,6 +207,13 @@ type UploadResult struct {
 	FileURL  string `json:"fileURL"`  // 访问 URL（CDN URL）
 	FileSize int64  `json:"fileSize"` // 文件大小
 	IsNew    bool   `json:"isNew"`    // 是否新上传
+}
+
+// UploadTarget 是执行外部 I/O 前生成的稳定对象键和公开 URL，供调用方先持久化可恢复 reservation。
+type UploadTarget struct {
+	FileName string
+	FilePath string
+	FileURL  string
 }
 
 // endregion
@@ -530,58 +544,90 @@ func (u *Uploader) UploadFromReader(reader io.Reader, size int64, moduleName str
 	return u.UploadFromReaderContext(context.Background(), reader, size, moduleName, ext)
 }
 
+// PrepareUploadTarget 只生成对象键和 URL，不执行存储 I/O。
+func (u *Uploader) PrepareUploadTarget(moduleName, ext string) (*UploadTarget, error) {
+	ext = normalizeExt(ext)
+	if !u.isAllowedType(ext) {
+		return nil, fmt.Errorf("file type %s not allowed", ext)
+	}
+	moduleName = sanitizePathPart(moduleName)
+	fileName := GenerateFileName(moduleName, ext)
+	key := fmt.Sprintf("%s/%s", moduleName, fileName)
+	return &UploadTarget{FileName: fileName, FilePath: key, FileURL: u.storage.GetURL(key)}, nil
+}
+
 // UploadFromReaderContext 在已有大小上限和内容检测基础上，把取消信号传递给支持 context 的存储驱动。
 func (u *Uploader) UploadFromReaderContext(ctx context.Context, reader io.Reader, size int64, moduleName string, ext string) (*UploadResult, error) {
+	target, err := u.PrepareUploadTarget(moduleName, ext)
+	if err != nil {
+		return nil, err
+	}
+	if err := u.UploadFromReaderToKeyContext(ctx, reader, size, target.FilePath, ext); err != nil {
+		return nil, err
+	}
+	return &UploadResult{FileName: target.FileName, FilePath: target.FilePath, FileURL: target.FileURL, FileSize: size, IsNew: true}, nil
+}
+
+// UploadFromReaderToKeyContext 将已登记 reservation 的内容写入指定对象键。
+func (u *Uploader) UploadFromReaderToKeyContext(ctx context.Context, reader io.Reader, size int64, key, ext string) error {
 	if reader == nil {
-		return nil, fmt.Errorf("reader is nil")
+		return fmt.Errorf("reader is nil")
 	}
 	if size <= 0 {
-		return nil, fmt.Errorf("file is empty")
+		return fmt.Errorf("file is empty")
 	}
 	if size > u.config.MaxFileSize {
-		return nil, fmt.Errorf("file size %d exceeds max %d", size, u.config.MaxFileSize)
+		return fmt.Errorf("file size %d exceeds max %d", size, u.config.MaxFileSize)
 	}
 
 	ext = normalizeExt(ext)
 	if !u.isAllowedType(ext) {
-		return nil, fmt.Errorf("file type %s not allowed", ext)
+		return fmt.Errorf("file type %s not allowed", ext)
 	}
 
 	detectBuf := make([]byte, maxDetectBytes)
 	n, err := io.ReadFull(reader, detectBuf)
 	if err != nil {
 		if err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, fmt.Errorf("read file failed: %w", err)
+			return fmt.Errorf("read file failed: %w", err)
 		}
 	}
 	detectBuf = detectBuf[:n]
 	if err := validateImageContentType(detectBuf, ext); err != nil {
-		return nil, err
+		return err
 	}
 
-	fileName := GenerateFileName(moduleName, ext)
-	moduleName = sanitizePathPart(moduleName)
-	key := fmt.Sprintf("%s/%s", moduleName, fileName)
 	contentType := getContentType(ext)
-	stream := io.MultiReader(bytes.NewReader(detectBuf), reader)
+	counting := &hgCountingReader{reader: io.MultiReader(bytes.NewReader(detectBuf), reader)}
+	stream := io.LimitReader(counting, size+1)
 
-	var fileURL string
 	if storage, ok := u.storage.(contextStorageDriver); ok {
-		fileURL, err = storage.UploadStreamContext(ctx, stream, key, contentType)
+		_, err = storage.UploadStreamContext(ctx, stream, key, contentType)
 	} else {
-		fileURL, err = u.storage.UploadStream(stream, key, contentType)
+		_, err = u.storage.UploadStream(stream, key, contentType)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("upload failed: %w", err)
+		return fmt.Errorf("upload failed: %w", err)
 	}
+	if counting.read != size {
+		deleteErr := u.DeleteFileContext(context.WithoutCancel(ctx), key)
+		if deleteErr != nil {
+			return fmt.Errorf("uploaded size %d does not match declared size %d; delete mismatched object: %w", counting.read, size, deleteErr)
+		}
+		return fmt.Errorf("uploaded size %d does not match declared size %d", counting.read, size)
+	}
+	return nil
+}
 
-	return &UploadResult{
-		FileName: fileName,
-		FilePath: key,
-		FileURL:  fileURL,
-		FileSize: size,
-		IsNew:    true,
-	}, nil
+type hgCountingReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (r *hgCountingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read += int64(n)
+	return n, err
 }
 
 // UploadSingle 上传单个文件。

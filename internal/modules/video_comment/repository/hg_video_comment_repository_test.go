@@ -412,6 +412,7 @@ func TestSetReactionIsIdempotentFinalStateTransaction(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionBackfillReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"completed"}).AddRow(true))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionTargetSQL)).
 		WithArgs("CMT_1").WillReturnRows(sqlmock.NewRows([]string{"comment_id"}).AddRow("CMT_1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReactionSQL)).
@@ -438,6 +439,7 @@ func TestSetReactionUpdatesOneShardInsteadOfCommentHotRow(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionBackfillReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"completed"}).AddRow(true))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionTargetSQL)).WithArgs("CMT_1").WillReturnRows(sqlmock.NewRows([]string{"comment_id"}).AddRow("CMT_1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReactionSQL)).WithArgs("CMT_1", "user-1").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionForUpdateSQL)).WithArgs("CMT_1", "user-1").WillReturnRows(sqlmock.NewRows([]string{"reaction"}).AddRow("none"))
@@ -452,6 +454,106 @@ func TestSetReactionUpdatesOneShardInsteadOfCommentHotRow(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestReserveImageAssetPersistsQuotaAndReservationInOneTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	asset := HGImageAsset{ImageID: "CIMG_1", UserID: "user-1", StorageKey: "video_comment/a.png", ImageURL: "https://cdn.example.com/video_comment/a.png", SizeBytes: 3, ContentType: "image/png"}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentImageQuotaSQL)).WithArgs("user-1").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.ReserveVideoCommentImageQuotaSQL)).WithArgs(int64(3), "user-1", int64(3), int64(100)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentImageAssetSQL)).WithArgs("CIMG_1", "user-1", "video_comment/a.png", "https://cdn.example.com/video_comment/a.png", int64(3), "image/png").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := NewRepository(db).ReserveImageAsset(context.Background(), asset, 100); err != nil {
+		t.Fatalf("ReserveImageAsset() error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestProjectReactionCountsDeletesOnlySelectedRevision(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListVideoCommentReactionDirtySQL)).WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"comment_id", "revision"}).AddRow("CMT_1", 7))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.ProjectVideoCommentReactionCountsSQL)).WithArgs("CMT_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DeleteVideoCommentReactionDirtySQL)).WithArgs("CMT_1", uint64(7)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.RequeueVideoCommentReactionDirtySQL)).WithArgs("CMT_1", uint64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	count, err := NewRepository(db).ProjectReactionCounts(context.Background(), 10)
+	if err != nil || count != 1 {
+		t.Fatalf("ProjectReactionCounts() count=%d error=%v", count, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestSetReactionFailsClosedWhileHistoricalBackfillIsIncomplete(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionBackfillReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"completed"}).AddRow(false))
+	mock.ExpectRollback()
+
+	_, err = NewRepository(db).SetReaction(context.Background(), "user-1", "CMT_1", "like")
+	if !errors.Is(err, ErrReactionBackfillIncomplete) {
+		t.Fatalf("SetReaction() error=%v, want ErrReactionBackfillIncomplete", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestCompleteImageCleanupRequiresCurrentFencingToken(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	asset := HGImageCleanupAsset{ImageID: "CIMG_1", UserID: "user-1", StorageKey: "video_comment/a.png", SizeBytes: 3, CleanupToken: "token-1"}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DeleteVideoCommentImageAssetSQL)).WithArgs("CIMG_1", "token-1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	if err := NewRepository(db).CompleteImageCleanup(context.Background(), asset); err != nil {
+		t.Fatalf("CompleteImageCleanup() error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestReleaseImageCleanupNeverMakesClaimedObjectAttachableAgain(t *testing.T) {
+	if strings.Contains(SQLQueriesPackage.ReleaseVideoCommentImageCleanupSQL, "'pending'") {
+		t.Fatalf("ReleaseVideoCommentImageCleanupSQL must not restore pending: %s", SQLQueriesPackage.ReleaseVideoCommentImageCleanupSQL)
+	}
+}
+
+func TestImageCleanupQueriesUseOneIndexedStateRangeEach(t *testing.T) {
+	queries := []string{
+		SQLQueriesPackage.ListPendingVideoCommentImageCleanupForUpdateSQL,
+		SQLQueriesPackage.ListDeletePendingVideoCommentImageCleanupForUpdateSQL,
+		SQLQueriesPackage.ListExpiredVideoCommentImageCleanupForUpdateSQL,
+	}
+	for _, query := range queries {
+		if strings.Contains(strings.ToUpper(query), " OR ") || !strings.Contains(query, "FOR UPDATE SKIP LOCKED") {
+			t.Fatalf("cleanup query must use one indexed state range: %s", query)
+		}
 	}
 }
 

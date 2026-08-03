@@ -13,12 +13,6 @@ CREATE TABLE `video_comment_reaction_shards` (
     CONSTRAINT `chk_video_comment_reaction_shard_counts` CHECK (`like_count` >= 0 AND `dislike_count` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='视频评论赞踩32分片权威计数';
 
-INSERT INTO `video_comment_reaction_shards` (`comment_id`, `shard_id`, `like_count`, `dislike_count`)
-SELECT `comment_id`, CRC32(`user_id`) % 32,
-       SUM(`reaction` = 'like'), SUM(`reaction` = 'dislike')
-FROM `video_comment_reactions`
-GROUP BY `comment_id`, CRC32(`user_id`) % 32;
-
 CREATE TABLE `video_comment_reaction_dirty` (
     `comment_id` VARCHAR(64) NOT NULL,
     `updated_at` TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
