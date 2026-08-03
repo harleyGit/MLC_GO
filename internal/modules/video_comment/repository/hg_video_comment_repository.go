@@ -58,15 +58,16 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 	}
 	defer tx.Rollback()
 
+	// 页面可能传稿件 ID 或分 P 视频 ID；解析后统一用权威 submission_id 聚合评论。
 	var submissionID string
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCommentableSubmissionSQL, command.SubmissionID).Scan(&submissionID); err != nil {
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCommentableSubmissionSQL, command.SubmissionID, command.SubmissionID).Scan(&submissionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return HGComment{}, ErrSubmissionNotCommentable
 		}
 		return HGComment{}, fmt.Errorf("verify commentable submission: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentSQL, command.CommentID, command.SubmissionID, command.UserID, command.RequestID, command.Content)
+	_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentSQL, command.CommentID, submissionID, command.UserID, command.RequestID, command.Content)
 	var comment HGComment
 	if hgIsDuplicateKey(err) {
 		comment, err = hgScanComment(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.RequestID))

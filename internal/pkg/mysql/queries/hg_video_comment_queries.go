@@ -1,8 +1,23 @@
 package SQLQueriesPackage
 
 const (
-	// SelectCommentableSubmissionSQL 命中 submission_id 唯一键点查，仅允许已发布、公开且未关闭评论的稿件。
-	SelectCommentableSubmissionSQL = `SELECT submission_id FROM video_submissions WHERE submission_id = ? AND status = 'published' AND visibility = 'public' AND close_comment = 0 LIMIT 1`
+	// SelectCommentableSubmissionSQL 分别命中稿件和视频唯一键，将页面 video_id 解析为权威 submission_id。
+	// 评论资格与当前视频列表可见状态一致，仅允许公开、未关闭评论的审核中或已发布稿件。
+	SelectCommentableSubmissionSQL = `SELECT submission_id
+FROM video_submissions
+WHERE submission_id = ?
+  AND status IN ('reviewing', 'published')
+  AND visibility = 'public'
+  AND close_comment = 0
+UNION ALL
+SELECT vs.submission_id
+FROM video_files vf
+INNER JOIN video_submissions vs ON vs.submission_id = vf.submission_id
+WHERE vf.video_id = ?
+  AND vs.status IN ('reviewing', 'published')
+  AND vs.visibility = 'public'
+  AND vs.close_comment = 0
+LIMIT 1`
 
 	// InsertVideoCommentSQL 在短事务内同步写入顶级评论；(user_id, request_id) 唯一键承担并发幂等。
 	InsertVideoCommentSQL = `INSERT INTO video_comments (comment_id, submission_id, user_id, request_id, content) VALUES (?, ?, ?, ?, ?)`

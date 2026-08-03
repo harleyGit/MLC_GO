@@ -4,6 +4,7 @@ import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func TestCreateVerifiesSubmissionAndWritesCommentInOneTransaction(t *testing.T) 
 	createdAt := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
-		WithArgs("submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
+		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
 		WithArgs("CMT_1", "submission-1", "user-1", "request-1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
@@ -36,6 +37,47 @@ func TestCreateVerifiesSubmissionAndWritesCommentInOneTransaction(t *testing.T) 
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestCreateResolvesVideoIDBeforeWritingComment(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	createdAt := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
+		WithArgs("video-1", "video-1").
+		WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
+		WithArgs("CMT_1", "submission-1", "user-1", "request-1", "hello").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
+		WithArgs("CMT_1").
+		WillReturnRows(hgCommentRows(createdAt).AddRow(1, "CMT_1", "submission-1", "user-1", "alice", "/a.png", "hello", 0, 0, createdAt))
+	mock.ExpectCommit()
+
+	comment, err := NewRepository(db).Create(context.Background(), HGCreateCommand{
+		CommentID: "CMT_1", SubmissionID: "video-1", UserID: "user-1", RequestID: "request-1", Content: "hello",
+	})
+	if err != nil || comment.SubmissionID != "submission-1" {
+		t.Fatalf("Create() comment=%+v error=%v", comment, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestCommentableSubmissionMatchesVisibleVideoStatuses(t *testing.T) {
+	query := SQLQueriesPackage.SelectCommentableSubmissionSQL
+	if !strings.Contains(query, "status IN ('reviewing', 'published')") {
+		t.Fatalf("SelectCommentableSubmissionSQL = %q, want reviewing and published statuses", query)
+	}
+	if !strings.Contains(query, "video_files") || !strings.Contains(query, "video_id = ?") {
+		t.Fatalf("SelectCommentableSubmissionSQL = %q, want video_id resolution", query)
 	}
 }
 
