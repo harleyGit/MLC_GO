@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -64,7 +65,8 @@ func (h *Handler) Reaction(w http.ResponseWriter, r *http.Request) {
 
 // Image 接收非 multipart 的 raw image body；API Guard 按空 body 签名约定校验。
 func (h *Handler) Image(w http.ResponseWriter, r *http.Request) {
-	if _, ok := HGContextPackage.CurrentUserID(r); !ok {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
 		hgUnauthorized(w, r)
 		return
 	}
@@ -86,7 +88,7 @@ func (h *Handler) Image(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	response, err := h.service.UploadImage(r.Context(), reader, r.ContentLength, ext)
+	response, err := h.service.UploadImage(r.Context(), userID, hgRemoteIP(r), reader, r.ContentLength, ext)
 	if err != nil {
 		hgWriteError(w, r, err)
 		return
@@ -177,6 +179,16 @@ func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
 }
 
 func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, VideoCommentServicePackage.ErrImageRateLimited) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		return
+	}
+	if errors.Is(err, VideoCommentServicePackage.ErrImageQuotaExceeded) || errors.Is(err, VideoCommentRepositoryPackage.ErrImageQuotaExceeded) {
+		w.WriteHeader(http.StatusConflict)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrImageQuotaExceeded.Error()})
+		return
+	}
 	if errors.Is(err, VideoCommentServicePackage.ErrCommentHasReplies) {
 		w.WriteHeader(http.StatusConflict)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrCommentHasReplies.Error()})
@@ -208,6 +220,14 @@ func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "评论服务暂不可用"})
+}
+
+func hgRemoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func hgParsePageSize(w http.ResponseWriter, r *http.Request) (int, bool) {

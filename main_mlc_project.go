@@ -11,6 +11,7 @@ import (
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	VideoCommentModulePackage "MLC_GO/internal/modules/video_comment/module"
+	VideoCommentTaskPackage "MLC_GO/internal/modules/video_comment/task"
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
@@ -66,15 +67,16 @@ const (
 // 2. 容器/K8s 发布时会发送 SIGTERM，应用需要先停止接新流量，再释放连接池。
 // 3. 把资源放到一个应用对象里，启动失败和关闭失败都能集中处理，便于维护和测试。
 type MLCApplication struct {
-	server                 *http.Server
-	managementServer       *http.Server
-	redisService           *PersistenceRedisPackage.RedisService
-	sqlManager             *PersistenceSQLPackage.HGSQLManager
-	kafkaCloser            kafkaCloser
-	kafkaRuntime           kafkaReadyChecker
-	interactionReprojector *VideoInteractionTaskPackage.HGReprojector
-	coinJobs               *CoinTaskPackage.HGJobs
-	correctionRecovery     *OpsTaskPackage.HGCorrectionRecovery
+	server                  *http.Server
+	managementServer        *http.Server
+	redisService            *PersistenceRedisPackage.RedisService
+	sqlManager              *PersistenceSQLPackage.HGSQLManager
+	kafkaCloser             kafkaCloser
+	kafkaRuntime            kafkaReadyChecker
+	interactionReprojector  *VideoInteractionTaskPackage.HGReprojector
+	coinJobs                *CoinTaskPackage.HGJobs
+	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
+	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -238,12 +240,33 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	VideoInteractionModulePackage.RegisterModules(redisService, sqlManager)
-	VideoCommentModulePackage.RegisterModules(sqlManager)
+	videoCommentComponents, err := VideoCommentModulePackage.RegisterModules(redisService, sqlManager, CoinTaskPackage.NewHGRedisJobLease(redisService))
+	if err != nil {
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Video comment模块初始化失败: %w", err)
+	}
+	if videoCommentComponents.Maintenance != nil {
+		videoCommentComponents.Maintenance.Start(context.Background())
+	}
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
 	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
 	correctionRecoveryConfig, err := ConfigPackage.GetCorrectionRecoveryConfig()
 	if err != nil {
+		if videoCommentComponents.Maintenance != nil {
+			videoCommentComponents.Maintenance.Close()
+		}
 		if coinJobs != nil {
 			coinJobs.Close()
 		}
@@ -270,6 +293,9 @@ func buildMLCApplication() (*MLCApplication, error) {
 			CoinTaskPackage.NewHGRedisJobLease(redisService),
 		)
 		if err != nil {
+			if videoCommentComponents.Maintenance != nil {
+				videoCommentComponents.Maintenance.Close()
+			}
 			if coinJobs != nil {
 				coinJobs.Close()
 			}
@@ -323,15 +349,16 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 
 	return &MLCApplication{
-		server:                 srv,
-		managementServer:       managementServer,
-		redisService:           redisService,
-		sqlManager:             sqlManager,
-		kafkaCloser:            kafkaCloser,
-		kafkaRuntime:           kafkaRuntime,
-		interactionReprojector: interactionReprojector,
-		coinJobs:               coinJobs,
-		correctionRecovery:     correctionRecovery,
+		server:                  srv,
+		managementServer:        managementServer,
+		redisService:            redisService,
+		sqlManager:              sqlManager,
+		kafkaCloser:             kafkaCloser,
+		kafkaRuntime:            kafkaRuntime,
+		interactionReprojector:  interactionReprojector,
+		coinJobs:                coinJobs,
+		correctionRecovery:      correctionRecovery,
+		videoCommentMaintenance: videoCommentComponents.Maintenance,
 	}, nil
 }
 
@@ -451,6 +478,9 @@ func (app *MLCApplication) Close() {
 	}
 	if app.correctionRecovery != nil {
 		app.correctionRecovery.Close()
+	}
+	if app.videoCommentMaintenance != nil {
+		app.videoCommentMaintenance.Close()
 	}
 	if app.kafkaCloser != nil {
 		app.kafkaCloser()

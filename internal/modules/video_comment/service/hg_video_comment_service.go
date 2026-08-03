@@ -1,6 +1,7 @@
 package VideoCommentServicePackage
 
 import (
+	VideoCommentCachePackage "MLC_GO/internal/modules/video_comment/cache"
 	VideoCommentDtoPackage "MLC_GO/internal/modules/video_comment/dto"
 	VideoCommentRepositoryPackage "MLC_GO/internal/modules/video_comment/repository"
 	HGUploadPackage "MLC_GO/internal/pkg/upload"
@@ -41,6 +42,8 @@ var (
 	ErrInvalidReaction    = errors.New("评论反应必须为 none、like 或 dislike")
 	ErrInvalidImageUpload = errors.New("评论图片必须为不超过 5 MiB 的 jpg、jpeg、png 或 webp")
 	ErrCommentHasReplies  = errors.New("存在回复的评论不能删除")
+	ErrImageRateLimited   = errors.New("评论图片上传过于频繁")
+	ErrImageQuotaExceeded = errors.New("评论图片容量配额已用尽")
 )
 
 type hgCommentRepository interface {
@@ -52,7 +55,23 @@ type hgCommentRepository interface {
 }
 
 type hgCommentImageUploader interface {
-	UploadFromReader(context.Context, io.Reader, int64, string) (string, error)
+	UploadFromReader(context.Context, io.Reader, int64, string) (HGImageUpload, error)
+	Delete(context.Context, string) error
+}
+
+type hgCommentImageGuard interface {
+	Allow(context.Context, string, string) error
+}
+type hgCommentImageAssets interface {
+	ReserveImageQuota(context.Context, string, int64, int64) error
+	ReleaseImageQuota(context.Context, string, int64) error
+	CreateImageAsset(context.Context, VideoCommentRepositoryPackage.HGImageAsset) error
+}
+
+// HGImageUpload 保留公开 URL、内部存储 key 和实际字节数，供资产登记及失败补偿使用。
+type HGImageUpload struct {
+	URL, StorageKey string
+	SizeBytes       int64
 }
 
 // HGUploadAdapter 将共享 upload package 适配为评论图片服务依赖。
@@ -64,18 +83,30 @@ func NewHGUploadAdapter(uploader *HGUploadPackage.Uploader) *HGUploadAdapter {
 }
 
 // UploadFromReader 将已校验的 raw image 流写入 video_comment 目录。
-func (a *HGUploadAdapter) UploadFromReader(_ context.Context, reader io.Reader, size int64, ext string) (string, error) {
-	result, err := a.uploader.UploadFromReader(reader, size, "video_comment", ext)
+func (a *HGUploadAdapter) UploadFromReader(ctx context.Context, reader io.Reader, size int64, ext string) (HGImageUpload, error) {
+	result, err := a.uploader.UploadFromReaderContext(ctx, reader, size, "video_comment", ext)
 	if err != nil {
-		return "", err
+		return HGImageUpload{}, err
 	}
-	return result.FileURL, nil
+	return HGImageUpload{URL: result.FileURL, StorageKey: result.FilePath, SizeBytes: result.FileSize}, nil
+}
+
+func (a *HGUploadAdapter) Delete(ctx context.Context, key string) error {
+	return a.uploader.DeleteFileContext(ctx, key)
+}
+
+// DeleteStorageObject 让维护 worker 通过同一配置化存储驱动执行幂等对象删除。
+func (a *HGUploadAdapter) DeleteStorageObject(ctx context.Context, key string) error {
+	return a.Delete(ctx, key)
 }
 
 // Service 负责评论参数校验、不透明游标和作者权限流程组织。
 type Service struct {
-	repo          hgCommentRepository
-	imageUploader hgCommentImageUploader
+	repo               hgCommentRepository
+	imageUploader      hgCommentImageUploader
+	imageGuard         hgCommentImageGuard
+	imageAssets        hgCommentImageAssets
+	imageCapacityBytes int64
 }
 
 // NewService 创建使用指定评论仓储的业务服务。
@@ -84,6 +115,10 @@ func NewService(repo hgCommentRepository) *Service { return &Service{repo: repo}
 // NewServiceWithImageUploader 创建同时支持评论图片上传的业务服务。
 func NewServiceWithImageUploader(repo hgCommentRepository, uploader hgCommentImageUploader) *Service {
 	return &Service{repo: repo, imageUploader: uploader}
+}
+
+func NewServiceWithImageDependencies(repo hgCommentRepository, uploader hgCommentImageUploader, guard hgCommentImageGuard, assets hgCommentImageAssets, capacityBytes int64) *Service {
+	return &Service{repo: repo, imageUploader: uploader, imageGuard: guard, imageAssets: assets, imageCapacityBytes: capacityBytes}
 }
 
 // Create 校验用户输入，并将用户维度 request_id 幂等语义交由唯一键保证。
@@ -100,6 +135,9 @@ func (s *Service) Create(ctx context.Context, userID string, req VideoCommentDto
 	}
 	imageURLs, err := hgNormalizeImageURLs(req.ImageURLs)
 	if err != nil {
+		if errors.Is(err, VideoCommentRepositoryPackage.ErrImageNotAvailable) {
+			return VideoCommentDtoPackage.CommentResponse{}, ErrInvalidImageURLs
+		}
 		return VideoCommentDtoPackage.CommentResponse{}, err
 	}
 	if count := utf8.RuneCountInString(req.Content); count > 1000 || (count == 0 && len(imageURLs) == 0) {
@@ -213,16 +251,47 @@ func (s *Service) SetReaction(ctx context.Context, userID string, req VideoComme
 }
 
 // UploadImage 校验 raw image 边界并交给专用 5 MiB uploader 流式存储。
-func (s *Service) UploadImage(ctx context.Context, reader io.Reader, size int64, ext string) (VideoCommentDtoPackage.ImageResponse, error) {
+func (s *Service) UploadImage(ctx context.Context, userID, sourceIP string, reader io.Reader, size int64, ext string) (VideoCommentDtoPackage.ImageResponse, error) {
 	ext = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
-	if size <= 0 || size > hgMaxCommentImageBytes || (ext != "jpg" && ext != "jpeg" && ext != "png" && ext != "webp") || s.imageUploader == nil {
+	if userID == "" || sourceIP == "" || size <= 0 || size > hgMaxCommentImageBytes || (ext != "jpg" && ext != "jpeg" && ext != "png" && ext != "webp") || s.imageUploader == nil || s.imageGuard == nil || s.imageAssets == nil {
 		return VideoCommentDtoPackage.ImageResponse{}, ErrInvalidImageUpload
 	}
-	imageURL, err := s.imageUploader.UploadFromReader(ctx, reader, size, ext)
+	if err := s.imageGuard.Allow(ctx, userID, sourceIP); err != nil {
+		if errors.Is(err, VideoCommentCachePackage.ErrImageRateLimited) {
+			return VideoCommentDtoPackage.ImageResponse{}, ErrImageRateLimited
+		}
+		return VideoCommentDtoPackage.ImageResponse{}, err
+	}
+	if err := s.imageAssets.ReserveImageQuota(ctx, userID, size, s.imageCapacityBytes); err != nil {
+		if errors.Is(err, VideoCommentRepositoryPackage.ErrImageQuotaExceeded) {
+			return VideoCommentDtoPackage.ImageResponse{}, ErrImageQuotaExceeded
+		}
+		return VideoCommentDtoPackage.ImageResponse{}, err
+	}
+	reserved := true
+	defer func() {
+		if reserved {
+			_ = s.imageAssets.ReleaseImageQuota(context.WithoutCancel(ctx), userID, size)
+		}
+	}()
+	upload, err := s.imageUploader.UploadFromReader(ctx, reader, size, ext)
 	if err != nil {
 		return VideoCommentDtoPackage.ImageResponse{}, err
 	}
-	return VideoCommentDtoPackage.ImageResponse{ImageURL: imageURL}, nil
+	asset := VideoCommentRepositoryPackage.HGImageAsset{ImageID: UtilsPackage.GenerateBusinessID("CIMG"), UserID: userID, StorageKey: upload.StorageKey, ImageURL: upload.URL, SizeBytes: upload.SizeBytes, ContentType: hgImageContentType(ext)}
+	if err := s.imageAssets.CreateImageAsset(ctx, asset); err != nil {
+		_ = s.imageUploader.Delete(context.WithoutCancel(ctx), upload.StorageKey)
+		return VideoCommentDtoPackage.ImageResponse{}, err
+	}
+	reserved = false
+	return VideoCommentDtoPackage.ImageResponse{ImageURL: upload.URL}, nil
+}
+
+func hgImageContentType(ext string) string {
+	if ext == "jpg" || ext == "jpeg" {
+		return "image/jpeg"
+	}
+	return "image/" + ext
 }
 
 // DetectCommentImageExt infers an allowed raw-image type without consuming bytes needed by the uploader.
@@ -327,10 +396,12 @@ func hgNormalizeImageURLs(values []string) ([]string, error) {
 			return nil, ErrInvalidImageURLs
 		}
 		cleanedPath := path.Clean(parsed.Path)
+		isLocal := parsed.Scheme == "" && parsed.Host == "" && strings.HasPrefix(cleanedPath, "/uploads/video_comment/")
+		isLocalHTTP := parsed.Scheme == "http" && parsed.Host == "localhost:8080" && strings.HasPrefix(cleanedPath, "/uploads/video_comment/")
+		isCDN := parsed.Scheme == "https" && parsed.Host != "" && strings.HasPrefix(cleanedPath, "/video_comment/")
 		if parsed.RawQuery != "" || parsed.Fragment != "" ||
 			(parsed.Scheme == "" && parsed.Host != "") ||
-			(parsed.Scheme != "" && (parsed.Scheme != "http" || parsed.Host != "localhost:8080")) ||
-			cleanedPath != parsed.Path || !strings.HasPrefix(cleanedPath, "/uploads/video_comment/") {
+			cleanedPath != parsed.Path || (!isLocal && !isLocalHTTP && !isCDN) {
 			return nil, ErrInvalidImageURLs
 		}
 		if _, ok := seen[value]; ok {

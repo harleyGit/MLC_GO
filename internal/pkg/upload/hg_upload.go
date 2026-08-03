@@ -3,12 +3,16 @@ package HGUploadPackage
 import (
 	"MLC_GO/internal/pkg/logHG"
 	"bytes"
+	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +54,7 @@ type UploadConfig struct {
 	// 对象存储配置（生产环境使用）
 	StorageType string // 存储类型：local / oss / s3
 	OSSConfig   *OSSConfig
+	S3Config    *S3Config
 }
 
 // OSSConfig 阿里云 OSS 配置。
@@ -59,6 +64,12 @@ type OSSConfig struct {
 	AccessKeySecret string // AccessKey Secret
 	BucketName      string // Bucket 名称
 	CDNDomain       string // CDN 域名（可选）
+}
+
+// S3Config configures an S3-compatible private bucket and its public CDN URL.
+type S3Config struct {
+	Endpoint, Region, BucketName, AccessKeyID, SecretAccessKey, CDNBaseURL string
+	RequestTimeout                                                         time.Duration
 }
 
 // DefaultConfig 返回默认配置（本地存储）。
@@ -79,6 +90,106 @@ func DefaultConfig() UploadConfig {
 }
 
 // endregion
+
+// S3StorageDriver implements AWS Signature Version 4 against S3-compatible object storage without an SDK dependency.
+type S3StorageDriver struct {
+	config S3Config
+	client *http.Client
+	now    func() time.Time
+}
+
+// NewS3StorageDriver 校验 S3-compatible endpoint、私有凭据和公开 CDN URL，并复用 HTTP 连接池。
+func NewS3StorageDriver(config S3Config) (*S3StorageDriver, error) {
+	config.Endpoint = strings.TrimRight(strings.TrimSpace(config.Endpoint), "/")
+	config.CDNBaseURL = strings.TrimRight(strings.TrimSpace(config.CDNBaseURL), "/")
+	if config.Endpoint == "" || config.Region == "" || config.BucketName == "" || config.AccessKeyID == "" || config.SecretAccessKey == "" || config.CDNBaseURL == "" || config.RequestTimeout <= 0 {
+		return nil, fmt.Errorf("s3 storage configuration is invalid")
+	}
+	if _, err := url.ParseRequestURI(config.Endpoint); err != nil {
+		return nil, fmt.Errorf("invalid s3 endpoint: %w", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 50
+	return &S3StorageDriver{config: config, client: &http.Client{Transport: transport}, now: time.Now}, nil
+}
+
+func (d *S3StorageDriver) Upload(data []byte, key, contentType string) (string, error) {
+	return d.UploadStream(bytes.NewReader(data), key, contentType)
+}
+
+func (d *S3StorageDriver) UploadStream(reader io.Reader, key, contentType string) (string, error) {
+	return d.UploadStreamContext(context.Background(), reader, key, contentType)
+}
+
+func (d *S3StorageDriver) UploadStreamContext(ctx context.Context, reader io.Reader, key, contentType string) (string, error) {
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fmt.Errorf("read s3 upload body: %w", err)
+	}
+	if err := d.do(ctx, http.MethodPut, key, contentType, data); err != nil {
+		return "", err
+	}
+	return d.GetURL(key), nil
+}
+
+func (d *S3StorageDriver) Delete(key string) error { return d.DeleteContext(context.Background(), key) }
+
+func (d *S3StorageDriver) DeleteContext(ctx context.Context, key string) error {
+	return d.do(ctx, http.MethodDelete, key, "", nil)
+}
+
+func (d *S3StorageDriver) GetURL(key string) string {
+	return d.config.CDNBaseURL + "/" + strings.TrimLeft(key, "/")
+}
+
+func (d *S3StorageDriver) do(ctx context.Context, method, key, contentType string, body []byte) error {
+	requestCtx, cancel := context.WithTimeout(ctx, d.config.RequestTimeout)
+	defer cancel()
+	escapedKey := strings.ReplaceAll(url.PathEscape(strings.TrimLeft(key, "/")), "%2F", "/")
+	requestURL := d.config.Endpoint + "/" + url.PathEscape(d.config.BucketName) + "/" + escapedKey
+	req, err := http.NewRequestWithContext(requestCtx, method, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create s3 request: %w", err)
+	}
+	now := d.now().UTC()
+	payloadHash := hgSHA256Hex(body)
+	req.Header.Set("Host", req.URL.Host)
+	req.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonicalHeaders := "host:" + req.URL.Host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + req.Header.Get("X-Amz-Date") + "\n"
+	canonicalRequest := method + "\n" + req.URL.EscapedPath() + "\n\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+	date := now.Format("20060102")
+	scope := date + "/" + d.config.Region + "/s3/aws4_request"
+	stringToSign := "AWS4-HMAC-SHA256\n" + req.Header.Get("X-Amz-Date") + "\n" + scope + "\n" + hgSHA256Hex([]byte(canonicalRequest))
+	signingKey := hgHMAC([]byte("AWS4"+d.config.SecretAccessKey), date)
+	signingKey = hgHMAC(signingKey, d.config.Region)
+	signingKey = hgHMAC(signingKey, "s3")
+	signingKey = hgHMAC(signingKey, "aws4_request")
+	signature := hex.EncodeToString(hgHMAC(signingKey, stringToSign))
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+d.config.AccessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("execute s3 request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	errorBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return fmt.Errorf("s3 request failed: status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(errorBody)))
+}
+
+func hgSHA256Hex(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+func hgHMAC(key []byte, value string) []byte {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(value))
+	return mac.Sum(nil)
+}
 
 // region 上传结果
 
@@ -148,6 +259,11 @@ type StorageDriver interface {
 	Delete(key string) error
 	// GetURL 获取文件访问 URL。
 	GetURL(key string) string
+}
+
+type contextStorageDriver interface {
+	UploadStreamContext(context.Context, io.Reader, string, string) (string, error)
+	DeleteContext(context.Context, string) error
 }
 
 // endregion
@@ -291,6 +407,18 @@ func NewUploader(config UploadConfig) *Uploader {
 	var storage StorageDriver
 
 	switch config.StorageType {
+	case "s3":
+		if config.S3Config == nil {
+			logHG.ErrFInfo("S3 config is nil, fallback to local storage")
+			storage = NewLocalStorageDriver(config.BaseURL, config.UploadDir)
+		} else {
+			var err error
+			storage, err = NewS3StorageDriver(*config.S3Config)
+			if err != nil {
+				logHG.ErrFInfo("S3 config invalid, fallback to local storage: %v", err)
+				storage = NewLocalStorageDriver(config.BaseURL, config.UploadDir)
+			}
+		}
 	case "oss":
 		if config.OSSConfig != nil {
 			storage = NewOSSStorageDriver(config.OSSConfig)
@@ -306,6 +434,22 @@ func NewUploader(config UploadConfig) *Uploader {
 		config:  config,
 		storage: storage,
 	}
+}
+
+// NewUploaderStrict rejects invalid explicitly selected storage instead of silently changing durability semantics.
+// NewUploaderStrict 对显式选择的 S3 采用 fail-fast，避免生产配置错误时静默写入本地临时磁盘。
+func NewUploaderStrict(config UploadConfig) (*Uploader, error) {
+	if config.StorageType == "s3" {
+		if config.S3Config == nil {
+			return nil, fmt.Errorf("s3 config is nil")
+		}
+		storage, err := NewS3StorageDriver(*config.S3Config)
+		if err != nil {
+			return nil, err
+		}
+		return &Uploader{config: config, storage: storage}, nil
+	}
+	return NewUploader(config), nil
 }
 
 // NewDefaultUploader 创建默认上传器（本地存储）。
@@ -383,6 +527,11 @@ func (u *Uploader) UploadFromBytes(data []byte, moduleName string, ext string) (
 
 // UploadFromReader 从流上传文件，调用方需传入已限制大小的 reader 和准确 size。
 func (u *Uploader) UploadFromReader(reader io.Reader, size int64, moduleName string, ext string) (*UploadResult, error) {
+	return u.UploadFromReaderContext(context.Background(), reader, size, moduleName, ext)
+}
+
+// UploadFromReaderContext 在已有大小上限和内容检测基础上，把取消信号传递给支持 context 的存储驱动。
+func (u *Uploader) UploadFromReaderContext(ctx context.Context, reader io.Reader, size int64, moduleName string, ext string) (*UploadResult, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("reader is nil")
 	}
@@ -416,7 +565,12 @@ func (u *Uploader) UploadFromReader(reader io.Reader, size int64, moduleName str
 	contentType := getContentType(ext)
 	stream := io.MultiReader(bytes.NewReader(detectBuf), reader)
 
-	fileURL, err := u.storage.UploadStream(stream, key, contentType)
+	var fileURL string
+	if storage, ok := u.storage.(contextStorageDriver); ok {
+		fileURL, err = storage.UploadStreamContext(ctx, stream, key, contentType)
+	} else {
+		fileURL, err = u.storage.UploadStream(stream, key, contentType)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("upload failed: %w", err)
 	}
@@ -459,6 +613,14 @@ func (u *Uploader) UploadSingle(fileHeader *multipart.FileHeader, moduleName str
 
 // DeleteFile 删除文件。
 func (u *Uploader) DeleteFile(key string) error {
+	return u.storage.Delete(key)
+}
+
+// DeleteFileContext 通过存储 key 删除对象；S3 和本地不存在对象均按幂等成功处理。
+func (u *Uploader) DeleteFileContext(ctx context.Context, key string) error {
+	if storage, ok := u.storage.(contextStorageDriver); ok {
+		return storage.DeleteContext(ctx, key)
+	}
 	return u.storage.Delete(key)
 }
 

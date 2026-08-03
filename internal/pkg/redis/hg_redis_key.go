@@ -148,6 +148,8 @@ const (
 	OpsBilibiliActiveTagListKey        = "ops:bilibili:douga_tags:active"
 	OpsAssetWriteOperatorRateKeyPrefix = "ops:asset:write:rate:operator:"
 	OpsAssetWriteIPRateKeyPrefix       = "ops:asset:write:rate:ip:"
+	VideoCommentImageUserRateKeyPrefix = "video_comment:image:rate:user:"
+	VideoCommentImageIPRateKeyPrefix   = "video_comment:image:rate:ip:"
 )
 
 // GetFeedIdempotencyKey 生成 Feed 投影事件幂等 key。

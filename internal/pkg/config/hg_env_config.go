@@ -113,6 +113,129 @@ type HGCorrectionRecoveryConfig struct {
 	BatchSize        int
 }
 
+// HGVideoCommentStorageConfig 描述 local/S3 存储和 CDN；S3 凭据只从环境变量注入。
+type HGVideoCommentStorageConfig struct {
+	Type, Endpoint, Region, Bucket, CDNBaseURL, AccessKeyID, SecretAccessKey string
+	RequestTimeout                                                           time.Duration
+}
+
+// HGVideoCommentImageConfig 定义用户权威容量（字节）和用户/IP 令牌桶参数。
+type HGVideoCommentImageConfig struct {
+	UserCapacityBytes int64
+	RateUserCapacity  int64
+	RateIPCapacity    int64
+	RateWindow        time.Duration
+}
+
+// HGVideoCommentMaintenanceConfig 定义赞踩投影与孤儿图片清理的有界后台任务参数。
+type HGVideoCommentMaintenanceConfig struct {
+	Enabled                      bool
+	Interval, Timeout, OrphanAge time.Duration
+	BatchSize                    int
+}
+
+// HGVideoCommentConfig 汇总评论图片存储、限流配额和后台维护配置。
+type HGVideoCommentConfig struct {
+	Storage     HGVideoCommentStorageConfig
+	Image       HGVideoCommentImageConfig
+	Maintenance HGVideoCommentMaintenanceConfig
+}
+
+// GetVideoCommentConfig validates storage, abuse controls and bounded maintenance work.
+func GetVideoCommentConfig() (HGVideoCommentConfig, error) {
+	var raw struct {
+		Storage struct {
+			Type           string `mapstructure:"type"`
+			Endpoint       string `mapstructure:"endpoint"`
+			Region         string `mapstructure:"region"`
+			Bucket         string `mapstructure:"bucket"`
+			CDNBaseURL     string `mapstructure:"cdn_base_url"`
+			RequestTimeout string `mapstructure:"request_timeout"`
+		} `mapstructure:"storage"`
+		Image struct {
+			UserCapacityBytes int64  `mapstructure:"user_capacity_bytes"`
+			RateUserCapacity  int64  `mapstructure:"rate_user_capacity"`
+			RateIPCapacity    int64  `mapstructure:"rate_ip_capacity"`
+			RateWindow        string `mapstructure:"rate_window"`
+		} `mapstructure:"image"`
+		Maintenance struct {
+			Enabled   bool   `mapstructure:"enabled"`
+			Interval  string `mapstructure:"interval"`
+			Timeout   string `mapstructure:"timeout"`
+			OrphanAge string `mapstructure:"orphan_age"`
+			BatchSize int    `mapstructure:"batch_size"`
+		} `mapstructure:"maintenance"`
+	}
+	var cfg HGVideoCommentConfig
+	if err := viper.UnmarshalKey("video_comment", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 video comment 配置失败: %w", err)
+	}
+	if err := viper.UnmarshalKey("video_comment.storage", &raw.Storage); err != nil {
+		return cfg, err
+	}
+	if err := viper.UnmarshalKey("video_comment.image", &raw.Image); err != nil {
+		return cfg, err
+	}
+	if err := viper.UnmarshalKey("video_comment.maintenance", &raw.Maintenance); err != nil {
+		return cfg, err
+	}
+	cfg.Storage.Type = strings.ToLower(strings.TrimSpace(raw.Storage.Type))
+	cfg.Storage.Endpoint = strings.TrimRight(strings.TrimSpace(raw.Storage.Endpoint), "/")
+	cfg.Storage.Region = strings.TrimSpace(raw.Storage.Region)
+	cfg.Storage.Bucket = strings.TrimSpace(raw.Storage.Bucket)
+	cfg.Storage.CDNBaseURL = strings.TrimRight(strings.TrimSpace(raw.Storage.CDNBaseURL), "/")
+	cfg.Storage.AccessKeyID = os.Getenv("VIDEO_COMMENT_S3_ACCESS_KEY_ID")
+	cfg.Storage.SecretAccessKey = os.Getenv("VIDEO_COMMENT_S3_SECRET_ACCESS_KEY")
+	if value := strings.TrimSpace(os.Getenv("VIDEO_COMMENT_S3_ENDPOINT")); value != "" {
+		cfg.Storage.Endpoint = strings.TrimRight(value, "/")
+	}
+	if value := strings.TrimSpace(os.Getenv("VIDEO_COMMENT_S3_REGION")); value != "" {
+		cfg.Storage.Region = value
+	}
+	if value := strings.TrimSpace(os.Getenv("VIDEO_COMMENT_S3_BUCKET")); value != "" {
+		cfg.Storage.Bucket = value
+	}
+	if value := strings.TrimSpace(os.Getenv("VIDEO_COMMENT_CDN_BASE_URL")); value != "" {
+		cfg.Storage.CDNBaseURL = strings.TrimRight(value, "/")
+	}
+	var err error
+	if cfg.Storage.RequestTimeout, err = time.ParseDuration(raw.Storage.RequestTimeout); err != nil || cfg.Storage.RequestTimeout <= 0 {
+		return cfg, fmt.Errorf("video_comment.storage.request_timeout 必须是正 duration")
+	}
+	if cfg.Storage.Type != "local" && cfg.Storage.Type != "s3" {
+		return cfg, fmt.Errorf("video_comment.storage.type 仅支持 local 或 s3")
+	}
+	if cfg.Storage.Type == "s3" && (cfg.Storage.Endpoint == "" || cfg.Storage.Region == "" || cfg.Storage.Bucket == "" || cfg.Storage.CDNBaseURL == "" || cfg.Storage.AccessKeyID == "" || cfg.Storage.SecretAccessKey == "") {
+		return cfg, fmt.Errorf("video_comment S3/CDN 配置或环境凭据不完整")
+	}
+	cfg.Image.UserCapacityBytes = raw.Image.UserCapacityBytes
+	cfg.Image.RateUserCapacity = raw.Image.RateUserCapacity
+	cfg.Image.RateIPCapacity = raw.Image.RateIPCapacity
+	if cfg.Image.UserCapacityBytes < 5<<20 || cfg.Image.RateUserCapacity < 1 || cfg.Image.RateIPCapacity < 1 {
+		return cfg, fmt.Errorf("video_comment.image 容量和限流配置无效")
+	}
+	if cfg.Image.RateWindow, err = time.ParseDuration(raw.Image.RateWindow); err != nil || cfg.Image.RateWindow <= 0 {
+		return cfg, fmt.Errorf("video_comment.image.rate_window 必须是正 duration")
+	}
+	cfg.Maintenance.Enabled = raw.Maintenance.Enabled
+	if cfg.Maintenance.Enabled {
+		if cfg.Maintenance.Interval, err = time.ParseDuration(raw.Maintenance.Interval); err != nil || cfg.Maintenance.Interval <= 0 {
+			return cfg, fmt.Errorf("video_comment.maintenance.interval 无效")
+		}
+		if cfg.Maintenance.Timeout, err = time.ParseDuration(raw.Maintenance.Timeout); err != nil || cfg.Maintenance.Timeout <= 0 || cfg.Maintenance.Timeout >= cfg.Maintenance.Interval {
+			return cfg, fmt.Errorf("video_comment.maintenance.timeout 必须小于 interval")
+		}
+		if cfg.Maintenance.OrphanAge, err = time.ParseDuration(raw.Maintenance.OrphanAge); err != nil || cfg.Maintenance.OrphanAge <= cfg.Maintenance.Timeout {
+			return cfg, fmt.Errorf("video_comment.maintenance.orphan_age 无效")
+		}
+		cfg.Maintenance.BatchSize = raw.Maintenance.BatchSize
+		if cfg.Maintenance.BatchSize < 1 || cfg.Maintenance.BatchSize > 1000 {
+			return cfg, fmt.Errorf("video_comment.maintenance.batch_size 必须在 1-1000 之间")
+		}
+	}
+	return cfg, nil
+}
+
 // GetCorrectionRecoveryConfig validates the standalone correction recovery worker limits.
 func GetCorrectionRecoveryConfig() (HGCorrectionRecoveryConfig, error) {
 	var raw struct {

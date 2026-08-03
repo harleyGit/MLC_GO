@@ -19,6 +19,8 @@ var (
 	ErrCommentNotAvailable      = errors.New("comment is unavailable")
 	ErrCommentHasReplies        = errors.New("comment has replies")
 	ErrCounterConsistency       = errors.New("comment counter consistency check failed")
+	ErrImageQuotaExceeded       = errors.New("comment image quota exceeded")
+	ErrImageNotAvailable        = errors.New("comment image is unavailable")
 )
 
 // HGCreateCommand 是同步创建评论的权威写入参数；线程关系由 repository 从父评论派生。
@@ -77,14 +79,75 @@ type HGReactionResult struct {
 	DislikeCount uint64
 }
 
+// HGImageAsset is the durable ownership record used to bind or clean an uploaded object.
+type HGImageAsset struct {
+	ImageID, UserID, StorageKey, ImageURL, ContentType string
+	SizeBytes                                          int64
+}
+
+// HGImageCleanupAsset 是已进入 deleting 状态、允许执行外部存储删除的最小资产投影。
+type HGImageCleanupAsset struct {
+	ImageID, UserID, StorageKey string
+	SizeBytes                   int64
+}
+
 // Repository 负责视频评论的同步 MySQL 权威读写。
 type Repository struct{ db *sql.DB }
 
 // NewRepository 创建基于共享 MySQL 连接池的评论仓储。
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
+// ReserveImageQuota atomically reserves authoritative per-user storage before external I/O.
+func (r *Repository) ReserveImageQuota(ctx context.Context, userID string, sizeBytes, capacityBytes int64) error {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return fmt.Errorf("begin image quota transaction: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentImageQuotaSQL, userID, sizeBytes, capacityBytes, capacityBytes)
+	if err != nil {
+		return fmt.Errorf("reserve image quota: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read image quota result: %w", err)
+	}
+	if affected == 0 {
+		return ErrImageQuotaExceeded
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit image quota: %w", err)
+	}
+	return nil
+}
+
+// ReleaseImageQuota 在上传失败或对象清理完成后归还用户权威容量，单位为字节。
+func (r *Repository) ReleaseImageQuota(ctx context.Context, userID string, sizeBytes int64) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageQuotaSQL, sizeBytes, sizeBytes, userID)
+	if err != nil {
+		return fmt.Errorf("release image quota: %w", err)
+	}
+	return nil
+}
+
+// CreateImageAsset 记录 pending 图片的所有者和存储 key，使孤儿对象可被可靠清理。
+func (r *Repository) CreateImageAsset(ctx context.Context, asset HGImageAsset) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentImageAssetSQL, asset.ImageID, asset.UserID, asset.StorageKey, asset.ImageURL, asset.SizeBytes, asset.ContentType)
+	if err != nil {
+		return fmt.Errorf("create image asset: %w", err)
+	}
+	return nil
+}
+
 // Create 在短事务内完成资格/父链校验、幂等插入、分片计数和可选根回复计数。
 func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGComment, error) {
+	if len(command.ImageURLs) > 0 {
+		if existing, existingErr := hgScanComment(r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.UserID, command.RequestID)); existingErr == nil {
+			return existing, nil
+		} else if !errors.Is(existingErr, sql.ErrNoRows) {
+			return HGComment{}, fmt.Errorf("read idempotent comment: %w", existingErr)
+		}
+	}
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return HGComment{}, fmt.Errorf("begin comment transaction: %w", err)
@@ -98,7 +161,6 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 		}
 		return HGComment{}, fmt.Errorf("verify commentable submission: %w", err)
 	}
-
 	var rootCommentID, parentCommentID, replyToUserID any
 	if command.ParentCommentID != "" {
 		var parentID, parentUserID string
@@ -128,6 +190,17 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 	if command.ImageURLs == nil {
 		command.ImageURLs = []string{}
 	}
+	imageIDs := make([]string, 0, len(command.ImageURLs))
+	for _, imageURL := range command.ImageURLs {
+		var imageID string
+		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentImageForAttachSQL, imageURL, imageURL, command.UserID).Scan(&imageID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return HGComment{}, ErrImageNotAvailable
+			}
+			return HGComment{}, fmt.Errorf("lock comment image: %w", err)
+		}
+		imageIDs = append(imageIDs, imageID)
+	}
 	imageJSON, err := json.Marshal(command.ImageURLs)
 	if err != nil {
 		return HGComment{}, fmt.Errorf("marshal comment images: %w", err)
@@ -138,6 +211,18 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 		comment, err = hgScanComment(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.UserID, command.RequestID))
 	} else if err == nil {
 		if err = hgRequireAffected(insertResult, 1); err == nil {
+			for _, imageID := range imageIDs {
+				var imageResult sql.Result
+				imageResult, err = tx.ExecContext(ctx, SQLQueriesPackage.AttachVideoCommentImageSQL, command.CommentID, imageID, command.UserID)
+				if err == nil {
+					err = hgRequireAffected(imageResult, 1)
+				}
+				if err != nil {
+					break
+				}
+			}
+		}
+		if err == nil {
 			var shardResult sql.Result
 			shardResult, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoCommentStatShardSQL, submissionID, hgCommentShard(command.CommentID))
 			if err == nil {
@@ -236,30 +321,36 @@ func (r *Repository) SetReaction(ctx context.Context, userID, commentID, reactio
 		return HGReactionResult{}, fmt.Errorf("begin reaction transaction: %w", err)
 	}
 	defer tx.Rollback()
-	var likeCount, dislikeCount uint64
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionTargetForUpdateSQL, commentID).Scan(&likeCount, &dislikeCount); err != nil {
+	var visibleCommentID string
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionTargetSQL, commentID).Scan(&visibleCommentID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return HGReactionResult{}, ErrCommentNotAvailable
 		}
 		return HGReactionResult{}, fmt.Errorf("lock reaction target: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.EnsureVideoCommentReactionSQL, commentID, userID); err != nil {
+		return HGReactionResult{}, fmt.Errorf("ensure comment reaction: %w", err)
+	}
 	oldReaction := "none"
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionForUpdateSQL, commentID, userID).Scan(&oldReaction); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionForUpdateSQL, commentID, userID).Scan(&oldReaction); err != nil {
 		return HGReactionResult{}, fmt.Errorf("lock comment reaction: %w", err)
 	}
 	if oldReaction != reaction {
-		likeCount, dislikeCount = hgApplyReactionDelta(likeCount, dislikeCount, oldReaction, reaction)
-		if reaction == "none" {
-			_, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentReactionSQL, commentID, userID)
-		} else {
-			_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpsertVideoCommentReactionSQL, commentID, userID, reaction)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpsertVideoCommentReactionSQL, commentID, userID, reaction)
+		if err == nil {
+			likeDelta, dislikeDelta := hgReactionDeltas(oldReaction, reaction)
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateVideoCommentReactionShardSQL, commentID, hgReactionShard(userID), likeDelta, dislikeDelta)
 		}
 		if err == nil {
-			_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateVideoCommentReactionCountsSQL, likeCount, dislikeCount, commentID)
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentReactionDirtySQL, commentID)
 		}
 		if err != nil {
 			return HGReactionResult{}, fmt.Errorf("update comment reaction: %w", err)
 		}
+	}
+	var likeCount, dislikeCount uint64
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentReactionShardTotalsSQL, commentID).Scan(&likeCount, &dislikeCount); err != nil {
+		return HGReactionResult{}, fmt.Errorf("read comment reaction totals: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return HGReactionResult{}, fmt.Errorf("commit reaction transaction: %w", err)
@@ -306,6 +397,9 @@ func (r *Repository) Delete(ctx context.Context, userID, commentID string) (bool
 			err = hgRequireAffected(replyResult, 1)
 		}
 	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentImagesDeletePendingSQL, commentID)
+	}
 	if err != nil {
 		return false, fmt.Errorf("decrement comment counters: %w", err)
 	}
@@ -313,6 +407,113 @@ func (r *Repository) Delete(ctx context.Context, userID, commentID string) (bool
 		return false, fmt.Errorf("commit delete comment transaction: %w", err)
 	}
 	return true, nil
+}
+
+// ProjectReactionCounts applies one bounded dirty batch to the denormalized list and hot-sort projection.
+func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentReactionDirtySQL, limit)
+	if err != nil {
+		return 0, fmt.Errorf("list reaction dirty: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return 0, err
+		}
+		if _, err = tx.ExecContext(ctx, SQLQueriesPackage.ProjectVideoCommentReactionCountsSQL, id); err == nil {
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentReactionDirtySQL, id)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, fmt.Errorf("project reaction %s: %w", id, err)
+		}
+		if err = tx.Commit(); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
+// ClaimImageCleanup 使用索引有界扫描并在同一事务内把候选资产切换为 deleting。
+// 该状态迁移与评论创建的 pending 行锁互斥，防止对象在绑定成功后被并发删除。
+func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Time, limit int) ([]HGImageCleanupAsset, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentImageCleanupForUpdateSQL, orphanBefore, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list image cleanup: %w", err)
+	}
+	assets := make([]HGImageCleanupAsset, 0, limit)
+	for rows.Next() {
+		var asset HGImageCleanupAsset
+		if err := rows.Scan(&asset.ImageID, &asset.UserID, &asset.StorageKey, &asset.SizeBytes); err != nil {
+			return nil, err
+		}
+		assets = append(assets, asset)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	claimed := assets[:0]
+	for _, asset := range assets {
+		result, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentImageDeletingSQL, asset.ImageID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if affected == 1 {
+			claimed = append(claimed, asset)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+// CompleteImageCleanup 在对象删除成功后原子删除资产记录并归还用户容量。
+func (r *Repository) CompleteImageCleanup(ctx context.Context, asset HGImageCleanupAsset) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var result sql.Result
+	if result, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentImageAssetSQL, asset.ImageID); err == nil {
+		var affected int64
+		affected, err = result.RowsAffected()
+		if err == nil && affected == 1 {
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageQuotaSQL, asset.SizeBytes, asset.SizeBytes, asset.UserID)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ReleaseImageCleanup 在对象删除失败时恢复 pending/delete_pending，允许后续轮次重试。
+func (r *Repository) ReleaseImageCleanup(ctx context.Context, imageID string) error {
+	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.ReleaseVideoCommentImageCleanupSQL, imageID)
+	return err
 }
 
 type hgScanner interface{ Scan(...any) error }
@@ -351,19 +552,22 @@ func hgScanComments(rows *sql.Rows, limit int) ([]HGComment, error) {
 	return comments, nil
 }
 
-func hgApplyReactionDelta(likeCount, dislikeCount uint64, oldReaction, newReaction string) (uint64, uint64) {
-	if oldReaction == "like" && likeCount > 0 {
-		likeCount--
-	} else if oldReaction == "dislike" && dislikeCount > 0 {
-		dislikeCount--
+func hgReactionDeltas(oldReaction, newReaction string) (int64, int64) {
+	var like, dislike int64
+	if oldReaction == "like" {
+		like--
+	} else if oldReaction == "dislike" {
+		dislike--
 	}
 	if newReaction == "like" {
-		likeCount++
+		like++
 	} else if newReaction == "dislike" {
-		dislikeCount++
+		dislike++
 	}
-	return likeCount, dislikeCount
+	return like, dislike
 }
+
+func hgReactionShard(userID string) uint32 { return crc32.ChecksumIEEE([]byte(userID)) % 32 }
 
 func hgCommentShard(commentID string) uint32 { return crc32.ChecksumIEEE([]byte(commentID)) % 32 }
 

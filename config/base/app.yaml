@@ -37,3 +37,23 @@ correction_recovery:
   # approving 持续 5 分钟后才进入幂等恢复，避开仍在执行的正常审批请求。
   approving_timeout: 5m
   batch_size: 20
+
+video_comment:
+  storage:
+    type: local
+    endpoint: ""
+    region: ""
+    bucket: ""
+    cdn_base_url: "http://localhost:8080/uploads"
+    request_timeout: 10s
+  image:
+    user_capacity_bytes: 524288000
+    rate_user_capacity: 6
+    rate_ip_capacity: 30
+    rate_window: 1m
+  maintenance:
+    enabled: true
+    interval: 10m
+    timeout: 30s
+    orphan_age: 24h
+    batch_size: 100

@@ -34,3 +34,19 @@ func TestVideoCommentMigration21DoesNotSelectHardCodedDatabase(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoCommentMigration22AddsShardedReactionsAndImageLifecycle(t *testing.T) {
+	data, err := os.ReadFile("000022_productionize_video_comments.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(data)
+	for _, fragment := range []string{"video_comment_reaction_shards", "video_comment_reaction_dirty", "video_comment_images", "video_comment_image_quotas", "idx_video_comment_images_cleanup"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("migration missing %q", fragment)
+		}
+	}
+	if regexp.MustCompile(`(?im)^\s*USE\s+`).Match(data) {
+		t.Fatal("migration must use the migrator-selected database")
+	}
+}

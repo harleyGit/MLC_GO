@@ -44,12 +44,29 @@ LIMIT 1`
 	ListVideoCommentRepliesFirstSQL       = `SELECT vc.id, vc.comment_id, vc.submission_id, vc.user_id, COALESCE(NULLIF(u.nickname, ''), NULLIF(u.user_name, ''), vc.user_id), COALESCE(u.avatar_url, ''), vc.content, vc.root_comment_id, vc.parent_comment_id, vc.reply_to_user_id, vc.like_count, vc.dislike_count, vc.reply_count, COALESCE(vcr.reaction, 'none'), COALESCE(JSON_UNQUOTE(vc.image_urls), '[]'), vc.created_at FROM video_comments vc INNER JOIN users u ON u.user_id = vc.user_id LEFT JOIN video_comment_reactions vcr ON vcr.comment_id = vc.comment_id AND vcr.user_id = ? WHERE vc.submission_id = ? AND vc.root_comment_id = ? AND vc.is_deleted = 0 ORDER BY vc.created_at ASC, vc.id ASC LIMIT ?`
 	ListVideoCommentRepliesByCursorSQL    = `SELECT vc.id, vc.comment_id, vc.submission_id, vc.user_id, COALESCE(NULLIF(u.nickname, ''), NULLIF(u.user_name, ''), vc.user_id), COALESCE(u.avatar_url, ''), vc.content, vc.root_comment_id, vc.parent_comment_id, vc.reply_to_user_id, vc.like_count, vc.dislike_count, vc.reply_count, COALESCE(vcr.reaction, 'none'), COALESCE(JSON_UNQUOTE(vc.image_urls), '[]'), vc.created_at FROM video_comments vc INNER JOIN users u ON u.user_id = vc.user_id LEFT JOIN video_comment_reactions vcr ON vcr.comment_id = vc.comment_id AND vcr.user_id = ? WHERE vc.submission_id = ? AND vc.root_comment_id = ? AND vc.is_deleted = 0 AND (vc.created_at, vc.id) > (?, ?) ORDER BY vc.created_at ASC, vc.id ASC LIMIT ?`
 
-	SelectVideoCommentReactionTargetForUpdateSQL = `SELECT like_count, dislike_count FROM video_comments WHERE comment_id = ? AND is_deleted = 0 LIMIT 1 FOR UPDATE`
-	SelectVideoCommentReactionForUpdateSQL       = `SELECT reaction FROM video_comment_reactions WHERE comment_id = ? AND user_id = ? LIMIT 1 FOR UPDATE`
-	UpsertVideoCommentReactionSQL                = `INSERT INTO video_comment_reactions (comment_id, user_id, reaction) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reaction = VALUES(reaction), updated_at = CURRENT_TIMESTAMP(6)`
-	DeleteVideoCommentReactionSQL                = `DELETE FROM video_comment_reactions WHERE comment_id = ? AND user_id = ?`
-	UpdateVideoCommentReactionCountsSQL          = `UPDATE video_comments SET like_count = ?, dislike_count = ? WHERE comment_id = ?`
+	SelectVideoCommentReactionTargetSQL      = `SELECT comment_id FROM video_comments WHERE comment_id = ? AND is_deleted = 0 LIMIT 1 FOR SHARE`
+	EnsureVideoCommentReactionSQL            = `INSERT INTO video_comment_reactions (comment_id, user_id, reaction) VALUES (?, ?, 'none') ON DUPLICATE KEY UPDATE comment_id = VALUES(comment_id)`
+	SelectVideoCommentReactionForUpdateSQL   = `SELECT reaction FROM video_comment_reactions WHERE comment_id = ? AND user_id = ? LIMIT 1 FOR UPDATE`
+	UpsertVideoCommentReactionSQL            = `INSERT INTO video_comment_reactions (comment_id, user_id, reaction) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reaction = VALUES(reaction), updated_at = CURRENT_TIMESTAMP(6)`
+	DeleteVideoCommentReactionSQL            = `DELETE FROM video_comment_reactions WHERE comment_id = ? AND user_id = ?`
+	UpdateVideoCommentReactionShardSQL       = `INSERT INTO video_comment_reaction_shards (comment_id, shard_id, like_count, dislike_count) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE like_count = GREATEST(like_count + VALUES(like_count), 0), dislike_count = GREATEST(dislike_count + VALUES(dislike_count), 0)`
+	MarkVideoCommentReactionDirtySQL         = `INSERT INTO video_comment_reaction_dirty (comment_id) VALUES (?) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP(6)`
+	SelectVideoCommentReactionShardTotalsSQL = `SELECT COALESCE(SUM(like_count), 0), COALESCE(SUM(dislike_count), 0) FROM video_comment_reaction_shards WHERE comment_id = ?`
 
 	SelectVideoCommentDeleteTargetForUpdateSQL = `SELECT submission_id, root_comment_id, reply_count FROM video_comments WHERE comment_id = ? AND user_id = ? AND is_deleted = 0 LIMIT 1 FOR UPDATE`
 	SoftDeleteVideoCommentSQL                  = `UPDATE video_comments SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE comment_id = ? AND user_id = ? AND is_deleted = 0`
+
+	InsertVideoCommentImageQuotaSQL          = `INSERT INTO video_comment_image_quotas (user_id, used_bytes, asset_count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE asset_count = IF(used_bytes + VALUES(used_bytes) <= ?, asset_count + 1, asset_count), used_bytes = IF(used_bytes + VALUES(used_bytes) <= ?, used_bytes + VALUES(used_bytes), used_bytes)`
+	ReleaseVideoCommentImageQuotaSQL         = `UPDATE video_comment_image_quotas SET used_bytes = IF(used_bytes >= ?, used_bytes - ?, 0), asset_count = IF(asset_count > 0, asset_count - 1, 0) WHERE user_id = ?`
+	InsertVideoCommentImageAssetSQL          = `INSERT INTO video_comment_images (image_id, user_id, storage_key, image_url, size_bytes, content_type, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+	SelectVideoCommentImageForAttachSQL      = `SELECT image_id FROM video_comment_images WHERE image_url_hash = UNHEX(SHA2(?, 256)) AND image_url = ? AND user_id = ? AND status = 'pending' LIMIT 1 FOR UPDATE`
+	AttachVideoCommentImageSQL               = `UPDATE video_comment_images SET status = 'attached', comment_id = ?, attached_at = CURRENT_TIMESTAMP(6) WHERE image_id = ? AND user_id = ? AND status = 'pending'`
+	MarkVideoCommentImagesDeletePendingSQL   = `UPDATE video_comment_images SET status = 'delete_pending', delete_after = CURRENT_TIMESTAMP(6) WHERE comment_id = ? AND status = 'attached'`
+	ListVideoCommentReactionDirtySQL         = `SELECT comment_id FROM video_comment_reaction_dirty ORDER BY updated_at ASC, comment_id ASC LIMIT ?`
+	ProjectVideoCommentReactionCountsSQL     = `UPDATE video_comments vc SET like_count = (SELECT COALESCE(SUM(s.like_count), 0) FROM video_comment_reaction_shards s WHERE s.comment_id = vc.comment_id), dislike_count = (SELECT COALESCE(SUM(s.dislike_count), 0) FROM video_comment_reaction_shards s WHERE s.comment_id = vc.comment_id) WHERE vc.comment_id = ?`
+	DeleteVideoCommentReactionDirtySQL       = `DELETE FROM video_comment_reaction_dirty WHERE comment_id = ?`
+	ListVideoCommentImageCleanupForUpdateSQL = `SELECT image_id, user_id, storage_key, size_bytes FROM video_comment_images WHERE (status = 'pending' AND created_at < ?) OR (status = 'delete_pending' AND delete_after <= CURRENT_TIMESTAMP(6)) ORDER BY id ASC LIMIT ? FOR UPDATE`
+	MarkVideoCommentImageDeletingSQL         = `UPDATE video_comment_images SET status = 'deleting' WHERE image_id = ? AND status IN ('pending', 'delete_pending')`
+	DeleteVideoCommentImageAssetSQL          = `DELETE FROM video_comment_images WHERE image_id = ? AND status = 'deleting'`
+	ReleaseVideoCommentImageCleanupSQL       = `UPDATE video_comment_images SET status = IF(comment_id IS NULL, 'pending', 'delete_pending') WHERE image_id = ? AND status = 'deleting'`
 )

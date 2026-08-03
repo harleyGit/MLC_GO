@@ -1,6 +1,7 @@
 package VideoCommentServicePackage
 
 import (
+	VideoCommentRepositoryPackage "MLC_GO/internal/modules/video_comment/repository"
 	"bytes"
 	"context"
 	"errors"
@@ -15,18 +16,44 @@ type hgFakeCommentImageUploader struct {
 	url  string
 }
 
-func (f *hgFakeCommentImageUploader) UploadFromReader(_ context.Context, _ io.Reader, size int64, ext string) (string, error) {
+func (f *hgFakeCommentImageUploader) UploadFromReader(_ context.Context, _ io.Reader, size int64, ext string) (HGImageUpload, error) {
 	f.size, f.ext = size, ext
-	return f.url, nil
+	return HGImageUpload{URL: f.url, StorageKey: "video_comment/a.png", SizeBytes: size}, nil
+}
+
+func (f *hgFakeCommentImageUploader) Delete(_ context.Context, _ string) error { return nil }
+
+type hgFakeImageGuard struct{ calls int }
+
+func (g *hgFakeImageGuard) Allow(context.Context, string, string) error { g.calls++; return nil }
+
+type hgFakeImageAssets struct {
+	reserved bool
+	created  bool
+}
+
+func (a *hgFakeImageAssets) ReserveImageQuota(context.Context, string, int64, int64) error {
+	a.reserved = true
+	return nil
+}
+func (a *hgFakeImageAssets) ReleaseImageQuota(context.Context, string, int64) error { return nil }
+func (a *hgFakeImageAssets) CreateImageAsset(context.Context, VideoCommentRepositoryPackage.HGImageAsset) error {
+	a.created = true
+	return nil
 }
 
 func TestUploadImageAcceptsOnlyFiveMiBJPEGPngAndWebP(t *testing.T) {
 	uploader := &hgFakeCommentImageUploader{url: "http://localhost:8080/uploads/video_comment/a.png"}
-	service := NewServiceWithImageUploader(&hgFakeCommentRepository{}, uploader)
+	guard := &hgFakeImageGuard{}
+	assets := &hgFakeImageAssets{}
+	service := NewServiceWithImageDependencies(&hgFakeCommentRepository{}, uploader, guard, assets, 100<<20)
 
-	result, err := service.UploadImage(context.Background(), strings.NewReader("png"), 3, "PNG")
+	result, err := service.UploadImage(context.Background(), "user-1", "203.0.113.8", strings.NewReader("png"), 3, "PNG")
 	if err != nil || result.ImageURL != uploader.url || uploader.ext != "png" {
 		t.Fatalf("UploadImage() result=%+v error=%v ext=%q", result, err, uploader.ext)
+	}
+	if guard.calls != 1 || !assets.reserved || !assets.created {
+		t.Fatalf("UploadImage() guard=%d reserved=%v created=%v", guard.calls, assets.reserved, assets.created)
 	}
 	for _, tc := range []struct {
 		size int64
@@ -36,7 +63,7 @@ func TestUploadImageAcceptsOnlyFiveMiBJPEGPngAndWebP(t *testing.T) {
 		{size: (5 << 20) + 1, ext: "png"},
 		{size: 3, ext: "gif"},
 	} {
-		_, err := service.UploadImage(context.Background(), strings.NewReader("png"), tc.size, tc.ext)
+		_, err := service.UploadImage(context.Background(), "user-1", "203.0.113.8", strings.NewReader("png"), tc.size, tc.ext)
 		if !errors.Is(err, ErrInvalidImageUpload) {
 			t.Fatalf("UploadImage(size=%d, ext=%q) error=%v, want ErrInvalidImageUpload", tc.size, tc.ext, err)
 		}
