@@ -217,7 +217,7 @@ func VideoInteractionMethodRules() []HGMiddlewarePackage.HGAPIRule {
 
 // VideoCommentMethodRules 声明评论 API 的固定方法白名单和认证要求。
 func VideoCommentMethodRules() []HGMiddlewarePackage.HGAPIRule {
-	paths := map[string]string{"/create": http.MethodPost, "/list": http.MethodGet, "/delete": http.MethodPost}
+	paths := map[string]string{"/create": http.MethodPost, "/list": http.MethodGet, "/replies": http.MethodGet, "/reaction": http.MethodPost, "/image": http.MethodPost, "/delete": http.MethodPost}
 	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
 	for path, method := range paths {
 		rules = append(rules, HGMiddlewarePackage.HGAPIRule{Path: path, Version: "v1", Methods: map[string]bool{method: true}, NeedAuth: true})

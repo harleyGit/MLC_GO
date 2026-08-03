@@ -7,6 +7,7 @@ import (
 	VideoCommentServicePackage "MLC_GO/internal/modules/video_comment/service"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	HGUploadPackage "MLC_GO/internal/pkg/upload"
 	"net/http"
 )
 
@@ -29,6 +30,10 @@ func (m *Module) Handler() http.Handler {
 // RegisterModules 组装并注册同步 MySQL 视频评论模块。
 func RegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager) {
 	repo := VideoCommentRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
-	service := VideoCommentServicePackage.NewService(repo)
+	// 评论图片单张限制 5 MiB，禁用 GIF，避免动画解码和存储成本放大。
+	uploadConfig := HGUploadPackage.DefaultConfig()
+	uploadConfig.MaxFileSize = 5 << 20
+	uploadConfig.AllowedTypes = []string{HGUploadPackage.ImageTypeJPG, HGUploadPackage.ImageTypeJPEG, HGUploadPackage.ImageTypePNG, HGUploadPackage.ImageTypeWebP}
+	service := VideoCommentServicePackage.NewServiceWithImageUploader(repo, VideoCommentServicePackage.NewHGUploadAdapter(HGUploadPackage.NewUploader(uploadConfig)))
 	HGHandlerPackage.RegisterModule(&Module{handler: VideoCommentHandlerPackage.NewHandler(service)})
 }

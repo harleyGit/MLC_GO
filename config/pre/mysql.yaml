@@ -4,4 +4,4 @@ mysql:
   user: root
   password: hh109
   database: HG_MLC_PRE_DB
-  migrate_expect_version: 20
+  migrate_expect_version: 21

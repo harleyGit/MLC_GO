@@ -242,8 +242,7 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 	// 对于 multipart/form-data 或二进制数据请求，使用空字符串作为 body 签名
 	// 前端签名时也使用空字符串，保证前后端一致
 	var body []byte
-	isBinaryUpload := strings.HasPrefix(contentType, "multipart/form-data") ||
-		strings.HasPrefix(contentType, "application/octet-stream")
+	isBinaryUpload := hgIsBinarySignedBody(r)
 	if !isBinaryUpload {
 		var err error
 		body, err = readAndRestoreBody(r, apiGuardMaxSignedBodyBytes)
@@ -265,6 +264,15 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 	ctx = context.WithValue(ctx, CtxDeviceID, deviceID)
 
 	return ctx
+}
+
+// hgIsBinarySignedBody preserves existing binary exemptions and limits raw comment image exemption to its route.
+func hgIsBinarySignedBody(r *http.Request) bool {
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "multipart/form-data") || strings.HasPrefix(contentType, "application/octet-stream") {
+		return true
+	}
+	return r.URL.Path == "/image" || r.URL.Path == "/api/v1/video_comments/image"
 }
 
 // endregion
@@ -431,7 +439,7 @@ func MethodGuardMiddlewareV2(rules []APIRule) func(http.Handler) http.Handler {
 
 			if !rule.allowMethod(r.Method) {
 				w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 				return
 			}
 			next.ServeHTTP(w, r)
