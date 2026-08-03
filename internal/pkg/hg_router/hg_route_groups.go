@@ -4,6 +4,7 @@ import (
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	VideoCommentHandlerPackage "MLC_GO/internal/modules/video_comment/handler"
 	VideoInteractionHandlerPackage "MLC_GO/internal/modules/video_interaction/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
@@ -18,6 +19,7 @@ const (
 	VideoUploadModuleBasePath      = "/api/v1/video_upload" // 视频投稿模块基础路径
 	OpsModuleBasePath              = "/api/v1/ops"          // 运维管理模块基础路径
 	VideoInteractionModuleBasePath = "/api/v1/video_interactions"
+	VideoCommentModuleBasePath     = "/api/v1/video_comments"
 )
 
 // endregion
@@ -146,6 +148,18 @@ func NewVideoInteractionRouteGroup(handler *VideoInteractionHandlerPackage.Handl
 
 func VideoInteractionRouteCatalog() []RouteCatalogItem {
 	return BuildRouteCatalogItems(videoInteractionRoutes(nil))
+}
+
+// NewVideoCommentRouteGroup 为评论路由统一应用方法白名单和 JWT 认证。
+func NewVideoCommentRouteGroup(handler *VideoCommentHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(RouteGroupConfig{
+		BasePath: VideoCommentModuleBasePath, Rules: HGServerPackage.VideoCommentMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+	}, videoCommentRoutes(handler))
+}
+
+// VideoCommentRouteCatalog 返回视频评论模块完整可调用路径清单。
+func VideoCommentRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(videoCommentRoutes(nil))
 }
 
 // endregion

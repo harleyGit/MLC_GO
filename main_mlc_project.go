@@ -10,6 +10,7 @@ import (
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	VideoCommentModulePackage "MLC_GO/internal/modules/video_comment/module"
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
@@ -237,6 +238,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	VideoInteractionModulePackage.RegisterModules(redisService, sqlManager)
+	VideoCommentModulePackage.RegisterModules(sqlManager)
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
 	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
@@ -473,6 +475,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.VideoCommentRouteCatalog()...)
 	// 收集 ops 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
 	// 收集 test 模块路由清单
