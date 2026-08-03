@@ -73,7 +73,7 @@ func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlMana
 	}
 	adapter := VideoCommentServicePackage.NewHGUploadAdapter(uploader)
 	service := VideoCommentServicePackage.NewServiceWithImageDependencies(repo, adapter, limiter, repo, config.Image.UserCapacityBytes)
-	HGHandlerPackage.RegisterModule(&Module{handler: VideoCommentHandlerPackage.NewHandler(service)})
+	HGHandlerPackage.RegisterModule(&Module{handler: VideoCommentHandlerPackage.NewHandler(service, config.TrustedProxyCIDRs...)})
 	var maintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	if config.Maintenance.Enabled {
 		maintenance, err = VideoCommentTaskPackage.NewHGVideoCommentMaintenance(repo, hgMaintenanceStorage{adapter: adapter}, VideoCommentTaskPackage.HGVideoCommentMaintenanceConfig{Interval: config.Maintenance.Interval, Timeout: config.Maintenance.Timeout, OrphanAge: config.Maintenance.OrphanAge, BatchSize: config.Maintenance.BatchSize}, leases...)

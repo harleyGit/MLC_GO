@@ -10,6 +10,7 @@ package ConfigPackage
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
@@ -139,12 +140,15 @@ type HGVideoCommentConfig struct {
 	Storage     HGVideoCommentStorageConfig
 	Image       HGVideoCommentImageConfig
 	Maintenance HGVideoCommentMaintenanceConfig
+	// TrustedProxyCIDRs 仅用于决定是否信任 X-Forwarded-For/X-Real-IP，不应配置客户端可直连的宽泛网段。
+	TrustedProxyCIDRs []netip.Prefix
 }
 
 // GetVideoCommentConfig validates storage, abuse controls and bounded maintenance work.
 func GetVideoCommentConfig() (HGVideoCommentConfig, error) {
 	var raw struct {
-		Storage struct {
+		TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
+		Storage           struct {
 			Type           string `mapstructure:"type"`
 			Endpoint       string `mapstructure:"endpoint"`
 			Region         string `mapstructure:"region"`
@@ -178,6 +182,22 @@ func GetVideoCommentConfig() (HGVideoCommentConfig, error) {
 	}
 	if err := viper.UnmarshalKey("video_comment.maintenance", &raw.Maintenance); err != nil {
 		return cfg, err
+	}
+	trustedProxyCIDRs := raw.TrustedProxyCIDRs
+	// 发布系统可通过逗号分隔环境变量覆盖 YAML，避免把基础设施网段固化进镜像配置。
+	if value := strings.TrimSpace(os.Getenv("VIDEO_COMMENT_TRUSTED_PROXY_CIDRS")); value != "" {
+		trustedProxyCIDRs = strings.Split(value, ",")
+	}
+	for _, value := range trustedProxyCIDRs {
+		prefix, parseErr := netip.ParsePrefix(strings.TrimSpace(value))
+		if parseErr != nil {
+			return cfg, fmt.Errorf("video_comment.trusted_proxy_cidrs 包含无效 CIDR")
+		}
+		if prefix.Bits() == 0 {
+			return cfg, fmt.Errorf("video_comment.trusted_proxy_cidrs 禁止信任全部地址")
+		}
+		// Masked 统一主机位，确保后续 Contains 比较和配置输出使用规范网络地址。
+		cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, prefix.Masked())
 	}
 	cfg.Storage.Type = strings.ToLower(strings.TrimSpace(raw.Storage.Type))
 	cfg.Storage.Endpoint = strings.TrimRight(strings.TrimSpace(raw.Storage.Endpoint), "/")

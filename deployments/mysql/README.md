@@ -36,5 +36,11 @@
 ## Video Comment S3 Release Gate
 
 - Export the production-equivalent `VIDEO_COMMENT_S3_*` values in the release job and run `MLC_S3_INTEGRATION=1 go test ./internal/pkg/upload -run TestS3StorageIntegrationPutCDNGetDelete -count=1`.
-- The gate performs real PUT, CDN GET, and DELETE using a unique probe key. It must run once per release environment, not once per application replica.
+- The gate performs real PUT, bounded-retry CDN GET/content verification, and two signed storage DELETE calls using a unique probe key. A 2xx response confirms DELETE authorization and the second call confirms the idempotent retry contract without requiring bucket-list permission. It must run once per release environment, not once per application replica.
 - Do not print access keys, secret keys, SigV4 authorization headers, or full credential-bearing configuration in release logs.
+
+## Video Comment Operations
+
+- Configure `video_comment.trusted_proxy_cidrs` or `VIDEO_COMMENT_TRUSTED_PROXY_CIDRS` with only the actual load balancer, ingress, and reverse-proxy networks. The API ignores forwarded headers from all other direct peers and rejects catch-all `/0` networks.
+- Alert on `mlc_video_comment_reaction_dirty_oldest_age_seconds` and `mlc_video_comment_image_cleanup_oldest_age_seconds` exceeding the maintenance interval/SLO for multiple runs.
+- Rate-alert on `mlc_video_comment_reaction_projection_cas_misses_total`, `mlc_video_comment_image_cleanup_expired_lease_reclaims_total`, and `mlc_video_comment_image_cleanup_failures_total`; sustained increases indicate hot-comment contention, worker crashes/timeouts, or object-storage permission/availability failures.

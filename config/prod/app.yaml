@@ -8,6 +8,8 @@ coin_jobs:
   consolidation_max_lot_amount: 10
 
 video_comment:
+  # 按实际负载均衡/Nginx 网段配置，禁止用 0.0.0.0/0 或 ::/0 信任任意客户端。
+  trusted_proxy_cidrs: []
   storage:
     type: s3
     # endpoint/region/bucket/CDN 和访问凭据均由 VIDEO_COMMENT_* 环境变量注入。

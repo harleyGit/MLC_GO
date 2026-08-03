@@ -491,9 +491,9 @@ func TestProjectReactionCountsDeletesOnlySelectedRevision(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.RequeueVideoCommentReactionDirtySQL)).WithArgs("CMT_1", uint64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	count, err := NewRepository(db).ProjectReactionCounts(context.Background(), 10)
-	if err != nil || count != 1 {
-		t.Fatalf("ProjectReactionCounts() count=%d error=%v", count, err)
+	result, err := NewRepository(db).ProjectReactionCounts(context.Background(), 10)
+	if err != nil || result.Projected != 1 || result.CASMisses != 1 {
+		t.Fatalf("ProjectReactionCounts() result=%+v error=%v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -554,6 +554,98 @@ func TestImageCleanupQueriesUseOneIndexedStateRangeEach(t *testing.T) {
 		if strings.Contains(strings.ToUpper(query), " OR ") || !strings.Contains(query, "FOR UPDATE SKIP LOCKED") {
 			t.Fatalf("cleanup query must use one indexed state range: %s", query)
 		}
+	}
+}
+
+func TestMaintenanceOldestQueriesUseIndexedOrderAndLimitOne(t *testing.T) {
+	queries := []string{
+		SQLQueriesPackage.SelectVideoCommentReactionDirtyOldestSQL,
+		SQLQueriesPackage.SelectPendingVideoCommentImageCleanupOldestSQL,
+		SQLQueriesPackage.SelectDeletePendingVideoCommentImageCleanupOldestSQL,
+		SQLQueriesPackage.SelectExpiredVideoCommentImageCleanupOldestSQL,
+	}
+	for _, query := range queries {
+		upper := strings.ToUpper(query)
+		if strings.Contains(upper, " OR ") || !strings.Contains(upper, "ORDER BY") || !strings.Contains(upper, "LIMIT 1") {
+			t.Fatalf("oldest metric query must use one indexed ordered range: %s", query)
+		}
+	}
+}
+
+func TestMaintenanceOldestTimesReturnsOldestEligibleCleanupState(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	orphanBefore := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	dirtyOldest := orphanBefore.Add(-time.Hour)
+	pendingOldest := orphanBefore.Add(-2 * time.Hour)
+	deleteOldest := orphanBefore.Add(-3 * time.Hour)
+	leaseOldest := orphanBefore.Add(-30 * time.Minute)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionDirtyOldestSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"updated_at"}).AddRow(dirtyOldest))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectDeletePendingVideoCommentImageCleanupOldestSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"delete_after"}).AddRow(deleteOldest))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectExpiredVideoCommentImageCleanupOldestSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"cleanup_lease_until"}).AddRow(leaseOldest))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectPendingVideoCommentImageCleanupOldestSQL)).WithArgs(orphanBefore).
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(pendingOldest))
+
+	dirty, cleanup, err := NewRepository(db).MaintenanceOldestTimes(context.Background(), orphanBefore, time.Hour)
+	if err != nil || !dirty.Equal(dirtyOldest) || !cleanup.Equal(deleteOldest) {
+		t.Fatalf("MaintenanceOldestTimes() dirty=%v cleanup=%v error=%v", dirty, cleanup, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestMaintenanceOldestTimesMeasuresPendingAgeSinceEligibility(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	orphanAge := 24 * time.Hour
+	orphanBefore := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	createdAt := orphanBefore.Add(-5 * time.Minute)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionDirtyOldestSQL)).WillReturnRows(sqlmock.NewRows([]string{"updated_at"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectDeletePendingVideoCommentImageCleanupOldestSQL)).WillReturnRows(sqlmock.NewRows([]string{"delete_after"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectExpiredVideoCommentImageCleanupOldestSQL)).WillReturnRows(sqlmock.NewRows([]string{"cleanup_lease_until"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectPendingVideoCommentImageCleanupOldestSQL)).WithArgs(orphanBefore).
+		WillReturnRows(sqlmock.NewRows([]string{"created_at"}).AddRow(createdAt))
+
+	_, cleanup, err := NewRepository(db).MaintenanceOldestTimes(context.Background(), orphanBefore, orphanAge)
+	if err != nil || !cleanup.Equal(createdAt.Add(orphanAge)) {
+		t.Fatalf("MaintenanceOldestTimes() cleanup=%v error=%v", cleanup, err)
+	}
+}
+
+func TestClaimImageCleanupCountsOnlySuccessfullyReclaimedExpiredLeases(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	orphanBefore := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListDeletePendingVideoCommentImageCleanupForUpdateSQL)).WithArgs(2).
+		WillReturnRows(sqlmock.NewRows([]string{"image_id", "user_id", "storage_key", "size_bytes"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListExpiredVideoCommentImageCleanupForUpdateSQL)).WithArgs(2).
+		WillReturnRows(sqlmock.NewRows([]string{"image_id", "user_id", "storage_key", "size_bytes"}).
+			AddRow("CIMG_1", "user-1", "video_comment/a.png", 3).
+			AddRow("CIMG_2", "user-2", "video_comment/b.png", 4))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentImageDeletingSQL)).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "CIMG_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentImageDeletingSQL)).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "CIMG_2").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	claim, err := NewRepository(db).ClaimImageCleanup(context.Background(), orphanBefore, 2, time.Minute)
+	if err != nil || len(claim.Assets) != 1 || claim.ExpiredLeaseReclaims != 1 {
+		t.Fatalf("ClaimImageCleanup() claim=%+v error=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
 	}
 }
 

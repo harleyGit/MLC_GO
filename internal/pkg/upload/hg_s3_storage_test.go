@@ -11,6 +11,28 @@ import (
 	"time"
 )
 
+func TestHGWaitForCDNObjectRetriesUntilContentIsVisible(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.NotFound(w, nil)
+			return
+		}
+		_, _ = w.Write([]byte("probe"))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := hgWaitForCDNObject(ctx, server.Client(), server.URL, []byte("probe"), time.Millisecond); err != nil {
+		t.Fatalf("hgWaitForCDNObject() error=%v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts=%d, want 3", attempts)
+	}
+}
+
 func TestS3StorageDriverUploadsWithSignatureAndReturnsCDNURL(t *testing.T) {
 	var method, authorization, contentType, body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

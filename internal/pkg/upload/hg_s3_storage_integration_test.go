@@ -3,6 +3,7 @@ package HGUploadPackage
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -31,16 +32,42 @@ func TestS3StorageIntegrationPutCDNGetDelete(t *testing.T) {
 		t.Fatalf("PUT probe error=%v", err)
 	}
 	defer func() { _ = driver.DeleteContext(context.Background(), key) }()
-	resp, err := http.DefaultClient.Get(url)
-	if err != nil {
+	if err := hgWaitForCDNObject(ctx, http.DefaultClient, url, body, 500*time.Millisecond); err != nil {
 		t.Fatalf("CDN GET probe error=%v", err)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
-	if readErr != nil || resp.StatusCode != http.StatusOK || !bytes.Equal(data, body) {
-		t.Fatalf("CDN GET status=%d body=%q error=%v", resp.StatusCode, data, readErr)
 	}
 	if err := driver.DeleteContext(ctx, key); err != nil {
 		t.Fatalf("DELETE probe error=%v", err)
+	}
+	// 第二次 DELETE 验证 S3 幂等重试契约；不使用 HEAD，避免为发布凭据额外要求 ListBucket 权限。
+	if err := driver.DeleteContext(ctx, key); err != nil {
+		t.Fatalf("second DELETE probe error=%v", err)
+	}
+}
+
+// hgWaitForCDNObject 在总 context 内等待 CDN 传播，并严格比较完整探针内容，避免仅凭 200 将旧缓存或错误对象判为成功。
+func hgWaitForCDNObject(ctx context.Context, client *http.Client, url string, expected []byte, retryInterval time.Duration) error {
+	var lastStatus int
+	var lastBody []byte
+	for {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		response, err := client.Do(request)
+		if err == nil {
+			lastStatus = response.StatusCode
+			lastBody, err = io.ReadAll(io.LimitReader(response.Body, 4096))
+			response.Body.Close()
+			if err == nil && response.StatusCode == http.StatusOK && bytes.Equal(lastBody, expected) {
+				return nil
+			}
+		}
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("CDN object not visible before timeout: status=%d body=%q: %w", lastStatus, lastBody, ctx.Err())
+		case <-timer.C:
+		}
 	}
 }

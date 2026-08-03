@@ -95,6 +95,18 @@ type HGImageCleanupAsset struct {
 	SizeBytes                                 int64
 }
 
+// HGReactionProjectionResult 返回本批已选中条目数和 revision CAS miss 数；即使后续条目失败，已观察到的 CAS miss 仍可上报。
+type HGReactionProjectionResult struct {
+	Projected int
+	CASMisses int
+}
+
+// HGImageCleanupClaim 返回成功持有新 fencing token 的资产，以及其中实际从过期 deleting 租约恢复的数量。
+type HGImageCleanupClaim struct {
+	Assets               []HGImageCleanupAsset
+	ExpiredLeaseReclaims int
+}
+
 // Repository 负责视频评论的同步 MySQL 权威读写。
 type Repository struct{ db *sql.DB }
 
@@ -422,10 +434,10 @@ func (r *Repository) Delete(ctx context.Context, userID, commentID string) (bool
 
 // ProjectReactionCounts 将一个有界 dirty 批次写入 video_comments 的列表/hot 反范式投影。
 // revision 是 CAS 版本：投影期间若有新 reaction，条件 DELETE 不命中，dirty 行保留；随后刷新排队时间把热点项移到队尾，避免阻塞后续评论。
-func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int, error) {
+func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (HGReactionProjectionResult, error) {
 	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentReactionDirtySQL, limit)
 	if err != nil {
-		return 0, fmt.Errorf("list reaction dirty: %w", err)
+		return HGReactionProjectionResult{}, fmt.Errorf("list reaction dirty: %w", err)
 	}
 	type dirty struct {
 		id       string
@@ -436,15 +448,17 @@ func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int,
 		var entry dirty
 		if err := rows.Scan(&entry.id, &entry.revision); err != nil {
 			rows.Close()
-			return 0, err
+			return HGReactionProjectionResult{}, err
 		}
 		entries = append(entries, entry)
 	}
 	rows.Close()
+	// Projected 表示本轮已选中的 dirty 数，用于维护任务判断是否继续下一批；CASMisses 随已执行条目递增。
+	result := HGReactionProjectionResult{Projected: len(entries)}
 	for _, entry := range entries {
 		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
-			return 0, err
+			return result, err
 		}
 		if _, err = tx.ExecContext(ctx, SQLQueriesPackage.ProjectVideoCommentReactionCountsSQL, entry.id); err == nil {
 			var deleteResult sql.Result
@@ -453,6 +467,7 @@ func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int,
 				var affected int64
 				affected, err = deleteResult.RowsAffected()
 				if err == nil && affected == 0 {
+					result.CASMisses++
 					// revision 已变化说明并发 reaction 发生在本轮投影窗口内；保留信号并公平重排，下一轮会再次聚合最新 32 分片。
 					_, err = tx.ExecContext(ctx, SQLQueriesPackage.RequeueVideoCommentReactionDirtySQL, entry.id, entry.revision)
 				}
@@ -460,36 +475,39 @@ func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (int,
 		}
 		if err != nil {
 			_ = tx.Rollback()
-			return 0, fmt.Errorf("project reaction %s: %w", entry.id, err)
+			return result, fmt.Errorf("project reaction %s: %w", entry.id, err)
 		}
 		if err = tx.Commit(); err != nil {
-			return 0, err
+			return result, err
 		}
 	}
-	return len(entries), nil
+	return result, nil
 }
 
 // ClaimImageCleanup 使用索引有界扫描并在同一事务内把候选资产切换为 deleting。
 // 该状态迁移与评论创建的 pending 行锁互斥，防止对象在绑定成功后被并发删除。
 // 查询优先级为显式删除、崩溃恢复、过期未绑定图片；每类使用独立复合索引，并共享剩余 limit，避免亿级表上的 OR/index-merge 扫描。
-func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Time, limit int, lease time.Duration) ([]HGImageCleanupAsset, error) {
+func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Time, limit int, lease time.Duration) (HGImageCleanupClaim, error) {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return nil, err
+		return HGImageCleanupClaim{}, err
 	}
 	defer tx.Rollback()
 	assets := make([]HGImageCleanupAsset, 0, limit)
 	queries := []struct {
-		sql  string
-		args []any
+		sql                 string
+		args                []any
+		expiredLeaseReclaim bool
 	}{
 		// delete_pending 已明确不可再绑定，优先释放对象和用户容量。
-		{SQLQueriesPackage.ListDeletePendingVideoCommentImageCleanupForUpdateSQL, []any{limit}},
+		{sql: SQLQueriesPackage.ListDeletePendingVideoCommentImageCleanupForUpdateSQL, args: []any{limit}},
 		// deleting 租约过期表示前一 worker 可能崩溃；S3 DELETE 幂等，因此允许新 token 重试。
-		{SQLQueriesPackage.ListExpiredVideoCommentImageCleanupForUpdateSQL, []any{limit}},
+		{sql: SQLQueriesPackage.ListExpiredVideoCommentImageCleanupForUpdateSQL, args: []any{limit}, expiredLeaseReclaim: true},
 		// pending 仅在超过 orphanBefore 后清理，为客户端上传后创建评论保留足够绑定窗口。
-		{SQLQueriesPackage.ListPendingVideoCommentImageCleanupForUpdateSQL, []any{orphanBefore, limit}},
+		{sql: SQLQueriesPackage.ListPendingVideoCommentImageCleanupForUpdateSQL, args: []any{orphanBefore, limit}},
 	}
+	// 仅记录候选来源；最终 reclaim 指标必须等 Mark...Deleting 成功后再累计，避免并发竞争造成虚高。
+	expiredLeaseAssets := make(map[string]struct{})
 	for _, query := range queries {
 		remaining := limit - len(assets)
 		if remaining <= 0 {
@@ -498,41 +516,89 @@ func (r *Repository) ClaimImageCleanup(ctx context.Context, orphanBefore time.Ti
 		query.args[len(query.args)-1] = remaining
 		rows, queryErr := tx.QueryContext(ctx, query.sql, query.args...)
 		if queryErr != nil {
-			return nil, fmt.Errorf("list image cleanup: %w", queryErr)
+			return HGImageCleanupClaim{}, fmt.Errorf("list image cleanup: %w", queryErr)
 		}
 		for rows.Next() {
 			var asset HGImageCleanupAsset
 			if scanErr := rows.Scan(&asset.ImageID, &asset.UserID, &asset.StorageKey, &asset.SizeBytes); scanErr != nil {
 				rows.Close()
-				return nil, scanErr
+				return HGImageCleanupClaim{}, scanErr
 			}
 			assets = append(assets, asset)
+			if query.expiredLeaseReclaim {
+				expiredLeaseAssets[asset.ImageID] = struct{}{}
+			}
 		}
 		if rowsErr := rows.Err(); rowsErr != nil {
 			rows.Close()
-			return nil, rowsErr
+			return HGImageCleanupClaim{}, rowsErr
 		}
 		rows.Close()
 	}
 	claimed := assets[:0]
+	expiredLeaseReclaims := 0
 	for _, asset := range assets {
 		asset.CleanupToken = UtilsPackage.GenerateBusinessID("CLM")
 		result, err := tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentImageDeletingSQL, asset.CleanupToken, time.Now().UTC().Add(lease), asset.ImageID)
 		if err != nil {
-			return nil, err
+			return HGImageCleanupClaim{}, err
 		}
 		affected, err := result.RowsAffected()
 		if err != nil {
-			return nil, err
+			return HGImageCleanupClaim{}, err
 		}
 		if affected == 1 {
 			claimed = append(claimed, asset)
+			if _, ok := expiredLeaseAssets[asset.ImageID]; ok {
+				expiredLeaseReclaims++
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return HGImageCleanupClaim{}, err
 	}
-	return claimed, nil
+	return HGImageCleanupClaim{Assets: claimed, ExpiredLeaseReclaims: expiredLeaseReclaims}, nil
+}
+
+// MaintenanceOldestTimes 使用四个单状态索引 LIMIT 1 查询待投影/待清理的最早可处理时间。
+// pending 资产返回 created_at+orphanAge，而不是上传时间，确保年龄表示超过绑定宽限期后的真实积压；指标抓取只读内存，不直接访问 MySQL。
+func (r *Repository) MaintenanceOldestTimes(ctx context.Context, orphanBefore time.Time, orphanAge time.Duration) (time.Time, time.Time, error) {
+	dirtyOldest, err := hgQueryOptionalTime(ctx, r.db, SQLQueriesPackage.SelectVideoCommentReactionDirtyOldestSQL)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("read oldest reaction dirty: %w", err)
+	}
+	cleanupQueries := []struct {
+		query string
+		args  []any
+	}{
+		{query: SQLQueriesPackage.SelectDeletePendingVideoCommentImageCleanupOldestSQL},
+		{query: SQLQueriesPackage.SelectExpiredVideoCommentImageCleanupOldestSQL},
+	}
+	var cleanupOldest time.Time
+	for _, cleanupQuery := range cleanupQueries {
+		candidate, queryErr := hgQueryOptionalTime(ctx, r.db, cleanupQuery.query, cleanupQuery.args...)
+		if queryErr != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("read oldest image cleanup: %w", queryErr)
+		}
+		if !candidate.IsZero() && (cleanupOldest.IsZero() || candidate.Before(cleanupOldest)) {
+			cleanupOldest = candidate
+		}
+	}
+	if pendingCreatedAt, queryErr := hgQueryOptionalTime(ctx, r.db, SQLQueriesPackage.SelectPendingVideoCommentImageCleanupOldestSQL, orphanBefore); queryErr != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("read oldest pending image cleanup: %w", queryErr)
+	} else if eligibleAt := pendingCreatedAt.Add(orphanAge); !pendingCreatedAt.IsZero() && (cleanupOldest.IsZero() || eligibleAt.Before(cleanupOldest)) {
+		cleanupOldest = eligibleAt
+	}
+	return dirtyOldest, cleanupOldest, nil
+}
+
+func hgQueryOptionalTime(ctx context.Context, db *sql.DB, query string, args ...any) (time.Time, error) {
+	var value time.Time
+	err := db.QueryRowContext(ctx, query, args...).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	return value, err
 }
 
 // CompleteImageCleanup 在对象删除成功后原子删除资产记录并归还用户容量。

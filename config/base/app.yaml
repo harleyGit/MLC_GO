@@ -39,6 +39,8 @@ correction_recovery:
   batch_size: 20
 
 video_comment:
+  # 仅当直连来源命中这些 CIDR 时才信任 X-Forwarded-For/X-Real-IP；生产也可用 VIDEO_COMMENT_TRUSTED_PROXY_CIDRS 逗号分隔覆盖。
+  trusted_proxy_cidrs: []
   storage:
     type: local
     endpoint: ""

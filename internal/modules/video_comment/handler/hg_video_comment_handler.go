@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 )
@@ -21,6 +21,8 @@ const hgMaxCommentImageBytes = 5 << 20
 // Handler 是认证视频评论 API 的 HTTP 入口。
 type Handler struct {
 	service *VideoCommentServicePackage.Service
+	// trustedProxyCIDRs 只描述可写入转发头的直连代理网段；为空时所有请求都只使用 RemoteAddr。
+	trustedProxyCIDRs []netip.Prefix
 }
 
 // Replies 返回指定根评论的时间正序回复页。
@@ -88,7 +90,7 @@ func (h *Handler) Image(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	response, err := h.service.UploadImage(r.Context(), userID, hgRemoteIP(r), reader, r.ContentLength, ext)
+	response, err := h.service.UploadImage(r.Context(), userID, hgClientIP(r, h.trustedProxyCIDRs), reader, r.ContentLength, ext)
 	if err != nil {
 		hgWriteError(w, r, err)
 		return
@@ -96,9 +98,9 @@ func (h *Handler) Image(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, response)
 }
 
-// NewHandler 创建认证视频评论 API Handler。
-func NewHandler(service *VideoCommentServicePackage.Service) *Handler {
-	return &Handler{service: service}
+// NewHandler 创建认证视频评论 API Handler，并复制启动期已校验的可信代理 CIDR，避免调用方后续修改切片。
+func NewHandler(service *VideoCommentServicePackage.Service, trustedProxyCIDRs ...netip.Prefix) *Handler {
+	return &Handler{service: service, trustedProxyCIDRs: append([]netip.Prefix(nil), trustedProxyCIDRs...)}
 }
 
 // Create 校验认证身份和受限 JSON 请求体后创建顶级评论或回复。
@@ -222,12 +224,63 @@ func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "评论服务暂不可用"})
 }
 
-func hgRemoteIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil && host != "" {
-		return host
+// hgClientIP 仅在 TCP 直连来源可信时解析代理头，并从右向左剥离可信代理，返回最右侧非可信地址。
+// 非可信来源、畸形 X-Forwarded-For 或不支持的 IP:port/quoted 格式均 fail closed 到 RemoteAddr，防止伪造来源绕过 IP 限流。
+func hgClientIP(r *http.Request, trustedProxyCIDRs []netip.Prefix) string {
+	peer := hgParseRemoteAddr(r.RemoteAddr)
+	if !peer.IsValid() {
+		return strings.TrimSpace(r.RemoteAddr)
 	}
-	return strings.TrimSpace(r.RemoteAddr)
+	if !hgIPInPrefixes(peer, trustedProxyCIDRs) {
+		return peer.String()
+	}
+	forwardedHeader := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if forwardedHeader == "" {
+		if realIP, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil {
+			return realIP.Unmap().String()
+		}
+		return peer.String()
+	}
+	forwarded := strings.Split(forwardedHeader, ",")
+	var leftmost netip.Addr
+	// 代理按追加语义写入 XFF；从最靠近应用的一跳向左验证，不能直接信任客户端可控的首项。
+	for index := len(forwarded) - 1; index >= 0; index-- {
+		candidate, err := netip.ParseAddr(strings.TrimSpace(forwarded[index]))
+		if err != nil {
+			return peer.String()
+		}
+		candidate = candidate.Unmap()
+		leftmost = candidate
+		if !hgIPInPrefixes(candidate, trustedProxyCIDRs) {
+			return candidate.String()
+		}
+	}
+	if leftmost.IsValid() {
+		return leftmost.String()
+	}
+	return peer.String()
+}
+
+// hgParseRemoteAddr 接受 net/http 常见的 IP:port 和测试场景纯 IP，并统一 IPv4-mapped IPv6 表示。
+func hgParseRemoteAddr(remoteAddr string) netip.Addr {
+	value := strings.TrimSpace(remoteAddr)
+	if addressPort, err := netip.ParseAddrPort(value); err == nil {
+		return addressPort.Addr().Unmap()
+	}
+	if address, err := netip.ParseAddr(value); err == nil {
+		return address.Unmap()
+	}
+	return netip.Addr{}
+}
+
+// hgIPInPrefixes 判断地址是否属于启动期规范化后的任一可信代理网段。
+func hgIPInPrefixes(address netip.Addr, prefixes []netip.Prefix) bool {
+	for _, prefix := range prefixes {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func hgParsePageSize(w http.ResponseWriter, r *http.Request) (int, bool) {
