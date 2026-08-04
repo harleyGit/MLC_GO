@@ -8,8 +8,13 @@ coin_jobs:
   consolidation_max_lot_amount: 10
 
 video_comment:
-  # 按实际负载均衡/Nginx 网段配置，禁止用 0.0.0.0/0 或 ::/0 信任任意客户端。
-  trusted_proxy_cidrs: []
+  # 这里填写“允许替客户端转发真实 IP”的负载均衡、Ingress 或 Nginx 所在网段。
+  # 只有请求的直接来源位于这些网段时，程序才会读取 X-Forwarded-For/X-Real-IP。
+  # 10.20.0.0/16 表示 10.20.0.0 到 10.20.255.255；10.30.0.0/16 同理。
+  # 不要填写 0.0.0.0/0 或 ::/0，否则任何客户端都可能伪造来源 IP 绕过按 IP 限流。
+  trusted_proxy_cidrs:
+    - 10.20.0.0/16
+    - 10.30.0.0/16
   storage:
     type: s3
     # endpoint/region/bucket/CDN 和访问凭据均由 VIDEO_COMMENT_* 环境变量注入。

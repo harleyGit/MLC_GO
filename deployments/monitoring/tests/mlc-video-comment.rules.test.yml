@@ -1,0 +1,106 @@
+# promtool 会读取上面的告警规则，再使用下面伪造的时间序列检查“何时告警、标签是什么”。
+rule_files:
+  - ../rules/mlc-video-comment.rules.yml
+
+# Prometheus 每分钟计算一次规则，便于直接用 5m、10m、15m 表达测试时刻。
+evaluation_interval: 1m
+
+tests:
+  # 场景 1：pod-a 的最老点赞/点踩同步任务等待 600 秒，pod-b 没有积压。
+  # 600x20 表示连续提供 20 个值，每个值都是 600；这也验证多副本会选择更严重的 pod-a。
+  - interval: 1m
+    input_series:
+      - series: mlc_video_comment_reaction_dirty_oldest_age_seconds{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 600x20
+      - series: mlc_video_comment_reaction_dirty_oldest_age_seconds{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 0x20
+    alert_rule_test:
+      # 阈值刚超过五分钟时仍处于 for 窗口，不应因单轮抖动告警。
+      - eval_time: 5m
+        alertname: MLCVideoCommentReactionProjectionBacklog
+        exp_alerts: []
+      # 到第 15 分钟时已经满足“持续 10 分钟”，因此应产生下面这一条 warning。
+      - eval_time: 15m
+        alertname: MLCVideoCommentReactionProjectionBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-comment
+            exp_annotations:
+              summary: Video comment reaction projection backlog is not converging
+              runbook_url: https://runbooks.internal/mlc/video-comment-reaction-backlog
+
+  # 场景 2：最老的可清理图片持续等待 600 秒，验证图片积压告警。
+  - interval: 1m
+    input_series:
+      - series: mlc_video_comment_image_cleanup_oldest_age_seconds{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 600x20
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MLCVideoCommentImageCleanupBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-comment
+            exp_annotations:
+              summary: Video comment image cleanup backlog is not converging
+              runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-backlog
+
+  # 场景 3：三个累计次数指标每分钟增加一次，验证 rate 和持续窗口。
+  - interval: 1m
+    input_series:
+      # 0+1x20 表示从 0 开始，每分钟加 1，共生成 20 个值。
+      # CAS miss 在两个 Pod 中都增长，用来验证先分别计算速度，再按服务和环境相加。
+      - series: mlc_video_comment_reaction_projection_cas_misses_total{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 0+1x20
+      - series: mlc_video_comment_reaction_projection_cas_misses_total{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 0+1x20
+      - series: mlc_video_comment_image_cleanup_expired_lease_reclaims_total{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 0+1x20
+      - series: mlc_video_comment_image_cleanup_failures_total{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 0+1x20
+    alert_rule_test:
+      # 第 5 分钟虽然已经观察到冲突，但还没有持续满 10 分钟，所以不能告警。
+      - eval_time: 5m
+        alertname: MLCVideoCommentReactionProjectionCASMisses
+        exp_alerts: []
+      # 第 15 分钟持续窗口已满足，应产生 CAS 冲突 warning。
+      - eval_time: 15m
+        alertname: MLCVideoCommentReactionProjectionCASMisses
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-comment
+            exp_annotations:
+              summary: Video comment reaction projection has sustained CAS contention
+              runbook_url: https://runbooks.internal/mlc/video-comment-reaction-cas-misses
+      # 过期租约回收也要求持续 10 分钟，所以在第 15 分钟产生 warning。
+      - eval_time: 15m
+        alertname: MLCVideoCommentImageCleanupExpiredLeaseReclaims
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-comment
+            exp_annotations:
+              summary: Video comment image cleanup is repeatedly reclaiming expired leases
+              runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-lease-reclaims
+      # 清理失败只要求持续 5 分钟，因此在第 10 分钟已经产生 critical。
+      - eval_time: 10m
+        alertname: MLCVideoCommentImageCleanupFailures
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: mlc-go
+              environment: prod
+              component: video-comment
+            exp_annotations:
+              summary: Video comment image cleanup is continuously failing
+              runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-failures

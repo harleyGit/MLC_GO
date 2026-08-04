@@ -1,0 +1,69 @@
+# 用途：定义视频评论点赞/点踩统计同步和图片清理任务的告警。
+# 名词解释：gauge 是可升可降的当前值，例如“最老任务已经等待多少秒”；counter 是只会累加的总次数。
+# 多副本说明：同一服务可能运行多个 Pod。年龄取所有 Pod 中最大值，次数先换算成“每秒增长速度”再相加。
+groups:
+  - name: mlc-video-comment
+    rules:
+      # 告警 1：点赞/点踩明细已经写入，但评论列表上的汇总数字长时间没有同步完成。
+      # max by (...)：多个 Pod 只保留同一服务、同一环境下最严重的等待时间。
+      # > 300：最老待同步记录已经等待超过 300 秒，也就是 5 分钟。
+      # for: 10m：上述情况必须连续存在 10 分钟才告警，单轮任务偶尔变慢不会误报。
+      - alert: MLCVideoCommentReactionProjectionBacklog
+        expr: max by (service, environment) (mlc_video_comment_reaction_dirty_oldest_age_seconds) > 300
+        for: 10m
+        labels:
+          # warning 表示需要排查，但还不是必须立即中断业务的最高级故障。
+          severity: warning
+          component: video-comment
+        annotations:
+          summary: Video comment reaction projection backlog is not converging
+          runbook_url: https://runbooks.internal/mlc/video-comment-reaction-backlog
+      # 告警 2：已经到达可删除时间的评论图片，长时间仍未从对象存储清理。
+      # 这里不会把图片正常绑定宽限期算作积压；只有真正达到清理条件后才开始计时。
+      # 同样要求等待时间超过 5 分钟并持续 10 分钟，避免一次短暂的 S3/CDN 波动误报。
+      - alert: MLCVideoCommentImageCleanupBacklog
+        expr: max by (service, environment) (mlc_video_comment_image_cleanup_oldest_age_seconds) > 300
+        for: 10m
+        labels:
+          severity: warning
+          component: video-comment
+        annotations:
+          summary: Video comment image cleanup backlog is not converging
+          runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-backlog
+      # 告警 3：同步点赞/点踩汇总时，数据库记录刚好被其他请求更新，导致本轮条件更新没有成功。
+      # 这种并发冲突简称 CAS miss。程序会保留任务稍后重试，少量偶发冲突属于正常现象。
+      # rate(...[5m])：用最近 5 分钟的数据计算“每秒新增多少次冲突”，而不是直接使用历史累计总数。
+      # sum by (...)：把多个 Pod 的冲突速度相加；连续 10 分钟仍大于 0 才提示存在持续热点竞争。
+      - alert: MLCVideoCommentReactionProjectionCASMisses
+        expr: sum by (service, environment) (rate(mlc_video_comment_reaction_projection_cas_misses_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: video-comment
+        annotations:
+          summary: Video comment reaction projection has sustained CAS contention
+          runbook_url: https://runbooks.internal/mlc/video-comment-reaction-cas-misses
+      # 告警 4：某个图片清理任务被 worker 领取后没有按时完成，租约过期后由其他 worker 重新领取。
+      # 租约可以理解为“限时处理凭证”，用于防止多个 worker 同时删除同一张图片。
+      # 偶发回收能够自动恢复；连续 10 分钟发生则可能是 worker 超时、崩溃或对象存储连接异常。
+      - alert: MLCVideoCommentImageCleanupExpiredLeaseReclaims
+        expr: sum by (service, environment) (rate(mlc_video_comment_image_cleanup_expired_lease_reclaims_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: video-comment
+        annotations:
+          summary: Video comment image cleanup is repeatedly reclaiming expired leases
+          runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-lease-reclaims
+      # 告警 5：删除对象、恢复待清理状态或完成数据库收尾时发生失败。
+      # 连续 5 分钟仍有新增失败就触发 critical，需要优先检查 S3 权限/可用性和数据库错误。
+      # critical 会走 Alertmanager 的严重告警通知通道；失败任务不会被静默当作成功。
+      - alert: MLCVideoCommentImageCleanupFailures
+        expr: sum by (service, environment) (rate(mlc_video_comment_image_cleanup_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: video-comment
+        annotations:
+          summary: Video comment image cleanup is continuously failing
+          runbook_url: https://runbooks.internal/mlc/video-comment-image-cleanup-failures
