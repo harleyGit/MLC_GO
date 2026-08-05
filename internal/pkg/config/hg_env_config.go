@@ -144,13 +144,14 @@ type HGVideoCommentConfig struct {
 	TrustedProxyCIDRs []netip.Prefix
 }
 
-// HGVideoDanmakuConfig 定义独立 gnet 网关、队列、帧和票据的硬资源边界。
+// HGVideoDanmakuConfig 定义独立 gnet 网关、分片房间、队列、限流、帧和票据的硬资源边界。
 type HGVideoDanmakuConfig struct {
-	Host                                                                     string
-	Port                                                                     string
-	AllowedOrigins                                                           []string
-	TicketTTL                                                                time.Duration
-	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes int
+	Host                                                                                  string
+	Port                                                                                  string
+	AllowedOrigins                                                                        []string
+	TicketTTL                                                                             time.Duration
+	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes              int
+	RoomShardCount, MemberShardCount, MaxPendingBytes, CommandRatePerSecond, CommandBurst int
 }
 
 // GetVideoDanmakuConfig 读取并校验弹幕实时网关配置。
@@ -165,6 +166,11 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		MaxConnections    int      `mapstructure:"max_connections"`
 		MaxFrameBytes     int      `mapstructure:"max_frame_bytes"`
 		MaxHandshakeBytes int      `mapstructure:"max_handshake_bytes"`
+		RoomShardCount    int      `mapstructure:"room_shard_count"`
+		MemberShardCount  int      `mapstructure:"member_shard_count"`
+		MaxPendingBytes   int      `mapstructure:"max_pending_bytes"`
+		CommandRate       int      `mapstructure:"command_rate_per_second"`
+		CommandBurst      int      `mapstructure:"command_burst"`
 	}
 	var cfg HGVideoDanmakuConfig
 	if err := viper.UnmarshalKey("video_danmaku", &raw); err != nil {
@@ -182,7 +188,9 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		return cfg, fmt.Errorf("video_danmaku.ticket_ttl 必须在 10s-5m 之间")
 	}
 	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
-	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 {
+	cfg.RoomShardCount, cfg.MemberShardCount, cfg.MaxPendingBytes = raw.RoomShardCount, raw.MemberShardCount, raw.MaxPendingBytes
+	cfg.CommandRatePerSecond, cfg.CommandBurst = raw.CommandRate, raw.CommandBurst
+	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 || !hgPowerOfTwo(cfg.RoomShardCount, 16, 4096) || !hgPowerOfTwo(cfg.MemberShardCount, 4, 256) || cfg.MaxPendingBytes < 16<<10 || cfg.MaxPendingBytes > 1<<20 || cfg.CommandRatePerSecond < 1 || cfg.CommandRatePerSecond > 100 || cfg.CommandBurst < cfg.CommandRatePerSecond || cfg.CommandBurst > 500 {
 		return cfg, fmt.Errorf("video_danmaku 资源边界配置无效")
 	}
 	allowedOrigins := raw.AllowedOrigins
@@ -200,6 +208,10 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		return cfg, fmt.Errorf("video_danmaku.allowed_origins 不能为空")
 	}
 	return cfg, nil
+}
+
+func hgPowerOfTwo(value, minValue, maxValue int) bool {
+	return value >= minValue && value <= maxValue && value&(value-1) == 0
 }
 
 // GetVideoCommentConfig validates storage, abuse controls and bounded maintenance work.

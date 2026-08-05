@@ -27,9 +27,50 @@ type hgConnection struct {
 	upgraded, pending bool
 	videoID, userID   string
 	handshake         []byte
+	memberShard       uint32
+	commandTokens     float64
+	commandRefillNano int64
 	// pendingBytes 是跨 goroutine 使用的出站预算。gnet 的 WriteBufferCap 超过后会转入弹性缓冲，
 	// 所以必须在应用层设置硬上限，避免慢客户端在热门房间中持续堆积广播直至 OOM。
 	pendingBytes atomic.Int64
+}
+
+type hgRoomMemberShard struct {
+	mu      sync.RWMutex
+	members map[string]map[gnet.Conn]*hgConnection
+}
+
+type hgRoom struct {
+	memberCount atomic.Int64
+	nextShard   atomic.Uint32
+}
+
+type hgRoomDirectoryShard struct {
+	mu      sync.RWMutex
+	rooms   map[string]*hgRoom
+	members []hgRoomMemberShard
+}
+
+type hgBroadcastEnvelope struct {
+	Type string                                 `json:"type"`
+	Data VideoDanmakuDtoPackage.DanmakuResponse `json:"data"`
+}
+
+type hgCommandAckEnvelope struct {
+	Type      string                                 `json:"type"`
+	RequestID string                                 `json:"requestId"`
+	Data      VideoDanmakuDtoPackage.DanmakuResponse `json:"data"`
+}
+
+type hgCommandErrorData struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type hgCommandErrorEnvelope struct {
+	Type      string             `json:"type"`
+	RequestID string             `json:"requestId,omitempty"`
+	Data      hgCommandErrorData `json:"data"`
 }
 
 // hgCommand 将 event-loop 已完成协议解析的创建请求交给有界 worker。
@@ -51,8 +92,7 @@ type Server struct {
 	ready          atomic.Bool
 	connections    atomic.Int64
 	queue          chan hgCommand
-	roomsMu        sync.RWMutex
-	rooms          map[string]map[gnet.Conn]*hgConnection
+	roomShards     []hgRoomDirectoryShard
 	workers        sync.WaitGroup
 	background     sync.WaitGroup
 	workerCtx      context.Context
@@ -63,7 +103,15 @@ type Server struct {
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
 func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRedisPackage.RedisService, config ConfigPackage.HGVideoDanmakuConfig) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), rooms: make(map[string]map[gnet.Conn]*hgConnection), workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4)}
+	roomShards := make([]hgRoomDirectoryShard, config.RoomShardCount)
+	for index := range roomShards {
+		roomShards[index].rooms = make(map[string]*hgRoom)
+		roomShards[index].members = make([]hgRoomMemberShard, config.MemberShardCount)
+		for memberIndex := range roomShards[index].members {
+			roomShards[index].members[memberIndex].members = make(map[string]map[gnet.Conn]*hgConnection)
+		}
+	}
+	return &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4)}
 }
 
 // Addr 返回 gnet 监听地址。
@@ -94,14 +142,22 @@ func (s *Server) Close(ctx context.Context) error {
 		return nil
 	}
 	s.ready.Store(false)
-	s.roomsMu.RLock()
 	conns := make([]gnet.Conn, 0, int(s.connections.Load()))
-	for _, room := range s.rooms {
-		for conn := range room {
-			conns = append(conns, conn)
+	for index := range s.roomShards {
+		directory := &s.roomShards[index]
+		directory.mu.RLock()
+		for memberIndex := range directory.members {
+			members := &directory.members[memberIndex]
+			members.mu.RLock()
+			for _, roomMembers := range members.members {
+				for conn := range roomMembers {
+					conns = append(conns, conn)
+				}
+			}
+			members.mu.RUnlock()
 		}
+		directory.mu.RUnlock()
 	}
-	s.roomsMu.RUnlock()
 	for _, conn := range conns {
 		_ = conn.AsyncWrite(ws.CompiledCloseGoingAway, nil)
 		_ = conn.Close()
@@ -202,6 +258,10 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 			}
 			if json.Unmarshal(payload, &command) != nil || command.Type != "danmaku.create" {
 				s.hgError(c, "invalid_command", "弹幕命令无效")
+				continue
+			}
+			if !s.hgAllowCommand(state, time.Now()) {
+				s.hgCommandError(c, command.Request.RequestID, "rate_limited", "弹幕发送过于频繁，请稍后重试")
 				continue
 			}
 			command.Request.VideoID = state.videoID
@@ -320,9 +380,10 @@ func (s *Server) Publish(ctx context.Context, item VideoDanmakuDtoPackage.Danmak
 	return s.redis.Client().Publish(ctx, PersistenceRedisPackage.VideoDanmakuBroadcastChannel, payload).Err()
 }
 
-// hgBroadcastLocal 将跨实例事件编码一次，并在 64 KiB 出站预算内复制给本机房间连接。
+// hgBroadcastLocal 将跨实例事件编码一次后逐成员分片广播；它不创建与房间人数线性增长的
+// 目标快照，也不会持有跨视频全局锁。每连接出站预算负责隔离慢客户端。
 func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) error {
-	payload, err := json.Marshal(map[string]any{"type": "danmaku.created", "data": item})
+	payload, err := json.Marshal(hgBroadcastEnvelope{Type: "danmaku.created", Data: item})
 	if err != nil {
 		return err
 	}
@@ -330,27 +391,34 @@ func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) e
 	if err != nil {
 		return err
 	}
-	s.roomsMu.RLock()
-	room := s.rooms[item.VideoID]
-	type target struct {
-		conn  gnet.Conn
-		state *hgConnection
+	directory := s.hgRoomDirectory(item.VideoID)
+	directory.mu.RLock()
+	room := directory.rooms[item.VideoID]
+	if room == nil {
+		directory.mu.RUnlock()
+		return nil
 	}
-	conns := make([]target, 0, len(room))
-	for conn, state := range room {
-		conns = append(conns, target{conn: conn, state: state})
+	frameBytes := int64(len(frame))
+	var slowConnections []gnet.Conn
+	for index := range directory.members {
+		members := &directory.members[index]
+		members.mu.RLock()
+		for conn, state := range members.members[item.VideoID] {
+			if state.pendingBytes.Add(frameBytes) > int64(s.config.MaxPendingBytes) {
+				state.pendingBytes.Add(-frameBytes)
+				slowConnections = append(slowConnections, conn)
+				continue
+			}
+			if err = conn.AsyncWrite(frame, func(_ gnet.Conn, _ error) error { state.pendingBytes.Add(-frameBytes); return nil }); err != nil {
+				state.pendingBytes.Add(-frameBytes)
+				slowConnections = append(slowConnections, conn)
+			}
+		}
+		members.mu.RUnlock()
 	}
-	s.roomsMu.RUnlock()
-	for _, target := range conns {
-		if target.state.pendingBytes.Add(int64(len(frame))) > 64<<10 {
-			target.state.pendingBytes.Add(-int64(len(frame)))
-			_ = target.conn.Close()
-			continue
-		}
-		if err = target.conn.AsyncWrite(frame, func(_ gnet.Conn, _ error) error { target.state.pendingBytes.Add(-int64(len(frame))); return nil }); err != nil {
-			target.state.pendingBytes.Add(-int64(len(frame)))
-			_ = target.conn.Close()
-		}
+	directory.mu.RUnlock()
+	for _, conn := range slowConnections {
+		_ = conn.Close()
 	}
 	return nil
 }
@@ -379,22 +447,72 @@ func (s *Server) hgSubscribeBroadcasts() {
 }
 
 func (s *Server) hgJoin(videoID string, c gnet.Conn, state *hgConnection) {
-	s.roomsMu.Lock()
-	if s.rooms[videoID] == nil {
-		s.rooms[videoID] = make(map[gnet.Conn]*hgConnection)
+	directory := s.hgRoomDirectory(videoID)
+	directory.mu.Lock()
+	room := directory.rooms[videoID]
+	if room == nil {
+		room = &hgRoom{}
+		directory.rooms[videoID] = room
 	}
-	s.rooms[videoID][c] = state
-	s.roomsMu.Unlock()
+	state.memberShard = room.nextShard.Add(1) % uint32(len(directory.members))
+	members := &directory.members[state.memberShard]
+	members.mu.Lock()
+	if members.members[videoID] == nil {
+		members.members[videoID] = make(map[gnet.Conn]*hgConnection)
+	}
+	members.members[videoID][c] = state
+	members.mu.Unlock()
+	room.memberCount.Add(1)
+	directory.mu.Unlock()
 }
 func (s *Server) hgLeave(videoID string, c gnet.Conn) {
-	s.roomsMu.Lock()
-	if room := s.rooms[videoID]; room != nil {
-		delete(room, c)
-		if len(room) == 0 {
-			delete(s.rooms, videoID)
+	directory := s.hgRoomDirectory(videoID)
+	directory.mu.Lock()
+	room := directory.rooms[videoID]
+	if room != nil {
+		state, _ := c.Context().(*hgConnection)
+		if state != nil && int(state.memberShard) < len(directory.members) {
+			members := &directory.members[state.memberShard]
+			members.mu.Lock()
+			roomMembers := members.members[videoID]
+			if _, exists := roomMembers[c]; exists {
+				delete(roomMembers, c)
+				if len(roomMembers) == 0 {
+					delete(members.members, videoID)
+				}
+				if room.memberCount.Add(-1) == 0 {
+					delete(directory.rooms, videoID)
+				}
+			}
+			members.mu.Unlock()
 		}
 	}
-	s.roomsMu.Unlock()
+	directory.mu.Unlock()
+}
+
+func (s *Server) hgRoomDirectory(videoID string) *hgRoomDirectoryShard {
+	var hash uint32 = 2166136261
+	for index := 0; index < len(videoID); index++ {
+		hash = (hash ^ uint32(videoID[index])) * 16777619
+	}
+	return &s.roomShards[hash&uint32(len(s.roomShards)-1)]
+}
+
+// hgAllowCommand 是连接所属 event-loop 内的无锁令牌桶，在进入共享 worker 队列和数据库前削掉突刺。
+func (s *Server) hgAllowCommand(state *hgConnection, now time.Time) bool {
+	nowNano := now.UnixNano()
+	if state.commandRefillNano == 0 {
+		state.commandTokens = float64(s.config.CommandBurst)
+		state.commandRefillNano = nowNano
+	}
+	elapsed := float64(nowNano-state.commandRefillNano) / float64(time.Second)
+	state.commandTokens = min(float64(s.config.CommandBurst), state.commandTokens+elapsed*float64(s.config.CommandRatePerSecond))
+	state.commandRefillNano = nowNano
+	if state.commandTokens < 1 {
+		return false
+	}
+	state.commandTokens--
+	return true
 }
 func (s *Server) hgAllowedOrigin(origin string) bool {
 	for _, allowed := range s.config.AllowedOrigins {
@@ -405,7 +523,7 @@ func (s *Server) hgAllowedOrigin(origin string) bool {
 	return false
 }
 func (s *Server) hgError(c gnet.Conn, code, message string) {
-	payload, _ := json.Marshal(map[string]any{"type": "error", "data": map[string]string{"code": code, "message": message}})
+	payload, _ := json.Marshal(hgCommandErrorEnvelope{Type: "error", Data: hgCommandErrorData{Code: code, Message: message}})
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
 	_ = c.AsyncWrite(frame, nil)
 }
@@ -426,13 +544,13 @@ func (s *Server) hgCommandError(c gnet.Conn, requestID, code, message string) {
 
 // hgCommandAckPayload 返回发送连接专属确认；房间广播仍使用 danmaku.created，二者职责不能合并。
 func hgCommandAckPayload(requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) []byte {
-	payload, _ := json.Marshal(map[string]any{"type": "danmaku.ack", "requestId": requestID, "data": item})
+	payload, _ := json.Marshal(hgCommandAckEnvelope{Type: "danmaku.ack", RequestID: requestID, Data: item})
 	return payload
 }
 
 // hgCommandErrorPayload 保留稳定公开错误和请求关联，不向浏览器暴露数据库或 Redis 内部错误。
 func hgCommandErrorPayload(requestID, code, message string) []byte {
-	payload, _ := json.Marshal(map[string]any{"type": "error", "requestId": requestID, "data": map[string]string{"code": code, "message": message}})
+	payload, _ := json.Marshal(hgCommandErrorEnvelope{Type: "error", RequestID: requestID, Data: hgCommandErrorData{Code: code, Message: message}})
 	return payload
 }
 

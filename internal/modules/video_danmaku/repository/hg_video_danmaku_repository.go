@@ -75,7 +75,7 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGDan
 		}
 		return HGDanmaku{}, false, fmt.Errorf("verify danmaku video: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoDanmakuSQL, command.DanmakuID, submissionID, videoID, command.UserID, command.RequestID, command.ProgressMS, command.Content, command.Mode, command.Color, command.FontSize)
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoDanmakuSQL, command.DanmakuID, submissionID, videoID, command.UserID, command.RequestID, command.ProgressMS, command.Content, command.Mode, command.Color, command.FontSize)
 	var item HGDanmaku
 	created := false
 	if hgDuplicate(err) {
@@ -85,9 +85,13 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGDan
 		}
 	} else if err == nil {
 		created = true
-		_, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoDanmakuStatShardSQL, videoID, crc32.ChecksumIEEE([]byte(command.DanmakuID))%64)
+		var insertedID int64
+		insertedID, err = result.LastInsertId()
 		if err == nil {
-			item, err = hgScan(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoDanmakuByIDSQL, command.DanmakuID))
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoDanmakuStatShardSQL, videoID, crc32.ChecksumIEEE([]byte(command.DanmakuID))%64)
+		}
+		if err == nil {
+			item, err = hgScan(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoDanmakuByPrimaryIDSQL, insertedID))
 		}
 	}
 	if err != nil {

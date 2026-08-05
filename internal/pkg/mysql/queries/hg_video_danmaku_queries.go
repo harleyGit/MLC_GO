@@ -16,8 +16,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	SelectVideoDanmakuByRequestIDSQL = `SELECT id, danmaku_id, submission_id, video_id, user_id, progress_ms, content, mode, color, font_size, created_at
 FROM video_danmaku WHERE user_id = ? AND request_id = ? LIMIT 1`
-	SelectVideoDanmakuByIDSQL = `SELECT id, danmaku_id, submission_id, video_id, user_id, progress_ms, content, mode, color, font_size, created_at
-FROM video_danmaku WHERE danmaku_id = ? AND status = 'active' LIMIT 1`
+	// SelectVideoDanmakuByPrimaryIDSQL 在 INSERT 后使用 LastInsertId 命中聚簇主键，避免亿级热表再次走 danmaku_id 二级索引。
+	SelectVideoDanmakuByPrimaryIDSQL = `SELECT id, danmaku_id, submission_id, video_id, user_id, progress_ms, content, mode, color, font_size, created_at
+	FROM video_danmaku WHERE id = ? LIMIT 1`
 
 	// IncrementVideoDanmakuStatShardSQL 将同一视频计数分散到 64 行，避免热门视频单行更新锁竞争。
 	IncrementVideoDanmakuStatShardSQL = `INSERT INTO video_danmaku_stat_shards (video_id, shard_id, danmaku_count)

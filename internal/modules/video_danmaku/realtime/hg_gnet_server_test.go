@@ -2,9 +2,11 @@ package VideoDanmakuRealtimePackage
 
 import (
 	VideoDanmakuDtoPackage "MLC_GO/internal/modules/video_danmaku/dto"
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/gobwas/ws"
 )
@@ -46,5 +48,41 @@ func TestCommandPayloadCompilesAsTextFrame(t *testing.T) {
 	frame, err := ws.CompileFrame(ws.NewTextFrame(payload))
 	if err != nil || !bytes.Contains(frame, []byte("danmaku.ack")) {
 		t.Fatalf("CompileFrame() frame=%q error=%v", frame, err)
+	}
+}
+
+func TestRoomDirectoryDistributesVideoIDs(t *testing.T) {
+	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{RoomShardCount: 16, MemberShardCount: 4})
+	seen := make(map[*hgRoomDirectoryShard]struct{})
+	for _, videoID := range []string{"video-1", "video-2", "video-3", "video-4", "video-5", "video-6"} {
+		seen[server.hgRoomDirectory(videoID)] = struct{}{}
+	}
+	if len(seen) < 2 {
+		t.Fatalf("video IDs used only %d room directory shard", len(seen))
+	}
+}
+
+func TestCommandRateLimiterAllowsBurstAndRefill(t *testing.T) {
+	server := &Server{config: ConfigPackage.HGVideoDanmakuConfig{CommandRatePerSecond: 2, CommandBurst: 3}}
+	state := &hgConnection{}
+	now := time.Unix(1_000, 0)
+	for index := 0; index < 3; index++ {
+		if !server.hgAllowCommand(state, now) {
+			t.Fatalf("burst command %d was rejected", index)
+		}
+	}
+	if server.hgAllowCommand(state, now) {
+		t.Fatal("command above burst was accepted")
+	}
+	if !server.hgAllowCommand(state, now.Add(500*time.Millisecond)) {
+		t.Fatal("one refilled token was not accepted")
+	}
+}
+
+func BenchmarkCommandAckPayload(b *testing.B) {
+	item := VideoDanmakuDtoPackage.DanmakuResponse{DanmakuID: "DMK_1", VideoID: "video-1", Content: "benchmark danmaku", ProgressMS: 12_345, Mode: "scroll", Color: "#FFFFFF", FontSize: 25}
+	b.ReportAllocs()
+	for index := 0; index < b.N; index++ {
+		_ = hgCommandAckPayload("request-1", item)
 	}
 }

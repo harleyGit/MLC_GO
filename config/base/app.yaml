@@ -19,6 +19,14 @@ video_danmaku:
   max_connections: 1000000
   max_frame_bytes: 4096
   max_handshake_bytes: 8192
+  # 顶层房间和热门房间成员分别分片，广播不会持有跨视频全局锁或创建全房间临时快照。
+  room_shard_count: 256
+  member_shard_count: 64
+  # 慢客户端超过该出站积压即主动断开，防止热门房间广播堆积耗尽进程内存。
+  max_pending_bytes: 65536
+  # 单连接创建命令令牌桶；控制帧和服务端广播不受该限制。
+  command_rate_per_second: 5
+  command_burst: 10
 
 interaction_reproject:
   enabled: true
