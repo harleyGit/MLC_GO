@@ -144,6 +144,64 @@ type HGVideoCommentConfig struct {
 	TrustedProxyCIDRs []netip.Prefix
 }
 
+// HGVideoDanmakuConfig 定义独立 gnet 网关、队列、帧和票据的硬资源边界。
+type HGVideoDanmakuConfig struct {
+	Host                                                                     string
+	Port                                                                     string
+	AllowedOrigins                                                           []string
+	TicketTTL                                                                time.Duration
+	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes int
+}
+
+// GetVideoDanmakuConfig 读取并校验弹幕实时网关配置。
+func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
+	var raw struct {
+		Host              string   `mapstructure:"host"`
+		Port              string   `mapstructure:"port"`
+		AllowedOrigins    []string `mapstructure:"allowed_origins"`
+		TicketTTL         string   `mapstructure:"ticket_ttl"`
+		WorkerCount       int      `mapstructure:"worker_count"`
+		QueueSize         int      `mapstructure:"queue_size"`
+		MaxConnections    int      `mapstructure:"max_connections"`
+		MaxFrameBytes     int      `mapstructure:"max_frame_bytes"`
+		MaxHandshakeBytes int      `mapstructure:"max_handshake_bytes"`
+	}
+	var cfg HGVideoDanmakuConfig
+	if err := viper.UnmarshalKey("video_danmaku", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 video danmaku 配置失败: %w", err)
+	}
+	cfg.Host, cfg.Port = strings.TrimSpace(raw.Host), strings.TrimSpace(raw.Port)
+	if cfg.Host == "" {
+		cfg.Host = "0.0.0.0"
+	}
+	if err := hgValidatePort("video_danmaku.port", cfg.Port); err != nil {
+		return cfg, err
+	}
+	var err error
+	if cfg.TicketTTL, err = time.ParseDuration(raw.TicketTTL); err != nil || cfg.TicketTTL < 10*time.Second || cfg.TicketTTL > 5*time.Minute {
+		return cfg, fmt.Errorf("video_danmaku.ticket_ttl 必须在 10s-5m 之间")
+	}
+	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
+	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 {
+		return cfg, fmt.Errorf("video_danmaku 资源边界配置无效")
+	}
+	allowedOrigins := raw.AllowedOrigins
+	// 生产域名通常由发布环境决定，允许用逗号分隔环境变量覆盖 YAML，避免镜像内固化站点域名。
+	if value := strings.TrimSpace(os.Getenv("VIDEO_DANMAKU_ALLOWED_ORIGINS")); value != "" {
+		allowedOrigins = strings.Split(value, ",")
+	}
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if origin != "" {
+			cfg.AllowedOrigins = append(cfg.AllowedOrigins, origin)
+		}
+	}
+	if len(cfg.AllowedOrigins) == 0 {
+		return cfg, fmt.Errorf("video_danmaku.allowed_origins 不能为空")
+	}
+	return cfg, nil
+}
+
 // GetVideoCommentConfig validates storage, abuse controls and bounded maintenance work.
 func GetVideoCommentConfig() (HGVideoCommentConfig, error) {
 	var raw struct {

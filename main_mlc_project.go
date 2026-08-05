@@ -12,6 +12,8 @@ import (
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	VideoCommentModulePackage "MLC_GO/internal/modules/video_comment/module"
 	VideoCommentTaskPackage "MLC_GO/internal/modules/video_comment/task"
+	VideoDanmakuModulePackage "MLC_GO/internal/modules/video_danmaku/module"
+	VideoDanmakuRealtimePackage "MLC_GO/internal/modules/video_danmaku/realtime"
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
@@ -77,6 +79,7 @@ type MLCApplication struct {
 	coinJobs                *CoinTaskPackage.HGJobs
 	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
+	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -97,6 +100,9 @@ func mlc_main() {
 
 	logHG.DebugFInfo("HTTP server 开始监听: %s", app.server.Addr)
 	logHG.DebugFInfo("Management server 开始监听: %s", app.managementServer.Addr)
+	if app.videoDanmakuRealtime != nil {
+		logHG.DebugFInfo("Danmaku realtime 开始监听: %s", app.videoDanmakuRealtime.Addr())
+	}
 	if err := app.Serve(context.Background()); err != nil {
 		logHG.ErrFInfo("HTTP server 运行失败: %v", err)
 	}
@@ -259,6 +265,25 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if videoCommentComponents.Maintenance != nil {
 		videoCommentComponents.Maintenance.Start(context.Background())
 	}
+	videoDanmakuComponents, err := VideoDanmakuModulePackage.RegisterModules(redisService, sqlManager)
+	if err != nil {
+		if videoCommentComponents.Maintenance != nil {
+			videoCommentComponents.Maintenance.Close()
+		}
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Video danmaku模块初始化失败: %w", err)
+	}
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
 	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
@@ -323,7 +348,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
 	// Component writers expose process-local snapshots only; scraping /metrics never performs MySQL, Redis, Kafka, or other external I/O.
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime),
+		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime),
 		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics),
 	})
 
@@ -359,6 +384,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		coinJobs:                coinJobs,
 		correctionRecovery:      correctionRecovery,
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
+		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
 	}, nil
 }
 
@@ -368,7 +394,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 // Kubernetes/负载均衡可以据此在依赖不可用时摘掉实例，避免把请求打到不可服务的节点。
 // kafkaEnabled 表达本次启动是否已成功初始化 Kafka；生产启动成功后该值必须为 true。
 // Kafka 已初始化时必须持续检查，防止 broker 故障后实例继续被流量入口视为 ready。
-func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool, kafkaRuntime ...kafkaReadyChecker) HGHandlerPackage.DependencyChecker {
+func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, kafkaEnabled bool, dependencies ...interface{ Ready() error }) HGHandlerPackage.DependencyChecker {
 	return func(ctx context.Context) error {
 		if err := redisService.PingContext(ctx); err != nil {
 			return fmt.Errorf("redis not ready: %w", err)
@@ -381,9 +407,11 @@ func newReadyCheck(redisService *PersistenceRedisPackage.RedisService, sqlManage
 				return fmt.Errorf("kafka not ready: %w", err)
 			}
 		}
-		if len(kafkaRuntime) > 0 && kafkaRuntime[0] != nil {
-			if err := kafkaRuntime[0].Ready(); err != nil {
-				return fmt.Errorf("kafka consumer runtime not ready: %w", err)
+		for _, dependency := range dependencies {
+			if dependency != nil {
+				if err := dependency.Ready(); err != nil {
+					return fmt.Errorf("runtime dependency not ready: %w", err)
+				}
 			}
 		}
 		return nil
@@ -426,13 +454,20 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 		return errors.New("mlc application server is nil")
 	}
 
-	serveErr := make(chan error, 2)
+	serverCount := 2
+	if app.videoDanmakuRealtime != nil {
+		serverCount++
+	}
+	serveErr := make(chan error, serverCount)
 	go func() {
 		serveErr <- serveNamedMLCServer("business", app.server)
 	}()
 	go func() {
 		serveErr <- serveNamedMLCServer("management", app.managementServer)
 	}()
+	if app.videoDanmakuRealtime != nil {
+		go func() { serveErr <- app.videoDanmakuRealtime.Serve() }()
+	}
 
 	stopCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -443,6 +478,9 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 		defer cancel()
 		_ = app.server.Shutdown(shutdownCtx)
 		_ = app.managementServer.Shutdown(shutdownCtx)
+		if app.videoDanmakuRealtime != nil {
+			_ = app.videoDanmakuRealtime.Close(shutdownCtx)
+		}
 		return err
 	case <-stopCtx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
@@ -453,12 +491,17 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 		if err := app.managementServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("management server shutdown failed: %w", err)
 		}
-		firstErr := <-serveErr
-		secondErr := <-serveErr
-		if firstErr != nil {
-			return firstErr
+		if app.videoDanmakuRealtime != nil {
+			if err := app.videoDanmakuRealtime.Close(shutdownCtx); err != nil {
+				return fmt.Errorf("danmaku realtime shutdown failed: %w", err)
+			}
 		}
-		return secondErr
+		for i := 0; i < serverCount; i++ {
+			if err := <-serveErr; err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 }
 
@@ -481,6 +524,12 @@ func (app *MLCApplication) Close() {
 	}
 	if app.videoCommentMaintenance != nil {
 		app.videoCommentMaintenance.Close()
+	}
+	// 实时网关依赖 Redis/MySQL，必须在连接池关闭前停止 worker 和全部 WebSocket 连接。
+	if app.videoDanmakuRealtime != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
+		_ = app.videoDanmakuRealtime.Close(shutdownCtx)
+		cancel()
 	}
 	if app.kafkaCloser != nil {
 		app.kafkaCloser()
@@ -506,6 +555,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoCommentRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.VideoDanmakuRouteCatalog()...)
 	// 收集 ops 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
 	// 收集 test 模块路由清单

@@ -22,7 +22,12 @@ const (
 	InteractionReprojectLeaseKeyPrefix      = "interaction:reproject:{control}:lease:"
 	InteractionReprojectCheckpointKeyPrefix = "interaction:reproject:{control}:checkpoint:"
 	CoinJobLeaseKeyPrefix                   = "coin:jobs:{global}:lease:"
+	VideoDanmakuTicketKeyPrefix             = "video:danmaku:ticket:"
+	VideoDanmakuBroadcastChannel            = "video:danmaku:broadcast:v1"
 )
+
+// GetVideoDanmakuTicketKey 返回单次 WebSocket 票据 key；ticket 是随机值，不使用业务 ID 作为热点 hash tag。
+func GetVideoDanmakuTicketKey(ticket string) string { return VideoDanmakuTicketKeyPrefix + ticket }
 
 func GetVideoInteractionStateKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s{%s}:%s", VideoInteractionStateKeyPrefix, submissionID, userID)

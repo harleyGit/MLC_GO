@@ -38,6 +38,14 @@ if nextCount < 0 then redis.call('HSET', countKey, field, 0) end
 return 1
 `
 
+// VideoDanmakuConsumeTicketLuaScript 原子读取并删除一次性 WebSocket 票据，阻止重放。
+// KEYS[1] 是票据 key；成功返回绑定的 JSON，票据不存在或已消费时返回 nil。
+const VideoDanmakuConsumeTicketLuaScript = `
+local value = redis.call('GET', KEYS[1])
+if not value then return nil end
+redis.call('DEL', KEYS[1])
+return value`
+
 // InteractionReprojectCommitLuaScript atomically fences the lease owner, stores its checkpoint, and releases the lease.
 // KEYS[1] is the lease and KEYS[2] is the checkpoint; ARGV[1] is the owner token and ARGV[2] is the encoded cursor.
 const InteractionReprojectCommitLuaScript = `

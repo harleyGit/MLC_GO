@@ -1,6 +1,11 @@
 server:
   port: 80
 
+video_danmaku:
+  # 部署必须通过 VIDEO_DANMAKU_ALLOWED_ORIGINS 覆盖实际 Web 站点 Origin；gnet 会精确匹配白名单。
+  allowed_origins:
+    - https://www.example.com
+
 coin_jobs:
   # 生产首次启用只处理 1 个钱包、每钱包最多锁 4 个 source lots。
   consolidation_batch_size: 1

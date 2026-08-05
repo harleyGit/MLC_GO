@@ -5,6 +5,7 @@ import (
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	VideoCommentHandlerPackage "MLC_GO/internal/modules/video_comment/handler"
+	VideoDanmakuHandlerPackage "MLC_GO/internal/modules/video_danmaku/handler"
 	VideoInteractionHandlerPackage "MLC_GO/internal/modules/video_interaction/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
@@ -20,6 +21,7 @@ const (
 	OpsModuleBasePath              = "/api/v1/ops"          // 运维管理模块基础路径
 	VideoInteractionModuleBasePath = "/api/v1/video_interactions"
 	VideoCommentModuleBasePath     = "/api/v1/video_comments"
+	VideoDanmakuModuleBasePath     = "/api/v1/video_danmaku"
 )
 
 // endregion
@@ -160,6 +162,16 @@ func NewVideoCommentRouteGroup(handler *VideoCommentHandlerPackage.Handler) http
 // VideoCommentRouteCatalog 返回视频评论模块完整可调用路径清单。
 func VideoCommentRouteCatalog() []RouteCatalogItem {
 	return BuildRouteCatalogItems(videoCommentRoutes(nil))
+}
+
+// NewVideoDanmakuRouteGroup 为弹幕历史、创建和票据接口统一应用 API Guard 与 JWT。
+func NewVideoDanmakuRouteGroup(handler *VideoDanmakuHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(RouteGroupConfig{BasePath: VideoDanmakuModuleBasePath, Rules: HGServerPackage.VideoDanmakuMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoDanmakuRoutes(handler))
+}
+
+// VideoDanmakuRouteCatalog 返回 HTTP 与 WebSocket 的完整公开路径清单。
+func VideoDanmakuRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(videoDanmakuRoutes(nil))
 }
 
 // endregion

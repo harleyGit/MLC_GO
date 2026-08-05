@@ -134,7 +134,7 @@ require (
 	github.com/robfig/cron v1.2.0
 	github.com/spf13/viper v1.20.0 // 读取配置文件的库
 	github.com/tealeg/xlsx v1.0.5
-	go.uber.org/zap v1.18.1
+	go.uber.org/zap v1.27.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 )
@@ -148,22 +148,28 @@ require (
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	go.uber.org/atomic v1.9.0 // indirect
-	go.uber.org/multierr v1.9.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.25.0
 )
 
 require github.com/julienschmidt/httprouter v1.3.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/gobwas/ws v1.4.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/panjf2000/gnet/v2 v2.9.6
 	github.com/twmb/franz-go v1.21.5
+	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 )
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
+	github.com/gobwas/httphead v0.1.0 // indirect
+	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/panjf2000/ants/v2 v2.11.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
 require github.com/joho/godotenv v1.5.1 // 读取 config/MLC.env 中的默认运行环境

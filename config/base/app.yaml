@@ -7,6 +7,19 @@ management:
   host: 127.0.0.1
   port: 9091
 
+video_danmaku:
+  # gnet 使用独立内部端口；生产由 Ingress 将 /api/v1/video_danmaku/ws 转发到该端口并终止 TLS。
+  host: 0.0.0.0
+  port: 8081
+  allowed_origins:
+    - http://localhost:5174
+  ticket_ttl: 45s
+  worker_count: 16
+  queue_size: 65536
+  max_connections: 1000000
+  max_frame_bytes: 4096
+  max_handshake_bytes: 8192
+
 interaction_reproject:
   enabled: true
   interval: 1m

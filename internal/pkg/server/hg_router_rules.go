@@ -225,6 +225,16 @@ func VideoCommentMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return rules
 }
 
+// VideoDanmakuMethodRules 仅包含标准 HTTP 端口上的接口；/ws 由 gnet 自行校验 Origin 和一次性票据。
+func VideoDanmakuMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	paths := map[string]string{"/create": http.MethodPost, "/list": http.MethodGet, "/ticket": http.MethodPost}
+	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
+	for path, method := range paths {
+		rules = append(rules, HGMiddlewarePackage.HGAPIRule{Path: path, Version: "v1", Methods: map[string]bool{method: true}, NeedAuth: true})
+	}
+	return rules
+}
+
 func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
 		{
