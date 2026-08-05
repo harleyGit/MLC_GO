@@ -31,10 +31,14 @@ type hgConnection struct {
 	// 所以必须在应用层设置硬上限，避免慢客户端在热门房间中持续堆积广播直至 OOM。
 	pendingBytes atomic.Int64
 }
+
+// hgCommand 将 event-loop 已完成协议解析的创建请求交给有界 worker。
+// requestID 同时用于数据库幂等和 WebSocket ack/error 关联，客户端断线回退 HTTP 时必须保持不变。
 type hgCommand struct {
-	conn    gnet.Conn
-	userID  string
-	request VideoDanmakuDtoPackage.CreateRequest
+	conn      gnet.Conn
+	userID    string
+	requestID string
+	request   VideoDanmakuDtoPackage.CreateRequest
 }
 
 // Server 是独立端口的 gnet WebSocket 弹幕网关；事件循环不执行 MySQL/Redis 阻塞 I/O。
@@ -202,9 +206,9 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 			}
 			command.Request.VideoID = state.videoID
 			select {
-			case s.queue <- hgCommand{conn: c, userID: state.userID, request: command.Request}:
+			case s.queue <- hgCommand{conn: c, userID: state.userID, requestID: command.Request.RequestID, request: command.Request}:
 			default:
-				s.hgError(c, "busy", "弹幕服务繁忙，请稍后重试")
+				s.hgCommandError(c, command.Request.RequestID, "busy", "弹幕服务繁忙，请稍后重试")
 			}
 		default:
 			_ = c.AsyncWrite(ws.CompiledCloseUnsupportedData, nil)
@@ -293,12 +297,16 @@ func (s *Server) hgWorker() {
 			return
 		case command := <-s.queue:
 			ctx, cancel := context.WithTimeout(s.workerCtx, 3*time.Second)
-			_, err := s.service.Create(ctx, command.userID, command.request)
+			item, err := s.service.Create(ctx, command.userID, command.request)
 			cancel()
 			if err != nil {
 				// 未知错误只返回稳定文案，SQL driver 和事务上下文保留在服务端，不能泄露给客户端。
-				s.hgError(command.conn, "create_failed", "弹幕发送失败，请稍后重试")
+				s.hgCommandError(command.conn, command.requestID, "create_failed", "弹幕发送失败，请稍后重试")
+				continue
 			}
+			// 广播面向整个房间，ack 只返回给发送连接。requestId 让浏览器能够在并发发送时
+			// 精确完成对应 Promise；若 ack 丢失，客户端可用同一 requestId 通过 HTTP 幂等回退。
+			s.hgCommandAck(command.conn, command.requestID, item)
 		}
 	}
 }
@@ -400,6 +408,32 @@ func (s *Server) hgError(c gnet.Conn, code, message string) {
 	payload, _ := json.Marshal(map[string]any{"type": "error", "data": map[string]string{"code": code, "message": message}})
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
 	_ = c.AsyncWrite(frame, nil)
+}
+
+func (s *Server) hgCommandAck(c gnet.Conn, requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) {
+	payload := hgCommandAckPayload(requestID, item)
+	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
+	_ = c.AsyncWrite(frame, nil)
+}
+
+// hgCommandError 只表示某一条创建命令已被服务端明确拒绝；携带 requestID 后，客户端应结束该请求，
+// 不能再自动回退 HTTP。只有断线、未连接或 ack 超时这类结果未知场景才允许以相同 requestID 重试。
+func (s *Server) hgCommandError(c gnet.Conn, requestID, code, message string) {
+	payload := hgCommandErrorPayload(requestID, code, message)
+	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
+	_ = c.AsyncWrite(frame, nil)
+}
+
+// hgCommandAckPayload 返回发送连接专属确认；房间广播仍使用 danmaku.created，二者职责不能合并。
+func hgCommandAckPayload(requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) []byte {
+	payload, _ := json.Marshal(map[string]any{"type": "danmaku.ack", "requestId": requestID, "data": item})
+	return payload
+}
+
+// hgCommandErrorPayload 保留稳定公开错误和请求关联，不向浏览器暴露数据库或 Redis 内部错误。
+func hgCommandErrorPayload(requestID, code, message string) []byte {
+	payload, _ := json.Marshal(map[string]any{"type": "error", "requestId": requestID, "data": map[string]string{"code": code, "message": message}})
+	return payload
 }
 
 // hgHandshakeMetadata 只解析已经完整收齐且大小受限的 HTTP 请求，不读取 socket，也不产生外部 I/O。

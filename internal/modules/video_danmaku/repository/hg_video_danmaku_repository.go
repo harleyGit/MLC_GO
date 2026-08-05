@@ -49,7 +49,7 @@ type Repository struct{ db *sql.DB }
 // NewRepository 创建复用共享连接池的弹幕仓储。
 func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
 
-// ResolveVideo 验证视频已发布、公开且未关闭弹幕。
+// ResolveVideo 验证视频处于页面可见状态、公开且未关闭弹幕。
 func (r *Repository) ResolveVideo(ctx context.Context, videoID string) (string, error) {
 	var resolved, submissionID string
 	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectDanmakuVideoTargetSQL, videoID).Scan(&resolved, &submissionID); err != nil {
