@@ -61,6 +61,7 @@ EOF
     DESCRIBE_OUTPUT_FILE="${temp_dir}/describe.txt" \
         PATH="${temp_dir}/bin:${PATH}" \
         KAFKA_PARTITIONS=2 \
+        KAFKA_DANMAKU_PARTITIONS=2 \
         KAFKA_REPLICATION_FACTOR=3 \
         "${SCRIPT_DIR}/kafka_init.sh" >/dev/null 2>&1
     # $? 是上一条命令的退出码，必须在执行其他命令前立即保存。

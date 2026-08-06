@@ -35,9 +35,10 @@ type HGKafkaClusterConfig struct {
 
 // HGConsumerConfig 定义一个独立消费组。
 type HGConsumerConfig struct {
-	Enabled  bool   `yaml:"enabled" mapstructure:"enabled"`
-	GroupID  string `yaml:"group_id" mapstructure:"group_id"`
-	ClientID string `yaml:"client_id" mapstructure:"client_id"`
+	Enabled  bool     `yaml:"enabled" mapstructure:"enabled"`
+	GroupID  string   `yaml:"group_id" mapstructure:"group_id"`
+	ClientID string   `yaml:"client_id" mapstructure:"client_id"`
+	Topics   []string `yaml:"topics" mapstructure:"topics"`
 }
 
 // HGConsumerGroupConfigs 为各读模型分配独立消费位点。
@@ -47,6 +48,7 @@ type HGConsumerGroupConfigs struct {
 	Statistic   HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
 	Audit       HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
 	Interaction HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
+	Danmaku     HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
 }
 
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
@@ -110,6 +112,7 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 	normalize := func(cfg HGConsumerConfig) HGConsumerConfig {
 		cfg.GroupID = strings.TrimSpace(cfg.GroupID)
 		cfg.ClientID = strings.TrimSpace(cfg.ClientID)
+		cfg.Topics = hgTrimNonEmptyStrings(cfg.Topics)
 		return cfg
 	}
 	return HGConsumerGroupConfigs{
@@ -118,6 +121,7 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 		Statistic:   normalize(groups.Statistic),
 		Audit:       normalize(groups.Audit),
 		Interaction: normalize(groups.Interaction),
+		Danmaku:     normalize(groups.Danmaku),
 	}
 }
 

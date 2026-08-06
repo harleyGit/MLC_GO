@@ -92,7 +92,9 @@ type Server struct {
 	ready          atomic.Bool
 	connections    atomic.Int64
 	queue          chan hgCommand
+	broadcastQueue []chan VideoDanmakuDtoPackage.DanmakuResponse
 	roomShards     []hgRoomDirectoryShard
+	roomRouter     *hgRoomRouter
 	workers        sync.WaitGroup
 	background     sync.WaitGroup
 	workerCtx      context.Context
@@ -103,6 +105,12 @@ type Server struct {
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
 func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRedisPackage.RedisService, config ConfigPackage.HGVideoDanmakuConfig) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
+	if config.BroadcastWorkerCount <= 0 {
+		config.BroadcastWorkerCount = 1
+	}
+	if config.BroadcastQueueSize <= 0 {
+		config.BroadcastQueueSize = 64
+	}
 	roomShards := make([]hgRoomDirectoryShard, config.RoomShardCount)
 	for index := range roomShards {
 		roomShards[index].rooms = make(map[string]*hgRoom)
@@ -111,7 +119,13 @@ func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRe
 			roomShards[index].members[memberIndex].members = make(map[string]map[gnet.Conn]*hgConnection)
 		}
 	}
-	return &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4)}
+	broadcastQueue := make([]chan VideoDanmakuDtoPackage.DanmakuResponse, config.BroadcastWorkerCount)
+	for index := range broadcastQueue {
+		broadcastQueue[index] = make(chan VideoDanmakuDtoPackage.DanmakuResponse, config.BroadcastQueueSize)
+	}
+	server := &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), broadcastQueue: broadcastQueue, roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4)}
+	server.roomRouter = newHGRoomRouter(redis, config.BroadcastQueueSize, server.hgEnqueueBroadcast)
+	return server
 }
 
 // Addr 返回 gnet 监听地址。
@@ -123,8 +137,15 @@ func (s *Server) Serve() error {
 		s.workers.Add(1)
 		go s.hgWorker()
 	}
+	for index := range s.broadcastQueue {
+		s.workers.Add(1)
+		go s.hgBroadcastWorker(s.broadcastQueue[index])
+	}
 	s.background.Add(1)
-	go s.hgSubscribeBroadcasts()
+	go func() {
+		defer s.background.Done()
+		_ = s.roomRouter.Run(s.workerCtx)
+	}()
 	return gnet.Run(s, s.Addr(), gnet.WithMulticore(true), gnet.WithReadBufferCap(s.config.MaxHandshakeBytes), gnet.WithWriteBufferCap(16<<10), gnet.WithTCPKeepAlive(90*time.Second))
 }
 
@@ -195,6 +216,7 @@ func (s *Server) OnClose(c gnet.Conn, _ error) gnet.Action {
 	state, _ := c.Context().(*hgConnection)
 	if state != nil && state.videoID != "" {
 		s.hgLeave(state.videoID, c)
+		s.roomRouter.Leave(state.videoID)
 	}
 	return gnet.None
 }
@@ -320,7 +342,11 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 			_ = c.Close()
 			return
 		}
-		_ = c.EventLoop().Execute(context.Background(), gnet.RunnableFunc(func(context.Context) error {
+		if subscribeErr := s.roomRouter.Join(ctx, binding.VideoID); subscribeErr != nil {
+			_ = c.Close()
+			return
+		}
+		executeErr := c.EventLoop().Execute(context.Background(), gnet.RunnableFunc(func(context.Context) error {
 			var output bytes.Buffer
 			_, upgradeErr := (ws.Upgrader{OnRequest: func(uri []byte) error {
 				parsed, parseErr := url.ParseRequestURI(string(uri))
@@ -337,6 +363,7 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 				_, _ = c.Write(output.Bytes())
 			}
 			if upgradeErr != nil {
+				s.roomRouter.Leave(binding.VideoID)
 				return c.EventLoop().Close(c)
 			}
 			state.pending, state.upgraded, state.videoID, state.userID = false, true, binding.VideoID, binding.UserID
@@ -345,6 +372,10 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 			_ = c.Wake(nil)
 			return nil
 		}))
+		if executeErr != nil {
+			s.roomRouter.Leave(binding.VideoID)
+			_ = c.Close()
+		}
 	}()
 	return gnet.None
 }
@@ -373,11 +404,31 @@ func (s *Server) hgWorker() {
 
 // Publish 将已提交弹幕发布到 Redis，使不同实例上的本地房间都能收到；MySQL 历史仍是权威恢复来源。
 func (s *Server) Publish(ctx context.Context, item VideoDanmakuDtoPackage.DanmakuResponse) error {
-	payload, err := json.Marshal(item)
-	if err != nil {
-		return err
+	return s.roomRouter.Publish(ctx, item)
+}
+
+func (s *Server) hgEnqueueBroadcast(item VideoDanmakuDtoPackage.DanmakuResponse) {
+	if len(s.broadcastQueue) == 0 {
+		return
 	}
-	return s.redis.Client().Publish(ctx, PersistenceRedisPackage.VideoDanmakuBroadcastChannel, payload).Err()
+	queue := s.broadcastQueue[hgHashVideoID(item.VideoID)&uint32(len(s.broadcastQueue)-1)]
+	select {
+	case queue <- item:
+	default:
+		// 实时副本允许在过载时丢弃；客户端重连或切换时间窗后从权威历史恢复。
+	}
+}
+
+func (s *Server) hgBroadcastWorker(queue <-chan VideoDanmakuDtoPackage.DanmakuResponse) {
+	defer s.workers.Done()
+	for {
+		select {
+		case <-s.workerCtx.Done():
+			return
+		case item := <-queue:
+			_ = s.hgBroadcastLocal(item)
+		}
+	}
 }
 
 // hgBroadcastLocal 将跨实例事件编码一次后逐成员分片广播；它不创建与房间人数线性增长的
@@ -421,29 +472,6 @@ func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) e
 		_ = conn.Close()
 	}
 	return nil
-}
-
-// hgSubscribeBroadcasts 长期订阅单一版本化频道。Pub/Sub 允许瞬时丢失，但不会造成数据丢失，
-// 因为客户端切换时间窗或重连后仍从 MySQL 权威历史恢复。
-func (s *Server) hgSubscribeBroadcasts() {
-	defer s.background.Done()
-	pubsub := s.redis.Client().Subscribe(s.workerCtx, PersistenceRedisPackage.VideoDanmakuBroadcastChannel)
-	defer pubsub.Close()
-	channel := pubsub.Channel()
-	for {
-		select {
-		case <-s.workerCtx.Done():
-			return
-		case message, ok := <-channel:
-			if !ok {
-				return
-			}
-			var item VideoDanmakuDtoPackage.DanmakuResponse
-			if json.Unmarshal([]byte(message.Payload), &item) == nil && item.VideoID != "" {
-				_ = s.hgBroadcastLocal(item)
-			}
-		}
-	}
 }
 
 func (s *Server) hgJoin(videoID string, c gnet.Conn, state *hgConnection) {
@@ -491,11 +519,15 @@ func (s *Server) hgLeave(videoID string, c gnet.Conn) {
 }
 
 func (s *Server) hgRoomDirectory(videoID string) *hgRoomDirectoryShard {
+	return &s.roomShards[hgHashVideoID(videoID)&uint32(len(s.roomShards)-1)]
+}
+
+func hgHashVideoID(videoID string) uint32 {
 	var hash uint32 = 2166136261
 	for index := 0; index < len(videoID); index++ {
 		hash = (hash ^ uint32(videoID[index])) * 16777619
 	}
-	return &s.roomShards[hash&uint32(len(s.roomShards)-1)]
+	return hash
 }
 
 // hgAllowCommand 是连接所属 event-loop 内的无锁令牌桶，在进入共享 worker 队列和数据库前削掉突刺。

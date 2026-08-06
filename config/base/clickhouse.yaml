@@ -6,6 +6,7 @@ clickhouse:
   password: ""
   statistic_events_table: statistic_events
   statistic_totals_table: statistic_event_totals
+  danmaku_history_table: video_danmaku_history
   write_timeout: 5s
   query_timeout: 15s
 

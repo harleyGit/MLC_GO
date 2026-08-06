@@ -34,6 +34,13 @@ kafka:
         enabled: true
         group_id: mlc-go-prod-interaction
         client_id: mlc-go-prod-interaction
+      danmaku:
+        # 执行 deployments/clickhouse/002_video_danmaku_history.sql 后灰度启用。
+        enabled: false
+        group_id: mlc-go-prod-danmaku-history
+        client_id: mlc-go-prod-danmaku-history
+        topics:
+          - mlc.video.danmaku.created.v1
   log:
     # 建议与业务集群做物理隔离或至少设置独立资源配额。
     brokers:

@@ -46,6 +46,21 @@ if not value then return nil end
 redis.call('DEL', KEYS[1])
 return value`
 
+// VideoDanmakuRecentProjectLuaScript 原子完成 offset 去重、近期 Stream 写入和近似裁剪。
+// KEYS[1] 是 Stream，KEYS[2] 是 offset Hash；ARGV[1] 是 topic:partition，ARGV[2] 是 offset，
+// ARGV[3] 是最大条数，后续参数为 XADD field/value。两个 key 必须使用同一视频 hash tag。
+const VideoDanmakuRecentProjectLuaScript = `
+local lastOffset = redis.call('HGET', KEYS[2], ARGV[1])
+if lastOffset and tonumber(ARGV[2]) <= tonumber(lastOffset) then
+  return 0
+end
+redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[3], '*',
+  'danmaku_id', ARGV[4], 'submission_id', ARGV[5], 'video_id', ARGV[6],
+  'content', ARGV[7], 'progress_ms', ARGV[8], 'mode', ARGV[9],
+  'color', ARGV[10], 'font_size', ARGV[11], 'created_at', ARGV[12])
+redis.call('HSET', KEYS[2], ARGV[1], ARGV[2])
+return 1`
+
 // InteractionReprojectCommitLuaScript atomically fences the lease owner, stores its checkpoint, and releases the lease.
 // KEYS[1] is the lease and KEYS[2] is the checkpoint; ARGV[1] is the owner token and ARGV[2] is the encoded cursor.
 const InteractionReprojectCommitLuaScript = `

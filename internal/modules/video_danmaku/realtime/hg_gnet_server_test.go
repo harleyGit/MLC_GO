@@ -52,13 +52,28 @@ func TestCommandPayloadCompilesAsTextFrame(t *testing.T) {
 }
 
 func TestRoomDirectoryDistributesVideoIDs(t *testing.T) {
-	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{RoomShardCount: 16, MemberShardCount: 4})
+	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{RoomShardCount: 16, MemberShardCount: 4, BroadcastWorkerCount: 4, BroadcastQueueSize: 64})
 	seen := make(map[*hgRoomDirectoryShard]struct{})
 	for _, videoID := range []string{"video-1", "video-2", "video-3", "video-4", "video-5", "video-6"} {
 		seen[server.hgRoomDirectory(videoID)] = struct{}{}
 	}
 	if len(seen) < 2 {
 		t.Fatalf("video IDs used only %d room directory shard", len(seen))
+	}
+}
+
+func TestBroadcastQueueUsesStableVideoShard(t *testing.T) {
+	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{RoomShardCount: 16, MemberShardCount: 4, BroadcastWorkerCount: 4, BroadcastQueueSize: 64})
+	item := VideoDanmakuDtoPackage.DanmakuResponse{VideoID: "video-1"}
+	server.hgEnqueueBroadcast(item)
+	index := hgHashVideoID(item.VideoID) & uint32(len(server.broadcastQueue)-1)
+	select {
+	case received := <-server.broadcastQueue[index]:
+		if received.VideoID != item.VideoID {
+			t.Fatalf("received video = %q", received.VideoID)
+		}
+	default:
+		t.Fatal("broadcast was not routed to stable shard")
 	}
 }
 

@@ -27,6 +27,11 @@ video_danmaku:
   # 单连接创建命令令牌桶；控制帧和服务端广播不受该限制。
   command_rate_per_second: 5
   command_burst: 10
+  # 固定广播 worker 保证同一视频在单实例内有序，且不会为长尾房间创建 goroutine。
+  broadcast_worker_count: 64
+  broadcast_queue_size: 4096
+  # Redis 仅保存热近期数据；完整历史由 ClickHouse 按月分区保存。
+  recent_message_limit: 1000
 
 interaction_reproject:
   enabled: true

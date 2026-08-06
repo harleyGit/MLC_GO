@@ -34,6 +34,12 @@ kafka:
         enabled: true
         group_id: mlc-go-pre-interaction
         client_id: mlc-go-pre-interaction
+      danmaku:
+        enabled: false
+        group_id: mlc-go-pre-danmaku-history
+        client_id: mlc-go-pre-danmaku-history
+        topics:
+          - mlc.video.danmaku.created.v1
   log:
     brokers:
       - localhost:19092

@@ -52,6 +52,7 @@ type HGClickHouseConfig struct {
 	Password             string        `yaml:"password" mapstructure:"password"`
 	StatisticEventsTable string        `yaml:"statistic_events_table" mapstructure:"statistic_events_table"`
 	StatisticTotalsTable string        `yaml:"statistic_totals_table" mapstructure:"statistic_totals_table"`
+	DanmakuHistoryTable  string        `yaml:"danmaku_history_table" mapstructure:"danmaku_history_table"`
 	WriteTimeout         string        `yaml:"write_timeout" mapstructure:"write_timeout"`
 	QueryTimeout         string        `yaml:"query_timeout" mapstructure:"query_timeout"`
 	WriteTimeoutDuration time.Duration `yaml:"-" mapstructure:"-"`
@@ -152,6 +153,7 @@ type HGVideoDanmakuConfig struct {
 	TicketTTL                                                                             time.Duration
 	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes              int
 	RoomShardCount, MemberShardCount, MaxPendingBytes, CommandRatePerSecond, CommandBurst int
+	BroadcastWorkerCount, BroadcastQueueSize, RecentMessageLimit                          int
 }
 
 // GetVideoDanmakuConfig 读取并校验弹幕实时网关配置。
@@ -171,6 +173,9 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		MaxPendingBytes   int      `mapstructure:"max_pending_bytes"`
 		CommandRate       int      `mapstructure:"command_rate_per_second"`
 		CommandBurst      int      `mapstructure:"command_burst"`
+		BroadcastWorkers  int      `mapstructure:"broadcast_worker_count"`
+		BroadcastQueue    int      `mapstructure:"broadcast_queue_size"`
+		RecentLimit       int      `mapstructure:"recent_message_limit"`
 	}
 	var cfg HGVideoDanmakuConfig
 	if err := viper.UnmarshalKey("video_danmaku", &raw); err != nil {
@@ -190,7 +195,8 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
 	cfg.RoomShardCount, cfg.MemberShardCount, cfg.MaxPendingBytes = raw.RoomShardCount, raw.MemberShardCount, raw.MaxPendingBytes
 	cfg.CommandRatePerSecond, cfg.CommandBurst = raw.CommandRate, raw.CommandBurst
-	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 || !hgPowerOfTwo(cfg.RoomShardCount, 16, 4096) || !hgPowerOfTwo(cfg.MemberShardCount, 4, 256) || cfg.MaxPendingBytes < 16<<10 || cfg.MaxPendingBytes > 1<<20 || cfg.CommandRatePerSecond < 1 || cfg.CommandRatePerSecond > 100 || cfg.CommandBurst < cfg.CommandRatePerSecond || cfg.CommandBurst > 500 {
+	cfg.BroadcastWorkerCount, cfg.BroadcastQueueSize, cfg.RecentMessageLimit = raw.BroadcastWorkers, raw.BroadcastQueue, raw.RecentLimit
+	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 || !hgPowerOfTwo(cfg.RoomShardCount, 16, 4096) || !hgPowerOfTwo(cfg.MemberShardCount, 4, 256) || cfg.MaxPendingBytes < 16<<10 || cfg.MaxPendingBytes > 1<<20 || cfg.CommandRatePerSecond < 1 || cfg.CommandRatePerSecond > 100 || cfg.CommandBurst < cfg.CommandRatePerSecond || cfg.CommandBurst > 500 || !hgPowerOfTwo(cfg.BroadcastWorkerCount, 1, 256) || cfg.BroadcastQueueSize < 64 || cfg.BroadcastQueueSize > 1_000_000 || cfg.RecentMessageLimit < 100 || cfg.RecentMessageLimit > 10_000 {
 		return cfg, fmt.Errorf("video_danmaku 资源边界配置无效")
 	}
 	allowedOrigins := raw.AllowedOrigins
@@ -516,6 +522,7 @@ func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastr
 	clickHouse.User = strings.TrimSpace(clickHouse.User)
 	clickHouse.StatisticEventsTable = strings.TrimSpace(clickHouse.StatisticEventsTable)
 	clickHouse.StatisticTotalsTable = strings.TrimSpace(clickHouse.StatisticTotalsTable)
+	clickHouse.DanmakuHistoryTable = strings.TrimSpace(clickHouse.DanmakuHistoryTable)
 	if password := os.Getenv("CLICKHOUSE_PASSWORD"); password != "" {
 		clickHouse.Password = password
 	}

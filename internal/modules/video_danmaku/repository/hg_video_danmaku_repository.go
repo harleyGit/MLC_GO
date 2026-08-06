@@ -1,6 +1,9 @@
 package VideoDanmakuRepositoryPackage
 
 import (
+	"MLC_GO/internal/events"
+	VideoDanmakuEventsPackage "MLC_GO/internal/events/video_danmaku"
+	"MLC_GO/internal/outbox"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
@@ -44,10 +47,18 @@ type HGListResult struct {
 }
 
 // Repository 负责视频弹幕 MySQL 权威读写。
-type Repository struct{ db *sql.DB }
+type Repository struct {
+	db          *sql.DB
+	outboxTopic string
+}
 
 // NewRepository 创建复用共享连接池的弹幕仓储。
-func NewRepository(db *sql.DB) *Repository { return &Repository{db: db} }
+func NewRepository(db *sql.DB) *Repository { return NewRepositoryWithTopic(db, "") }
+
+// NewRepositoryWithTopic 创建带事务 Outbox 的弹幕仓储；topic 为空时只保留兼容 MySQL 路径。
+func NewRepositoryWithTopic(db *sql.DB, topic string) *Repository {
+	return &Repository{db: db, outboxTopic: topic}
+}
 
 // ResolveVideo 验证视频处于页面可见状态、公开且未关闭弹幕。
 func (r *Repository) ResolveVideo(ctx context.Context, videoID string) (string, error) {
@@ -92,6 +103,15 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGDan
 		}
 		if err == nil {
 			item, err = hgScan(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoDanmakuByPrimaryIDSQL, insertedID))
+		}
+		if err == nil && r.outboxTopic != "" {
+			event := VideoDanmakuEventsPackage.CreatedEvent{
+				EventMeta: events.NewEventMeta(ctx), DanmakuID: item.DanmakuID, SubmissionID: item.SubmissionID,
+				VideoID: item.VideoID, UserID: item.UserID, RequestID: command.RequestID, Content: item.Content,
+				ProgressMS: item.ProgressMS, Mode: item.Mode, Color: item.Color, FontSize: item.FontSize,
+				CreatedAt: item.CreatedAt.UTC().UnixMilli(),
+			}
+			err = outbox.NewRepository(r.db, r.outboxTopic).SaveTx(ctx, tx, event)
 		}
 	}
 	if err != nil {

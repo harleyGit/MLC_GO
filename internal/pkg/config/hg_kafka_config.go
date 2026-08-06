@@ -80,6 +80,7 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		{name: "statistic", cfg: groups.Statistic},
 		{name: "audit", cfg: groups.Audit},
 		{name: "interaction", cfg: groups.Interaction},
+		{name: "danmaku", cfg: groups.Danmaku},
 	}
 	seen := make(map[string]string, len(configs))
 	for _, item := range configs {
@@ -91,6 +92,9 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 			return fmt.Errorf("consumer %s 与 %s 的 group_id 重复: %s", item.name, previous, item.cfg.GroupID)
 		}
 		seen[item.cfg.GroupID] = item.name
+		if item.name == "danmaku" && item.cfg.Enabled && len(item.cfg.Topics) == 0 {
+			return fmt.Errorf("consumer %s topics 不能为空", item.name)
+		}
 	}
 	return nil
 }

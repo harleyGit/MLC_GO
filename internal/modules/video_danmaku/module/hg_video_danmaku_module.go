@@ -33,7 +33,15 @@ func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlMana
 	if err != nil {
 		return Components{}, err
 	}
-	repo := VideoDanmakuRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
+	kafkaConfig, _, err := ConfigPackage.GetKafkaConfig()
+	if err != nil {
+		return Components{}, err
+	}
+	danmakuTopic := ""
+	if len(kafkaConfig.Business.Consumers.Danmaku.Topics) > 0 {
+		danmakuTopic = kafkaConfig.Business.Consumers.Danmaku.Topics[0]
+	}
+	repo := VideoDanmakuRepositoryPackage.NewRepositoryWithTopic(sqlManager.GetSQLDB(), danmakuTopic)
 	service := VideoDanmakuServicePackage.NewService(repo, redisService, config.TicketTTL)
 	realtime := VideoDanmakuRealtimePackage.NewServer(service, redisService, config)
 	// service 只依赖小接口，不依赖 gnet 细节；先提交 MySQL，再调用本机发布器广播。

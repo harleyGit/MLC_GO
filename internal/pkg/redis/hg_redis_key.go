@@ -23,11 +23,28 @@ const (
 	InteractionReprojectCheckpointKeyPrefix = "interaction:reproject:{control}:checkpoint:"
 	CoinJobLeaseKeyPrefix                   = "coin:jobs:{global}:lease:"
 	VideoDanmakuTicketKeyPrefix             = "video:danmaku:ticket:"
-	VideoDanmakuBroadcastChannel            = "video:danmaku:broadcast:v1"
+	VideoDanmakuBroadcastChannelPrefix      = "video:danmaku:broadcast:"
+	VideoDanmakuRecentStreamKeyPrefix       = "video:danmaku:recent:"
+	VideoDanmakuRecentOffsetKeyPrefix       = "video:danmaku:recent-offset:"
 )
 
 // GetVideoDanmakuTicketKey 返回单次 WebSocket 票据 key；ticket 是随机值，不使用业务 ID 作为热点 hash tag。
 func GetVideoDanmakuTicketKey(ticket string) string { return VideoDanmakuTicketKeyPrefix + ticket }
+
+// GetVideoDanmakuBroadcastChannel 将同一视频的跨实例广播限制在实际订阅该房间的网关。
+func GetVideoDanmakuBroadcastChannel(videoID string) string {
+	return fmt.Sprintf("%s{%s}:v2", VideoDanmakuBroadcastChannelPrefix, videoID)
+}
+
+// GetVideoDanmakuRecentStreamKey 返回只保留近期弹幕的 Redis Stream key。
+func GetVideoDanmakuRecentStreamKey(videoID string) string {
+	return fmt.Sprintf("%s{%s}", VideoDanmakuRecentStreamKeyPrefix, videoID)
+}
+
+// GetVideoDanmakuRecentOffsetKey 返回近期投影的 Kafka partition offset 水位。
+func GetVideoDanmakuRecentOffsetKey(videoID string) string {
+	return fmt.Sprintf("%s{%s}", VideoDanmakuRecentOffsetKeyPrefix, videoID)
+}
 
 func GetVideoInteractionStateKey(userID string, submissionID string) string {
 	return fmt.Sprintf("%s{%s}:%s", VideoInteractionStateKeyPrefix, submissionID, userID)

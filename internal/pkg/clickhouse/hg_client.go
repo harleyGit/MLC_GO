@@ -26,6 +26,7 @@ type HGConfig struct {
 	Password             string
 	StatisticEventsTable string
 	StatisticTotalsTable string
+	DanmakuHistoryTable  string
 	WriteTimeout         time.Duration
 	QueryTimeout         time.Duration
 }
@@ -57,6 +58,24 @@ type HGStatisticDimension struct {
 	EventName string
 }
 
+// HGDanmakuHistory 是按视频时间线保存的 ClickHouse 历史行。
+type HGDanmakuHistory struct {
+	DanmakuID, SubmissionID, VideoID, UserID, RequestID, Content, Mode, Color string
+	ProgressMS                                                                uint32
+	FontSize                                                                  uint8
+	CreatedAt                                                                 int64
+	KafkaTopic                                                                string
+	KafkaPartition                                                            int32
+	KafkaOffset                                                               int64
+}
+
+// HGDanmakuCursor 是 ClickHouse 视频时间线的稳定复合游标。
+type HGDanmakuCursor struct {
+	ProgressMS uint32
+	CreatedAt  int64
+	DanmakuID  string
+}
+
 // HGClient 使用 ClickHouse HTTP API 写入权威事件并读取精确聚合。
 type HGClient struct {
 	config HGConfig
@@ -78,6 +97,7 @@ func NewHGClient(config HGConfig) (*HGClient, error) {
 		"database":               config.Database,
 		"statistic events table": config.StatisticEventsTable,
 		"statistic totals table": config.StatisticTotalsTable,
+		"danmaku history table":  config.DanmakuHistoryTable,
 	} {
 		if identifier != "" && !hgClickHouseIdentifierPattern.MatchString(identifier) {
 			return nil, fmt.Errorf("invalid clickhouse %s", name)
@@ -90,6 +110,110 @@ func NewHGClient(config HGConfig) (*HGClient, error) {
 	transport.MaxIdleConns = 50
 	transport.MaxIdleConnsPerHost = 50
 	return &HGClient{config: config, client: &http.Client{Transport: transport}}, nil
+}
+
+// StoreDanmakuHistory 使用单个 JSONEachRow 请求批量写入同一 Kafka 分区的有界弹幕批次。
+func (c *HGClient) StoreDanmakuHistory(ctx context.Context, items []HGDanmakuHistory) error {
+	if c == nil || c.client == nil {
+		return fmt.Errorf("clickhouse client cannot be nil")
+	}
+	if c.config.DanmakuHistoryTable == "" {
+		return fmt.Errorf("clickhouse danmaku history table cannot be empty")
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	var body bytes.Buffer
+	encoder := json.NewEncoder(&body)
+	for _, item := range items {
+		row := struct {
+			DanmakuID      string `json:"danmaku_id"`
+			SubmissionID   string `json:"submission_id"`
+			VideoID        string `json:"video_id"`
+			UserID         string `json:"user_id"`
+			RequestID      string `json:"request_id"`
+			Content        string `json:"content"`
+			ProgressMS     uint32 `json:"progress_ms"`
+			Mode           string `json:"mode"`
+			Color          string `json:"color"`
+			FontSize       uint8  `json:"font_size"`
+			CreatedAt      int64  `json:"created_at"`
+			KafkaTopic     string `json:"kafka_topic"`
+			KafkaPartition int32  `json:"kafka_partition"`
+			KafkaOffset    int64  `json:"kafka_offset"`
+			IngestedAt     int64  `json:"ingested_at"`
+		}{item.DanmakuID, item.SubmissionID, item.VideoID, item.UserID, item.RequestID, item.Content, item.ProgressMS, item.Mode, item.Color, item.FontSize, item.CreatedAt, item.KafkaTopic, item.KafkaPartition, item.KafkaOffset, time.Now().UTC().UnixMilli()}
+		if err := encoder.Encode(row); err != nil {
+			return fmt.Errorf("encode danmaku history: %w", err)
+		}
+	}
+	query := fmt.Sprintf("INSERT INTO %s.%s SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", c.config.Database, c.config.DanmakuHistoryTable)
+	return c.execute(ctx, c.config.WriteTimeout, query, body.Bytes(), nil)
+}
+
+// ListDanmakuHistory 按视频、播放时间窗和复合游标读取历史，禁止 OFFSET 深分页。
+func (c *HGClient) ListDanmakuHistory(ctx context.Context, videoID string, fromMS, toMS uint32, cursor HGDanmakuCursor, limit int) ([]HGDanmakuHistory, error) {
+	if c == nil || c.client == nil {
+		return nil, fmt.Errorf("clickhouse client cannot be nil")
+	}
+	if c.config.DanmakuHistoryTable == "" || strings.TrimSpace(videoID) == "" {
+		return nil, fmt.Errorf("clickhouse danmaku history query is invalid")
+	}
+	if toMS <= fromMS || toMS-fromMS > 300_000 || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("clickhouse danmaku history bounds are invalid")
+	}
+	query := fmt.Sprintf(`SELECT danmaku_id, submission_id, video_id, user_id, request_id, content, progress_ms, mode, color, font_size, created_at, kafka_topic, kafka_partition, kafka_offset
+FROM %s.%s
+WHERE video_id = {video_id:String}
+  AND progress_ms >= {from_ms:UInt32}
+  AND progress_ms < {to_ms:UInt32}
+  AND (progress_ms, created_at, danmaku_id) > ({cursor_progress:UInt32}, {cursor_created:Int64}, {cursor_id:String})
+ORDER BY progress_ms, created_at, danmaku_id
+LIMIT {limit:UInt32}
+FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
+	params := map[string]string{
+		"param_video_id":        videoID,
+		"param_from_ms":         strconv.FormatUint(uint64(fromMS), 10),
+		"param_to_ms":           strconv.FormatUint(uint64(toMS), 10),
+		"param_cursor_progress": strconv.FormatUint(uint64(cursor.ProgressMS), 10),
+		"param_cursor_created":  strconv.FormatInt(cursor.CreatedAt, 10),
+		"param_cursor_id":       cursor.DanmakuID,
+		"param_limit":           strconv.Itoa(limit),
+	}
+	var response bytes.Buffer
+	if err := c.execute(ctx, c.config.QueryTimeout, query, nil, params, &response); err != nil {
+		return nil, err
+	}
+	items := make([]HGDanmakuHistory, 0, limit)
+	decoder := json.NewDecoder(&response)
+	for decoder.More() {
+		var row struct {
+			DanmakuID      string `json:"danmaku_id"`
+			SubmissionID   string `json:"submission_id"`
+			VideoID        string `json:"video_id"`
+			UserID         string `json:"user_id"`
+			RequestID      string `json:"request_id"`
+			Content        string `json:"content"`
+			ProgressMS     uint32 `json:"progress_ms"`
+			Mode           string `json:"mode"`
+			Color          string `json:"color"`
+			FontSize       uint8  `json:"font_size"`
+			CreatedAt      int64  `json:"created_at"`
+			KafkaTopic     string `json:"kafka_topic"`
+			KafkaPartition int32  `json:"kafka_partition"`
+			KafkaOffset    int64  `json:"kafka_offset"`
+		}
+		if err := decoder.Decode(&row); err != nil {
+			return nil, fmt.Errorf("decode clickhouse danmaku history: %w", err)
+		}
+		items = append(items, HGDanmakuHistory{
+			DanmakuID: row.DanmakuID, SubmissionID: row.SubmissionID, VideoID: row.VideoID, UserID: row.UserID,
+			RequestID: row.RequestID, Content: row.Content, ProgressMS: row.ProgressMS, Mode: row.Mode,
+			Color: row.Color, FontSize: row.FontSize, CreatedAt: row.CreatedAt, KafkaTopic: row.KafkaTopic,
+			KafkaPartition: row.KafkaPartition, KafkaOffset: row.KafkaOffset,
+		})
+	}
+	return items, nil
 }
 
 // PingContext 验证 ClickHouse HTTP endpoint 可用。

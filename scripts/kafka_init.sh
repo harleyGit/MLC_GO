@@ -20,6 +20,9 @@ KAFKA_BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-kafka-1:9092,kafka-2:9092,ka
 KAFKA_TOPIC="${KAFKA_TOPIC:-mlc.domain.events}"
 # Topic 分区数。分区让消息可以并行生产和消费，但同一分区内仍保持消息顺序。
 KAFKA_PARTITIONS="${KAFKA_PARTITIONS:-12}"
+# 弹幕历史使用独立 Topic，按 video_id 作为 key 保证同视频进入同一分区。
+KAFKA_DANMAKU_TOPIC="${KAFKA_DANMAKU_TOPIC:-mlc.video.danmaku.created.v1}"
+KAFKA_DANMAKU_PARTITIONS="${KAFKA_DANMAKU_PARTITIONS:-96}"
 # 每个分区保存 3 份副本，对应本地三个 broker。
 KAFKA_REPLICATION_FACTOR="${KAFKA_REPLICATION_FACTOR:-3}"
 # apache/kafka 镜像中 Kafka Topic 管理命令的固定路径。
@@ -53,7 +56,10 @@ for ((attempt = 1; attempt <= KAFKA_READY_RETRIES; attempt++)); do
     sleep 1
 done
 
-echo "[INFO] 确保 Kafka topic 存在: $KAFKA_TOPIC"
+ensure_topic() {
+local topic="$1"
+local partitions="$2"
+echo "[INFO] 确保 Kafka topic 存在: $topic"
 # docker exec 表示在指定容器内执行命令。
 # --create 创建 Topic；--if-not-exists 使脚本可以重复运行：
 # Topic 不存在时创建，已经存在时不报“重复创建”错误。
@@ -62,8 +68,8 @@ docker exec "$KAFKA_CONTAINER" "$KAFKA_TOPICS_BIN" \
     --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \
     --create \
     --if-not-exists \
-    --topic "$KAFKA_TOPIC" \
-    --partitions "$KAFKA_PARTITIONS" \
+    --topic "$topic" \
+    --partitions "$partitions" \
     --replication-factor "$KAFKA_REPLICATION_FACTOR"
 
 # --describe 会返回一行 Topic 汇总信息和每个分区的一行明细。
@@ -71,7 +77,7 @@ docker exec "$KAFKA_CONTAINER" "$KAFKA_TOPICS_BIN" \
 topic_description="$(docker exec "$KAFKA_CONTAINER" "$KAFKA_TOPICS_BIN" \
     --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \
     --describe \
-    --topic "$KAFKA_TOPIC")"
+    --topic "$topic")"
 # 把原始拓扑打印到终端，方便开发者直接查看每个分区的 Leader、Replicas 和 ISR。
 printf '%s\n' "$topic_description"
 
@@ -84,17 +90,17 @@ partition_lines="$(printf '%s\n' "$topic_description" | grep $'\tPartition:')"
 # [[ ... ]] 用来进行字符串判断。
 # 这里同时要求汇总行包含预期分区数和预期副本数；任意一个不匹配都立即失败。
 # 这样可以发现 Topic 曾被人工用错误参数创建，而不是仅确认“Topic 名字存在”。
-if [[ "$topic_summary" != *"PartitionCount: $KAFKA_PARTITIONS"* ]] \
+if [[ "$topic_summary" != *"PartitionCount: $partitions"* ]] \
     || [[ "$topic_summary" != *"ReplicationFactor: $KAFKA_REPLICATION_FACTOR"* ]]; then
-    echo "[ERROR] Kafka Topic 分区数或副本数不符合预期: $KAFKA_TOPIC" >&2
+    echo "[ERROR] Kafka Topic 分区数或副本数不符合预期: $topic" >&2
     exit 1
 fi
 
 # 再数一次分区明细行，防止汇总信息看似正确，但 describe 输出缺失了某些分区。
 # grep -c 返回匹配行数，保存到 partition_count 后与预期分区数做整数比较。
 partition_count="$(printf '%s\n' "$partition_lines" | grep -c $'\tPartition:')"
-if [ "$partition_count" -ne "$KAFKA_PARTITIONS" ]; then
-    echo "[ERROR] Kafka Topic 分区明细数量不符合预期: expected=$KAFKA_PARTITIONS actual=$partition_count" >&2
+if [ "$partition_count" -ne "$partitions" ]; then
+    echo "[ERROR] Kafka Topic 分区明细数量不符合预期: expected=$partitions actual=$partition_count" >&2
     exit 1
 fi
 
@@ -120,4 +126,8 @@ while IFS=$'\t' read -r _ _ _ replicas_field isr_field; do
 # <<< 是 here-string，把 partition_lines 的内容作为 while/read 的标准输入。
 done <<<"$partition_lines"
 
-echo "[INFO] Kafka Topic 拓扑检查通过: partitions=$KAFKA_PARTITIONS replication-factor=$KAFKA_REPLICATION_FACTOR ISR=完整"
+echo "[INFO] Kafka Topic 拓扑检查通过: topic=$topic partitions=$partitions replication-factor=$KAFKA_REPLICATION_FACTOR ISR=完整"
+}
+
+ensure_topic "$KAFKA_TOPIC" "$KAFKA_PARTITIONS"
+ensure_topic "$KAFKA_DANMAKU_TOPIC" "$KAFKA_DANMAKU_PARTITIONS"

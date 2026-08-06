@@ -3,6 +3,7 @@ package kafka
 import (
 	"MLC_GO/internal/consumer"
 	AuditConsumerPackage "MLC_GO/internal/consumer/audit"
+	DanmakuConsumerPackage "MLC_GO/internal/consumer/danmaku"
 	FeedConsumerPackage "MLC_GO/internal/consumer/feed"
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	SearchConsumerPackage "MLC_GO/internal/consumer/search"
@@ -38,6 +39,8 @@ type RuntimeDependencies struct {
 	StatisticReconcileConfig   StatisticConsumerPackage.HGReconcileConfig
 	StatisticReconcileInterval time.Duration
 	InteractionStore           InteractionConsumerPackage.EventStore
+	DanmakuStore               DanmakuConsumerPackage.HistoryStore
+	DanmakuRecent              DanmakuConsumerPackage.RecentProjector
 }
 
 // HGRuntime 管理各读模型独立消费组的创建、运行与关闭。
@@ -75,6 +78,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		runtime.Close()
 		return nil, fmt.Errorf("interaction mysql store dependency cannot be nil")
 	}
+	if cfg.Consumers.Danmaku.Enabled && (deps.DanmakuStore == nil || deps.DanmakuRecent == nil) {
+		runtime.Close()
+		return nil, fmt.Errorf("danmaku history store and recent projector cannot be nil")
+	}
 	specs := []hgConsumerWorker{
 		{
 			name:        "feed",
@@ -95,6 +102,7 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		},
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},
 		{name: "interaction", config: cfg.Consumers.Interaction, handler: InteractionConsumerPackage.NewConsumer(deps.InteractionStore), implemented: true},
+		{name: "danmaku", config: cfg.Consumers.Danmaku, handler: DanmakuConsumerPackage.NewConsumer(deps.DanmakuStore, deps.DanmakuRecent), implemented: true},
 	}
 	for _, spec := range specs {
 		if !spec.config.Enabled {
@@ -104,12 +112,16 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 			runtime.Close()
 			return nil, fmt.Errorf("%s kafka consumer is enabled but handler is not implemented", spec.name)
 		}
-		opts, err := HGKafkaPackage.HGNewBusinessConsumerOpts(cfg, cfg.Topics, spec.config.GroupID, spec.config.ClientID)
+		topics := spec.config.Topics
+		if len(topics) == 0 {
+			topics = cfg.Topics
+		}
+		opts, err := HGKafkaPackage.HGNewBusinessConsumerOpts(cfg, topics, spec.config.GroupID, spec.config.ClientID)
 		if err != nil {
 			runtime.Close()
 			return nil, fmt.Errorf("build %s kafka consumer: %w", spec.name, err)
 		}
-		spec.lagObserver = HGKafkaPackage.HGNewConsumerLagObserver(spec.config.GroupID, cfg.Topics)
+		spec.lagObserver = HGKafkaPackage.HGNewConsumerLagObserver(spec.config.GroupID, topics)
 		opts = append(opts, HGKafkaPackage.HGConsumerLagObserverOpts(spec.lagObserver)...)
 		spec.client, err = kgo.NewClient(opts...)
 		if err != nil {

@@ -8,6 +8,7 @@ import (
 )
 
 const defaultMaxRetry = 10
+const defaultDispatcherWorkers = 64
 
 // Producer 是 Outbox dispatcher 依赖的消息投递抽象。
 // 真实环境使用 Kafka；单测或本地也可以换成内存实现。
@@ -38,17 +39,22 @@ func NewDispatcher(repo *Repository, producer Producer) *Dispatcher {
 
 // NewDispatcherWithRepository 创建支持测试替身的短事务 Outbox dispatcher。
 func NewDispatcherWithRepository(repo dispatcherRepository, producer Producer) *Dispatcher {
-	return &Dispatcher{repo: repo, producer: producer, maxRetry: defaultMaxRetry, lease: 30 * time.Second, workers: 8}
+	return &Dispatcher{repo: repo, producer: producer, maxRetry: defaultMaxRetry, lease: 30 * time.Second, workers: defaultDispatcherWorkers}
 }
 
 // DispatchOnce 拉取并处理一批 Outbox 事件。
 // 成功：标记 published；失败：标记 retry；超过最大次数：标记 dead，等待人工排查或补偿。
 func (d *Dispatcher) DispatchOnce(ctx context.Context, batchSize int) error {
+	_, err := d.hgDispatchAvailable(ctx, batchSize)
+	return err
+}
+
+func (d *Dispatcher) hgDispatchAvailable(ctx context.Context, batchSize int) (int, error) {
 	if d == nil || d.repo == nil {
-		return fmt.Errorf("outbox dispatcher repository cannot be nil")
+		return 0, fmt.Errorf("outbox dispatcher repository cannot be nil")
 	}
 	if d.producer == nil {
-		return fmt.Errorf("outbox dispatcher producer cannot be nil")
+		return 0, fmt.Errorf("outbox dispatcher producer cannot be nil")
 	}
 
 	if batchSize <= 0 || batchSize > d.workers {
@@ -56,7 +62,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, batchSize int) error {
 	}
 	events, err := d.repo.Claim(ctx, batchSize, d.lease)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(events))
@@ -83,9 +89,9 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, batchSize int) error {
 	wg.Wait()
 	close(errCh)
 	for dispatchErr := range errCh {
-		return dispatchErr
+		return len(events), dispatchErr
 	}
-	return nil
+	return len(events), nil
 }
 
 func hgOutboxRetryDelay(retryCount int) time.Duration {
@@ -107,9 +113,13 @@ func (d *Dispatcher) Run(ctx context.Context, interval time.Duration, batchSize 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		// 每轮独立开启事务；失败直接返回，交给上层 supervisor 决定重启或告警。
-		if err := d.DispatchOnce(ctx, batchSize); err != nil {
+		// 有积压时持续以固定并发排空，只有当前批次为空才等待轮询间隔。
+		processed, err := d.hgDispatchAvailable(ctx, batchSize)
+		if err != nil {
 			return err
+		}
+		if processed > 0 {
+			continue
 		}
 		select {
 		case <-ctx.Done():
