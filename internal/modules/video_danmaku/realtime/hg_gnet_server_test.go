@@ -94,6 +94,39 @@ func TestCommandRateLimiterAllowsBurstAndRefill(t *testing.T) {
 	}
 }
 
+func TestRoomRouterRejoinInvalidatesQueuedUnsubscribe(t *testing.T) {
+	router := &hgRoomRouter{refs: map[string]*hgRoomSubscriptionState{
+		"video-1": {refs: 0, generation: 2, subscribed: true},
+	}}
+	command := hgRoomSubscriptionCommand{videoID: "video-1", generation: 2}
+
+	router.refsMu.Lock()
+	state := router.refs["video-1"]
+	state.generation++
+	state.refs++
+	router.refsMu.Unlock()
+
+	if router.hgShouldUnsubscribe(command) {
+		t.Fatal("stale unsubscribe remained valid after room rejoin")
+	}
+}
+
+func TestConnectionCountIsReleasedOnce(t *testing.T) {
+	server := &Server{}
+	state := &hgConnection{}
+	state.counted.Store(true)
+	server.connections.Store(1)
+	if state.counted.CompareAndSwap(true, false) {
+		server.connections.Add(-1)
+	}
+	if state.counted.CompareAndSwap(true, false) {
+		server.connections.Add(-1)
+	}
+	if got := server.connections.Load(); got != 0 {
+		t.Fatalf("connections = %d, want 0", got)
+	}
+}
+
 func BenchmarkCommandAckPayload(b *testing.B) {
 	item := VideoDanmakuDtoPackage.DanmakuResponse{DanmakuID: "DMK_1", VideoID: "video-1", Content: "benchmark danmaku", ProgressMS: 12_345, Mode: "scroll", Color: "#FFFFFF", FontSize: 25}
 	b.ReportAllocs()

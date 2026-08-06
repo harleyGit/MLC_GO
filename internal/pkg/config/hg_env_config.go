@@ -150,7 +150,7 @@ type HGVideoDanmakuConfig struct {
 	Host                                                                                  string
 	Port                                                                                  string
 	AllowedOrigins                                                                        []string
-	TicketTTL                                                                             time.Duration
+	TicketTTL, HeartbeatInterval, HeartbeatTimeout                                        time.Duration
 	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes              int
 	RoomShardCount, MemberShardCount, MaxPendingBytes, CommandRatePerSecond, CommandBurst int
 	BroadcastWorkerCount, BroadcastQueueSize, RecentMessageLimit                          int
@@ -163,6 +163,8 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		Port              string   `mapstructure:"port"`
 		AllowedOrigins    []string `mapstructure:"allowed_origins"`
 		TicketTTL         string   `mapstructure:"ticket_ttl"`
+		HeartbeatInterval string   `mapstructure:"heartbeat_interval"`
+		HeartbeatTimeout  string   `mapstructure:"heartbeat_timeout"`
 		WorkerCount       int      `mapstructure:"worker_count"`
 		QueueSize         int      `mapstructure:"queue_size"`
 		MaxConnections    int      `mapstructure:"max_connections"`
@@ -191,6 +193,12 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 	var err error
 	if cfg.TicketTTL, err = time.ParseDuration(raw.TicketTTL); err != nil || cfg.TicketTTL < 10*time.Second || cfg.TicketTTL > 5*time.Minute {
 		return cfg, fmt.Errorf("video_danmaku.ticket_ttl 必须在 10s-5m 之间")
+	}
+	if cfg.HeartbeatInterval, err = time.ParseDuration(raw.HeartbeatInterval); err != nil || cfg.HeartbeatInterval < 5*time.Second || cfg.HeartbeatInterval > time.Minute {
+		return cfg, fmt.Errorf("video_danmaku.heartbeat_interval 必须在 5s-1m 之间")
+	}
+	if cfg.HeartbeatTimeout, err = time.ParseDuration(raw.HeartbeatTimeout); err != nil || cfg.HeartbeatTimeout < 2*cfg.HeartbeatInterval || cfg.HeartbeatTimeout > 5*time.Minute {
+		return cfg, fmt.Errorf("video_danmaku.heartbeat_timeout 必须在 heartbeat_interval 的 2 倍到 5m 之间")
 	}
 	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
 	cfg.RoomShardCount, cfg.MemberShardCount, cfg.MaxPendingBytes = raw.RoomShardCount, raw.MemberShardCount, raw.MaxPendingBytes

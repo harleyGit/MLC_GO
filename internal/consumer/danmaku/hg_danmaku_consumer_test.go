@@ -5,6 +5,7 @@ import (
 	"MLC_GO/internal/events"
 	VideoDanmakuEventsPackage "MLC_GO/internal/events/video_danmaku"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
+	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"encoding/json"
 	"testing"
@@ -12,6 +13,34 @@ import (
 
 type hgHistoryStoreStub struct {
 	items []ClickHousePackage.HGDanmakuHistory
+}
+
+func TestConsumerMarksMalformedEventAsTerminalBatchRecord(t *testing.T) {
+	handler := NewConsumer(&hgHistoryStoreStub{}, &hgRecentProjectorStub{})
+	delivered := []consumer.DeliveredEnvelope{
+		{Delivery: consumer.Delivery{Topic: "danmaku", Partition: 3, Offset: 7}, Envelope: events.EventEnvelope{EventName: VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName, Payload: json.RawMessage(`{"danmakuId":"DMK_1","videoId":"video-1","userId":"user-1","createdAt":1000}`)}},
+		{Delivery: consumer.Delivery{Topic: "danmaku", Partition: 3, Offset: 8}, Envelope: events.EventEnvelope{EventName: VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName, Payload: json.RawMessage(`{"danmakuId":`)}},
+	}
+
+	err := handler.HandleBatch(context.Background(), delivered)
+	if err == nil || !HGKafkaPackage.HGIsTerminalError(err) {
+		t.Fatalf("HandleBatch() error = %v, want terminal error", err)
+	}
+	if index := HGKafkaPackage.HGBatchFailureIndex(err, len(delivered)); index != 1 {
+		t.Fatalf("batch failure index = %d, want 1", index)
+	}
+}
+
+func TestConsumerMarksMissingStableFieldsAsTerminal(t *testing.T) {
+	handler := NewConsumer(&hgHistoryStoreStub{}, &hgRecentProjectorStub{})
+	payload, _ := json.Marshal(VideoDanmakuEventsPackage.CreatedEvent{DanmakuID: "DMK_1", VideoID: "video-1"})
+	err := handler.HandleBatch(context.Background(), []consumer.DeliveredEnvelope{{
+		Delivery: consumer.Delivery{Topic: "danmaku", Partition: 3, Offset: 7},
+		Envelope: events.EventEnvelope{EventName: VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName, Payload: payload},
+	}})
+	if err == nil || !HGKafkaPackage.HGIsTerminalError(err) {
+		t.Fatalf("HandleBatch() error = %v, want terminal error", err)
+	}
 }
 
 func (s *hgHistoryStoreStub) StoreDanmakuHistory(_ context.Context, items []ClickHousePackage.HGDanmakuHistory) error {

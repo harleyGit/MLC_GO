@@ -33,6 +33,8 @@ type hgConnection struct {
 	// pendingBytes 是跨 goroutine 使用的出站预算。gnet 的 WriteBufferCap 超过后会转入弹性缓冲，
 	// 所以必须在应用层设置硬上限，避免慢客户端在热门房间中持续堆积广播直至 OOM。
 	pendingBytes atomic.Int64
+	lastActive   atomic.Int64
+	counted      atomic.Bool
 }
 
 type hgRoomMemberShard struct {
@@ -100,6 +102,7 @@ type Server struct {
 	workerCtx      context.Context
 	cancel         context.CancelFunc
 	handshakeSlots chan struct{}
+	heartbeatPing  []byte
 }
 
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
@@ -123,7 +126,8 @@ func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRe
 	for index := range broadcastQueue {
 		broadcastQueue[index] = make(chan VideoDanmakuDtoPackage.DanmakuResponse, config.BroadcastQueueSize)
 	}
-	server := &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), broadcastQueue: broadcastQueue, roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4)}
+	heartbeatPing, _ := ws.CompileFrame(ws.NewPingFrame(nil))
+	server := &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), broadcastQueue: broadcastQueue, roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4), heartbeatPing: heartbeatPing}
 	server.roomRouter = newHGRoomRouter(redis, config.BroadcastQueueSize, server.hgEnqueueBroadcast)
 	return server
 }
@@ -144,8 +148,12 @@ func (s *Server) Serve() error {
 	s.background.Add(1)
 	go func() {
 		defer s.background.Done()
-		_ = s.roomRouter.Run(s.workerCtx)
+		if err := s.roomRouter.Run(s.workerCtx); err != nil && s.workerCtx.Err() == nil {
+			s.ready.Store(false)
+		}
 	}()
+	s.background.Add(1)
+	go s.hgHeartbeatLoop()
 	return gnet.Run(s, s.Addr(), gnet.WithMulticore(true), gnet.WithReadBufferCap(s.config.MaxHandshakeBytes), gnet.WithWriteBufferCap(16<<10), gnet.WithTCPKeepAlive(90*time.Second))
 }
 
@@ -153,6 +161,9 @@ func (s *Server) Serve() error {
 func (s *Server) Ready() error {
 	if s == nil || !s.ready.Load() {
 		return errors.New("danmaku realtime not ready")
+	}
+	if err := s.roomRouter.Ready(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -204,16 +215,20 @@ func (s *Server) OnBoot(engine gnet.Engine) gnet.Action {
 }
 func (s *Server) OnShutdown(gnet.Engine) { s.ready.Store(false); s.cancel() }
 func (s *Server) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
-	if !s.ready.Load() || s.connections.Add(1) > int64(s.config.MaxConnections) {
-		// gnet 对 OnOpen 返回 Close 的连接仍会调用 OnClose，计数统一在那里释放，避免双减后绕过上限。
+	state := &hgConnection{}
+	state.counted.Store(true)
+	state.lastActive.Store(time.Now().UnixNano())
+	c.SetContext(state)
+	if s.connections.Add(1) > int64(s.config.MaxConnections) || !s.ready.Load() {
 		return nil, gnet.Close
 	}
-	c.SetContext(&hgConnection{})
 	return nil, gnet.None
 }
 func (s *Server) OnClose(c gnet.Conn, _ error) gnet.Action {
-	s.connections.Add(-1)
 	state, _ := c.Context().(*hgConnection)
+	if state != nil && state.counted.CompareAndSwap(true, false) {
+		s.connections.Add(-1)
+	}
 	if state != nil && state.videoID != "" {
 		s.hgLeave(state.videoID, c)
 		s.roomRouter.Leave(state.videoID)
@@ -227,6 +242,7 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 	if state == nil {
 		return gnet.Close
 	}
+	state.lastActive.Store(time.Now().UnixNano())
 	if state.pending {
 		if c.InboundBuffered() > s.config.MaxFrameBytes {
 			return gnet.Close
@@ -298,6 +314,58 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 		}
 	}
 	return gnet.None
+}
+
+// hgHeartbeatLoop 使用单个固定 ticker 扫描已升级连接，避免百万连接对应百万 timer。
+func (s *Server) hgHeartbeatLoop() {
+	defer s.background.Done()
+	interval := s.config.HeartbeatInterval
+	if interval <= 0 {
+		interval = 20 * time.Second
+	}
+	timeout := s.config.HeartbeatTimeout
+	if timeout < 2*interval {
+		timeout = 3 * interval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.workerCtx.Done():
+			return
+		case now := <-ticker.C:
+			s.hgHeartbeatScan(now, timeout)
+		}
+	}
+}
+
+func (s *Server) hgHeartbeatScan(now time.Time, timeout time.Duration) {
+	deadline := now.Add(-timeout).UnixNano()
+	var stale []gnet.Conn
+	for directoryIndex := range s.roomShards {
+		directory := &s.roomShards[directoryIndex]
+		directory.mu.RLock()
+		for memberIndex := range directory.members {
+			members := &directory.members[memberIndex]
+			members.mu.RLock()
+			for _, roomMembers := range members.members {
+				for conn, state := range roomMembers {
+					if state.lastActive.Load() <= deadline {
+						stale = append(stale, conn)
+						continue
+					}
+					if err := conn.AsyncWrite(s.heartbeatPing, nil); err != nil {
+						stale = append(stale, conn)
+					}
+				}
+			}
+			members.mu.RUnlock()
+		}
+		directory.mu.RUnlock()
+	}
+	for _, conn := range stale {
+		_ = conn.Close()
+	}
 }
 
 func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {

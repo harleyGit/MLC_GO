@@ -5,6 +5,7 @@ import (
 	"MLC_GO/internal/events"
 	VideoDanmakuEventsPackage "MLC_GO/internal/events/video_danmaku"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
+	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,10 +45,10 @@ func (c *Consumer) HandleBatch(ctx context.Context, delivered []consumer.Deliver
 		}
 		var event VideoDanmakuEventsPackage.CreatedEvent
 		if err := json.Unmarshal(item.Envelope.Payload, &event); err != nil {
-			return fmt.Errorf("decode danmaku event at index %d: %w", index, err)
+			return HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("decode danmaku event: %w", err)))
 		}
 		if event.DanmakuID == "" || event.VideoID == "" || event.UserID == "" || event.CreatedAt <= 0 {
-			return fmt.Errorf("danmaku event at index %d is invalid", index)
+			return HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("danmaku event is invalid")))
 		}
 		rows = append(rows, ClickHousePackage.HGDanmakuHistory{
 			DanmakuID: event.DanmakuID, SubmissionID: event.SubmissionID, VideoID: event.VideoID,

@@ -41,6 +41,9 @@ func hgIsTerminalError(err error) bool {
 	return errors.As(err, &terminal)
 }
 
+// HGIsTerminalError reports whether a consumer error is a non-retryable protocol or data failure.
+func HGIsTerminalError(err error) bool { return hgIsTerminalError(err) }
+
 const hgConsumerMaxPollRecords = 500
 
 // HGRecordHandler 是统一消费处理函数。
@@ -74,6 +77,9 @@ func hgBatchFailureIndex(err error, length int) int {
 	}
 	return 0
 }
+
+// HGBatchFailureIndex returns the failed record index carried by a batch error.
+func HGBatchFailureIndex(err error, length int) int { return hgBatchFailureIndex(err, length) }
 
 // HGBaseConsumer 是 franz-go 消费基类。
 //

@@ -14,6 +14,9 @@ video_danmaku:
   allowed_origins:
     - http://localhost:5174
   ticket_ttl: 45s
+  # 服务端固定周期发送 WebSocket Ping，并按最后入站活动清理半开连接；不为每条连接创建 timer。
+  heartbeat_interval: 20s
+  heartbeat_timeout: 60s
   worker_count: 16
   queue_size: 65536
   max_connections: 1000000
