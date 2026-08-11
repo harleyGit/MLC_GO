@@ -18,12 +18,13 @@ type hgRoomSubscriptionCommand struct {
 }
 
 type hgRoomSubscriptionState struct {
-	refs        int
-	generation  uint64
-	subscribed  bool
-	subscribing bool
-	ready       chan struct{}
-	err         error
+	refs          int
+	generation    uint64
+	subscribed    bool
+	subscribing   bool
+	unsubscribing bool
+	ready         chan struct{}
+	err           error
 }
 
 // hgRoomRouter 只订阅本实例存在连接的房间，避免所有网关接收全平台广播。
@@ -32,7 +33,9 @@ type hgRoomRouter struct {
 	pubsub    *redis.PubSub
 	refsMu    sync.Mutex
 	refs      map[string]*hgRoomSubscriptionState
-	commands  chan hgRoomSubscriptionCommand
+	pendingMu sync.Mutex
+	pending   map[string]hgRoomSubscriptionCommand
+	wake      chan struct{}
 	onMessage func(VideoDanmakuDtoPackage.DanmakuResponse)
 	running   atomic.Bool
 	runErrMu  sync.RWMutex
@@ -43,7 +46,13 @@ func newHGRoomRouter(redisService *PersistenceRedisPackage.RedisService, queueSi
 	if queueSize < 64 {
 		queueSize = 64
 	}
-	router := &hgRoomRouter{redis: redisService, refs: make(map[string]*hgRoomSubscriptionState), commands: make(chan hgRoomSubscriptionCommand, queueSize), onMessage: onMessage}
+	router := &hgRoomRouter{
+		redis:     redisService,
+		refs:      make(map[string]*hgRoomSubscriptionState),
+		pending:   make(map[string]hgRoomSubscriptionCommand, queueSize),
+		wake:      make(chan struct{}, 1),
+		onMessage: onMessage,
+	}
 	if redisService != nil && redisService.Client() != nil {
 		router.pubsub = redisService.Client().Subscribe(context.Background())
 	}
@@ -61,6 +70,24 @@ func (r *hgRoomRouter) Join(ctx context.Context, videoID string) error {
 		if state == nil {
 			state = &hgRoomSubscriptionState{}
 			r.refs[videoID] = state
+		}
+		if state.unsubscribing {
+			ready := state.ready
+			r.refsMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ready:
+			}
+			r.refsMu.Lock()
+			state = r.refs[videoID]
+			if state != nil && state.err != nil {
+				err := state.err
+				r.refsMu.Unlock()
+				return err
+			}
+			r.refsMu.Unlock()
+			continue
 		}
 		if state.subscribed {
 			if state.refs == 0 {
@@ -139,11 +166,38 @@ func (r *hgRoomRouter) Leave(videoID string) {
 	state.generation++
 	command := hgRoomSubscriptionCommand{videoID: videoID, generation: state.generation}
 	r.refsMu.Unlock()
+	r.hgQueueUnsubscribe(command)
+}
+
+// hgQueueUnsubscribe 按房间只保留最新代次，并用容量为 1 的信号唤醒 Run。待处理集合的
+// 上限受本实例房间数约束，不会因为瞬时退房超过 channel 容量而永久泄漏 Redis 订阅。
+func (r *hgRoomRouter) hgQueueUnsubscribe(command hgRoomSubscriptionCommand) {
+	r.pendingMu.Lock()
+	r.pending[command.videoID] = command
+	r.pendingMu.Unlock()
 	select {
-	case r.commands <- command:
+	case r.wake <- struct{}{}:
 	default:
-		// 满队列时保留多余订阅比阻塞 event-loop 更安全，后续加入仍会复用该订阅。
 	}
+}
+
+func (r *hgRoomRouter) hgPopUnsubscribe() (hgRoomSubscriptionCommand, bool) {
+	r.pendingMu.Lock()
+	var command hgRoomSubscriptionCommand
+	for videoID, pending := range r.pending {
+		command = pending
+		delete(r.pending, videoID)
+		break
+	}
+	hasMore := len(r.pending) > 0
+	r.pendingMu.Unlock()
+	if hasMore {
+		select {
+		case r.wake <- struct{}{}:
+		default:
+		}
+	}
+	return command, command.videoID != ""
 }
 
 func (r *hgRoomRouter) Run(ctx context.Context) error {
@@ -164,15 +218,20 @@ func (r *hgRoomRouter) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case command := <-r.commands:
-			if !r.hgShouldUnsubscribe(command) {
+		case <-r.wake:
+			command, ok := r.hgPopUnsubscribe()
+			if !ok || !r.hgBeginUnsubscribe(command) {
 				continue
 			}
-			if err := r.pubsub.Unsubscribe(ctx, PersistenceRedisPackage.GetVideoDanmakuBroadcastChannel(command.videoID)); err != nil {
-				r.hgSetRunError(fmt.Errorf("unsubscribe danmaku room: %w", err))
+			err := r.pubsub.Unsubscribe(ctx, PersistenceRedisPackage.GetVideoDanmakuBroadcastChannel(command.videoID))
+			if err != nil {
+				err = fmt.Errorf("unsubscribe danmaku room: %w", err)
+			}
+			r.hgFinishUnsubscribe(command, err)
+			if err != nil {
+				r.hgSetRunError(err)
 				return r.hgRunError()
 			}
-			r.hgMarkUnsubscribed(command)
 		case message, ok := <-messages:
 			if !ok {
 				err := fmt.Errorf("danmaku room subscription closed")
@@ -197,18 +256,35 @@ func (r *hgRoomRouter) Ready() error {
 	return nil
 }
 
-func (r *hgRoomRouter) hgShouldUnsubscribe(command hgRoomSubscriptionCommand) bool {
+// hgBeginUnsubscribe 在 Redis I/O 前原子标记退订中。此后到达的 Join 必须等待退订结束，
+// 不能再把即将被取消的底层订阅误认为可复用，从而避免“校验通过后立即重连”的竞态。
+func (r *hgRoomRouter) hgBeginUnsubscribe(command hgRoomSubscriptionCommand) bool {
 	r.refsMu.Lock()
 	defer r.refsMu.Unlock()
 	state := r.refs[command.videoID]
-	return state != nil && state.generation == command.generation && state.refs == 0 && state.subscribed && !state.subscribing
+	if state == nil || state.generation != command.generation || state.refs != 0 || !state.subscribed || state.subscribing || state.unsubscribing {
+		return false
+	}
+	state.unsubscribing = true
+	state.ready = make(chan struct{})
+	state.err = nil
+	return true
 }
 
-func (r *hgRoomRouter) hgMarkUnsubscribed(command hgRoomSubscriptionCommand) {
+func (r *hgRoomRouter) hgFinishUnsubscribe(command hgRoomSubscriptionCommand, unsubscribeErr error) {
 	r.refsMu.Lock()
 	defer r.refsMu.Unlock()
 	state := r.refs[command.videoID]
-	if state != nil && state.generation == command.generation && state.refs == 0 {
+	if state == nil || state.generation != command.generation || !state.unsubscribing {
+		return
+	}
+	state.unsubscribing = false
+	state.err = unsubscribeErr
+	if unsubscribeErr == nil {
+		state.subscribed = false
+	}
+	close(state.ready)
+	if unsubscribeErr == nil && state.refs == 0 {
 		delete(r.refs, command.videoID)
 	}
 }

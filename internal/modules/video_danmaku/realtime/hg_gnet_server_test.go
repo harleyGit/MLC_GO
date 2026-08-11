@@ -5,6 +5,9 @@ import (
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,8 +109,56 @@ func TestRoomRouterRejoinInvalidatesQueuedUnsubscribe(t *testing.T) {
 	state.refs++
 	router.refsMu.Unlock()
 
-	if router.hgShouldUnsubscribe(command) {
+	if router.hgBeginUnsubscribe(command) {
 		t.Fatal("stale unsubscribe remained valid after room rejoin")
+	}
+}
+
+func TestRoomRouterMarksUnsubscribeBeforeRedisIO(t *testing.T) {
+	router := &hgRoomRouter{refs: map[string]*hgRoomSubscriptionState{
+		"video-1": {refs: 0, generation: 2, subscribed: true},
+	}}
+	command := hgRoomSubscriptionCommand{videoID: "video-1", generation: 2}
+
+	if !router.hgBeginUnsubscribe(command) {
+		t.Fatal("valid unsubscribe was rejected")
+	}
+	router.refsMu.Lock()
+	state := router.refs["video-1"]
+	unsubscribing := state != nil && state.unsubscribing && state.ready != nil
+	router.refsMu.Unlock()
+	if !unsubscribing {
+		t.Fatal("room was not marked unsubscribing before Redis I/O")
+	}
+
+	router.hgFinishUnsubscribe(command, nil)
+	router.refsMu.Lock()
+	_, exists := router.refs["video-1"]
+	router.refsMu.Unlock()
+	if exists {
+		t.Fatal("unused room remained after successful unsubscribe")
+	}
+}
+
+func TestRoomRouterUnsubscribeQueueCoalescesWithoutDroppingRooms(t *testing.T) {
+	router := &hgRoomRouter{pending: make(map[string]hgRoomSubscriptionCommand), wake: make(chan struct{}, 1)}
+	const roomCount = 1_000
+	for index := 0; index < roomCount; index++ {
+		videoID := fmt.Sprintf("video-%d", index)
+		router.hgQueueUnsubscribe(hgRoomSubscriptionCommand{videoID: videoID, generation: 1})
+	}
+	router.hgQueueUnsubscribe(hgRoomSubscriptionCommand{videoID: "video-1", generation: 2})
+
+	seen := make(map[string]uint64, roomCount)
+	for len(seen) < roomCount {
+		command, ok := router.hgPopUnsubscribe()
+		if !ok {
+			t.Fatalf("popped %d rooms, want %d", len(seen), roomCount)
+		}
+		seen[command.videoID] = command.generation
+	}
+	if seen["video-1"] != 2 {
+		t.Fatalf("video-1 generation = %d, want latest generation 2", seen["video-1"])
 	}
 }
 
@@ -124,6 +175,66 @@ func TestConnectionCountIsReleasedOnce(t *testing.T) {
 	}
 	if got := server.connections.Load(); got != 0 {
 		t.Fatalf("connections = %d, want 0", got)
+	}
+}
+
+func TestPendingWriteBudgetRejectsOverflowAndRecovers(t *testing.T) {
+	state := &hgConnection{}
+	const maxPendingBytes = int64(100)
+
+	if !state.hgReservePendingWrite(80, maxPendingBytes) {
+		t.Fatal("first pending write reservation was rejected")
+	}
+	if state.hgReservePendingWrite(30, maxPendingBytes) {
+		t.Fatal("overflow pending write reservation was accepted")
+	}
+	if pending := state.pendingBytes.Load(); pending != 80 {
+		t.Fatalf("pending bytes after rejected reservation = %d, want 80", pending)
+	}
+	state.hgReleasePendingWrite(80)
+	if pending := state.pendingBytes.Load(); pending != 0 {
+		t.Fatalf("pending bytes after callback release = %d, want 0", pending)
+	}
+}
+
+func TestPendingWriteBudgetIsAtomicAcrossWriters(t *testing.T) {
+	state := &hgConnection{}
+	const (
+		writerCount     = 1_000
+		frameBytes      = int64(64)
+		maxPendingBytes = int64(640)
+	)
+	start := make(chan struct{})
+	release := make(chan struct{})
+	var accepted atomic.Int64
+	var writers sync.WaitGroup
+	writers.Add(writerCount)
+	for index := 0; index < writerCount; index++ {
+		go func() {
+			defer writers.Done()
+			<-start
+			if !state.hgReservePendingWrite(frameBytes, maxPendingBytes) {
+				return
+			}
+			accepted.Add(1)
+			<-release
+			state.hgReleasePendingWrite(frameBytes)
+		}()
+	}
+	close(start)
+	deadline := time.Now().Add(time.Second)
+	for accepted.Load() < maxPendingBytes/frameBytes && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := accepted.Load(); got != maxPendingBytes/frameBytes {
+		close(release)
+		writers.Wait()
+		t.Fatalf("accepted writes = %d, want %d", got, maxPendingBytes/frameBytes)
+	}
+	close(release)
+	writers.Wait()
+	if pending := state.pendingBytes.Load(); pending != 0 {
+		t.Fatalf("pending bytes after concurrent releases = %d, want 0", pending)
 	}
 }
 

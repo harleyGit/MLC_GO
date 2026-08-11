@@ -86,10 +86,13 @@ type hgCommandErrorEnvelope struct {
 // requestID 同时用于数据库幂等和 WebSocket ack/error 关联，客户端断线回退 HTTP 时必须保持不变。
 type hgCommand struct {
 	conn      gnet.Conn
+	state     *hgConnection
 	userID    string
 	requestID string
 	request   VideoDanmakuDtoPackage.CreateRequest
 }
+
+var hgErrPendingWriteLimit = errors.New("danmaku connection pending write limit exceeded")
 
 // Server 是独立端口的 gnet WebSocket 弹幕网关；事件循环不执行 MySQL/Redis 阻塞 I/O。
 type Server struct {
@@ -186,7 +189,11 @@ func (s *Server) Close(ctx context.Context) error {
 		return nil
 	}
 	s.ready.Store(false)
-	conns := make([]gnet.Conn, 0, int(s.connections.Load()))
+	type connectionState struct {
+		conn  gnet.Conn
+		state *hgConnection
+	}
+	conns := make([]connectionState, 0, int(s.connections.Load()))
 	for index := range s.roomShards {
 		directory := &s.roomShards[index]
 		directory.mu.RLock()
@@ -194,17 +201,17 @@ func (s *Server) Close(ctx context.Context) error {
 			members := &directory.members[memberIndex]
 			members.mu.RLock()
 			for _, roomMembers := range members.members {
-				for conn := range roomMembers {
-					conns = append(conns, conn)
+				for conn, state := range roomMembers {
+					conns = append(conns, connectionState{conn: conn, state: state})
 				}
 			}
 			members.mu.RUnlock()
 		}
 		directory.mu.RUnlock()
 	}
-	for _, conn := range conns {
-		_ = conn.AsyncWrite(ws.CompiledCloseGoingAway, nil)
-		_ = conn.Close()
+	for _, connection := range conns {
+		_ = s.hgWriteFrame(connection.conn, connection.state, ws.CompiledCloseGoingAway)
+		_ = connection.conn.Close()
 	}
 	s.cancel()
 	done := make(chan struct{})
@@ -280,7 +287,7 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 			return gnet.Close
 		}
 		if ws.CheckHeader(header, ws.StateServerSide) != nil || !header.Fin || header.Length > int64(s.config.MaxFrameBytes) {
-			_ = c.AsyncWrite(ws.CompiledCloseProtocolError, nil)
+			_ = s.hgWriteFrame(c, state, ws.CompiledCloseProtocolError)
 			return gnet.Close
 		}
 		frameSize := buffered - reader.Len() + int(header.Length)
@@ -293,14 +300,16 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 		switch header.OpCode {
 		case ws.OpPing:
 			pong, _ := ws.CompileFrame(ws.NewPongFrame(payload))
-			_ = c.AsyncWrite(pong, nil)
+			if s.hgWriteFrame(c, state, pong) != nil {
+				return gnet.Close
+			}
 		case ws.OpPong:
 		case ws.OpClose:
-			_ = c.AsyncWrite(ws.CompiledCloseNormalClosure, nil)
+			_ = s.hgWriteFrame(c, state, ws.CompiledCloseNormalClosure)
 			return gnet.Close
 		case ws.OpText:
 			if !utf8.Valid(payload) {
-				_ = c.AsyncWrite(ws.CompiledCloseInvalidFramePayloadData, nil)
+				_ = s.hgWriteFrame(c, state, ws.CompiledCloseInvalidFramePayloadData)
 				return gnet.Close
 			}
 			var command struct {
@@ -308,21 +317,27 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 				Request VideoDanmakuDtoPackage.CreateRequest `json:"data"`
 			}
 			if json.Unmarshal(payload, &command) != nil || command.Type != "danmaku.create" {
-				s.hgError(c, "invalid_command", "弹幕命令无效")
+				if s.hgError(c, state, "invalid_command", "弹幕命令无效") != nil {
+					return gnet.Close
+				}
 				continue
 			}
 			if !s.hgAllowCommand(state, time.Now()) {
-				s.hgCommandError(c, command.Request.RequestID, "rate_limited", "弹幕发送过于频繁，请稍后重试")
+				if s.hgCommandError(c, state, command.Request.RequestID, "rate_limited", "弹幕发送过于频繁，请稍后重试") != nil {
+					return gnet.Close
+				}
 				continue
 			}
 			command.Request.VideoID = state.videoID
 			select {
-			case s.queue <- hgCommand{conn: c, userID: state.userID, requestID: command.Request.RequestID, request: command.Request}:
+			case s.queue <- hgCommand{conn: c, state: state, userID: state.userID, requestID: command.Request.RequestID, request: command.Request}:
 			default:
-				s.hgCommandError(c, command.Request.RequestID, "busy", "弹幕服务繁忙，请稍后重试")
+				if s.hgCommandError(c, state, command.Request.RequestID, "busy", "弹幕服务繁忙，请稍后重试") != nil {
+					return gnet.Close
+				}
 			}
 		default:
-			_ = c.AsyncWrite(ws.CompiledCloseUnsupportedData, nil)
+			_ = s.hgWriteFrame(c, state, ws.CompiledCloseUnsupportedData)
 			return gnet.Close
 		}
 	}
@@ -363,7 +378,7 @@ func (s *Server) hgHeartbeatTick(now time.Time) {
 			}
 			continue
 		}
-		if err := conn.AsyncWrite(s.heartbeatPing, nil); err != nil {
+		if err := s.hgWriteFrame(conn, state, s.heartbeatPing); err != nil {
 			_ = conn.Close()
 			continue
 		}
@@ -468,12 +483,12 @@ func (s *Server) hgWorker() {
 			cancel()
 			if err != nil {
 				// 未知错误只返回稳定文案，SQL driver 和事务上下文保留在服务端，不能泄露给客户端。
-				s.hgCommandError(command.conn, command.requestID, "create_failed", "弹幕发送失败，请稍后重试")
+				s.hgCommandError(command.conn, command.state, command.requestID, "create_failed", "弹幕发送失败，请稍后重试")
 				continue
 			}
 			// 广播面向整个房间，ack 只返回给发送连接。requestId 让浏览器能够在并发发送时
 			// 精确完成对应 Promise；若 ack 丢失，客户端可用同一 requestId 通过 HTTP 幂等回退。
-			s.hgCommandAck(command.conn, command.requestID, item)
+			s.hgCommandAck(command.conn, command.state, command.requestID, item)
 		}
 	}
 }
@@ -525,19 +540,12 @@ func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) e
 		directory.mu.RUnlock()
 		return nil
 	}
-	frameBytes := int64(len(frame))
 	var slowConnections []gnet.Conn
 	for index := range directory.members {
 		members := &directory.members[index]
 		members.mu.RLock()
 		for conn, state := range members.members[item.VideoID] {
-			if state.pendingBytes.Add(frameBytes) > int64(s.config.MaxPendingBytes) {
-				state.pendingBytes.Add(-frameBytes)
-				slowConnections = append(slowConnections, conn)
-				continue
-			}
-			if err = conn.AsyncWrite(frame, func(_ gnet.Conn, _ error) error { state.pendingBytes.Add(-frameBytes); return nil }); err != nil {
-				state.pendingBytes.Add(-frameBytes)
+			if err = s.hgWriteFrame(conn, state, frame); err != nil {
 				slowConnections = append(slowConnections, conn)
 			}
 		}
@@ -630,24 +638,79 @@ func (s *Server) hgAllowedOrigin(origin string) bool {
 	}
 	return false
 }
-func (s *Server) hgError(c gnet.Conn, code, message string) {
-	payload, _ := json.Marshal(hgCommandErrorEnvelope{Type: "error", Data: hgCommandErrorData{Code: code, Message: message}})
-	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	_ = c.AsyncWrite(frame, nil)
+
+// hgWriteFrame 对所有 Upgrade 后的 WebSocket 帧执行同一出站预算。预占发生在进入 gnet
+// 异步队列之前，回调释放实际帧字节；这样 ACK、Error、Pong 和心跳不能绕过广播的慢连接隔离。
+func (s *Server) hgWriteFrame(c gnet.Conn, state *hgConnection, frame []byte) error {
+	if c == nil || state == nil {
+		return errors.New("danmaku connection state cannot be nil")
+	}
+	frameBytes := int64(len(frame))
+	if !state.hgReservePendingWrite(frameBytes, int64(s.config.MaxPendingBytes)) {
+		return hgErrPendingWriteLimit
+	}
+	err := c.AsyncWrite(frame, func(conn gnet.Conn, writeErr error) error {
+		state.hgReleasePendingWrite(frameBytes)
+		if writeErr != nil {
+			_ = conn.Close()
+		}
+		return nil
+	})
+	if err != nil {
+		state.hgReleasePendingWrite(frameBytes)
+	}
+	return err
 }
 
-func (s *Server) hgCommandAck(c gnet.Conn, requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) {
+func (state *hgConnection) hgReservePendingWrite(frameBytes, maxPendingBytes int64) bool {
+	if frameBytes <= 0 || maxPendingBytes <= 0 {
+		return false
+	}
+	for {
+		pendingBytes := state.pendingBytes.Load()
+		if frameBytes > maxPendingBytes-pendingBytes {
+			return false
+		}
+		if state.pendingBytes.CompareAndSwap(pendingBytes, pendingBytes+frameBytes) {
+			return true
+		}
+	}
+}
+
+func (state *hgConnection) hgReleasePendingWrite(frameBytes int64) {
+	state.pendingBytes.Add(-frameBytes)
+}
+
+func (s *Server) hgError(c gnet.Conn, state *hgConnection, code, message string) error {
+	payload, _ := json.Marshal(hgCommandErrorEnvelope{Type: "error", Data: hgCommandErrorData{Code: code, Message: message}})
+	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
+	if err := s.hgWriteFrame(c, state, frame); err != nil {
+		_ = c.Close()
+		return err
+	}
+	return nil
+}
+
+func (s *Server) hgCommandAck(c gnet.Conn, state *hgConnection, requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) error {
 	payload := hgCommandAckPayload(requestID, item)
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	_ = c.AsyncWrite(frame, nil)
+	if err := s.hgWriteFrame(c, state, frame); err != nil {
+		_ = c.Close()
+		return err
+	}
+	return nil
 }
 
 // hgCommandError 只表示某一条创建命令已被服务端明确拒绝；携带 requestID 后，客户端应结束该请求，
 // 不能再自动回退 HTTP。只有断线、未连接或 ack 超时这类结果未知场景才允许以相同 requestID 重试。
-func (s *Server) hgCommandError(c gnet.Conn, requestID, code, message string) {
+func (s *Server) hgCommandError(c gnet.Conn, state *hgConnection, requestID, code, message string) error {
 	payload := hgCommandErrorPayload(requestID, code, message)
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	_ = c.AsyncWrite(frame, nil)
+	if err := s.hgWriteFrame(c, state, frame); err != nil {
+		_ = c.Close()
+		return err
+	}
+	return nil
 }
 
 // hgCommandAckPayload 返回发送连接专属确认；房间广播仍使用 danmaku.created，二者职责不能合并。
