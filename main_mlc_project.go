@@ -349,7 +349,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// Component writers expose process-local snapshots only; scraping /metrics never performs MySQL, Redis, Kafka, or other external I/O.
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics),
 	})
 
 	srv := &http.Server{

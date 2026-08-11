@@ -1,0 +1,154 @@
+rule_files:
+  - ../rules/mlc-video-danmaku.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_websocket_connections{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 95x12
+      - series: mlc_video_danmaku_websocket_connection_limit{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 100x12
+      - series: mlc_video_danmaku_websocket_connections{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 20x12
+      - series: mlc_video_danmaku_websocket_connection_limit{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 100x12
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MLCVideoDanmakuWebSocketCapacityHigh
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: MLCVideoDanmakuWebSocketCapacityHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku WebSocket capacity is above 90 percent
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-websocket-capacity
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_command_queue_size{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 90x12
+      - series: mlc_video_danmaku_command_queue_capacity{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 100x12
+      - series: mlc_video_danmaku_command_queue_size{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 10x12
+      - series: mlc_video_danmaku_command_queue_capacity{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 100x12
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MLCVideoDanmakuCommandQueueHigh
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: MLCVideoDanmakuCommandQueueHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku command queue is persistently saturated
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-command-queue
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_broadcast_queue_dropped_total{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 0+60x10
+      - series: mlc_video_danmaku_broadcast_queue_dropped_total{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 0+60x10
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: MLCVideoDanmakuBroadcastDrops
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: MLCVideoDanmakuBroadcastDrops
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku realtime broadcasts are being dropped
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-drops
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_broadcast_queue_size{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 90x12
+      - series: mlc_video_danmaku_broadcast_queue_capacity{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 100x12
+      - series: mlc_video_danmaku_broadcast_queue_size{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 10x12
+      - series: mlc_video_danmaku_broadcast_queue_capacity{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 100x12
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: MLCVideoDanmakuBroadcastQueueHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku local broadcast queue is persistently saturated
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-queue
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_outbound_write_failures_total{service="mlc-go",environment="prod",instance="pod-a",reason="pending_budget"}
+        values: 0+60x12
+      - series: mlc_video_danmaku_outbound_write_failures_total{service="mlc-go",environment="prod",instance="pod-b",reason="pending_budget"}
+        values: 0+60x12
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: MLCVideoDanmakuOutboundBackpressure
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: MLCVideoDanmakuOutboundBackpressure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku clients have sustained outbound backpressure
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-outbound-backpressure
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-a",le="0.1"}
+        values: 0x20
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-a",le="0.25"}
+        values: 0+60x20
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-a",le="+Inf"}
+        values: 0+60x20
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-b",le="0.1"}
+        values: 0x20
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-b",le="0.25"}
+        values: 0+60x20
+      - series: mlc_video_danmaku_broadcast_duration_seconds_bucket{service="mlc-go",environment="prod",instance="pod-b",le="+Inf"}
+        values: 0+60x20
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: MLCVideoDanmakuBroadcastSchedulingLatencyHigh
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: MLCVideoDanmakuBroadcastSchedulingLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku local broadcast scheduling P99 is above 100 milliseconds
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-latency

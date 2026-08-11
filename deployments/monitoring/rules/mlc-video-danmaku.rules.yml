@@ -1,0 +1,62 @@
+# 弹幕实时告警只聚合固定基数进程指标，不按视频、用户、连接或请求维度创建时序。
+groups:
+  - name: mlc-video-danmaku
+    rules:
+      # 连接 gauge 只统计已认证且 Upgrade 成功的 WebSocket；limit 是当前进程的 TCP admission 上限。
+      - alert: MLCVideoDanmakuWebSocketCapacityHigh
+        expr: max by (service, environment) (mlc_video_danmaku_websocket_connections / clamp_min(mlc_video_danmaku_websocket_connection_limit, 1)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: video-danmaku
+        annotations:
+          summary: Danmaku WebSocket capacity is above 90 percent
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-websocket-capacity
+      # 使用 max 而不是跨 Pod 平均，避免一个已饱和实例被其他空闲实例掩盖。
+      - alert: MLCVideoDanmakuCommandQueueHigh
+        expr: max by (service, environment) (mlc_video_danmaku_command_queue_size / clamp_min(mlc_video_danmaku_command_queue_capacity, 1)) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: video-danmaku
+        annotations:
+          summary: Danmaku command queue is persistently saturated
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-command-queue
+      - alert: MLCVideoDanmakuBroadcastQueueHigh
+        expr: max by (service, environment) (mlc_video_danmaku_broadcast_queue_size / clamp_min(mlc_video_danmaku_broadcast_queue_capacity, 1)) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: video-danmaku
+        annotations:
+          summary: Danmaku local broadcast queue is persistently saturated
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-queue
+      # 本地广播队列满时实时副本会主动丢弃，因此持续新增丢弃直接影响当前观看体验。
+      - alert: MLCVideoDanmakuBroadcastDrops
+        expr: sum by (service, environment) (rate(mlc_video_danmaku_broadcast_queue_dropped_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: video-danmaku
+        annotations:
+          summary: Danmaku realtime broadcasts are being dropped
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-drops
+      - alert: MLCVideoDanmakuOutboundBackpressure
+        expr: sum by (service, environment) (rate(mlc_video_danmaku_outbound_write_failures_total{reason="pending_budget"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: video-danmaku
+        annotations:
+          summary: Danmaku clients have sustained outbound backpressure
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-outbound-backpressure
+      # 该直方图只测量本机编码和 AsyncWrite 调度，不代表网络送达或浏览器渲染耗时。
+      - alert: MLCVideoDanmakuBroadcastSchedulingLatencyHigh
+        expr: histogram_quantile(0.99, sum by (le, service, environment) (rate(mlc_video_danmaku_broadcast_duration_seconds_bucket[5m]))) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: video-danmaku
+        annotations:
+          summary: Danmaku local broadcast scheduling P99 is above 100 milliseconds
+          runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-latency

@@ -37,6 +37,9 @@ type hgConnection struct {
 	pendingBytes atomic.Int64
 	lastActive   atomic.Int64
 	counted      atomic.Bool
+	closed       atomic.Bool
+	// websocketCounted 只在 Upgrade 成功后置位，并由关闭路径原子释放一次，避免异步升级与断连重叠时 gauge 变负。
+	websocketCounted atomic.Bool
 	// heartbeatConn 在 Upgrade 成功后只写一次；时间轮后台线程不得调用非并发安全的
 	// gnet.Conn.Context，因此直接保存连接及其时间轮分片位置。
 	heartbeatConn      gnet.Conn
@@ -121,6 +124,7 @@ type Server struct {
 	handshakeSlots chan struct{}
 	heartbeatPing  []byte
 	heartbeatWheel *hgHeartbeatWheel
+	metrics        hgRealtimeMetrics
 }
 
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
@@ -252,10 +256,16 @@ func (s *Server) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
 }
 func (s *Server) OnClose(c gnet.Conn, _ error) gnet.Action {
 	state, _ := c.Context().(*hgConnection)
+	if state != nil {
+		// Upgrade 校验在后台执行，连接可能在 runnable 回到 event-loop 前关闭。
+		// 先发布 closed 状态，阻止迟到的 runnable 再注册房间和增加 WebSocket gauge。
+		state.closed.Store(true)
+	}
 	if state != nil && state.counted.CompareAndSwap(true, false) {
 		s.connections.Add(-1)
 	}
 	if state != nil && state.videoID != "" {
+		s.hgReleaseWebSocketConnection(state)
 		s.heartbeatWheel.hgCancel(state)
 		s.hgLeave(state.videoID, c)
 		s.roomRouter.Leave(state.videoID)
@@ -337,17 +347,20 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 				_ = s.hgWriteFrame(c, state, ws.CompiledCloseInvalidFramePayloadData)
 				return gnet.Close
 			}
+			s.metrics.commandsReceived.Add(1)
 			var command struct {
 				Type    string                               `json:"type"`
 				Request VideoDanmakuDtoPackage.CreateRequest `json:"data"`
 			}
 			if json.Unmarshal(message, &command) != nil || command.Type != "danmaku.create" {
+				s.metrics.commandRejections[hgCommandRejectionInvalid].Add(1)
 				if s.hgError(c, state, "invalid_command", "弹幕命令无效") != nil {
 					return gnet.Close
 				}
 				continue
 			}
 			if !s.hgAllowCommand(state, time.Now()) {
+				s.metrics.commandRejections[hgCommandRejectionRateLimited].Add(1)
 				if s.hgCommandError(c, state, command.Request.RequestID, "rate_limited", "弹幕发送过于频繁，请稍后重试") != nil {
 					return gnet.Close
 				}
@@ -357,6 +370,7 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 			select {
 			case s.queue <- hgCommand{conn: c, state: state, userID: state.userID, requestID: command.Request.RequestID, request: command.Request}:
 			default:
+				s.metrics.commandRejections[hgCommandRejectionQueueFull].Add(1)
 				if s.hgCommandError(c, state, command.Request.RequestID, "busy", "弹幕服务繁忙，请稍后重试") != nil {
 					return gnet.Close
 				}
@@ -528,9 +542,10 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 				s.roomRouter.Leave(binding.VideoID)
 				return c.EventLoop().Close(c)
 			}
-			state.pending, state.upgraded, state.videoID, state.userID = false, true, binding.VideoID, binding.UserID
-			s.hgJoin(binding.VideoID, c, state)
-			s.heartbeatWheel.hgRegister(state, c)
+			if !s.hgActivateWebSocket(binding.VideoID, binding.UserID, c, state) {
+				s.roomRouter.Leave(binding.VideoID)
+				return nil
+			}
 			// HTTP 握手和首个 WebSocket 帧可能在同一 TCP 包内，主动唤醒以处理已缓冲帧。
 			_ = c.Wake(nil)
 			return nil
@@ -554,6 +569,7 @@ func (s *Server) hgWorker() {
 			item, err := s.service.Create(ctx, command.userID, command.request)
 			cancel()
 			if err != nil {
+				s.metrics.commandCreateFailures.Add(1)
 				// 未知错误只返回稳定文案，SQL driver 和事务上下文保留在服务端，不能泄露给客户端。
 				s.hgCommandError(command.conn, command.state, command.requestID, "create_failed", "弹幕发送失败，请稍后重试")
 				continue
@@ -567,7 +583,13 @@ func (s *Server) hgWorker() {
 
 // Publish 将已提交弹幕发布到 Redis，使不同实例上的本地房间都能收到；MySQL 历史仍是权威恢复来源。
 func (s *Server) Publish(ctx context.Context, item VideoDanmakuDtoPackage.DanmakuResponse) error {
-	return s.roomRouter.Publish(ctx, item)
+	err := s.roomRouter.Publish(ctx, item)
+	if err != nil {
+		s.metrics.publishResults[hgPublishFailure].Add(1)
+		return err
+	}
+	s.metrics.publishResults[hgPublishSuccess].Add(1)
+	return nil
 }
 
 func (s *Server) hgEnqueueBroadcast(item VideoDanmakuDtoPackage.DanmakuResponse) {
@@ -579,6 +601,7 @@ func (s *Server) hgEnqueueBroadcast(item VideoDanmakuDtoPackage.DanmakuResponse)
 	case queue <- item:
 	default:
 		// 实时副本允许在过载时丢弃；客户端重连或切换时间窗后从权威历史恢复。
+		s.metrics.broadcastQueueDropped.Add(1)
 	}
 }
 
@@ -597,6 +620,9 @@ func (s *Server) hgBroadcastWorker(queue <-chan VideoDanmakuDtoPackage.DanmakuRe
 // hgBroadcastLocal 将跨实例事件编码一次后逐成员分片广播；它不创建与房间人数线性增长的
 // 目标快照，也不会持有跨视频全局锁。每连接出站预算负责隔离慢客户端。
 func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) error {
+	startedAt := time.Now()
+	s.metrics.broadcasts.Add(1)
+	defer func() { s.metrics.hgObserveBroadcastDuration(time.Since(startedAt)) }()
 	payload, err := json.Marshal(hgBroadcastEnvelope{Type: "danmaku.created", Data: item})
 	if err != nil {
 		return err
@@ -618,7 +644,10 @@ func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) e
 		members.mu.RLock()
 		for conn, state := range members.members[item.VideoID] {
 			if err = s.hgWriteFrame(conn, state, frame); err != nil {
+				s.metrics.recipientWrites[hgRecipientFailed].Add(1)
 				slowConnections = append(slowConnections, conn)
+			} else {
+				s.metrics.recipientWrites[hgRecipientQueued].Add(1)
 			}
 		}
 		members.mu.RUnlock()
@@ -637,6 +666,7 @@ func (s *Server) hgJoin(videoID string, c gnet.Conn, state *hgConnection) {
 	if room == nil {
 		room = &hgRoom{}
 		directory.rooms[videoID] = room
+		s.metrics.activeRooms.Add(1)
 	}
 	state.memberShard = room.nextShard.Add(1) % uint32(len(directory.members))
 	members := &directory.members[state.memberShard]
@@ -666,6 +696,7 @@ func (s *Server) hgLeave(videoID string, c gnet.Conn) {
 				}
 				if room.memberCount.Add(-1) == 0 {
 					delete(directory.rooms, videoID)
+					s.metrics.activeRooms.Add(-1)
 				}
 			}
 			members.mu.Unlock()
@@ -719,19 +750,50 @@ func (s *Server) hgWriteFrame(c gnet.Conn, state *hgConnection, frame []byte) er
 	}
 	frameBytes := int64(len(frame))
 	if !state.hgReservePendingWrite(frameBytes, int64(s.config.MaxPendingBytes)) {
+		s.metrics.outboundFailures[hgOutboundFailurePendingBudget].Add(1)
 		return hgErrPendingWriteLimit
 	}
+	s.metrics.outboundPendingBytes.Add(frameBytes)
 	err := c.AsyncWrite(frame, func(conn gnet.Conn, writeErr error) error {
 		state.hgReleasePendingWrite(frameBytes)
+		s.metrics.outboundPendingBytes.Add(-frameBytes)
 		if writeErr != nil {
+			s.metrics.outboundFailures[hgOutboundFailureCallback].Add(1)
 			_ = conn.Close()
 		}
 		return nil
 	})
 	if err != nil {
 		state.hgReleasePendingWrite(frameBytes)
+		s.metrics.outboundPendingBytes.Add(-frameBytes)
+		s.metrics.outboundFailures[hgOutboundFailureAsyncWrite].Add(1)
 	}
 	return err
+}
+
+func (s *Server) hgCountWebSocketConnection(state *hgConnection) {
+	if state != nil && state.websocketCounted.CompareAndSwap(false, true) {
+		s.metrics.websocketConnections.Add(1)
+	}
+}
+
+// hgActivateWebSocket 在连接所属 event-loop 内完成 Upgrade 后状态激活。
+// closed 的原子检查用于拦截已经执行过 OnClose 的迟到 runnable；若 runnable 先执行，后续 OnClose 会正常清理。
+func (s *Server) hgActivateWebSocket(videoID, userID string, c gnet.Conn, state *hgConnection) bool {
+	if state == nil || state.closed.Load() {
+		return false
+	}
+	state.pending, state.upgraded, state.videoID, state.userID = false, true, videoID, userID
+	s.hgCountWebSocketConnection(state)
+	s.hgJoin(videoID, c, state)
+	s.heartbeatWheel.hgRegister(state, c)
+	return true
+}
+
+func (s *Server) hgReleaseWebSocketConnection(state *hgConnection) {
+	if state != nil && state.websocketCounted.CompareAndSwap(true, false) {
+		s.metrics.websocketConnections.Add(-1)
+	}
 }
 
 func (state *hgConnection) hgReservePendingWrite(frameBytes, maxPendingBytes int64) bool {

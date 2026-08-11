@@ -45,12 +45,16 @@ jobs:
       - name: Test Prometheus alert behavior
         # check rules 只能发现 YAML/PromQL 语法错误；test rules 还会验证阈值、持续时间和最终告警标签。
         # 将整个 monitoring 目录只读挂载进官方 Prometheus 镜像，避免 CI 与本地 promtool 版本不一致。
-        run: >-
-          docker run --rm
-          -v "$PWD/deployments/monitoring:/etc/prometheus:ro"
-          --entrypoint promtool
-          prom/prometheus:v2.54.1
-          test rules /etc/prometheus/tests/mlc-video-comment.rules.test.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in deployments/monitoring/tests/*.yml; do
+            docker run --rm \
+              -v "$PWD/deployments/monitoring:/etc/prometheus:ro" \
+              --entrypoint promtool \
+              prom/prometheus:v2.54.1 \
+              test rules "/etc/prometheus/tests/$(basename "$test_file")"
+          done
 
       - name: Validate Alertmanager configuration
         run: >-
