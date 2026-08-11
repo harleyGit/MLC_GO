@@ -1,3 +1,5 @@
+//go:build !production
+
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-02-25 13:47:04
@@ -100,7 +102,7 @@ func getPracticeModules() []ModuleType {
 }
 
 func main() {
-runPracticeModule("100")
+	runPracticeModule("100")
 	// practiceKnowledge()
 }
 

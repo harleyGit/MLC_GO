@@ -38,7 +38,10 @@ spec:
         - namespaceSelector: {}
       ports:
         - protocol: TCP
-          port: 80
+          port: 8080
+        # 弹幕 WebSocket 使用独立 gnet 端口，只由 realtime Service/Ingress 转发。
+        - protocol: TCP
+          port: 8081
     # 管理端口只允许 monitoring namespace，不应加入业务 Ingress 或 LoadBalancer Service。
     - from:
         - namespaceSelector:

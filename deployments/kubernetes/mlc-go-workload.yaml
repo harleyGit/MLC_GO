@@ -1,0 +1,167 @@
+# 用途：部署当前单体 mlc-go，并将业务 HTTP、弹幕 WebSocket 和管理面拆分为三个 Pod 端口。
+# 镜像、Secret 和基础设施地址必须由发布系统注入；此文件不保存真实凭据。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlc-go
+  namespace: mlc
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # 长连接发布先启动新 Pod 并通过 readyz，再摘除旧 Pod，避免主动制造容量缺口。
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mlc-go
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mlc-go
+    spec:
+      # 10s preStop 摘流 + 10s 应用 Shutdown + 约 20s 调度和网络安全余量。
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mlc-go
+          # 发布流水线应替换为内部镜像仓库和不可变 tag 或 digest。
+          image: registry.example.com/mlc-go:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: SERVER_ENV
+              value: prod
+            # 非 root 进程不能绑定 80；业务 Service 在 Pod 外将 80 映射到 8080。
+            - name: SERVER_PORT
+              value: "8080"
+            # 默认配置只监听 loopback，Pod 探针和管理 Service 需要显式监听 Pod 网络。
+            - name: MANAGEMENT_HOST
+              value: 0.0.0.0
+            - name: MANAGEMENT_PORT
+              value: "9091"
+            # 生产站点 Origin 由发布环境覆盖，多个值使用逗号分隔。
+            - name: VIDEO_DANMAKU_ALLOWED_ORIGINS
+              value: https://www.example.com
+          ports:
+            - name: business
+              containerPort: 8080
+              protocol: TCP
+            - name: realtime
+              containerPort: 8081
+              protocol: TCP
+            - name: management
+              containerPort: 9091
+              protocol: TCP
+          startupProbe:
+            # 使用容器内 loopback，避免 kubelet 探针源地址被 NetworkPolicy 误拦截。
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - wget -q -T 1 -O /dev/null http://127.0.0.1:9091/healthz
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            # readyz 包含 MySQL、Redis、Kafka 和弹幕 runtime；失败时从 Service Endpoint 摘流。
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - wget -q -T 2 -O /dev/null http://127.0.0.1:9091/readyz
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+            successThreshold: 1
+          livenessProbe:
+            # healthz 不访问外部依赖，避免基础设施抖动触发无效重启。
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - wget -q -T 1 -O /dev/null http://127.0.0.1:9091/healthz
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                # Kubernetes 会先将 Pod 标记为 terminating；等待 Endpoint/Ingress 摘流传播后再发送 SIGTERM。
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 10
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+---
+# 业务 HTTP Service。外部 Ingress 可将普通 API 路径转发到该 Service。
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlc-go-business
+  namespace: mlc
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mlc-go
+  ports:
+    - name: http
+      port: 80
+      targetPort: business
+      protocol: TCP
+---
+# 弹幕 WebSocket 使用独立 gnet 端口。Ingress 必须只把 /api/v1/video_danmaku/ws 路由到此 Service。
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlc-go-realtime
+  namespace: mlc
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mlc-go
+  ports:
+    - name: websocket
+      port: 8081
+      targetPort: realtime
+      protocol: TCP
+---
+# 滚动发布和节点维护期间至少保留两个可用副本；replicas 低于 3 时需同步调整。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mlc-go
+  namespace: mlc
+  labels:
+    app.kubernetes.io/name: mlc-go
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mlc-go
