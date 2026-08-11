@@ -5,6 +5,7 @@ import (
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -94,6 +95,62 @@ func TestCommandRateLimiterAllowsBurstAndRefill(t *testing.T) {
 	}
 	if !server.hgAllowCommand(state, now.Add(500*time.Millisecond)) {
 		t.Fatal("one refilled token was not accepted")
+	}
+}
+
+func TestFragmentedTextMessageReassemblesWithinLimit(t *testing.T) {
+	state := &hgConnection{}
+	first := ws.Header{Fin: false, OpCode: ws.OpText}
+	last := ws.Header{Fin: true, OpCode: ws.OpContinuation}
+
+	message, err := state.hgAcceptDataFrame(first, []byte(`{"type":"danmaku.`), 64)
+	if err != nil || message != nil || !state.hgWebSocketState().Fragmented() {
+		t.Fatalf("first fragment message=%q fragmented=%t error=%v", message, state.hgWebSocketState().Fragmented(), err)
+	}
+	message, err = state.hgAcceptDataFrame(last, []byte(`create"}`), 64)
+	if err != nil || string(message) != `{"type":"danmaku.create"}` {
+		t.Fatalf("reassembled message=%q error=%v", message, err)
+	}
+	if state.hgWebSocketState().Fragmented() || state.fragmentPayload != nil {
+		t.Fatal("fragment state was not released after final continuation")
+	}
+}
+
+func TestFragmentedTextMessageRejectsAggregateOverflow(t *testing.T) {
+	state := &hgConnection{}
+	_, err := state.hgAcceptDataFrame(ws.Header{Fin: false, OpCode: ws.OpText}, []byte("123456"), 8)
+	if err != nil {
+		t.Fatalf("first fragment error = %v", err)
+	}
+	_, err = state.hgAcceptDataFrame(ws.Header{Fin: true, OpCode: ws.OpContinuation}, []byte("789"), 8)
+	if !errors.Is(err, hgErrFragmentMessageTooBig) {
+		t.Fatalf("overflow error = %v, want %v", err, hgErrFragmentMessageTooBig)
+	}
+	if state.fragmentOpCode != 0 || state.fragmentPayload != nil {
+		t.Fatal("overflowed fragment state was retained")
+	}
+}
+
+func TestFragmentedMessageHeaderStateAllowsControlFrames(t *testing.T) {
+	state := &hgConnection{}
+	_, err := state.hgAcceptDataFrame(ws.Header{Fin: false, OpCode: ws.OpText}, []byte("part"), 16)
+	if err != nil {
+		t.Fatalf("first fragment error = %v", err)
+	}
+	webSocketState := state.hgWebSocketState()
+	if err = ws.CheckHeader(ws.Header{Fin: true, OpCode: ws.OpPing, Masked: true}, webSocketState); err != nil {
+		t.Fatalf("ping interleaved with fragments was rejected: %v", err)
+	}
+	if err = ws.CheckHeader(ws.Header{Fin: true, OpCode: ws.OpText, Masked: true}, webSocketState); !errors.Is(err, ws.ErrProtocolContinuationExpected) {
+		t.Fatalf("new text frame error = %v, want %v", err, ws.ErrProtocolContinuationExpected)
+	}
+}
+
+func TestBinaryDataFrameRemainsUnsupported(t *testing.T) {
+	state := &hgConnection{}
+	_, err := state.hgAcceptDataFrame(ws.Header{Fin: true, OpCode: ws.OpBinary}, []byte("binary"), 16)
+	if !errors.Is(err, hgErrUnsupportedData) {
+		t.Fatalf("binary frame error = %v, want %v", err, hgErrUnsupportedData)
 	}
 }
 

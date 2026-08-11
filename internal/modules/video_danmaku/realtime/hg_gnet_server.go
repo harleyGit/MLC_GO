@@ -27,6 +27,8 @@ type hgConnection struct {
 	upgraded, pending bool
 	videoID, userID   string
 	handshake         []byte
+	fragmentPayload   []byte
+	fragmentOpCode    ws.OpCode
 	memberShard       uint32
 	commandTokens     float64
 	commandRefillNano int64
@@ -93,6 +95,11 @@ type hgCommand struct {
 }
 
 var hgErrPendingWriteLimit = errors.New("danmaku connection pending write limit exceeded")
+
+var (
+	hgErrFragmentMessageTooBig = errors.New("danmaku fragmented message exceeds limit")
+	hgErrUnsupportedData       = errors.New("danmaku websocket data type is unsupported")
+)
 
 // Server 是独立端口的 gnet WebSocket 弹幕网关；事件循环不执行 MySQL/Redis 阻塞 I/O。
 type Server struct {
@@ -286,8 +293,12 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 			}
 			return gnet.Close
 		}
-		if ws.CheckHeader(header, ws.StateServerSide) != nil || !header.Fin || header.Length > int64(s.config.MaxFrameBytes) {
+		if ws.CheckHeader(header, state.hgWebSocketState()) != nil {
 			_ = s.hgWriteFrame(c, state, ws.CompiledCloseProtocolError)
+			return gnet.Close
+		}
+		if header.Length > int64(s.config.MaxFrameBytes) {
+			_ = s.hgWriteFrame(c, state, ws.CompiledCloseMessageTooBig)
 			return gnet.Close
 		}
 		frameSize := buffered - reader.Len() + int(header.Length)
@@ -307,8 +318,22 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 		case ws.OpClose:
 			_ = s.hgWriteFrame(c, state, ws.CompiledCloseNormalClosure)
 			return gnet.Close
-		case ws.OpText:
-			if !utf8.Valid(payload) {
+		case ws.OpText, ws.OpBinary, ws.OpContinuation:
+			message, acceptErr := state.hgAcceptDataFrame(header, payload, s.config.MaxFrameBytes)
+			if acceptErr != nil {
+				closeFrame := ws.CompiledCloseProtocolError
+				if errors.Is(acceptErr, hgErrFragmentMessageTooBig) {
+					closeFrame = ws.CompiledCloseMessageTooBig
+				} else if errors.Is(acceptErr, hgErrUnsupportedData) {
+					closeFrame = ws.CompiledCloseUnsupportedData
+				}
+				_ = s.hgWriteFrame(c, state, closeFrame)
+				return gnet.Close
+			}
+			if message == nil {
+				continue
+			}
+			if !utf8.Valid(message) {
 				_ = s.hgWriteFrame(c, state, ws.CompiledCloseInvalidFramePayloadData)
 				return gnet.Close
 			}
@@ -316,7 +341,7 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 				Type    string                               `json:"type"`
 				Request VideoDanmakuDtoPackage.CreateRequest `json:"data"`
 			}
-			if json.Unmarshal(payload, &command) != nil || command.Type != "danmaku.create" {
+			if json.Unmarshal(message, &command) != nil || command.Type != "danmaku.create" {
 				if s.hgError(c, state, "invalid_command", "弹幕命令无效") != nil {
 					return gnet.Close
 				}
@@ -342,6 +367,53 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 		}
 	}
 	return gnet.None
+}
+
+// hgWebSocketState 将 event-loop 内的重组状态交给 gobwas 校验，确保分片期间只接受
+// Continuation 数据帧，同时仍允许 RFC 6455 控制帧穿插在分片消息之间。
+func (state *hgConnection) hgWebSocketState() ws.State {
+	webSocketState := ws.StateServerSide
+	if state.fragmentOpCode != 0 {
+		webSocketState = webSocketState.Set(ws.StateFragmented)
+	}
+	return webSocketState
+}
+
+// hgAcceptDataFrame 在单连接 event-loop 内完成有界重组。MaxFrameBytes 同时限制单帧和
+// 完整消息，避免攻击者用大量合法小分片绕过入站内存边界；返回 nil 表示仍等待后续分片。
+func (state *hgConnection) hgAcceptDataFrame(header ws.Header, payload []byte, maxMessageBytes int) ([]byte, error) {
+	switch header.OpCode {
+	case ws.OpBinary:
+		return nil, hgErrUnsupportedData
+	case ws.OpText:
+		if header.Fin {
+			return payload, nil
+		}
+		state.fragmentOpCode = header.OpCode
+		// OnTraffic 已将当前帧 payload 从 gnet 入站缓冲复制为独立 slice，连接可直接
+		// 接管首分片，避免在每条分片消息开始时再复制一次相同字节。
+		state.fragmentPayload = payload
+		return nil, nil
+	case ws.OpContinuation:
+		if state.fragmentOpCode == 0 {
+			return nil, ws.ErrProtocolContinuationUnexpected
+		}
+		if len(payload) > maxMessageBytes-len(state.fragmentPayload) {
+			state.fragmentPayload = nil
+			state.fragmentOpCode = 0
+			return nil, hgErrFragmentMessageTooBig
+		}
+		state.fragmentPayload = append(state.fragmentPayload, payload...)
+		if !header.Fin {
+			return nil, nil
+		}
+		message := state.fragmentPayload
+		state.fragmentPayload = nil
+		state.fragmentOpCode = 0
+		return message, nil
+	default:
+		return nil, ws.ErrProtocolOpCodeReserved
+	}
 }
 
 // hgHeartbeatLoop 使用单个固定 ticker 推进分片时间轮。后台 panic 会立即撤销 readiness，
