@@ -21,8 +21,8 @@ import (
 	"github.com/panjf2000/gnet/v2"
 )
 
-// hgConnection 只在所属 event-loop 内修改。pending 避免票据校验期间重复解析同一握手；
-// handshake 保存完整且有硬上限的请求，Redis 校验完成后再回到 event-loop 生成 101 响应。
+// hgConnection 的协议、房间和限流字段只在所属 event-loop 内修改。pending 避免票据校验期间
+// 重复解析同一握手；原子活动时间与时间轮元数据按各自锁边界供后台心跳线程访问。
 type hgConnection struct {
 	upgraded, pending bool
 	videoID, userID   string
@@ -35,6 +35,13 @@ type hgConnection struct {
 	pendingBytes atomic.Int64
 	lastActive   atomic.Int64
 	counted      atomic.Bool
+	// heartbeatConn 在 Upgrade 成功后只写一次；时间轮后台线程不得调用非并发安全的
+	// gnet.Conn.Context，因此直接保存连接及其时间轮分片位置。
+	heartbeatConn      gnet.Conn
+	heartbeatShard     uint32
+	heartbeatSlot      uint32
+	heartbeatScheduled bool
+	heartbeatClosed    atomic.Bool
 }
 
 type hgRoomMemberShard struct {
@@ -103,6 +110,7 @@ type Server struct {
 	cancel         context.CancelFunc
 	handshakeSlots chan struct{}
 	heartbeatPing  []byte
+	heartbeatWheel *hgHeartbeatWheel
 }
 
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
@@ -113,6 +121,9 @@ func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRe
 	}
 	if config.BroadcastQueueSize <= 0 {
 		config.BroadcastQueueSize = 64
+	}
+	if config.HeartbeatShardCount <= 0 {
+		config.HeartbeatShardCount = 64
 	}
 	roomShards := make([]hgRoomDirectoryShard, config.RoomShardCount)
 	for index := range roomShards {
@@ -128,6 +139,7 @@ func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRe
 	}
 	heartbeatPing, _ := ws.CompileFrame(ws.NewPingFrame(nil))
 	server := &Server{service: service, redis: redis, config: config, queue: make(chan hgCommand, config.QueueSize), broadcastQueue: broadcastQueue, roomShards: roomShards, workerCtx: ctx, cancel: cancel, handshakeSlots: make(chan struct{}, config.WorkerCount*4), heartbeatPing: heartbeatPing}
+	server.heartbeatWheel = newHGHeartbeatWheel(config.HeartbeatShardCount, config.HeartbeatInterval, config.HeartbeatTimeout)
 	server.roomRouter = newHGRoomRouter(redis, config.BroadcastQueueSize, server.hgEnqueueBroadcast)
 	return server
 }
@@ -230,6 +242,7 @@ func (s *Server) OnClose(c gnet.Conn, _ error) gnet.Action {
 		s.connections.Add(-1)
 	}
 	if state != nil && state.videoID != "" {
+		s.heartbeatWheel.hgCancel(state)
 		s.hgLeave(state.videoID, c)
 		s.roomRouter.Leave(state.videoID)
 	}
@@ -316,55 +329,49 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 	return gnet.None
 }
 
-// hgHeartbeatLoop 使用单个固定 ticker 扫描已升级连接，避免百万连接对应百万 timer。
+// hgHeartbeatLoop 使用单个固定 ticker 推进分片时间轮。后台 panic 会立即撤销 readiness，
+// 交由编排系统摘流重启，避免实例在失去僵尸连接清理能力后继续接收新连接。
 func (s *Server) hgHeartbeatLoop() {
 	defer s.background.Done()
-	interval := s.config.HeartbeatInterval
-	if interval <= 0 {
-		interval = 20 * time.Second
-	}
-	timeout := s.config.HeartbeatTimeout
-	if timeout < 2*interval {
-		timeout = 3 * interval
-	}
-	ticker := time.NewTicker(interval)
+	defer func() {
+		if recover() != nil {
+			s.ready.Store(false)
+		}
+	}()
+	ticker := time.NewTicker(s.heartbeatWheel.tick)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-s.workerCtx.Done():
 			return
 		case now := <-ticker.C:
-			s.hgHeartbeatScan(now, timeout)
+			s.hgHeartbeatTick(now)
 		}
 	}
 }
 
-func (s *Server) hgHeartbeatScan(now time.Time, timeout time.Duration) {
-	deadline := now.Add(-timeout).UnixNano()
-	var stale []gnet.Conn
-	for directoryIndex := range s.roomShards {
-		directory := &s.roomShards[directoryIndex]
-		directory.mu.RLock()
-		for memberIndex := range directory.members {
-			members := &directory.members[memberIndex]
-			members.mu.RLock()
-			for _, roomMembers := range members.members {
-				for conn, state := range roomMembers {
-					if state.lastActive.Load() <= deadline {
-						stale = append(stale, conn)
-						continue
-					}
-					if err := conn.AsyncWrite(s.heartbeatPing, nil); err != nil {
-						stale = append(stale, conn)
-					}
-				}
-			}
-			members.mu.RUnlock()
+func (s *Server) hgHeartbeatTick(now time.Time) {
+	deadline := now.Add(-s.heartbeatWheel.timeout).UnixNano()
+	for _, state := range s.heartbeatWheel.hgAdvance() {
+		if state.heartbeatClosed.Load() {
+			continue
 		}
-		directory.mu.RUnlock()
-	}
-	for _, conn := range stale {
-		_ = conn.Close()
+		conn := state.heartbeatConn
+		if conn == nil || state.lastActive.Load() <= deadline {
+			if conn != nil {
+				_ = conn.Close()
+			}
+			continue
+		}
+		if err := conn.AsyncWrite(s.heartbeatPing, nil); err != nil {
+			_ = conn.Close()
+			continue
+		}
+		// AsyncWrite 成功仅表示写入 gnet 异步队列，不能刷新活动时间；只有客户端后续
+		// Pong 或其他有效入站帧才能证明连接仍存活。
+		if !s.heartbeatWheel.hgReschedule(state, now) {
+			_ = conn.Close()
+		}
 	}
 }
 
@@ -436,6 +443,7 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 			}
 			state.pending, state.upgraded, state.videoID, state.userID = false, true, binding.VideoID, binding.UserID
 			s.hgJoin(binding.VideoID, c, state)
+			s.heartbeatWheel.hgRegister(state, c)
 			// HTTP 握手和首个 WebSocket 帧可能在同一 TCP 包内，主动唤醒以处理已缓冲帧。
 			_ = c.Wake(nil)
 			return nil

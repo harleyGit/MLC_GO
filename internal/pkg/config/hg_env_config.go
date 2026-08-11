@@ -147,13 +147,14 @@ type HGVideoCommentConfig struct {
 
 // HGVideoDanmakuConfig 定义独立 gnet 网关、分片房间、队列、限流、帧和票据的硬资源边界。
 type HGVideoDanmakuConfig struct {
-	Host                                                                                  string
-	Port                                                                                  string
-	AllowedOrigins                                                                        []string
-	TicketTTL, HeartbeatInterval, HeartbeatTimeout                                        time.Duration
-	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes              int
-	RoomShardCount, MemberShardCount, MaxPendingBytes, CommandRatePerSecond, CommandBurst int
-	BroadcastWorkerCount, BroadcastQueueSize, RecentMessageLimit                          int
+	Host                                                                     string
+	Port                                                                     string
+	AllowedOrigins                                                           []string
+	TicketTTL, HeartbeatInterval, HeartbeatTimeout                           time.Duration
+	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes int
+	RoomShardCount, MemberShardCount, HeartbeatShardCount, MaxPendingBytes   int
+	CommandRatePerSecond, CommandBurst                                       int
+	BroadcastWorkerCount, BroadcastQueueSize, RecentMessageLimit             int
 }
 
 // GetVideoDanmakuConfig 读取并校验弹幕实时网关配置。
@@ -172,6 +173,7 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		MaxHandshakeBytes int      `mapstructure:"max_handshake_bytes"`
 		RoomShardCount    int      `mapstructure:"room_shard_count"`
 		MemberShardCount  int      `mapstructure:"member_shard_count"`
+		HeartbeatShards   int      `mapstructure:"heartbeat_shard_count"`
 		MaxPendingBytes   int      `mapstructure:"max_pending_bytes"`
 		CommandRate       int      `mapstructure:"command_rate_per_second"`
 		CommandBurst      int      `mapstructure:"command_burst"`
@@ -201,10 +203,11 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		return cfg, fmt.Errorf("video_danmaku.heartbeat_timeout 必须在 heartbeat_interval 的 2 倍到 5m 之间")
 	}
 	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
-	cfg.RoomShardCount, cfg.MemberShardCount, cfg.MaxPendingBytes = raw.RoomShardCount, raw.MemberShardCount, raw.MaxPendingBytes
+	cfg.RoomShardCount, cfg.MemberShardCount, cfg.HeartbeatShardCount = raw.RoomShardCount, raw.MemberShardCount, raw.HeartbeatShards
+	cfg.MaxPendingBytes = raw.MaxPendingBytes
 	cfg.CommandRatePerSecond, cfg.CommandBurst = raw.CommandRate, raw.CommandBurst
 	cfg.BroadcastWorkerCount, cfg.BroadcastQueueSize, cfg.RecentMessageLimit = raw.BroadcastWorkers, raw.BroadcastQueue, raw.RecentLimit
-	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 || !hgPowerOfTwo(cfg.RoomShardCount, 16, 4096) || !hgPowerOfTwo(cfg.MemberShardCount, 4, 256) || cfg.MaxPendingBytes < 16<<10 || cfg.MaxPendingBytes > 1<<20 || cfg.CommandRatePerSecond < 1 || cfg.CommandRatePerSecond > 100 || cfg.CommandBurst < cfg.CommandRatePerSecond || cfg.CommandBurst > 500 || !hgPowerOfTwo(cfg.BroadcastWorkerCount, 1, 256) || cfg.BroadcastQueueSize < 64 || cfg.BroadcastQueueSize > 1_000_000 || cfg.RecentMessageLimit < 100 || cfg.RecentMessageLimit > 10_000 {
+	if cfg.WorkerCount < 1 || cfg.WorkerCount > 256 || cfg.QueueSize < 100 || cfg.QueueSize > 1_000_000 || cfg.MaxConnections < 1 || cfg.MaxFrameBytes < 256 || cfg.MaxFrameBytes > 16<<10 || cfg.MaxHandshakeBytes < 1024 || cfg.MaxHandshakeBytes > 32<<10 || !hgPowerOfTwo(cfg.RoomShardCount, 16, 4096) || !hgPowerOfTwo(cfg.MemberShardCount, 4, 256) || !hgPowerOfTwo(cfg.HeartbeatShardCount, 4, 256) || cfg.MaxPendingBytes < 16<<10 || cfg.MaxPendingBytes > 1<<20 || cfg.CommandRatePerSecond < 1 || cfg.CommandRatePerSecond > 100 || cfg.CommandBurst < cfg.CommandRatePerSecond || cfg.CommandBurst > 500 || !hgPowerOfTwo(cfg.BroadcastWorkerCount, 1, 256) || cfg.BroadcastQueueSize < 64 || cfg.BroadcastQueueSize > 1_000_000 || cfg.RecentMessageLimit < 100 || cfg.RecentMessageLimit > 10_000 {
 		return cfg, fmt.Errorf("video_danmaku 资源边界配置无效")
 	}
 	allowedOrigins := raw.AllowedOrigins
