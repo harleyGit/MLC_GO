@@ -52,14 +52,19 @@ type hgRealtimeMetrics struct {
 	activeRooms          atomic.Int64
 	outboundPendingBytes atomic.Int64
 
-	commandsReceived      atomic.Uint64
-	commandRejections     [hgCommandRejectionCount]atomic.Uint64
-	commandCreateFailures atomic.Uint64
-	publishResults        [hgPublishResultCount]atomic.Uint64
-	broadcastQueueDropped atomic.Uint64
-	broadcasts            atomic.Uint64
-	recipientWrites       [hgRecipientResultCount]atomic.Uint64
-	outboundFailures      [hgOutboundFailureReasonCount]atomic.Uint64
+	commandsReceived        atomic.Uint64
+	commandRejections       [hgCommandRejectionCount]atomic.Uint64
+	commandCreateFailures   atomic.Uint64
+	publishResults          [hgPublishResultCount]atomic.Uint64
+	broadcastQueueDropped   atomic.Uint64
+	broadcasts              atomic.Uint64
+	recipientWrites         [hgRecipientResultCount]atomic.Uint64
+	outboundFailures        [hgOutboundFailureReasonCount]atomic.Uint64
+	drainStarts             atomic.Uint64
+	drainTimeouts           atomic.Uint64
+	lateHandshakeRejections atomic.Uint64
+	forceClosedConnections  atomic.Uint64
+	drainDurationNanos      atomic.Uint64
 
 	broadcastDurationBuckets [len(hgBroadcastDurationBounds)]atomic.Uint64
 	broadcastDurationCount   atomic.Uint64
@@ -99,6 +104,7 @@ func (s *Server) HGWritePrometheusMetrics(w io.Writer) {
 	hgWriteRealtimeGauge(w, "mlc_video_danmaku_broadcast_queue_size", "Approximate aggregate local broadcast queue occupancy.", int64(broadcastQueueSize))
 	hgWriteRealtimeGauge(w, "mlc_video_danmaku_broadcast_queue_capacity", "Aggregate local broadcast queue capacity.", int64(broadcastQueueCapacity))
 	hgWriteRealtimeGauge(w, "mlc_video_danmaku_outbound_pending_bytes", "Aggregate bytes reserved by pending gnet asynchronous writes.", s.metrics.outboundPendingBytes.Load())
+	hgWriteRealtimeGauge(w, "mlc_video_danmaku_lifecycle_state", "Current realtime lifecycle state: 0 starting, 1 serving, 2 draining, 3 stopped.", int64(s.lifecycle.Load()))
 
 	hgWriteRealtimeCounter(w, "mlc_video_danmaku_commands_received_total", "Complete danmaku WebSocket text commands received for parsing.", s.metrics.commandsReceived.Load())
 	hgWriteRealtimeCounterSeries(w, "mlc_video_danmaku_command_rejections_total", "Danmaku commands rejected before persistence.", "reason", []string{"invalid_command", "rate_limited", "queue_full"}, s.metrics.commandRejections[:])
@@ -108,6 +114,11 @@ func (s *Server) HGWritePrometheusMetrics(w io.Writer) {
 	hgWriteRealtimeCounter(w, "mlc_video_danmaku_broadcasts_total", "Local room broadcast events processed by this process.", s.metrics.broadcasts.Load())
 	hgWriteRealtimeCounterSeries(w, "mlc_video_danmaku_broadcast_recipient_writes_total", "Local recipient writes accepted or rejected by gnet scheduling.", "result", []string{"queued", "failed"}, s.metrics.recipientWrites[:])
 	hgWriteRealtimeCounterSeries(w, "mlc_video_danmaku_outbound_write_failures_total", "Danmaku outbound write failures by fixed reason.", "reason", []string{"pending_budget", "async_write", "callback"}, s.metrics.outboundFailures[:])
+	hgWriteRealtimeCounter(w, "mlc_video_danmaku_drain_starts_total", "Realtime drain phases started by this process.", s.metrics.drainStarts.Load())
+	hgWriteRealtimeCounter(w, "mlc_video_danmaku_drain_timeouts_total", "Realtime drain waits that reached their configured deadline.", s.metrics.drainTimeouts.Load())
+	hgWriteRealtimeCounter(w, "mlc_video_danmaku_drain_late_handshake_rejections_total", "Ticket validations rejected because activation returned after drain started.", s.metrics.lateHandshakeRejections.Load())
+	hgWriteRealtimeCounter(w, "mlc_video_danmaku_drain_force_closed_connections_total", "Upgraded WebSocket connections force-closed after the drain window.", s.metrics.forceClosedConnections.Load())
+	hgWriteRealtimeFloatGauge(w, "mlc_video_danmaku_last_drain_duration_seconds", "Duration in seconds of the latest completed local realtime drain phase.", float64(s.metrics.drainDurationNanos.Load())/float64(time.Second))
 	s.hgWriteBroadcastDurationHistogram(w)
 }
 
@@ -127,6 +138,10 @@ func (s *Server) hgWriteBroadcastDurationHistogram(w io.Writer) {
 
 func hgWriteRealtimeGauge(w io.Writer, name, help string, value int64) {
 	_, _ = fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %d\n", name, help, name, name, value)
+}
+
+func hgWriteRealtimeFloatGauge(w io.Writer, name, help string, value float64) {
+	_, _ = fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n", name, help, name, name, value)
 }
 
 func hgWriteRealtimeCounter(w io.Writer, name, help string, value uint64) {

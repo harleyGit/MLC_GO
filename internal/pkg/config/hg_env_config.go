@@ -150,7 +150,7 @@ type HGVideoDanmakuConfig struct {
 	Host                                                                     string
 	Port                                                                     string
 	AllowedOrigins                                                           []string
-	TicketTTL, HeartbeatInterval, HeartbeatTimeout                           time.Duration
+	TicketTTL, HeartbeatInterval, HeartbeatTimeout, DrainTimeout             time.Duration
 	WorkerCount, QueueSize, MaxConnections, MaxFrameBytes, MaxHandshakeBytes int
 	RoomShardCount, MemberShardCount, HeartbeatShardCount, MaxPendingBytes   int
 	CommandRatePerSecond, CommandBurst                                       int
@@ -166,6 +166,7 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 		TicketTTL         string   `mapstructure:"ticket_ttl"`
 		HeartbeatInterval string   `mapstructure:"heartbeat_interval"`
 		HeartbeatTimeout  string   `mapstructure:"heartbeat_timeout"`
+		DrainTimeout      string   `mapstructure:"drain_timeout"`
 		WorkerCount       int      `mapstructure:"worker_count"`
 		QueueSize         int      `mapstructure:"queue_size"`
 		MaxConnections    int      `mapstructure:"max_connections"`
@@ -201,6 +202,12 @@ func GetVideoDanmakuConfig() (HGVideoDanmakuConfig, error) {
 	}
 	if cfg.HeartbeatTimeout, err = time.ParseDuration(raw.HeartbeatTimeout); err != nil || cfg.HeartbeatTimeout < 2*cfg.HeartbeatInterval || cfg.HeartbeatTimeout > 5*time.Minute {
 		return cfg, fmt.Errorf("video_danmaku.heartbeat_timeout 必须在 heartbeat_interval 的 2 倍到 5m 之间")
+	}
+	if strings.TrimSpace(raw.DrainTimeout) == "" {
+		raw.DrainTimeout = "30s"
+	}
+	if cfg.DrainTimeout, err = time.ParseDuration(raw.DrainTimeout); err != nil || cfg.DrainTimeout < 5*time.Second || cfg.DrainTimeout > 30*time.Second {
+		return cfg, fmt.Errorf("video_danmaku.drain_timeout 必须在 5s-30s 之间")
 	}
 	cfg.WorkerCount, cfg.QueueSize, cfg.MaxConnections, cfg.MaxFrameBytes, cfg.MaxHandshakeBytes = raw.WorkerCount, raw.QueueSize, raw.MaxConnections, raw.MaxFrameBytes, raw.MaxHandshakeBytes
 	cfg.RoomShardCount, cfg.MemberShardCount, cfg.HeartbeatShardCount = raw.RoomShardCount, raw.MemberShardCount, raw.HeartbeatShards

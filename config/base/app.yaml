@@ -17,6 +17,8 @@ video_danmaku:
   # 分片时间轮按最后入站活动发送 WebSocket Ping 并清理半开连接；不为每条连接创建 timer 或 goroutine。
   heartbeat_interval: 20s
   heartbeat_timeout: 60s
+  # SIGTERM 后先摘除 readiness，并给已有 WebSocket 一个自然重连窗口；超时后才强制关闭。
+  drain_timeout: 30s
   # 独立心跳锁域避免与热门房间广播锁竞争；必须为 4-256 之间的 2 次幂。
   heartbeat_shard_count: 64
   worker_count: 16

@@ -38,6 +38,8 @@ type hgConnection struct {
 	lastActive   atomic.Int64
 	counted      atomic.Bool
 	closed       atomic.Bool
+	// draining 在服务端发送 Close Frame 前置位；RFC 6455 Close 后禁止再发送业务数据帧。
+	draining atomic.Bool
 	// websocketCounted 只在 Upgrade 成功后置位，并由关闭路径原子释放一次，避免异步升级与断连重叠时 gauge 变负。
 	websocketCounted atomic.Bool
 	// heartbeatConn 在 Upgrade 成功后只写一次；时间轮后台线程不得调用非并发安全的
@@ -97,21 +99,36 @@ type hgCommand struct {
 	request   VideoDanmakuDtoPackage.CreateRequest
 }
 
-var hgErrPendingWriteLimit = errors.New("danmaku connection pending write limit exceeded")
+var (
+	hgErrPendingWriteLimit  = errors.New("danmaku connection pending write limit exceeded")
+	hgErrConnectionDraining = errors.New("danmaku connection is draining")
+)
 
 var (
 	hgErrFragmentMessageTooBig = errors.New("danmaku fragmented message exceeds limit")
 	hgErrUnsupportedData       = errors.New("danmaku websocket data type is unsupported")
 )
 
+type hgLifecycleState int32
+
+const (
+	hgLifecycleStarting hgLifecycleState = iota
+	hgLifecycleServing
+	hgLifecycleDraining
+	hgLifecycleStopped
+)
+
 // Server 是独立端口的 gnet WebSocket 弹幕网关；事件循环不执行 MySQL/Redis 阻塞 I/O。
 type Server struct {
 	gnet.BuiltinEventEngine
-	service        *VideoDanmakuServicePackage.Service
-	redis          *PersistenceRedisPackage.RedisService
-	config         ConfigPackage.HGVideoDanmakuConfig
-	engine         gnet.Engine
-	ready          atomic.Bool
+	service   *VideoDanmakuServicePackage.Service
+	redis     *PersistenceRedisPackage.RedisService
+	config    ConfigPackage.HGVideoDanmakuConfig
+	engine    gnet.Engine
+	lifecycle atomic.Int32
+	// lifecycleMu 只协调 Serving->Draining 与异步握手激活，避免连接在 Drain 快照之后才加入房间。
+	// 房间扫描和网络写不持有该锁，防止百万连接关闭阶段形成长临界区。
+	lifecycleMu    sync.RWMutex
 	connections    atomic.Int64
 	queue          chan hgCommand
 	broadcastQueue []chan VideoDanmakuDtoPackage.DanmakuResponse
@@ -125,6 +142,9 @@ type Server struct {
 	heartbeatPing  []byte
 	heartbeatWheel *hgHeartbeatWheel
 	metrics        hgRealtimeMetrics
+	drainStartedAt atomic.Int64
+	drainObserved  atomic.Bool
+	closeStarted   atomic.Bool
 }
 
 // NewServer 创建具有有界工作队列、连接上限和帧上限的实时网关。
@@ -161,6 +181,14 @@ func NewServer(service *VideoDanmakuServicePackage.Service, redis *PersistenceRe
 // Addr 返回 gnet 监听地址。
 func (s *Server) Addr() string { return "tcp://" + s.config.Host + ":" + s.config.Port }
 
+// DrainTimeout 返回 SIGTERM 后保留现有 WebSocket 完成关闭握手和重连的最长窗口。
+func (s *Server) DrainTimeout() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.config.DrainTimeout
+}
+
 // Serve 启动 worker 后阻塞运行 gnet。
 func (s *Server) Serve() error {
 	for i := 0; i < s.config.WorkerCount; i++ {
@@ -175,7 +203,7 @@ func (s *Server) Serve() error {
 	go func() {
 		defer s.background.Done()
 		if err := s.roomRouter.Run(s.workerCtx); err != nil && s.workerCtx.Err() == nil {
-			s.ready.Store(false)
+			s.lifecycle.Store(int32(hgLifecycleStopped))
 		}
 	}()
 	s.background.Add(1)
@@ -183,9 +211,9 @@ func (s *Server) Serve() error {
 	return gnet.Run(s, s.Addr(), gnet.WithMulticore(true), gnet.WithReadBufferCap(s.config.MaxHandshakeBytes), gnet.WithWriteBufferCap(16<<10), gnet.WithTCPKeepAlive(90*time.Second))
 }
 
-// Ready 表示 gnet 已完成 OnBoot 且未进入关闭状态。
+// Ready 表示 gnet 已完成 OnBoot、房间路由可用且尚未进入 Drain。
 func (s *Server) Ready() error {
-	if s == nil || !s.ready.Load() {
+	if s == nil || hgLifecycleState(s.lifecycle.Load()) != hgLifecycleServing {
 		return errors.New("danmaku realtime not ready")
 	}
 	if err := s.roomRouter.Ready(); err != nil {
@@ -194,17 +222,66 @@ func (s *Server) Ready() error {
 	return nil
 }
 
-// Close 停止接入、关闭现存连接并等待有界 worker 退出。
-func (s *Server) Close(ctx context.Context) error {
+// BeginDrain 原子撤销 readiness 和新连接准入，并向现有 WebSocket 发送标准 Going Away。
+// 这里只发起 RFC 6455 关闭握手而不立即关闭 TCP，让配合标准 Close 的客户端有机会主动重连到 Ready Pod。
+func (s *Server) BeginDrain() {
 	if s == nil {
+		return
+	}
+	s.lifecycleMu.Lock()
+	for {
+		state := hgLifecycleState(s.lifecycle.Load())
+		if state == hgLifecycleDraining || state == hgLifecycleStopped {
+			s.lifecycleMu.Unlock()
+			return
+		}
+		if state != hgLifecycleServing {
+			s.lifecycleMu.Unlock()
+			return
+		}
+		if s.lifecycle.CompareAndSwap(int32(state), int32(hgLifecycleDraining)) {
+			s.drainStartedAt.Store(time.Now().UnixNano())
+			s.metrics.drainStarts.Add(1)
+			break
+		}
+	}
+	s.lifecycleMu.Unlock()
+	connections := s.hgWebSocketConnections()
+	for _, connection := range connections {
+		connection.state.draining.Store(true)
+		if err := s.hgWriteFrame(connection.conn, connection.state, ws.CompiledCloseGoingAway); err != nil {
+			_ = connection.conn.Close()
+		}
+	}
+}
+
+// WaitForDrain 等待已认证 WebSocket 自然完成关闭握手；ctx 到期后由 Close 强制回收残余连接。
+func (s *Server) WaitForDrain(ctx context.Context) error {
+	if s == nil || s.metrics.websocketConnections.Load() == 0 {
 		return nil
 	}
-	s.ready.Store(false)
-	type connectionState struct {
-		conn  gnet.Conn
-		state *hgConnection
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.metrics.drainTimeouts.Add(1)
+			return ctx.Err()
+		case <-ticker.C:
+			if s.metrics.websocketConnections.Load() == 0 {
+				return nil
+			}
+		}
 	}
-	conns := make([]connectionState, 0, int(s.connections.Load()))
+}
+
+type hgConnectionState struct {
+	conn  gnet.Conn
+	state *hgConnection
+}
+
+func (s *Server) hgWebSocketConnections() []hgConnectionState {
+	conns := make([]hgConnectionState, 0, int(s.metrics.websocketConnections.Load()))
 	for index := range s.roomShards {
 		directory := &s.roomShards[index]
 		directory.mu.RLock()
@@ -213,18 +290,32 @@ func (s *Server) Close(ctx context.Context) error {
 			members.mu.RLock()
 			for _, roomMembers := range members.members {
 				for conn, state := range roomMembers {
-					conns = append(conns, connectionState{conn: conn, state: state})
+					conns = append(conns, hgConnectionState{conn: conn, state: state})
 				}
 			}
 			members.mu.RUnlock()
 		}
 		directory.mu.RUnlock()
 	}
-	for _, connection := range conns {
-		_ = s.hgWriteFrame(connection.conn, connection.state, ws.CompiledCloseGoingAway)
-		_ = connection.conn.Close()
+	return conns
+}
+
+// Close 强制关闭 Drain 后的残余连接，并等待有界 worker 与 gnet 退出。
+func (s *Server) Close(ctx context.Context) error {
+	if s == nil {
+		return nil
 	}
-	s.cancel()
+	s.BeginDrain()
+	conns := s.hgWebSocketConnections()
+	for _, connection := range conns {
+		if connection.state.closed.CompareAndSwap(false, true) {
+			s.metrics.forceClosedConnections.Add(1)
+			_ = connection.conn.Close()
+		}
+	}
+	if s.closeStarted.CompareAndSwap(false, true) {
+		s.cancel()
+	}
 	done := make(chan struct{})
 	go func() { s.workers.Wait(); s.background.Wait(); close(done) }()
 	select {
@@ -233,23 +324,27 @@ func (s *Server) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if err := s.engine.Validate(); err == nil {
-		return s.engine.Stop(ctx)
+		if err := s.engine.Stop(ctx); err != nil {
+			return err
+		}
 	}
+	s.hgObserveDrainDuration()
+	s.lifecycle.Store(int32(hgLifecycleStopped))
 	return nil
 }
 
 func (s *Server) OnBoot(engine gnet.Engine) gnet.Action {
 	s.engine = engine
-	s.ready.Store(true)
+	s.lifecycle.CompareAndSwap(int32(hgLifecycleStarting), int32(hgLifecycleServing))
 	return gnet.None
 }
-func (s *Server) OnShutdown(gnet.Engine) { s.ready.Store(false); s.cancel() }
+func (s *Server) OnShutdown(gnet.Engine) { s.lifecycle.Store(int32(hgLifecycleStopped)); s.cancel() }
 func (s *Server) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
 	state := &hgConnection{}
 	state.counted.Store(true)
 	state.lastActive.Store(time.Now().UnixNano())
 	c.SetContext(state)
-	if s.connections.Add(1) > int64(s.config.MaxConnections) || !s.ready.Load() {
+	if s.connections.Add(1) > int64(s.config.MaxConnections) || hgLifecycleState(s.lifecycle.Load()) != hgLifecycleServing {
 		return nil, gnet.Close
 	}
 	return nil, gnet.None
@@ -288,6 +383,10 @@ func (s *Server) OnTraffic(c gnet.Conn) gnet.Action {
 	}
 	if !state.upgraded {
 		return s.hgUpgrade(c, state)
+	}
+	if state.draining.Load() {
+		// 服务端已发送 Close Frame 后只等待客户端 Close，其他数据帧直接结束连接，避免违反 RFC 6455。
+		return gnet.Close
 	}
 	for c.InboundBuffered() >= 2 {
 		buffered := c.InboundBuffered()
@@ -436,7 +535,7 @@ func (s *Server) hgHeartbeatLoop() {
 	defer s.background.Done()
 	defer func() {
 		if recover() != nil {
-			s.ready.Store(false)
+			s.lifecycle.Store(int32(hgLifecycleStopped))
 		}
 	}()
 	ticker := time.NewTicker(s.heartbeatWheel.tick)
@@ -457,6 +556,9 @@ func (s *Server) hgHeartbeatTick(now time.Time) {
 		if state.heartbeatClosed.Load() {
 			continue
 		}
+		if state.draining.Load() {
+			continue
+		}
 		conn := state.heartbeatConn
 		if conn == nil || state.lastActive.Load() <= deadline {
 			if conn != nil {
@@ -464,7 +566,7 @@ func (s *Server) hgHeartbeatTick(now time.Time) {
 			}
 			continue
 		}
-		if err := s.hgWriteFrame(conn, state, s.heartbeatPing); err != nil {
+		if err := s.hgWriteDataFrame(conn, state, s.heartbeatPing); err != nil {
 			_ = conn.Close()
 			continue
 		}
@@ -535,16 +637,18 @@ func (s *Server) hgUpgrade(c gnet.Conn, state *hgConnection) gnet.Action {
 				io.Writer
 			}{Reader: bytes.NewReader(state.handshake), Writer: &output})
 			state.handshake = nil
-			if len(output.Bytes()) > 0 {
-				_, _ = c.Write(output.Bytes())
-			}
 			if upgradeErr != nil {
 				s.roomRouter.Leave(binding.VideoID)
 				return c.EventLoop().Close(c)
 			}
 			if !s.hgActivateWebSocket(binding.VideoID, binding.UserID, c, state) {
 				s.roomRouter.Leave(binding.VideoID)
-				return nil
+				return c.EventLoop().Close(c)
+			}
+			// 只有仍处于 Serving 且本地状态激活成功后才发送 101，避免 Drain 期间迟到的
+			// Redis 票据校验把客户端留在“收到 Upgrade、服务端却未注册”的半激活状态。
+			if len(output.Bytes()) > 0 {
+				_, _ = c.Write(output.Bytes())
 			}
 			// HTTP 握手和首个 WebSocket 帧可能在同一 TCP 包内，主动唤醒以处理已缓冲帧。
 			_ = c.Wake(nil)
@@ -643,7 +747,10 @@ func (s *Server) hgBroadcastLocal(item VideoDanmakuDtoPackage.DanmakuResponse) e
 		members := &directory.members[index]
 		members.mu.RLock()
 		for conn, state := range members.members[item.VideoID] {
-			if err = s.hgWriteFrame(conn, state, frame); err != nil {
+			if err = s.hgWriteDataFrame(conn, state, frame); err != nil {
+				if errors.Is(err, hgErrConnectionDraining) {
+					continue
+				}
 				s.metrics.recipientWrites[hgRecipientFailed].Add(1)
 				slowConnections = append(slowConnections, conn)
 			} else {
@@ -771,6 +878,13 @@ func (s *Server) hgWriteFrame(c gnet.Conn, state *hgConnection, frame []byte) er
 	return err
 }
 
+func (s *Server) hgWriteDataFrame(c gnet.Conn, state *hgConnection, frame []byte) error {
+	if state == nil || state.draining.Load() {
+		return hgErrConnectionDraining
+	}
+	return s.hgWriteFrame(c, state, frame)
+}
+
 func (s *Server) hgCountWebSocketConnection(state *hgConnection) {
 	if state != nil && state.websocketCounted.CompareAndSwap(false, true) {
 		s.metrics.websocketConnections.Add(1)
@@ -780,7 +894,12 @@ func (s *Server) hgCountWebSocketConnection(state *hgConnection) {
 // hgActivateWebSocket 在连接所属 event-loop 内完成 Upgrade 后状态激活。
 // closed 的原子检查用于拦截已经执行过 OnClose 的迟到 runnable；若 runnable 先执行，后续 OnClose 会正常清理。
 func (s *Server) hgActivateWebSocket(videoID, userID string, c gnet.Conn, state *hgConnection) bool {
-	if state == nil || state.closed.Load() {
+	s.lifecycleMu.RLock()
+	defer s.lifecycleMu.RUnlock()
+	if state == nil || state.closed.Load() || hgLifecycleState(s.lifecycle.Load()) != hgLifecycleServing {
+		if hgLifecycleState(s.lifecycle.Load()) == hgLifecycleDraining {
+			s.metrics.lateHandshakeRejections.Add(1)
+		}
 		return false
 	}
 	state.pending, state.upgraded, state.videoID, state.userID = false, true, videoID, userID
@@ -788,6 +907,18 @@ func (s *Server) hgActivateWebSocket(videoID, userID string, c gnet.Conn, state 
 	s.hgJoin(videoID, c, state)
 	s.heartbeatWheel.hgRegister(state, c)
 	return true
+}
+
+func (s *Server) hgObserveDrainDuration() {
+	startedAt := s.drainStartedAt.Load()
+	if startedAt == 0 || !s.drainObserved.CompareAndSwap(false, true) {
+		return
+	}
+	elapsed := time.Since(time.Unix(0, startedAt))
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	s.metrics.drainDurationNanos.Store(uint64(elapsed))
 }
 
 func (s *Server) hgReleaseWebSocketConnection(state *hgConnection) {
@@ -818,7 +949,7 @@ func (state *hgConnection) hgReleasePendingWrite(frameBytes int64) {
 func (s *Server) hgError(c gnet.Conn, state *hgConnection, code, message string) error {
 	payload, _ := json.Marshal(hgCommandErrorEnvelope{Type: "error", Data: hgCommandErrorData{Code: code, Message: message}})
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	if err := s.hgWriteFrame(c, state, frame); err != nil {
+	if err := s.hgWriteDataFrame(c, state, frame); err != nil {
 		_ = c.Close()
 		return err
 	}
@@ -828,7 +959,7 @@ func (s *Server) hgError(c gnet.Conn, state *hgConnection, code, message string)
 func (s *Server) hgCommandAck(c gnet.Conn, state *hgConnection, requestID string, item VideoDanmakuDtoPackage.DanmakuResponse) error {
 	payload := hgCommandAckPayload(requestID, item)
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	if err := s.hgWriteFrame(c, state, frame); err != nil {
+	if err := s.hgWriteDataFrame(c, state, frame); err != nil {
 		_ = c.Close()
 		return err
 	}
@@ -840,7 +971,7 @@ func (s *Server) hgCommandAck(c gnet.Conn, state *hgConnection, requestID string
 func (s *Server) hgCommandError(c gnet.Conn, state *hgConnection, requestID, code, message string) error {
 	payload := hgCommandErrorPayload(requestID, code, message)
 	frame, _ := ws.CompileFrame(ws.NewTextFrame(payload))
-	if err := s.hgWriteFrame(c, state, frame); err != nil {
+	if err := s.hgWriteDataFrame(c, state, frame); err != nil {
 		_ = c.Close()
 		return err
 	}

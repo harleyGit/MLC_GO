@@ -11,6 +11,8 @@ metadata:
 spec:
   # ClusterIP 仅提供集群内部访问；selector 必须与 mlc-go Pod 标签一致。
   type: ClusterIP
+  # Drain 会主动撤销 Pod readiness；管理 Service 仍需发现该 Pod，才能持续抓取 drain 指标和 healthz。
+  publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: mlc-go
   ports:
@@ -73,3 +75,9 @@ spec:
       path: /metrics
       interval: 15s
       scrapeTimeout: 5s
+      # 告警规则按稳定 service/environment 聚合，禁止依赖 Operator 自动生成且可能变化的发现标签。
+      relabelings:
+        - targetLabel: service
+          replacement: mlc-go
+        - targetLabel: environment
+          replacement: prod

@@ -47,6 +47,10 @@
 
 `mlc_video_danmaku_broadcast_duration_seconds` 只覆盖一条本地房间事件的 JSON/Frame 编码、成员分片遍历、`AsyncWrite` 调度和慢连接关闭调度。`result="queued"` 仅表示 gnet 接受异步写，不代表 socket 已刷新，更不代表浏览器已经渲染；真正的发送到展示延迟仍需客户端采样回执和时钟偏差治理。
 
+`mlc_video_danmaku_lifecycle_state` 使用固定枚举：`0=starting`、`1=serving`、`2=draining`、`3=stopped`。`mlc_video_danmaku_drain_timeouts_total`、`mlc_video_danmaku_drain_late_handshake_rejections_total` 和 `mlc_video_danmaku_drain_force_closed_connections_total` 用于发布期间判断 Drain 是否按预期收敛。
+
+Kubernetes management Service 必须保留 `publishNotReadyAddresses: true`。否则 Pod 进入 draining 并使 `/readyz` 返回 503 后，Prometheus 会同时失去该 Pod 的 Drain 指标，无法判断剩余连接是否归零或是否发生强制关闭。
+
 生产 Prometheus 必须为抓取目标附加稳定的 `service`、`environment` 标签，并继续通过受限管理网络抓取。规则不按 Pod 或 instance 告警，避免滚动发布和副本扩缩容产生重复通知。
 
 Compose 配置仅用于本地开发和验收。生产部署需要使用受限监控网络、服务发现、Kafka 鉴权与 TLS，并根据消费速率、恢复时间目标和 exporter 对集群的实际开销调整抓取周期及阈值；不能将本地端口映射视为生产可用性方案。

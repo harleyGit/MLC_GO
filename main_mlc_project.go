@@ -443,7 +443,7 @@ func newRedisServiceWithRecover() (redisService *PersistenceRedisPackage.RedisSe
 	return redisService, nil
 }
 
-// Serve 启动 HTTP 服务并在收到退出信号时执行优雅关闭。
+// Serve 启动全部监听器，并在收到退出信号时先摘流、再 Drain WebSocket、最后关闭管理面。
 //
 // 关键设计：
 // 1. ListenAndServe 放到 goroutine 中运行，主 goroutine 同时监听系统退出信号。
@@ -474,35 +474,74 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 
 	select {
 	case err := <-serveErr:
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
-		defer cancel()
-		_ = app.server.Shutdown(shutdownCtx)
-		_ = app.managementServer.Shutdown(shutdownCtx)
-		if app.videoDanmakuRealtime != nil {
-			_ = app.videoDanmakuRealtime.Close(shutdownCtx)
-		}
-		return err
+		shutdownErr := app.hgShutdown()
+		return errors.Join(err, shutdownErr, hgWaitServeErrors(serveErr, serverCount-1, mlcServerShutdownTimeout))
 	case <-stopCtx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
-		defer cancel()
-		if err := app.server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("HTTP server shutdown failed: %w", err)
+		return errors.Join(app.hgShutdown(), hgWaitServeErrors(serveErr, serverCount, mlcServerShutdownTimeout))
+	}
+}
+
+// hgShutdown 保持 management 存活到最后，使 Drain 期间的 healthz、readyz 和 metrics 仍可观察。
+// 每个阶段使用独立 deadline，前一阶段超时不会跳过后续 listener 的关闭。
+func (app *MLCApplication) hgShutdown() error {
+	var shutdownErrors []error
+	if app.videoDanmakuRealtime != nil {
+		app.videoDanmakuRealtime.BeginDrain()
+	}
+	if err := hgShutdownHTTPServer(app.server, mlcServerShutdownTimeout); err != nil {
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("HTTP server shutdown failed: %w", err))
+	}
+	if app.videoDanmakuRealtime != nil {
+		drainCtx, cancelDrain := context.WithTimeout(context.Background(), app.videoDanmakuRealtime.DrainTimeout())
+		drainTimedOut := false
+		if err := app.videoDanmakuRealtime.WaitForDrain(drainCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("danmaku realtime drain failed: %w", err))
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			drainTimedOut = true
 		}
-		if err := app.managementServer.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("management server shutdown failed: %w", err)
+		cancelDrain()
+
+		closeCtx, cancelClose := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
+		if err := app.videoDanmakuRealtime.Close(closeCtx); err != nil {
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("danmaku realtime shutdown failed: %w", err))
 		}
-		if app.videoDanmakuRealtime != nil {
-			if err := app.videoDanmakuRealtime.Close(shutdownCtx); err != nil {
-				return fmt.Errorf("danmaku realtime shutdown failed: %w", err)
-			}
+		cancelClose()
+		if drainTimedOut {
+			// ServiceMonitor 每 15 秒抓取一次；额外保留 20 秒，让 timeout、force-close 和最终耗时至少跨过一个抓取周期。
+			time.Sleep(20 * time.Second)
 		}
-		for i := 0; i < serverCount; i++ {
-			if err := <-serveErr; err != nil {
-				return err
-			}
-		}
+	}
+	if err := hgShutdownHTTPServer(app.managementServer, mlcServerShutdownTimeout); err != nil {
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("management server shutdown failed: %w", err))
+	}
+	return errors.Join(shutdownErrors...)
+}
+
+func hgShutdownHTTPServer(server *http.Server, timeout time.Duration) error {
+	if server == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return server.Shutdown(ctx)
+}
+
+func hgWaitServeErrors(serveErr <-chan error, count int, timeout time.Duration) error {
+	var serveErrors []error
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for i := 0; i < count; i++ {
+		select {
+		case err := <-serveErr:
+			if err != nil {
+				serveErrors = append(serveErrors, err)
+			}
+		case <-timer.C:
+			serveErrors = append(serveErrors, fmt.Errorf("%d server listeners did not stop within %s", count-i, timeout))
+			return errors.Join(serveErrors...)
+		}
+	}
+	return errors.Join(serveErrors...)
 }
 
 // Close 释放应用持有的基础设施资源。

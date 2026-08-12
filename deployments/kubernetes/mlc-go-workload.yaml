@@ -26,8 +26,10 @@ spec:
       labels:
         app.kubernetes.io/name: mlc-go
     spec:
-      # 10s preStop 摘流 + 10s 应用 Shutdown + 约 20s 调度和网络安全余量。
-      terminationGracePeriodSeconds: 40
+      # 10s Endpoint/Ingress 摘流传播 + 60s WebSocket Drain + 20s 资源关闭 + 30s 安全余量。
+      terminationGracePeriodSeconds: 120
+      # 当前进程不访问 Kubernetes API，避免无必要挂载 Pod ServiceAccount Token。
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -103,7 +105,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                # Kubernetes 会先将 Pod 标记为 terminating；等待 Endpoint/Ingress 摘流传播后再发送 SIGTERM。
+                # preStop 包含在 120s 总窗口内；等待 Endpoint/Ingress 传播后，SIGTERM 再启动应用内 Drain。
                 command:
                   - /bin/sh
                   - -c

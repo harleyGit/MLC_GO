@@ -152,3 +152,25 @@ tests:
             exp_annotations:
               summary: Danmaku local broadcast scheduling P99 is above 100 milliseconds
               runbook_url: https://runbooks.internal/mlc/video-danmaku-broadcast-latency
+
+  - interval: 1m
+    input_series:
+      - series: mlc_video_danmaku_drain_timeouts_total{service="mlc-go",environment="prod",instance="pod-a"}
+        values: 0 0 0 1 1 1 1
+      - series: mlc_video_danmaku_drain_timeouts_total{service="mlc-go",environment="prod",instance="pod-b"}
+        values: 0x7
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: MLCVideoDanmakuDrainTimeout
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: MLCVideoDanmakuDrainTimeout
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: mlc-go
+              environment: prod
+              component: video-danmaku
+            exp_annotations:
+              summary: Danmaku realtime drain exceeded its configured deadline
+              runbook_url: https://runbooks.internal/mlc/video-danmaku-drain-timeout

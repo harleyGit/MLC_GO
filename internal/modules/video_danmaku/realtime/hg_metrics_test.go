@@ -4,9 +4,11 @@ import (
 	VideoDanmakuDtoPackage "MLC_GO/internal/modules/video_danmaku/dto"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,11 +20,18 @@ type hgMetricsTestConn struct {
 	state         *hgConnection
 	asyncWriteErr error
 	callbackErr   error
+	writes        atomic.Int64
+	closes        atomic.Int64
 }
 
 func (c *hgMetricsTestConn) Context() any { return c.state }
 
+func (c *hgMetricsTestConn) SetContext(value any) {
+	c.state, _ = value.(*hgConnection)
+}
+
 func (c *hgMetricsTestConn) AsyncWrite(_ []byte, callback gnet.AsyncCallback) error {
+	c.writes.Add(1)
 	if c.asyncWriteErr != nil {
 		return c.asyncWriteErr
 	}
@@ -32,7 +41,7 @@ func (c *hgMetricsTestConn) AsyncWrite(_ []byte, callback gnet.AsyncCallback) er
 	return nil
 }
 
-func (c *hgMetricsTestConn) Close() error { return nil }
+func (c *hgMetricsTestConn) Close() error { c.closes.Add(1); return nil }
 
 func TestRealtimeMetricsExposeFixedCardinalitySnapshots(t *testing.T) {
 	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{
@@ -48,6 +57,9 @@ func TestRealtimeMetricsExposeFixedCardinalitySnapshots(t *testing.T) {
 	server.metrics.recipientWrites[hgRecipientQueued].Store(9)
 	server.metrics.outboundFailures[hgOutboundFailurePendingBudget].Store(1)
 	server.metrics.hgObserveBroadcastDuration(7 * time.Millisecond)
+	server.lifecycle.Store(int32(hgLifecycleDraining))
+	server.metrics.drainStarts.Store(1)
+	server.metrics.lateHandshakeRejections.Store(2)
 	server.queue <- hgCommand{}
 	server.broadcastQueue[0] <- VideoDanmakuDtoPackage.DanmakuResponse{VideoID: "video-secret"}
 
@@ -64,6 +76,9 @@ func TestRealtimeMetricsExposeFixedCardinalitySnapshots(t *testing.T) {
 		`mlc_video_danmaku_outbound_write_failures_total{reason="pending_budget"} 1`,
 		`mlc_video_danmaku_broadcast_duration_seconds_bucket{le="0.01"} 1`,
 		"mlc_video_danmaku_broadcast_duration_seconds_count 1",
+		"mlc_video_danmaku_lifecycle_state 2",
+		"mlc_video_danmaku_drain_starts_total 1",
+		"mlc_video_danmaku_drain_late_handshake_rejections_total 2",
 	} {
 		if !strings.Contains(metrics, expected) {
 			t.Fatalf("metrics missing %q:\n%s", expected, metrics)
@@ -139,6 +154,103 @@ func TestClosedConnectionCannotBeActivatedByLateUpgrade(t *testing.T) {
 	}
 	if state.videoID != "" || state.upgraded {
 		t.Fatal("closed connection retained upgraded state")
+	}
+}
+
+func TestBeginDrainIsIdempotentAndKeepsExistingConnectionOpen(t *testing.T) {
+	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{
+		RoomShardCount: 16, MemberShardCount: 4, BroadcastWorkerCount: 1, BroadcastQueueSize: 1,
+		HeartbeatShardCount: 4, HeartbeatInterval: time.Second, HeartbeatTimeout: 2 * time.Second,
+		MaxPendingBytes: 1024,
+	})
+	server.lifecycle.Store(int32(hgLifecycleServing))
+	state := &hgConnection{videoID: "video-1", userID: "user-1", upgraded: true}
+	server.hgCountWebSocketConnection(state)
+	conn := &hgMetricsTestConn{state: state}
+	server.hgJoin("video-1", conn, state)
+
+	server.BeginDrain()
+	server.BeginDrain()
+	if got := hgLifecycleState(server.lifecycle.Load()); got != hgLifecycleDraining {
+		t.Fatalf("lifecycle = %d, want draining", got)
+	}
+	if got := server.metrics.drainStarts.Load(); got != 1 {
+		t.Fatalf("drain starts = %d, want 1", got)
+	}
+	if got := conn.writes.Load(); got != 1 {
+		t.Fatalf("drain close frames = %d, want 1", got)
+	}
+	if got := conn.closes.Load(); got != 0 {
+		t.Fatalf("connection closed immediately during drain: %d", got)
+	}
+	if err := server.hgWriteDataFrame(conn, state, []byte("business frame")); !errors.Is(err, hgErrConnectionDraining) {
+		t.Fatalf("business frame after Close error = %v, want draining", err)
+	}
+	if got := conn.writes.Load(); got != 1 {
+		t.Fatalf("business data was queued after Close Frame: writes=%d", got)
+	}
+	if err := server.Ready(); err == nil {
+		t.Fatal("draining server remained ready")
+	}
+}
+
+func TestDrainingServerRejectsLateUpgradeActivation(t *testing.T) {
+	server := NewServer(nil, nil, ConfigPackage.HGVideoDanmakuConfig{
+		RoomShardCount: 16, MemberShardCount: 4, BroadcastWorkerCount: 1, BroadcastQueueSize: 1,
+		HeartbeatShardCount: 4, HeartbeatInterval: time.Second, HeartbeatTimeout: 2 * time.Second,
+	})
+	server.lifecycle.Store(int32(hgLifecycleDraining))
+	state := &hgConnection{}
+	conn := &hgMetricsTestConn{state: state}
+	if server.hgActivateWebSocket("video-1", "user-1", conn, state) {
+		t.Fatal("late upgrade was activated during drain")
+	}
+	if got := server.metrics.lateHandshakeRejections.Load(); got != 1 {
+		t.Fatalf("late handshake rejections = %d, want 1", got)
+	}
+	if state.upgraded || state.videoID != "" || server.metrics.websocketConnections.Load() != 0 || server.metrics.activeRooms.Load() != 0 {
+		t.Fatal("rejected late upgrade changed connection or room state")
+	}
+}
+
+func TestOnOpenRejectsNewConnectionWhileDraining(t *testing.T) {
+	server := &Server{config: ConfigPackage.HGVideoDanmakuConfig{MaxConnections: 100}}
+	server.lifecycle.Store(int32(hgLifecycleDraining))
+	conn := &hgMetricsTestConn{}
+	_, action := server.OnOpen(conn)
+	if action != gnet.Close {
+		t.Fatalf("OnOpen() action = %v, want close", action)
+	}
+	if conn.state == nil || !conn.state.counted.Load() || server.connections.Load() != 1 {
+		t.Fatal("rejected raw connection was not registered for one-time OnClose release")
+	}
+	server.OnClose(conn, nil)
+	if got := server.connections.Load(); got != 0 {
+		t.Fatalf("connections after OnClose = %d, want 0", got)
+	}
+}
+
+func TestWaitForDrainReturnsWhenConnectionsReachZeroAndCountsTimeout(t *testing.T) {
+	server := &Server{}
+	server.metrics.websocketConnections.Store(1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		server.metrics.websocketConnections.Store(0)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := server.WaitForDrain(ctx); err != nil {
+		t.Fatalf("WaitForDrain() error = %v", err)
+	}
+
+	server.metrics.websocketConnections.Store(1)
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer timeoutCancel()
+	if err := server.WaitForDrain(timeoutCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitForDrain() timeout error = %v", err)
+	}
+	if got := server.metrics.drainTimeouts.Load(); got != 1 {
+		t.Fatalf("drain timeouts = %d, want 1", got)
 	}
 }
 
