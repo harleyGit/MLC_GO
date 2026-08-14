@@ -362,7 +362,16 @@ func (r *Repository) SetReaction(ctx context.Context, userID, commentID, reactio
 		_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpsertVideoCommentReactionSQL, commentID, userID, reaction)
 		if err == nil {
 			likeDelta, dislikeDelta := hgReactionDeltas(oldReaction, reaction)
-			_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateVideoCommentReactionShardSQL, commentID, hgReactionShard(userID), likeDelta, dislikeDelta)
+			_, err = tx.ExecContext(
+				ctx,
+				SQLQueriesPackage.UpdateVideoCommentReactionShardSQL,
+				commentID,
+				hgReactionShard(userID),
+				max(likeDelta, 0),
+				max(dislikeDelta, 0),
+				likeDelta,
+				dislikeDelta,
+			)
 		}
 		if err == nil {
 			_, err = tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentReactionDirtySQL, commentID)

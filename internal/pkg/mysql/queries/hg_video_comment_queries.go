@@ -50,9 +50,11 @@ LIMIT 1`
 	SelectVideoCommentReactionForUpdateSQL     = `SELECT reaction FROM video_comment_reactions WHERE comment_id = ? AND user_id = ? LIMIT 1 FOR UPDATE`
 	UpsertVideoCommentReactionSQL              = `INSERT INTO video_comment_reactions (comment_id, user_id, reaction) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE reaction = VALUES(reaction), updated_at = CURRENT_TIMESTAMP(6)`
 	DeleteVideoCommentReactionSQL              = `DELETE FROM video_comment_reactions WHERE comment_id = ? AND user_id = ?`
-	UpdateVideoCommentReactionShardSQL         = `INSERT INTO video_comment_reaction_shards (comment_id, shard_id, like_count, dislike_count) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE like_count = GREATEST(like_count + VALUES(like_count), 0), dislike_count = GREATEST(dislike_count + VALUES(dislike_count), 0)`
-	MarkVideoCommentReactionDirtySQL           = `INSERT INTO video_comment_reaction_dirty (comment_id, revision) VALUES (?, 1) ON DUPLICATE KEY UPDATE revision = revision + 1`
-	SelectVideoCommentReactionShardTotalsSQL   = `SELECT COALESCE(SUM(like_count), 0), COALESCE(SUM(dislike_count), 0) FROM video_comment_reaction_shards WHERE comment_id = ?`
+	// 新分片只接受非负初值；真实正负 delta 仅用于重复键更新，避免 like->dislike 等切换先因 INSERT 的 CHECK 约束失败。
+	UpdateVideoCommentReactionShardSQL = `INSERT INTO video_comment_reaction_shards (comment_id, shard_id, like_count, dislike_count) VALUES (?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE like_count = GREATEST(like_count + ?, 0), dislike_count = GREATEST(dislike_count + ?, 0)`
+	MarkVideoCommentReactionDirtySQL         = `INSERT INTO video_comment_reaction_dirty (comment_id, revision) VALUES (?, 1) ON DUPLICATE KEY UPDATE revision = revision + 1`
+	SelectVideoCommentReactionShardTotalsSQL = `SELECT COALESCE(SUM(like_count), 0), COALESCE(SUM(dislike_count), 0) FROM video_comment_reaction_shards WHERE comment_id = ?`
 
 	SelectVideoCommentDeleteTargetForUpdateSQL = `SELECT submission_id, root_comment_id, reply_count FROM video_comments WHERE comment_id = ? AND user_id = ? AND is_deleted = 0 LIMIT 1 FOR UPDATE`
 	SoftDeleteVideoCommentSQL                  = `UPDATE video_comments SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE comment_id = ? AND user_id = ? AND is_deleted = 0`

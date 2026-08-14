@@ -444,12 +444,38 @@ func TestSetReactionUpdatesOneShardInsteadOfCommentHotRow(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReactionSQL)).WithArgs("CMT_1", "user-1").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionForUpdateSQL)).WithArgs("CMT_1", "user-1").WillReturnRows(sqlmock.NewRows([]string{"reaction"}).AddRow("none"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpsertVideoCommentReactionSQL)).WithArgs("CMT_1", "user-1", "like").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateVideoCommentReactionShardSQL)).WithArgs("CMT_1", sqlmock.AnyArg(), int64(1), int64(0)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateVideoCommentReactionShardSQL)).WithArgs("CMT_1", sqlmock.AnyArg(), int64(1), int64(0), int64(1), int64(0)).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentReactionDirtySQL)).WithArgs("CMT_1").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionShardTotalsSQL)).WithArgs("CMT_1").WillReturnRows(sqlmock.NewRows([]string{"like_count", "dislike_count"}).AddRow(8, 2))
 	mock.ExpectCommit()
 	result, err := NewRepository(db).SetReaction(context.Background(), "user-1", "CMT_1", "like")
 	if err != nil || result.LikeCount != 8 {
+		t.Fatalf("SetReaction() result=%+v error=%v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestSetReactionSwitchUsesNonNegativeInsertValuesAndSignedUpdateDeltas(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error=%v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionBackfillReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"completed"}).AddRow(true))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionTargetSQL)).WithArgs("CMT_1").WillReturnRows(sqlmock.NewRows([]string{"comment_id"}).AddRow("CMT_1"))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReactionSQL)).WithArgs("CMT_1", "user-1").WillReturnResult(sqlmock.NewResult(1, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionForUpdateSQL)).WithArgs("CMT_1", "user-1").WillReturnRows(sqlmock.NewRows([]string{"reaction"}).AddRow("like"))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpsertVideoCommentReactionSQL)).WithArgs("CMT_1", "user-1", "dislike").WillReturnResult(sqlmock.NewResult(1, 2))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateVideoCommentReactionShardSQL)).WithArgs("CMT_1", sqlmock.AnyArg(), int64(0), int64(1), int64(-1), int64(1)).WillReturnResult(sqlmock.NewResult(1, 2))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentReactionDirtySQL)).WithArgs("CMT_1").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReactionShardTotalsSQL)).WithArgs("CMT_1").WillReturnRows(sqlmock.NewRows([]string{"like_count", "dislike_count"}).AddRow(7, 3))
+	mock.ExpectCommit()
+
+	result, err := NewRepository(db).SetReaction(context.Background(), "user-1", "CMT_1", "dislike")
+	if err != nil || result.LikeCount != 7 || result.DislikeCount != 3 || result.Reaction != "dislike" {
 		t.Fatalf("SetReaction() result=%+v error=%v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
