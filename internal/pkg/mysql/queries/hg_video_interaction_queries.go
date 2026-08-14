@@ -25,11 +25,12 @@ const (
 		favorite_count = GREATEST(0, favorite_count + VALUES(favorite_count)),
 		share_count = GREATEST(0, share_count + VALUES(share_count)), updated_at = NOW()`
 
-	SelectFollowForUpdateSQL = `SELECT active FROM user_follow_relations
+	SelectFollowForUpdateSQL = `SELECT relation_id, active FROM user_follow_relations
 		WHERE follower_id = ? AND followee_id = ? FOR UPDATE`
-	InsertFollowSQL = `INSERT INTO user_follow_relations (follower_id, followee_id, active, updated_at)
-		VALUES (?, ?, ?, NOW())`
-	UpdateFollowSQL = `UPDATE user_follow_relations SET active = ?, updated_at = NOW()
+	InsertFollowSQL = `INSERT INTO user_follow_relations (relation_id, follower_id, followee_id, active, updated_at)
+		VALUES (NULLIF(?, ''), ?, ?, ?, NOW())`
+	UpdateFollowSQL = `UPDATE user_follow_relations
+		SET relation_id = COALESCE(relation_id, NULLIF(?, '')), active = ?, updated_at = NOW()
 		WHERE follower_id = ? AND followee_id = ?`
 	UpsertFollowStatShardSQL = `INSERT INTO user_follow_stat_shards (user_id, shard_id, follower_count)
 		VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE

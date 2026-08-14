@@ -41,6 +41,17 @@ type HGRedisConfig struct {
 	Port string `yaml:"port" mapstructure:"port"`
 }
 
+// HGIDGeneratorConfig 描述业务 ID 的固定纪元和当前实例 Worker ID。
+type HGIDGeneratorConfig struct {
+	Epoch    time.Time
+	WorkerID int64
+}
+
+type hgIDGeneratorRawConfig struct {
+	Epoch    string `yaml:"epoch" mapstructure:"epoch"`
+	WorkerID int64  `yaml:"worker_id" mapstructure:"worker_id"`
+}
+
 // HGClickHouseConfig 描述 Statistic 权威事件存储的 HTTP 连接配置。
 type HGClickHouseConfig struct {
 	Enabled              bool          `yaml:"enabled" mapstructure:"enabled"`
@@ -519,6 +530,33 @@ func GetRedisConfig() (HGRedisConfig, error) {
 	if err := hgValidatePort("redis.port", cfg.Port); err != nil {
 		return cfg, err
 	}
+	return cfg, nil
+}
+
+// GetIDGeneratorConfig 读取 Snowflake 配置；生产环境必须通过环境变量为每个实例分配唯一 Worker ID。
+func GetIDGeneratorConfig() (HGIDGeneratorConfig, error) {
+	var raw hgIDGeneratorRawConfig
+	var cfg HGIDGeneratorConfig
+	if err := viper.UnmarshalKey("id_generator", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 ID generator 配置失败: %w", err)
+	}
+	if value := strings.TrimSpace(os.Getenv("ID_GENERATOR_WORKER_ID")); value != "" {
+		workerID, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return cfg, fmt.Errorf("ID_GENERATOR_WORKER_ID 必须是整数: %w", err)
+		}
+		raw.WorkerID = workerID
+	} else if IsProd() {
+		return cfg, fmt.Errorf("生产环境必须设置 ID_GENERATOR_WORKER_ID")
+	}
+	epoch, err := time.Parse(time.RFC3339, strings.TrimSpace(raw.Epoch))
+	if err != nil {
+		return cfg, fmt.Errorf("id_generator.epoch 必须是 RFC3339 时间: %w", err)
+	}
+	if raw.WorkerID < 0 || raw.WorkerID > 1023 {
+		return cfg, fmt.Errorf("id_generator.worker_id 必须在 0-1023 之间")
+	}
+	cfg.Epoch, cfg.WorkerID = epoch, raw.WorkerID
 	return cfg, nil
 }
 

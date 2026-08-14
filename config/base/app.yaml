@@ -7,6 +7,11 @@ management:
   host: 127.0.0.1
   port: 9091
 
+id_generator:
+  # 所有实例共享固定纪元；生产必须通过 ID_GENERATOR_WORKER_ID 注入互不重复的 0-1023 Worker ID。
+  epoch: "2026-01-01T00:00:00Z"
+  worker_id: 0
+
 video_danmaku:
   # gnet 使用独立内部端口；生产由 Ingress 将 /api/v1/video_danmaku/ws 转发到该端口并终止 TLS。
   host: 0.0.0.0

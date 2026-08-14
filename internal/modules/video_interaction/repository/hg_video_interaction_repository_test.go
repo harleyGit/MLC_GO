@@ -82,6 +82,40 @@ func TestJSONEqualIgnoresObjectKeyOrder(t *testing.T) {
 	}
 }
 
+func TestApplyFollowPersistsBusinessIDAndUpdatesCount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertInteractionInboxSQL)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectFollowForUpdateSQL)).
+		WithArgs("user-1", "user-2").
+		WillReturnRows(sqlmock.NewRows([]string{"relation_id", "active"}))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertFollowSQL)).
+		WithArgs("O123", "user-1", "user-2", true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpsertFollowStatShardSQL)).
+		WithArgs("user-2", hgShard("user-1"), 1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	event := InteractionConsumerPackage.PersistedEvent{
+		EventID: "event-follow-1", EventName: "user.follow.changed", EventKey: "user-2:user-1:follow",
+		FollowID: "O123", FollowerID: "user-1", FolloweeID: "user-2", Active: true,
+		KafkaTopic: "mlc.domain.events", KafkaPartition: 0, KafkaOffset: 1, Payload: `{"followId":"O123"}`,
+	}
+	if err := NewRepository(db).ApplyEvent(context.Background(), event); err != nil {
+		t.Fatalf("ApplyEvent() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
 func TestSubmitCoinDebitsWalletWritesLedgerAndOutboxInOneTransaction(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

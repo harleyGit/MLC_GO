@@ -28,6 +28,7 @@ func (e VideoInteractionChangedEvent) EventKey() string {
 // UserFollowChangedEvent 表示用户关注关系变更命令已被 Kafka 接收。
 type UserFollowChangedEvent struct {
 	events.EventMeta
+	FollowID   string `json:"followId"`
 	FollowerID string `json:"followerId"`
 	FolloweeID string `json:"followeeId"`
 	Active     bool   `json:"active"`

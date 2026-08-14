@@ -6,6 +6,7 @@ import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
 	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	VideoInteractionDtoPackage "MLC_GO/internal/modules/video_interaction/dto"
+	"MLC_GO/internal/pkg/idgen"
 	"context"
 	"errors"
 	"testing"
@@ -46,6 +47,18 @@ func (f *hgFakeEventBus) Publish(_ context.Context, event events.DomainEvent) er
 type hgFakeCache struct {
 	state      VideoInteractionDtoPackage.StateResponse
 	applyCalls int
+}
+
+type hgFakeIDGenerator struct {
+	id  string
+	err error
+}
+
+func (f hgFakeIDGenerator) Generate(entityType idgen.EntityType) (string, error) {
+	if entityType != idgen.TypeFollow {
+		return "", errors.New("unexpected entity type")
+	}
+	return f.id, f.err
 }
 
 func (f *hgFakeCache) GetState(context.Context, string, string, string) (VideoInteractionDtoPackage.StateResponse, error) {
@@ -153,6 +166,20 @@ func TestFollowRejectsFollowingSelf(t *testing.T) {
 	})
 	if !errors.Is(err, ErrCannotFollowSelf) {
 		t.Fatalf("error = %v, want ErrCannotFollowSelf", err)
+	}
+}
+
+func TestFollowPublishesBusinessID(t *testing.T) {
+	bus := &hgFakeEventBus{}
+	service := NewServiceWithIDGenerator(bus, &hgFakeCache{}, hgFakeIDGenerator{id: "O123"})
+
+	_, err := service.SetFollow(context.Background(), "user-1", VideoInteractionDtoPackage.FollowRequest{FolloweeID: "user-2", Active: true})
+	if err != nil {
+		t.Fatalf("SetFollow() error = %v", err)
+	}
+	event, ok := bus.event.(InteractionEventsPackage.UserFollowChangedEvent)
+	if !ok || event.FollowID != "O123" {
+		t.Fatalf("event = %#v, want follow business id", bus.event)
 	}
 }
 

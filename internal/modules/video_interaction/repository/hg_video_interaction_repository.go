@@ -228,15 +228,16 @@ func hgIncrementVideoStat(ctx context.Context, tx *sql.Tx, submissionID string, 
 }
 
 func hgApplyFollow(ctx context.Context, tx *sql.Tx, event InteractionConsumerPackage.PersistedEvent) error {
+	var oldFollowID sql.NullString
 	var oldActive bool
-	err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectFollowForUpdateSQL, event.FollowerID, event.FolloweeID).Scan(&oldActive)
+	err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectFollowForUpdateSQL, event.FollowerID, event.FolloweeID).Scan(&oldFollowID, &oldActive)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("select follow relation: %w", err)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertFollowSQL, event.FollowerID, event.FolloweeID, event.Active)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertFollowSQL, event.FollowID, event.FollowerID, event.FolloweeID, event.Active)
 	} else {
-		_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateFollowSQL, event.Active, event.FollowerID, event.FolloweeID)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateFollowSQL, event.FollowID, event.Active, event.FollowerID, event.FolloweeID)
 	}
 	if err != nil {
 		return fmt.Errorf("save follow relation: %w", err)

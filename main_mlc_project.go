@@ -245,7 +245,21 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
-	VideoInteractionModulePackage.RegisterModules(redisService, sqlManager)
+	if err := VideoInteractionModulePackage.RegisterModules(redisService, sqlManager); err != nil {
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Video interaction模块初始化失败: %w", err)
+	}
 	videoCommentComponents, err := VideoCommentModulePackage.RegisterModules(redisService, sqlManager, CoinTaskPackage.NewHGRedisJobLease(redisService))
 	if err != nil {
 		if coinJobs != nil {

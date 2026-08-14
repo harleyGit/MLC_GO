@@ -20,6 +20,7 @@ type PersistedEvent struct {
 	Action         string `json:"action"`
 	Active         bool   `json:"active"`
 	Quantity       int    `json:"quantity"`
+	FollowID       string `json:"followId"`
 	FollowerID     string `json:"followerId"`
 	FolloweeID     string `json:"followeeId"`
 	KafkaTopic     string
