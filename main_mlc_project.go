@@ -3,6 +3,7 @@ package main
 import (
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	HGHandlerPackage "MLC_GO/internal/handler"
+	BilibiliModulePackage "MLC_GO/internal/modules/bilibili/module"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
@@ -245,6 +246,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
+	BilibiliModulePackage.RegisterModules(redisService, sqlManager)
 	if err := VideoInteractionModulePackage.RegisterModules(redisService, sqlManager); err != nil {
 		if coinJobs != nil {
 			coinJobs.Close()
@@ -606,6 +608,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoCommentRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoDanmakuRouteCatalog()...)

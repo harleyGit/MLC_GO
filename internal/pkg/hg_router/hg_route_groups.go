@@ -1,6 +1,7 @@
 package HGRouterPackage
 
 import (
+	BilibiliHandlerPackage "MLC_GO/internal/modules/bilibili/handler"
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
@@ -22,6 +23,7 @@ const (
 	VideoInteractionModuleBasePath = "/api/v1/video_interactions"
 	VideoCommentModuleBasePath     = "/api/v1/video_comments"
 	VideoDanmakuModuleBasePath     = "/api/v1/video_danmaku"
+	BilibiliModuleBasePath         = "/api/v1/bilibili"
 )
 
 // endregion
@@ -63,6 +65,14 @@ func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 }
 
 // endregion
+
+// NewBilibiliRouteGroup 注册 Bilibili 作者空间公开读路由。
+func NewBilibiliRouteGroup(handler *BilibiliHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(RouteGroupConfig{BasePath: BilibiliModuleBasePath, Rules: HGServerPackage.BilibiliMethodRules()}, bilibiliRoutes(handler))
+}
+
+// BilibiliRouteCatalog 返回 Bilibili 作者空间完整路由清单。
+func BilibiliRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(bilibiliRoutes(nil)) }
 
 // region Auth 路由组
 

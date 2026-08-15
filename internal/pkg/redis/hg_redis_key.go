@@ -9,6 +9,7 @@
 package PersistenceRedisPackage
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"hash/fnv"
 	"strings"
@@ -26,6 +27,9 @@ const (
 	VideoDanmakuBroadcastChannelPrefix      = "video:danmaku:broadcast:"
 	VideoDanmakuRecentStreamKeyPrefix       = "video:danmaku:recent:"
 	VideoDanmakuRecentOffsetKeyPrefix       = "video:danmaku:recent-offset:"
+	BilibiliAuthorProfileKeyPrefix          = "bilibili:author:profile:"
+	BilibiliAuthorStatsKeyPrefix            = "bilibili:author:stats:"
+	BilibiliAuthorVideosKeyPrefix           = "bilibili:author:videos:"
 )
 
 // GetVideoDanmakuTicketKey 返回单次 WebSocket 票据 key；ticket 是随机值，不使用业务 ID 作为热点 hash tag。
@@ -70,6 +74,26 @@ func GetUserFollowStateKey(followerID string, followeeID string) string {
 
 func GetUserFollowCountKey(followeeID string) string {
 	return fmt.Sprintf("%s{%s}", UserFollowCountKeyPrefix, followeeID)
+}
+
+// GetBilibiliAuthorProfileKey 返回作者公开资料缓存 key。
+func GetBilibiliAuthorProfileKey(userID string) string {
+	return BilibiliAuthorProfileKeyPrefix + hgRedisKeyDigest(userID)
+}
+
+// GetBilibiliAuthorStatsKey 返回作者统计缓存 key。
+func GetBilibiliAuthorStatsKey(userID string) string {
+	return BilibiliAuthorStatsKeyPrefix + hgRedisKeyDigest(userID)
+}
+
+// GetBilibiliAuthorVideosKey 返回作者视频页缓存 key；摘要避免超长游标和特殊字符污染 key namespace。
+func GetBilibiliAuthorVideosKey(userID, cursor string, pageSize int) string {
+	return fmt.Sprintf("%s%s:%d:%s", BilibiliAuthorVideosKeyPrefix, hgRedisKeyDigest(userID), pageSize, hgRedisKeyDigest(cursor))
+}
+
+func hgRedisKeyDigest(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%x", digest[:12])
 }
 
 // GetFeedShard 使用稳定哈希把同一 submission 固定到同一 Feed shard。

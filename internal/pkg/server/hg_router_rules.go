@@ -203,6 +203,16 @@ func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
+// BilibiliMethodRules 声明作者空间公开读接口的方法白名单。
+func BilibiliMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	paths := []string{"/author/profile", "/author/stats", "/author/videos", "/author/homepage"}
+	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
+	for _, path := range paths {
+		rules = append(rules, HGMiddlewarePackage.HGAPIRule{Path: path, Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: false})
+	}
+	return rules
+}
+
 func VideoInteractionMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	paths := map[string]string{
 		"/state": http.MethodGet, "/like": http.MethodPost, "/coin": http.MethodPost,
