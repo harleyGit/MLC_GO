@@ -7,6 +7,21 @@ management:
   host: 127.0.0.1
   port: 9091
 
+api_gateway:
+  enabled: true
+  # 仅信任实际 Ingress/Nginx 网段；也可由 API_GATEWAY_TRUSTED_PROXY_CIDRS 逗号分隔覆盖。
+  trusted_proxy_cidrs: []
+  # 每个桶按“模块 + 来源 IP”跨实例共享；业务接口仍保留用户级、幂等和高成本操作专用限流。
+  modules:
+    auth: {capacity: 20, refill_per_second: 2}
+    profile: {capacity: 120, refill_per_second: 20}
+    video_upload: {capacity: 60, refill_per_second: 10}
+    bilibili: {capacity: 300, refill_per_second: 100}
+    video_interaction: {capacity: 120, refill_per_second: 30}
+    video_comment: {capacity: 120, refill_per_second: 30}
+    video_danmaku: {capacity: 180, refill_per_second: 60}
+    ops: {capacity: 30, refill_per_second: 5}
+
 id_generator:
   # 所有实例共享固定纪元；生产必须通过 ID_GENERATOR_WORKER_ID 注入互不重复的 0-1023 Worker ID。
   epoch: "2026-01-01T00:00:00Z"

@@ -41,6 +41,19 @@ type HGRedisConfig struct {
 	Port string `yaml:"port" mapstructure:"port"`
 }
 
+// HGAPIGatewayModulePolicy 定义单个业务模块按来源 IP 执行的分布式令牌桶参数。
+type HGAPIGatewayModulePolicy struct {
+	Capacity        int64
+	RefillPerSecond float64
+}
+
+// HGAPIGatewayConfig 定义业务 HTTP 入口的模块级限流和可信代理边界。
+type HGAPIGatewayConfig struct {
+	Enabled           bool
+	TrustedProxyCIDRs []netip.Prefix
+	Modules           map[string]HGAPIGatewayModulePolicy
+}
+
 // HGIDGeneratorConfig 描述业务 ID 的固定纪元和当前实例 Worker ID。
 type HGIDGeneratorConfig struct {
 	Epoch    time.Time
@@ -536,6 +549,60 @@ func GetRedisConfig() (HGRedisConfig, error) {
 	}
 	if err := hgValidatePort("redis.port", cfg.Port); err != nil {
 		return cfg, err
+	}
+	return cfg, nil
+}
+
+// GetAPIGatewayConfig 读取并校验 API Gateway 配置；模块策略在启动期固化，请求期不读取 Viper。
+func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
+	var raw struct {
+		Enabled           bool     `mapstructure:"enabled"`
+		TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
+		Modules           map[string]struct {
+			Capacity        int64   `mapstructure:"capacity"`
+			RefillPerSecond float64 `mapstructure:"refill_per_second"`
+		} `mapstructure:"modules"`
+	}
+	var cfg HGAPIGatewayConfig
+	if err := viper.UnmarshalKey("api_gateway", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 API Gateway 配置失败: %w", err)
+	}
+	cfg.Enabled = raw.Enabled
+	if !cfg.Enabled {
+		return cfg, nil
+	}
+
+	trustedProxyCIDRs := raw.TrustedProxyCIDRs
+	if value := strings.TrimSpace(os.Getenv("API_GATEWAY_TRUSTED_PROXY_CIDRS")); value != "" {
+		trustedProxyCIDRs = strings.Split(value, ",")
+	}
+	for _, value := range trustedProxyCIDRs {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
+		if err != nil {
+			return cfg, fmt.Errorf("api_gateway.trusted_proxy_cidrs 包含无效 CIDR")
+		}
+		if prefix.Bits() == 0 {
+			return cfg, fmt.Errorf("api_gateway.trusted_proxy_cidrs 禁止信任全部地址")
+		}
+		cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, prefix.Masked())
+	}
+
+	allowedModules := map[string]struct{}{
+		"auth": {}, "profile": {}, "video_upload": {}, "bilibili": {},
+		"video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
+	}
+	if len(raw.Modules) != len(allowedModules) {
+		return cfg, fmt.Errorf("api_gateway.modules 必须完整配置 %d 个业务模块", len(allowedModules))
+	}
+	cfg.Modules = make(map[string]HGAPIGatewayModulePolicy, len(raw.Modules))
+	for module, policy := range raw.Modules {
+		if _, ok := allowedModules[module]; !ok {
+			return cfg, fmt.Errorf("api_gateway.modules 包含未知模块 %q", module)
+		}
+		if policy.Capacity < 1 || policy.Capacity > 1_000_000 || policy.RefillPerSecond <= 0 || policy.RefillPerSecond > 1_000_000 {
+			return cfg, fmt.Errorf("api_gateway.modules.%s 限流参数无效", module)
+		}
+		cfg.Modules[module] = HGAPIGatewayModulePolicy{Capacity: policy.Capacity, RefillPerSecond: policy.RefillPerSecond}
 	}
 	return cfg, nil
 }

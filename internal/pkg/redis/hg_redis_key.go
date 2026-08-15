@@ -27,10 +27,16 @@ const (
 	VideoDanmakuBroadcastChannelPrefix      = "video:danmaku:broadcast:"
 	VideoDanmakuRecentStreamKeyPrefix       = "video:danmaku:recent:"
 	VideoDanmakuRecentOffsetKeyPrefix       = "video:danmaku:recent-offset:"
+	APIGatewayIPRateKeyPrefix               = "api_gateway:v1:rate:ip:"
 	BilibiliAuthorProfileKeyPrefix          = "bilibili:author:profile:"
 	BilibiliAuthorStatsKeyPrefix            = "bilibili:author:stats:"
 	BilibiliAuthorVideosKeyPrefix           = "bilibili:author:videos:"
 )
+
+// GetAPIGatewayIPRateKey 返回不暴露原始来源 IP 的模块级限流 key。
+func GetAPIGatewayIPRateKey(module, sourceIP string) string {
+	return fmt.Sprintf("%s%s:%s", APIGatewayIPRateKeyPrefix, module, hgRedisKeyDigest(sourceIP))
+}
 
 // GetVideoDanmakuTicketKey 返回单次 WebSocket 票据 key；ticket 是随机值，不使用业务 ID 作为热点 hash tag。
 func GetVideoDanmakuTicketKey(ticket string) string { return VideoDanmakuTicketKeyPrefix + ticket }

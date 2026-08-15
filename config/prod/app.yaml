@@ -1,6 +1,12 @@
 server:
   port: 80
 
+api_gateway:
+  # 填写允许代传真实来源 IP 的负载均衡、Ingress 或 Nginx 网段，禁止 0.0.0.0/0 和 ::/0。
+  trusted_proxy_cidrs:
+    - 10.20.0.0/16
+    - 10.30.0.0/16
+
 video_danmaku:
   # 部署必须通过 VIDEO_DANMAKU_ALLOWED_ORIGINS 覆盖实际 Web 站点 Origin；gnet 会精确匹配白名单。
   allowed_origins:
