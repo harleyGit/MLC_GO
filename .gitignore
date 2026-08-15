@@ -8,3 +8,6 @@ mlc_server
 uploads/
 .aider*
 deployments/monitoring/secrets/alertmanager_webhook_url
+
+# 每台开发机的本地配置覆盖，禁止提交密码等机器私有信息。
+config/MLC.local.env

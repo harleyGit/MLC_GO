@@ -66,27 +66,38 @@ case "${TARGET_ENV}" in
         ;;
 esac
 
-# VS Code 通过 zsh 登录 shell 启动 task，/usr/local/bin 可能排在 GOPATH/bin 前面。
-# 当前旧版 macOS 上，/usr/local/bin/migrate 可能是按 macOS 12 构建的 Homebrew 二进制，
-# 即使命令存在也会在启动时被 dyld 直接终止。优先使用当前 Go 环境安装的工具，
-# 让 go run 启动的 hg_config_check 通过继承后的 PATH 找到同一个 migrate。
-prefer_go_tools_bin() {
+# VS Code 通过 zsh 登录 shell 启动 task，不同 Mac 的工具目录和 CPU 架构可能不同。
+# 依次检查当前 GOPATH/bin 和登录 shell 原本找到的 migrate，只有二进制能在本机运行
+# 且包含 MySQL 驱动时才采用，避免 Intel/M2Pro 之间共享错误架构或过高 macOS 版本的工具。
+prefer_compatible_migrate() {
     local go_path
     local go_tools_bin
+    local path_migrate
+    local candidate
+    local migrate_help
 
-    if ! go_path="$(go env GOPATH 2>/dev/null)" || [ -z "${go_path}" ]; then
-        return 0
-    fi
-
-    # GOPATH 允许配置多个目录；安装工具默认位于第一个 GOPATH 的 bin 下。
+    path_migrate="$(command -v migrate 2>/dev/null || true)"
+    go_path="$(go env GOPATH 2>/dev/null || true)"
     go_tools_bin="${go_path%%:*}/bin"
-    if [ -d "${go_tools_bin}" ]; then
-        PATH="${go_tools_bin}:${PATH}"
+
+    for candidate in "${go_tools_bin}/migrate" "${path_migrate}"; do
+        if [ -z "${candidate}" ] || [ ! -x "${candidate}" ]; then
+            continue
+        fi
+        if ! migrate_help="$("${candidate}" -help 2>&1)"; then
+            continue
+        fi
+        if ! grep -Eq 'Database drivers:.*mysql' <<<"${migrate_help}"; then
+            continue
+        fi
+
+        PATH="$(dirname "${candidate}"):${PATH}"
         export PATH
-    fi
+        return 0
+    done
 }
 
-prefer_go_tools_bin
+prefer_compatible_migrate
 
 CONFIG_VALUES=()
 while IFS= read -r value; do

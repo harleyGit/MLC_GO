@@ -500,6 +500,13 @@ func GetMySQLConfig() (HGMySQLConfig, error) {
 	if err := viper.UnmarshalKey("mysql", &cfg); err != nil {
 		return cfg, fmt.Errorf("读取 MySQL 配置失败: %w", err)
 	}
+	// debug 密码允许由本机未跟踪文件或进程环境覆盖；LookupEnv 可区分“未设置”和“显式空密码”。
+	// pre/prod 始终使用各自部署配置或密钥注入，不受开发机本地密码影响。
+	if Env(viper.GetString(hgLoadedEnvKey)) == EnvDebug {
+		if password, exists := os.LookupEnv(hgDebugMySQLPasswordEnv); exists {
+			cfg.Password = password
+		}
+	}
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.Port = strings.TrimSpace(cfg.Port)
 	cfg.User = strings.TrimSpace(cfg.User)

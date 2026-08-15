@@ -47,6 +47,7 @@ assert_not_contains() {
 run_case() {
     local case_name="$1"
     local stopped_container="${2:-}"
+    local gopath_migrate_broken="${3:-false}"
     local temp_dir
     # mktemp -d 创建只属于当前场景的临时目录，避免不同测试之间相互污染。
     temp_dir="$(mktemp -d)"
@@ -103,6 +104,21 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 echo "gopath-migrate $*" >>"${COMMAND_LOG}"
+if [ "${GOPATH_MIGRATE_BROKEN:-false}" = "true" ]; then
+    exit 126
+fi
+if [ "${1:-}" = "-help" ]; then
+    echo "Source drivers: file"
+    echo "Database drivers: stub, mysql"
+fi
+EOF
+
+    # 模拟登录 shell 原本找到的 migrate。GOPATH 工具不可运行时必须安全回退到它，
+    # 覆盖另一台 M2Pro 使用 Homebrew/独立工具目录的场景。
+    cat >"${temp_dir}/bin/migrate" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "path-migrate $*" >>"${COMMAND_LOG}"
 if [ "${1:-}" = "-help" ]; then
     echo "Source drivers: file"
     echo "Database drivers: stub, mysql"
@@ -110,19 +126,24 @@ fi
 EOF
 
     # 新建文件默认没有执行权限，chmod +x 后才能像普通命令一样运行。
-    chmod +x "${temp_dir}/bin/docker" "${temp_dir}/bin/make" "${temp_dir}/bin/go" "${temp_dir}/go/bin/migrate"
+    chmod +x "${temp_dir}/bin/docker" "${temp_dir}/bin/make" "${temp_dir}/bin/go" "${temp_dir}/bin/migrate" "${temp_dir}/go/bin/migrate"
 
     # 把临时 bin 放到 PATH 最前面，Shell 会优先找到假命令，而不是系统中的真实命令。
     # COMMAND_LOG 和 STOPPED_CONTAINER 只对本次命令生效，不会修改用户终端的永久环境变量。
     # >/dev/null 隐藏被测脚本普通日志，让测试输出只保留 PASS 或 FAIL。
     COMMAND_LOG="${temp_dir}/commands.log" \
         STOPPED_CONTAINER="${stopped_container}" \
+        GOPATH_MIGRATE_BROKEN="${gopath_migrate_broken}" \
         GOPATH="${temp_dir}/go" \
         PATH="${temp_dir}/bin:${PATH}" \
         "${SCRIPT_DIR}/ensure_debug_deps.sh" debug >/dev/null
 
-    # 必须实际选择并检查 GOPATH/bin/migrate，而不是依赖调用方 PATH 的顺序。
-    assert_contains "gopath-migrate -help" "${temp_dir}/commands.log"
+    # GOPATH 工具可用时优先采用；不可用时必须回退到登录 shell 的兼容工具。
+    if [ "${gopath_migrate_broken}" = "true" ]; then
+        assert_contains "path-migrate -help" "${temp_dir}/commands.log"
+    else
+        assert_contains "gopath-migrate -help" "${temp_dir}/commands.log"
+    fi
 
     # 无论 Kafka 原来是否运行，最终都必须执行幂等 Topic 初始化和拓扑检查。
     assert_contains "make kafka-init" "${temp_dir}/commands.log"
@@ -148,5 +169,7 @@ EOF
 run_case running
 # 场景二：模拟 mlc-kafka-2 未运行，必须执行限定三个 broker 的 compose 启动命令。
 run_case stopped mlc-kafka-2
+# 场景三：模拟 GOPATH/bin/migrate 架构或系统版本不兼容，必须回退到 PATH 中的可用工具。
+run_case running "" true
 
 echo "[PASS] VS Code debug 前置 Kafka 检查通过"

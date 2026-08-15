@@ -21,6 +21,9 @@ func TestInitRuntimeEnvPreservesExternalEnvironment(t *testing.T) {
 }
 
 func TestInfrastructureConfiguredForEveryEnvironment(t *testing.T) {
+	// 固定共享默认值，避免开发机的 MLC.local.env 让仓库测试结果依赖当前机器。
+	t.Setenv("MLC_DEBUG_MYSQL_PASSWORD", "hh109")
+
 	type expectedConfig struct {
 		mysqlHost      string
 		mysqlPort      string
@@ -73,6 +76,51 @@ func TestInfrastructureConfiguredForEveryEnvironment(t *testing.T) {
 				t.Fatalf("statistic infrastructure config = clickhouse:%+v statistic:%+v", clickHouseConfig, statisticConfig)
 			}
 		})
+	}
+}
+
+func TestDebugMySQLPasswordAllowsExplicitEmptyOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("MLC_CONFIG_DIR", projectConfigDir(t))
+	t.Setenv("MLC_DEBUG_MYSQL_PASSWORD", "")
+
+	if err := LoadConfig("debug"); err != nil {
+		t.Fatalf("LoadConfig(debug) error = %v", err)
+	}
+	cfg, err := GetMySQLConfig()
+	if err != nil {
+		t.Fatalf("GetMySQLConfig() error = %v", err)
+	}
+	if cfg.Password != "" {
+		t.Fatalf("mysql password = %q, want explicit empty override", cfg.Password)
+	}
+}
+
+func TestInitRuntimeEnvLoadsOptionalLocalFileWithoutOverwritingExternalEnv(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "MLC.env"), []byte("SERVER_ENV=debug\n"), 0o600); err != nil {
+		t.Fatalf("write MLC.env: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "MLC.local.env"), []byte("HG_TEST_LOCAL_ENV=loaded\nHG_TEST_EXTERNAL_PRIORITY=local\n"), 0o600); err != nil {
+		t.Fatalf("write MLC.local.env: %v", err)
+	}
+	t.Setenv("MLC_CONFIG_DIR", configDir)
+	t.Setenv("HG_TEST_LOCAL_ENV", "")
+	t.Setenv("HG_TEST_EXTERNAL_PRIORITY", "external")
+	if err := os.Unsetenv("HG_TEST_LOCAL_ENV"); err != nil {
+		t.Fatalf("unset HG_TEST_LOCAL_ENV: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("HG_TEST_LOCAL_ENV") })
+
+	if err := InitRuntimeEnv(); err != nil {
+		t.Fatalf("InitRuntimeEnv() error = %v", err)
+	}
+	if got := os.Getenv("HG_TEST_LOCAL_ENV"); got != "loaded" {
+		t.Fatalf("HG_TEST_LOCAL_ENV = %q, want loaded", got)
+	}
+	if got := os.Getenv("HG_TEST_EXTERNAL_PRIORITY"); got != "external" {
+		t.Fatalf("HG_TEST_EXTERNAL_PRIORITY = %q, want external", got)
 	}
 }
 

@@ -282,7 +282,10 @@ redis:
   port: "6379"
 ```
 
-如果你本机 MySQL 不是 `3306`，或者密码不是 `hh109`，就在这里改。
+仓库中的 debug 默认密码保持为 `hh109`，适配 M2Pro 开发机。不同电脑不要反复修改并提交
+`config/debug/mysql.yaml`，而是在本机复制 `config/MLC.local.env.example` 为
+`config/MLC.local.env` 后覆盖 `MLC_DEBUG_MYSQL_PASSWORD`。该本机文件已被 Git 忽略；
+Intel 电脑使用空密码时写 `MLC_DEBUG_MYSQL_PASSWORD=` 即可。
 
 ---
 
@@ -448,7 +451,29 @@ ports:
 
 > <h2 id="Intel电脑修改配置启动">Intel电脑修改配置启动</h2>
 
-不同开发机器的 MySQL 密码不同时，修改 `config/debug/mysql.yaml` 中的 `mysql.password`。工程不再根据 CPU 架构隐式切换密码。
+不同开发机器的 MySQL 密码不同时，使用不提交到 Git 的本机覆盖文件，避免两台电脑互相覆盖共享配置：
+
+```sh
+cp config/MLC.local.env.example config/MLC.local.env
+```
+
+Intel 电脑的 root 为空密码：
+
+```dotenv
+MLC_DEBUG_MYSQL_PASSWORD=
+```
+
+M2Pro 电脑如果使用共享默认密码 `hh109`，不创建本机文件即可；也可以显式写成：
+
+```dotenv
+MLC_DEBUG_MYSQL_PASSWORD=hh109
+```
+
+工程不会根据 CPU 架构猜测密码，外部注入的同名环境变量优先级最高。
+
+`go.mod` 中的 `go 1.24.1` 表示项目允许使用的最低 Go 版本，不要求所有电脑安装完全相同的
+补丁版本。Intel 电脑使用 Go 1.24.1、M2Pro 使用 Go 1.24.6 都兼容，无需在两台电脑之间
+反复修改 `go.mod`；团队只需保证实际 Go 版本不低于 1.24.1。
 
 启动 redis：
 

@@ -9,6 +9,7 @@
 package ConfigPackage
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,18 +27,38 @@ const (
 	EnvProd  Env = "prod"
 
 	hgDefaultConfigDir = "./config"
+	hgLocalEnvFileName = "MLC.local.env"
+	hgLoadedEnvKey     = "runtime.loaded_env"
 
 	// 环境变量控制，从终端中输入，避免代码泄漏。输入环境变量，如：SERVER_ENV=debug
-	hgConfigDirEnv = "MLC_CONFIG_DIR"
+	hgConfigDirEnv          = "MLC_CONFIG_DIR"
+	hgDebugMySQLPasswordEnv = "MLC_DEBUG_MYSQL_PASSWORD"
 )
 
-// InitRuntimeEnv 加载配置根目录下唯一的 MLC.env。
-// godotenv.Load 不覆盖进程已有变量，因此 VS Code、容器和 Secret 注入优先于文件默认值。
+// hgLoadLocalRuntimeEnv 加载不提交到 Git 的本机覆盖文件。
+// godotenv.Load 不覆盖进程已有环境变量，因此优先级为：外部注入 > MLC.local.env > 共享配置。
+func hgLoadLocalRuntimeEnv(configDir string) error {
+	localEnvFile := filepath.Join(configDir, hgLocalEnvFileName)
+	if err := godotenv.Load(localEnvFile); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("加载本机运行环境文件 %q 失败: %w", localEnvFile, err)
+	}
+	return nil
+}
+
+// InitRuntimeEnv 依次加载可选的 MLC.local.env 和共享的 MLC.env。
+// godotenv.Load 不覆盖进程已有变量，因此优先级为外部注入、本机覆盖、共享默认值。
 func InitRuntimeEnv() error {
 	configDir := os.Getenv(hgConfigDirEnv)
 	if configDir == "" {
 		configDir = hgDefaultConfigDir
 	}
+	if err := hgLoadLocalRuntimeEnv(configDir); err != nil {
+		return err
+	}
+
 	envFile := filepath.Join(configDir, "MLC.env")
 	// godotenv.Load: 读取指定的 .env 文件，将里面的键值对加载到当前进程的环境变量中，之后可以通过 os.Getenv() 获取。
 	if err := godotenv.Load(envFile); err != nil {
@@ -75,6 +96,9 @@ func LoadConfig(env string) error {
 	if configDir == "" {
 		configDir = hgDefaultConfigDir
 	}
+	if err := hgLoadLocalRuntimeEnv(configDir); err != nil {
+		return err
+	}
 
 	// baseConfigFiles 定义基础配置文件列表，[...]string 编译器根据初始化数量自动推断长度。
 	baseConfigFiles := [...]string{"app.yaml", "log.yaml", "mysql.yaml", "redis.yaml", "kafka.yaml", "clickhouse.yaml", "tracing.yaml"}
@@ -105,6 +129,8 @@ func LoadConfig(env string) error {
 			return fmt.Errorf("加载配置文件 %q 失败: %w", configFile, err)
 		}
 	}
+	// 记录本次实际加载的环境，供配置读取函数安全地限定本机覆盖范围。
+	viper.Set(hgLoadedEnvKey, env)
 
 	return nil
 }
