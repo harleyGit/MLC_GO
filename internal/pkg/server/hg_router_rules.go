@@ -225,6 +225,11 @@ func VideoInteractionMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return rules
 }
 
+// VideoRecommendMethodRules 声明认证推荐流的方法白名单。
+func VideoRecommendMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	return []HGMiddlewarePackage.HGAPIRule{{Path: "/feed", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true}}
+}
+
 // VideoCommentMethodRules 声明评论 API 的固定方法白名单和认证要求。
 func VideoCommentMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	paths := map[string]string{"/create": http.MethodPost, "/list": http.MethodGet, "/replies": http.MethodGet, "/reaction": http.MethodPost, "/image": http.MethodPost, "/delete": http.MethodPost}

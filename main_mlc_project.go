@@ -19,6 +19,7 @@ import (
 	VideoInteractionModulePackage "MLC_GO/internal/modules/video_interaction/module"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoInteractionTaskPackage "MLC_GO/internal/modules/video_interaction/task"
+	VideoRecommendModulePackage "MLC_GO/internal/modules/video_recommend/module"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
@@ -259,6 +260,21 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	BilibiliModulePackage.RegisterModules(redisService, sqlManager)
+	if err := VideoRecommendModulePackage.RegisterModules(redisService, sqlManager); err != nil {
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Video recommend模块初始化失败: %w", err)
+	}
 	if err := VideoInteractionModulePackage.RegisterModules(redisService, sqlManager); err != nil {
 		if coinJobs != nil {
 			coinJobs.Close()
@@ -628,6 +644,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.VideoRecommendRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoCommentRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoDanmakuRouteCatalog()...)

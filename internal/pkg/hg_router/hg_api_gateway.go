@@ -67,6 +67,7 @@ var hgGatewayModulePaths = []struct {
 	{"profile", UserProfileModuleBasePath},
 	{"video_upload", VideoUploadModuleBasePath},
 	{"bilibili", BilibiliModuleBasePath},
+	{"video_recommend", VideoRecommendModuleBasePath},
 	{"video_interaction", VideoInteractionModuleBasePath},
 	{"video_comment", VideoCommentModuleBasePath},
 	{"video_danmaku", VideoDanmakuModuleBasePath},

@@ -102,6 +102,17 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		Redis: redisService, StatisticStore: clickHouseClient, StatisticAggregate: clickHouseClient, StatisticRedis: redisService,
 		StatisticConfig: StatisticConsumerPackage.HGProjectionConfig{RedisGeneration: statisticConfig.RedisGeneration, RedisShardCount: statisticConfig.RedisShardCount},
 	}
+	videoRecommendConfig, err := ConfigPackage.GetVideoRecommendConfig()
+	if err != nil {
+		if clickHouseClient != nil {
+			_ = clickHouseClient.Close()
+		}
+		producerCloser()
+		return nil, nil, err
+	}
+	runtimeDeps.FeedGeneration = videoRecommendConfig.RedisGeneration
+	runtimeDeps.FeedShardCount = videoRecommendConfig.RedisShardCount
+	runtimeDeps.FeedMaxItems = videoRecommendConfig.RedisMaxItems
 	if cfg.Business.Consumers.Danmaku.Enabled {
 		if clickHouseConfig.DanmakuHistoryTable == "" {
 			_ = clickHouseClient.Close()

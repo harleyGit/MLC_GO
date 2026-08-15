@@ -8,6 +8,7 @@ import (
 	VideoCommentHandlerPackage "MLC_GO/internal/modules/video_comment/handler"
 	VideoDanmakuHandlerPackage "MLC_GO/internal/modules/video_danmaku/handler"
 	VideoInteractionHandlerPackage "MLC_GO/internal/modules/video_interaction/handler"
+	VideoRecommendHandlerPackage "MLC_GO/internal/modules/video_recommend/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGServerPackage "MLC_GO/internal/pkg/server"
@@ -24,6 +25,7 @@ const (
 	VideoCommentModuleBasePath     = "/api/v1/video_comments"
 	VideoDanmakuModuleBasePath     = "/api/v1/video_danmaku"
 	BilibiliModuleBasePath         = "/api/v1/bilibili"
+	VideoRecommendModuleBasePath   = "/api/v1/video_recommend"
 )
 
 // endregion
@@ -70,6 +72,16 @@ func NewBilibiliRouteGroup(handler *BilibiliHandlerPackage.Handler) http.Handler
 
 // BilibiliRouteCatalog 返回 Bilibili 作者空间完整路由清单。
 func BilibiliRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(bilibiliRoutes(nil)) }
+
+// NewVideoRecommendRouteGroup 注册认证视频推荐流路由。
+func NewVideoRecommendRouteGroup(handler *VideoRecommendHandlerPackage.Handler) http.Handler {
+	return NewRouteGroup(RouteGroupConfig{BasePath: VideoRecommendModuleBasePath, Rules: HGServerPackage.VideoRecommendMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoRecommendRoutes(handler))
+}
+
+// VideoRecommendRouteCatalog 返回视频推荐模块完整路由清单。
+func VideoRecommendRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(videoRecommendRoutes(nil))
+}
 
 // region Auth 路由组
 

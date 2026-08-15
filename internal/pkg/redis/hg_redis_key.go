@@ -31,6 +31,7 @@ const (
 	BilibiliAuthorProfileKeyPrefix          = "bilibili:author:profile:"
 	BilibiliAuthorStatsKeyPrefix            = "bilibili:author:stats:"
 	BilibiliAuthorVideosKeyPrefix           = "bilibili:author:videos:"
+	VideoRecommendCardKeyPrefix             = "video:recommend:card:"
 )
 
 // GetAPIGatewayIPRateKey 返回不暴露原始来源 IP 的模块级限流 key。
@@ -95,6 +96,11 @@ func GetBilibiliAuthorStatsKey(userID string) string {
 // GetBilibiliAuthorVideosKey 返回作者视频页缓存 key；摘要避免超长游标和特殊字符污染 key namespace。
 func GetBilibiliAuthorVideosKey(userID, cursor string, pageSize int) string {
 	return fmt.Sprintf("%s%s:%d:%s", BilibiliAuthorVideosKeyPrefix, hgRedisKeyDigest(userID), pageSize, hgRedisKeyDigest(cursor))
+}
+
+// GetVideoRecommendCardKey 返回视频推荐公开卡片缓存 key；按 submission 分散，避免全局热点 Hash。
+func GetVideoRecommendCardKey(submissionID string) string {
+	return VideoRecommendCardKeyPrefix + hgRedisKeyDigest(submissionID)
 }
 
 func hgRedisKeyDigest(value string) string {

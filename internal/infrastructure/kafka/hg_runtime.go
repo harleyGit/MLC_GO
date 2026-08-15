@@ -32,6 +32,9 @@ type hgConsumerWorker struct {
 // Redis 复用应用长生命周期连接池，避免每个 Consumer 重复创建连接池放大资源占用。
 type RuntimeDependencies struct {
 	Redis                      FeedConsumerPackage.RedisEvalClient
+	FeedShardCount             int
+	FeedMaxItems               int
+	FeedGeneration             string
 	StatisticStore             StatisticConsumerPackage.EventStore
 	StatisticAggregate         StatisticConsumerPackage.AggregateReader
 	StatisticRedis             StatisticConsumerPackage.RedisHashReader
@@ -86,7 +89,7 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		{
 			name:        "feed",
 			config:      cfg.Consumers.Feed,
-			handler:     FeedConsumerPackage.NewConsumer(FeedConsumerPackage.NewRedisProjector(deps.Redis, 0, 0, "")),
+			handler:     FeedConsumerPackage.NewConsumer(FeedConsumerPackage.NewRedisProjector(deps.Redis, deps.FeedShardCount, deps.FeedMaxItems, deps.FeedGeneration)),
 			implemented: true,
 		},
 		{name: "search", config: cfg.Consumers.Search, handler: SearchConsumerPackage.NewConsumer()},

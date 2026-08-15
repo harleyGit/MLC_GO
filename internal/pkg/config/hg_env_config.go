@@ -61,6 +61,13 @@ type HGAPIGatewayConfig struct {
 	Modules           map[string]HGAPIGatewayModulePolicy
 }
 
+// HGVideoRecommendConfig 定义 Feed 读写双方共享的 Redis 投影版本和固定分片数。
+type HGVideoRecommendConfig struct {
+	RedisGeneration string
+	RedisShardCount int
+	RedisMaxItems   int
+}
+
 // HGIDGeneratorConfig 描述业务 ID 的固定纪元和当前实例 Worker ID。
 type HGIDGeneratorConfig struct {
 	Epoch    time.Time
@@ -616,7 +623,7 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 
 	allowedModules := map[string]struct{}{
 		"auth": {}, "profile": {}, "video_upload": {}, "bilibili": {},
-		"video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
+		"video_recommend": {}, "video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
 	}
 	if len(raw.Modules) != len(allowedModules) {
 		return cfg, fmt.Errorf("api_gateway.modules 必须完整配置 %d 个业务模块", len(allowedModules))
@@ -644,6 +651,32 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 			Capacity: policy.Capacity, RefillPerSecond: policy.RefillPerSecond,
 			MaxBodyBytes: policy.MaxBodyBytes, MaxInFlight: policy.MaxInFlight, UpstreamURL: upstreamURL,
 		}
+	}
+	return cfg, nil
+}
+
+// GetVideoRecommendConfig 读取并校验推荐 Feed 投影配置；读写两侧必须使用同一 generation 和 shard_count。
+func GetVideoRecommendConfig() (HGVideoRecommendConfig, error) {
+	var raw struct {
+		RedisGeneration string `mapstructure:"redis_generation"`
+		RedisShardCount int    `mapstructure:"redis_shard_count"`
+		RedisMaxItems   int    `mapstructure:"redis_max_items_per_shard"`
+	}
+	var cfg HGVideoRecommendConfig
+	if err := viper.UnmarshalKey("video_recommend", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 video recommend 配置失败: %w", err)
+	}
+	cfg.RedisGeneration = strings.TrimSpace(raw.RedisGeneration)
+	cfg.RedisShardCount = raw.RedisShardCount
+	cfg.RedisMaxItems = raw.RedisMaxItems
+	if !hgStatisticGenerationPattern.MatchString(cfg.RedisGeneration) {
+		return cfg, fmt.Errorf("video_recommend.redis_generation 必须为 1-32 位字母、数字、下划线或连字符")
+	}
+	if cfg.RedisShardCount < 1 || cfg.RedisShardCount > 4096 {
+		return cfg, fmt.Errorf("video_recommend.redis_shard_count 必须在 1-4096 之间")
+	}
+	if cfg.RedisMaxItems < 100 || cfg.RedisMaxItems > 1_000_000 {
+		return cfg, fmt.Errorf("video_recommend.redis_max_items_per_shard 必须在 100-1000000 之间")
 	}
 	return cfg, nil
 }

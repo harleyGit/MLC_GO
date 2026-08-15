@@ -22,10 +22,18 @@ api_gateway:
     profile: {capacity: 120, refill_per_second: 20, max_body_bytes: 12582912, max_in_flight: 4000, upstream_url: ""}
     video_upload: {capacity: 60, refill_per_second: 10, max_body_bytes: 4297064448, max_in_flight: 128, upstream_url: ""}
     bilibili: {capacity: 300, refill_per_second: 100, max_body_bytes: 1048576, max_in_flight: 8000, upstream_url: ""}
+    video_recommend: {capacity: 600, refill_per_second: 200, max_body_bytes: 1048576, max_in_flight: 12000, upstream_url: ""}
     video_interaction: {capacity: 120, refill_per_second: 30, max_body_bytes: 1048576, max_in_flight: 6000, upstream_url: ""}
     video_comment: {capacity: 120, refill_per_second: 30, max_body_bytes: 6291456, max_in_flight: 4000, upstream_url: ""}
     video_danmaku: {capacity: 180, refill_per_second: 60, max_body_bytes: 1048576, max_in_flight: 8000, upstream_url: ""}
     ops: {capacity: 30, refill_per_second: 5, max_body_bytes: 34603008, max_in_flight: 500, upstream_url: ""}
+
+video_recommend:
+  # Kafka 投影和在线召回必须共享版本、分片数和容量；改版本时先双写/回填再切读。
+  redis_generation: v2
+  redis_shard_count: 64
+  # 单分片仅保留热候选，总热池约 12.8 万条，避免 Redis ZSET 无界增长。
+  redis_max_items_per_shard: 2000
 
 id_generator:
   # 所有实例共享固定纪元；生产必须通过 ID_GENERATOR_WORKER_ID 注入互不重复的 0-1023 Worker ID。
