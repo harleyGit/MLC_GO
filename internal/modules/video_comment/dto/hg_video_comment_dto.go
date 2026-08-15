@@ -51,6 +51,7 @@ type CommentResponse struct {
 	RootCommentID   string   `json:"rootCommentId,omitempty"`
 	ParentCommentID string   `json:"parentCommentId,omitempty"`
 	ReplyToUserID   string   `json:"replyToUserId,omitempty"`
+	ReplyToUserName string   `json:"replyToUserName,omitempty"`
 	CreatedAt       string   `json:"createdAt"`
 	CanDelete       bool     `json:"canDelete"`
 }

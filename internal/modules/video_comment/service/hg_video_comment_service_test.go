@@ -83,7 +83,8 @@ func TestCreateRejectsContentOutsideRuneLimit(t *testing.T) {
 func TestCreateAllowsImagesWithoutContentAndNormalizesReplyInput(t *testing.T) {
 	repo := &hgFakeCommentRepository{created: VideoCommentRepositoryPackage.HGComment{
 		CommentID: "CMT_2", ParentCommentID: "CMT_1", RootCommentID: "CMT_1", ReplyToUserID: "user-2",
-		ImageURLs: []string{"/uploads/video_comment/a.png"}, Reaction: ReactionNone,
+		ReplyToUserName: "bob",
+		ImageURLs:       []string{"/uploads/video_comment/a.png"}, Reaction: ReactionNone,
 	}}
 	service := NewService(repo)
 
@@ -100,7 +101,7 @@ func TestCreateAllowsImagesWithoutContentAndNormalizesReplyInput(t *testing.T) {
 	if len(repo.command.ImageURLs) != 1 || repo.command.ImageURLs[0] != "http://localhost:8080/uploads/video_comment/a.png" {
 		t.Fatalf("Create() image URLs = %#v", repo.command.ImageURLs)
 	}
-	if result.ParentCommentID != "CMT_1" || result.RootCommentID != "CMT_1" || result.ReplyToUserID != "user-2" {
+	if result.ParentCommentID != "CMT_1" || result.RootCommentID != "CMT_1" || result.ReplyToUserID != "user-2" || result.ReplyToUserName != "bob" {
 		t.Fatalf("Create() result = %+v", result)
 	}
 }

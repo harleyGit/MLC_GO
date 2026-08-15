@@ -375,7 +375,7 @@ func hgResponse(comment VideoCommentRepositoryPackage.HGComment, currentUserID s
 		UserName: comment.UserName, AvatarURL: comment.AvatarURL, Content: comment.Content,
 		LikeCount: comment.LikeCount, DislikeCount: comment.DislikeCount, ReplyCount: comment.ReplyCount,
 		Reaction: comment.Reaction, ImageURLs: comment.ImageURLs, RootCommentID: comment.RootCommentID,
-		ParentCommentID: comment.ParentCommentID, ReplyToUserID: comment.ReplyToUserID,
+		ParentCommentID: comment.ParentCommentID, ReplyToUserID: comment.ReplyToUserID, ReplyToUserName: comment.ReplyToUserName,
 		CreatedAt: comment.CreatedAt.UTC().Format(time.RFC3339Nano), CanDelete: comment.UserID == currentUserID,
 	}
 }

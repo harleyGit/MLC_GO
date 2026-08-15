@@ -56,6 +56,7 @@ type HGComment struct {
 	RootCommentID   string
 	ParentCommentID string
 	ReplyToUserID   string
+	ReplyToUserName string
 	LikeCount       uint64
 	DislikeCount    uint64
 	ReplyCount      uint64
@@ -644,7 +645,7 @@ func hgScanComment(scanner hgScanner) (HGComment, error) {
 	var comment HGComment
 	var rootID, parentID, replyToUserID sql.NullString
 	var imageJSON string
-	err := scanner.Scan(&comment.ID, &comment.CommentID, &comment.SubmissionID, &comment.UserID, &comment.UserName, &comment.AvatarURL, &comment.Content, &rootID, &parentID, &replyToUserID, &comment.LikeCount, &comment.DislikeCount, &comment.ReplyCount, &comment.Reaction, &imageJSON, &comment.CreatedAt)
+	err := scanner.Scan(&comment.ID, &comment.CommentID, &comment.SubmissionID, &comment.UserID, &comment.UserName, &comment.AvatarURL, &comment.Content, &rootID, &parentID, &replyToUserID, &comment.ReplyToUserName, &comment.LikeCount, &comment.DislikeCount, &comment.ReplyCount, &comment.Reaction, &imageJSON, &comment.CreatedAt)
 	if err != nil {
 		return HGComment{}, err
 	}
