@@ -6,6 +6,8 @@ api_gateway:
   trusted_proxy_cidrs:
     - 10.20.0.0/16
     - 10.30.0.0/16
+  # 模块拆为独立服务后，通过 API_GATEWAY_UPSTREAM_AUTH、API_GATEWAY_UPSTREAM_PROFILE 等环境变量注入。
+  # 服务发现、健康摘除、重试、熔断和跨区域流量治理应由 Kubernetes Service/Envoy/APISIX 承担。
 
 video_danmaku:
   # 部署必须通过 VIDEO_DANMAKU_ALLOWED_ORIGINS 覆盖实际 Web 站点 Origin；gnet 会精确匹配白名单。

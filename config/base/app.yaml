@@ -9,18 +9,23 @@ management:
 
 api_gateway:
   enabled: true
+  # URL 包含 path 和 query；入口先做硬限制，防止超长参数放大解析、日志和下游资源消耗。
+  max_url_bytes: 8192
+  # URL /api/vN 与 X-API-Version 必须一致；未知版本不回退，避免客户端误调用旧语义。
+  supported_versions: [v1]
   # 仅信任实际 Ingress/Nginx 网段；也可由 API_GATEWAY_TRUSTED_PROXY_CIDRS 逗号分隔覆盖。
   trusted_proxy_cidrs: []
-  # 每个桶按“模块 + 来源 IP”跨实例共享；业务接口仍保留用户级、幂等和高成本操作专用限流。
+  # 每个桶按“模块 + 来源 IP”跨实例共享；max_in_flight 是单实例舱壁，满载时快速失败而不排无界队列。
+  # upstream_url 留空走本进程模块；微服务拆分后由 API_GATEWAY_UPSTREAM_<MODULE> 注入 HTTP(S) 服务地址。
   modules:
-    auth: {capacity: 20, refill_per_second: 2}
-    profile: {capacity: 120, refill_per_second: 20}
-    video_upload: {capacity: 60, refill_per_second: 10}
-    bilibili: {capacity: 300, refill_per_second: 100}
-    video_interaction: {capacity: 120, refill_per_second: 30}
-    video_comment: {capacity: 120, refill_per_second: 30}
-    video_danmaku: {capacity: 180, refill_per_second: 60}
-    ops: {capacity: 30, refill_per_second: 5}
+    auth: {capacity: 20, refill_per_second: 2, max_body_bytes: 1048576, max_in_flight: 2000, upstream_url: ""}
+    profile: {capacity: 120, refill_per_second: 20, max_body_bytes: 12582912, max_in_flight: 4000, upstream_url: ""}
+    video_upload: {capacity: 60, refill_per_second: 10, max_body_bytes: 4297064448, max_in_flight: 128, upstream_url: ""}
+    bilibili: {capacity: 300, refill_per_second: 100, max_body_bytes: 1048576, max_in_flight: 8000, upstream_url: ""}
+    video_interaction: {capacity: 120, refill_per_second: 30, max_body_bytes: 1048576, max_in_flight: 6000, upstream_url: ""}
+    video_comment: {capacity: 120, refill_per_second: 30, max_body_bytes: 6291456, max_in_flight: 4000, upstream_url: ""}
+    video_danmaku: {capacity: 180, refill_per_second: 60, max_body_bytes: 1048576, max_in_flight: 8000, upstream_url: ""}
+    ops: {capacity: 30, refill_per_second: 5, max_body_bytes: 34603008, max_in_flight: 500, upstream_url: ""}
 
 id_generator:
   # 所有实例共享固定纪元；生产必须通过 ID_GENERATOR_WORKER_ID 注入互不重复的 0-1023 Worker ID。

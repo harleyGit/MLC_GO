@@ -374,16 +374,22 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
 	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
-	businessHandler := apiGateway.Middleware(rootMux)
+	businessHandler := HGMiddlewarePackage.Chain(
+		apiGateway.Middleware(rootMux),
+		HGMiddlewarePackage.RequestIDMiddleware,
+		HGMiddlewarePackage.AccessLogMiddleware,
+		HGMiddlewarePackage.RecoverMiddleware,
+		HGMiddlewarePackage.CORSMiddleware,
+	)
 	// Component writers expose process-local snapshots only; scraping /metrics never performs MySQL, Redis, Kafka, or other external I/O.
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics),
 	})
 
 	srv := &http.Server{
 		Addr:    buildListenAddr(ConfigPackage.GetServerPort()),
-		Handler: HGMiddlewarePackage.CORSInterceptor(businessHandler),
+		Handler: businessHandler,
 		// ReadHeaderTimeout/ReadTimeout/WriteTimeout/IdleTimeout 是标准库 HTTP 服务的资源治理边界。
 		// 没有这些边界时，慢客户端或异常流量会长时间占用连接、goroutine 和内存。
 		ReadHeaderTimeout: mlcServerReadHeaderTimeout,

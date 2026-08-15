@@ -11,6 +11,7 @@ package ConfigPackage
 import (
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 )
 
 var hgStatisticGenerationPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+var hgAPIVersionPattern = regexp.MustCompile(`^v[1-9][0-9]{0,2}$`)
 
 // HGMySQLConfig 描述当前环境的 MySQL 连接和 schema 版本约束。
 type HGMySQLConfig struct {
@@ -45,11 +47,16 @@ type HGRedisConfig struct {
 type HGAPIGatewayModulePolicy struct {
 	Capacity        int64
 	RefillPerSecond float64
+	MaxBodyBytes    int64
+	MaxInFlight     int
+	UpstreamURL     string
 }
 
-// HGAPIGatewayConfig 定义业务 HTTP 入口的模块级限流和可信代理边界。
+// HGAPIGatewayConfig 定义业务 HTTP 入口的版本、资源、限流和可信代理边界。
 type HGAPIGatewayConfig struct {
 	Enabled           bool
+	MaxURLBytes       int
+	SupportedVersions map[string]struct{}
 	TrustedProxyCIDRs []netip.Prefix
 	Modules           map[string]HGAPIGatewayModulePolicy
 }
@@ -557,10 +564,15 @@ func GetRedisConfig() (HGRedisConfig, error) {
 func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 	var raw struct {
 		Enabled           bool     `mapstructure:"enabled"`
+		MaxURLBytes       int      `mapstructure:"max_url_bytes"`
+		SupportedVersions []string `mapstructure:"supported_versions"`
 		TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 		Modules           map[string]struct {
 			Capacity        int64   `mapstructure:"capacity"`
 			RefillPerSecond float64 `mapstructure:"refill_per_second"`
+			MaxBodyBytes    int64   `mapstructure:"max_body_bytes"`
+			MaxInFlight     int     `mapstructure:"max_in_flight"`
+			UpstreamURL     string  `mapstructure:"upstream_url"`
 		} `mapstructure:"modules"`
 	}
 	var cfg HGAPIGatewayConfig
@@ -570,6 +582,21 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 	cfg.Enabled = raw.Enabled
 	if !cfg.Enabled {
 		return cfg, nil
+	}
+	if raw.MaxURLBytes < 1024 || raw.MaxURLBytes > 64<<10 {
+		return cfg, fmt.Errorf("api_gateway.max_url_bytes 必须在 1KiB-64KiB 之间")
+	}
+	cfg.MaxURLBytes = raw.MaxURLBytes
+	cfg.SupportedVersions = make(map[string]struct{}, len(raw.SupportedVersions))
+	for _, version := range raw.SupportedVersions {
+		version = strings.TrimSpace(version)
+		if !hgAPIVersionPattern.MatchString(version) {
+			return cfg, fmt.Errorf("api_gateway.supported_versions 包含无效版本")
+		}
+		cfg.SupportedVersions[version] = struct{}{}
+	}
+	if len(cfg.SupportedVersions) == 0 {
+		return cfg, fmt.Errorf("api_gateway.supported_versions 不能为空")
 	}
 
 	trustedProxyCIDRs := raw.TrustedProxyCIDRs
@@ -599,10 +626,24 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 		if _, ok := allowedModules[module]; !ok {
 			return cfg, fmt.Errorf("api_gateway.modules 包含未知模块 %q", module)
 		}
-		if policy.Capacity < 1 || policy.Capacity > 1_000_000 || policy.RefillPerSecond <= 0 || policy.RefillPerSecond > 1_000_000 {
+		if policy.Capacity < 1 || policy.Capacity > 1_000_000 || policy.RefillPerSecond <= 0 || policy.RefillPerSecond > 1_000_000 || policy.MaxBodyBytes < 1 || policy.MaxBodyBytes > 8<<30 || policy.MaxInFlight < 1 || policy.MaxInFlight > 1_000_000 {
 			return cfg, fmt.Errorf("api_gateway.modules.%s 限流参数无效", module)
 		}
-		cfg.Modules[module] = HGAPIGatewayModulePolicy{Capacity: policy.Capacity, RefillPerSecond: policy.RefillPerSecond}
+		upstreamURL := strings.TrimRight(strings.TrimSpace(policy.UpstreamURL), "/")
+		envName := "API_GATEWAY_UPSTREAM_" + strings.ToUpper(module)
+		if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
+			upstreamURL = strings.TrimRight(value, "/")
+		}
+		if upstreamURL != "" {
+			parsed, err := url.Parse(upstreamURL)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+				return cfg, fmt.Errorf("api_gateway.modules.%s.upstream_url 必须是无凭据、路径和查询参数的 HTTP(S) 地址", module)
+			}
+		}
+		cfg.Modules[module] = HGAPIGatewayModulePolicy{
+			Capacity: policy.Capacity, RefillPerSecond: policy.RefillPerSecond,
+			MaxBodyBytes: policy.MaxBodyBytes, MaxInFlight: policy.MaxInFlight, UpstreamURL: upstreamURL,
+		}
 	}
 	return cfg, nil
 }

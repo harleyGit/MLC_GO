@@ -187,12 +187,6 @@ func (g *APIGuard) MethodGuardMiddlewareV3(next http.Handler) http.Handler {
 func (g *APIGuard) lookupRule(version string, path string) (compiledAPIRule, bool) {
 	routesByPath, ok := g.rulesByVersion[version]
 	if !ok {
-		if version != defaultAPIVersion {
-			if fallbackRoutes, fallbackOK := g.rulesByVersion[defaultAPIVersion]; fallbackOK {
-				rule, ruleOK := fallbackRoutes[path]
-				return rule, ruleOK
-			}
-		}
 		return compiledAPIRule{}, false
 	}
 

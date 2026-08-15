@@ -35,11 +35,8 @@ type RouteGroupConfig struct {
 	AuthMiddleware HGMiddlewarePackage.Middleware // 可选，nil 表示不需要认证
 }
 
-// baseMiddlewares 预编译的基础中间件链，启动时构建一次，所有请求复用。
+// baseMiddlewares 只保留模块响应协议；请求 ID、日志和 panic 边界由根入口统一执行一次。
 var baseMiddlewares = []HGMiddlewarePackage.Middleware{
-	HGMiddlewarePackage.RequestIDMiddleware,
-	HGMiddlewarePackage.AccessLogMiddleware,
-	HGMiddlewarePackage.RecoverMiddleware,
 	HGMiddlewarePackage.JSONHeaderMiddleware,
 }
 

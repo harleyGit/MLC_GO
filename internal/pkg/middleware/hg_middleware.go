@@ -4,6 +4,7 @@ import (
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -151,6 +152,7 @@ func JSONHeaderInterceptor(next http.Handler) http.Handler {
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tid := UtilsPackage.GenerateTID()
+		w.Header().Set("X-Request-ID", tid)
 		ctx := UtilsPackage.InjectTID(r.Context(), tid)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -254,20 +256,62 @@ func fnv32aString(value string) uint32 {
 	return hash
 }
 
-// AccessLogMiddleware 记录请求方法、路径和耗时，作为基础访问日志中间件。
+type hgAccessLogResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (w *hgAccessLogResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *hgAccessLogResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func (w *hgAccessLogResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *hgAccessLogResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := io.Copy(w.ResponseWriter, reader)
+	w.bytes += n
+	return n, err
+}
+
+// AccessLogMiddleware 统一记录请求方法、路径、状态、响应大小、请求 ID 和耗时。
 func AccessLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		loggedWriter := &hgAccessLogResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(loggedWriter, r)
 		if !shouldWriteAccessLog(r) {
 			return
 		}
+		status := loggedWriter.status
+		if status == 0 {
+			status = http.StatusOK
+		}
 
 		logHG.DebugFInfo(
-			`%s: {"method":"%s", "path":"%s", "cost_ms":%d}`,
+			`%s: {"request_id":"%s", "method":"%s", "path":"%s", "status":%d, "bytes":%d, "cost_ms":%d}`,
 			accessLogTag,
+			UtilsPackage.GetTID(r.Context()),
 			r.Method,
 			r.URL.Path,
+			status,
+			loggedWriter.bytes,
 			time.Since(start).Milliseconds(),
 		)
 	})

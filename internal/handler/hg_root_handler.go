@@ -279,9 +279,6 @@ func newRouteCatalogGroupedHandler(grouped map[string][]HGMiddlewareGroupPackage
 func buildRouteCatalogHandler(core http.Handler) http.Handler {
 	return HGMiddlewarePackage.ChainInterceptors(
 		core,
-		HGMiddlewarePackage.RecoverInterceptor,
-		HGMiddlewarePackage.AccessLogInterceptor,
-		HGMiddlewarePackage.RequestTIDInterceptor,
 		HGMiddlewarePackage.JSONHeaderInterceptor,
 	)
 }

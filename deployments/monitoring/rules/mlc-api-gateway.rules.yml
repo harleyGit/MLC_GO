@@ -1,0 +1,31 @@
+# 用途：监控 API Gateway 的跨实例限流依赖和单实例过载，标签仅使用固定模块与拒绝原因。
+groups:
+  - name: mlc-api-gateway
+    rules:
+      - alert: MLCAPIGatewayRedisFailures
+        expr: sum by (service, environment) (rate(mlc_api_gateway_rejections_total{reason="redis_failure"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: api-gateway
+        annotations:
+          summary: API gateway distributed rate limiter is unavailable
+          runbook_url: https://runbooks.internal/mlc/api-gateway-redis
+      - alert: MLCAPIGatewaySustainedOverload
+        expr: sum by (service, environment, module) (rate(mlc_api_gateway_rejections_total{reason="overload"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: api-gateway
+        annotations:
+          summary: API gateway module bulkhead is continuously full
+          runbook_url: https://runbooks.internal/mlc/api-gateway-overload
+      - alert: MLCAPIGatewayHighRateLimitRatio
+        expr: sum by (service, environment, module) (rate(mlc_api_gateway_rejections_total{reason="rate_limit"}[5m])) / clamp_min(sum by (service, environment, module) (rate(mlc_api_gateway_requests_total[5m])), 1) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: api-gateway
+        annotations:
+          summary: API gateway rate-limit rejection ratio is above 10 percent
+          runbook_url: https://runbooks.internal/mlc/api-gateway-rate-limit
