@@ -2,6 +2,6 @@ mysql:
   host: 127.0.0.1
   port: "3306"
   user: root
-  password: hh109
+  password: ""
   database: HG_MLC_DB
   migrate_expect_version: 25

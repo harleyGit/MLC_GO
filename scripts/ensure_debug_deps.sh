@@ -66,6 +66,28 @@ case "${TARGET_ENV}" in
         ;;
 esac
 
+# VS Code 通过 zsh 登录 shell 启动 task，/usr/local/bin 可能排在 GOPATH/bin 前面。
+# 当前旧版 macOS 上，/usr/local/bin/migrate 可能是按 macOS 12 构建的 Homebrew 二进制，
+# 即使命令存在也会在启动时被 dyld 直接终止。优先使用当前 Go 环境安装的工具，
+# 让 go run 启动的 hg_config_check 通过继承后的 PATH 找到同一个 migrate。
+prefer_go_tools_bin() {
+    local go_path
+    local go_tools_bin
+
+    if ! go_path="$(go env GOPATH 2>/dev/null)" || [ -z "${go_path}" ]; then
+        return 0
+    fi
+
+    # GOPATH 允许配置多个目录；安装工具默认位于第一个 GOPATH 的 bin 下。
+    go_tools_bin="${go_path%%:*}/bin"
+    if [ -d "${go_tools_bin}" ]; then
+        PATH="${go_tools_bin}:${PATH}"
+        export PATH
+    fi
+}
+
+prefer_go_tools_bin
+
 CONFIG_VALUES=()
 while IFS= read -r value; do
     CONFIG_VALUES+=("${value}")
@@ -329,11 +351,28 @@ ensure_debug_database_migrated() {
         return 0
     fi
 
-    if ! command -v migrate >/dev/null 2>&1; then
+    local migrate_path
+    if ! migrate_path="$(command -v migrate)"; then
         log_error "未找到 migrate 命令，请先安装 golang-migrate"
         return 1
     fi
 
+    # 不能只检查文件是否存在：高版本 Homebrew 二进制可能无法在旧版 macOS 启动，
+    # 自行编译的 migrate 也可能遗漏 mysql build tag。先真实运行帮助命令，
+    # 再核对驱动列表，避免迁移阶段才出现 dyld abort 或 unknown driver mysql。
+    local migrate_help
+    if ! migrate_help="$(migrate -help 2>&1)"; then
+        log_error "当前 migrate 无法运行：${migrate_path}"
+        log_error "请使用当前 Go 安装兼容版本：GOBIN=\"\$(go env GOPATH)/bin\" go install -tags mysql github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1"
+        return 1
+    fi
+    if ! grep -Eq 'Database drivers:.*mysql' <<<"${migrate_help}"; then
+        log_error "当前 migrate 未包含 MySQL 驱动：${migrate_path}"
+        log_error "请重新安装：GOBIN=\"\$(go env GOPATH)/bin\" go install -tags mysql github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1"
+        return 1
+    fi
+
+    log_info "使用 migrate 工具：${migrate_path}"
     log_info "开始执行 debug 数据库迁移"
     go run "${WORKSPACE_DIR}/cmd/hg_config_check" \
         --env "${TARGET_ENV}" \

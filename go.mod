@@ -1,6 +1,6 @@
 module MLC_GO
 
-go 1.26.4
+go 1.24.1
 
 // 这里是项目所依赖的第三方包列表： go get -u 更新依赖包【github.com/spf13/viper】
 
@@ -62,7 +62,7 @@ require (
 	github.com/kataras/sitemap v0.0.6 // indirect
 	github.com/kataras/tunnel v0.0.4 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailgun/raymond/v2 v2.0.48 // indirect
@@ -92,11 +92,11 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yosssi/ace v0.0.5 // indirect
 	golang.org/x/arch v0.14.0 // indirect
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.48.0
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
-	golang.org/x/net v0.53.0
-	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/net v0.50.0
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
@@ -122,7 +122,7 @@ require (
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.0
 	github.com/swaggo/swag v1.16.4
-	golang.org/x/tools v0.44.0 // indirect
+	golang.org/x/tools v0.42.0 // indirect
 )
 
 require (
@@ -159,16 +159,16 @@ require (
 	github.com/gobwas/ws v1.4.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/panjf2000/gnet/v2 v2.9.6
-	github.com/twmb/franz-go v1.21.5
-	github.com/twmb/franz-go/pkg/kmsg v1.13.1
+	github.com/twmb/franz-go v1.20.7
+	github.com/twmb/franz-go/pkg/kmsg v1.12.0
 )
 
 require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
-	github.com/pierrec/lz4/v4 v4.1.26 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	github.com/pierrec/lz4/v4 v4.1.25 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 

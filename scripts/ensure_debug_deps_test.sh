@@ -87,28 +87,42 @@ EOF
     cat >"${temp_dir}/bin/go" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = "env" ] && [ "${2:-}" = "GOPATH" ]; then
+    printf '%s\n' "${GOPATH}"
+    exit 0
+fi
 if [[ " $* " != *" --check "* ]] && [[ " $* " != *" --migrations-dir "* ]]; then
     printf '%s\n' 127.0.0.1 3306 127.0.0.1 6379
 fi
 EOF
 
-    # 前置脚本会用 command -v migrate 检查迁移工具是否存在。
-    # 放置这个假命令即可通过存在性检查，真正迁移仍由上面的假 go 命令模拟。
-    cat >"${temp_dir}/bin/migrate" <<'EOF'
+    # 在 GOPATH/bin 放置可运行且包含 MySQL 驱动的 migrate，验证登录 shell 的 PATH
+    # 即使先找到其他 migrate，前置脚本也会优先选择当前 Go 环境安装的工具。
+    mkdir -p "${temp_dir}/go/bin"
+    cat >"${temp_dir}/go/bin/migrate" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+set -euo pipefail
+echo "gopath-migrate $*" >>"${COMMAND_LOG}"
+if [ "${1:-}" = "-help" ]; then
+    echo "Source drivers: file"
+    echo "Database drivers: stub, mysql"
+fi
 EOF
 
     # 新建文件默认没有执行权限，chmod +x 后才能像普通命令一样运行。
-    chmod +x "${temp_dir}/bin/docker" "${temp_dir}/bin/make" "${temp_dir}/bin/go" "${temp_dir}/bin/migrate"
+    chmod +x "${temp_dir}/bin/docker" "${temp_dir}/bin/make" "${temp_dir}/bin/go" "${temp_dir}/go/bin/migrate"
 
     # 把临时 bin 放到 PATH 最前面，Shell 会优先找到假命令，而不是系统中的真实命令。
     # COMMAND_LOG 和 STOPPED_CONTAINER 只对本次命令生效，不会修改用户终端的永久环境变量。
     # >/dev/null 隐藏被测脚本普通日志，让测试输出只保留 PASS 或 FAIL。
     COMMAND_LOG="${temp_dir}/commands.log" \
         STOPPED_CONTAINER="${stopped_container}" \
+        GOPATH="${temp_dir}/go" \
         PATH="${temp_dir}/bin:${PATH}" \
         "${SCRIPT_DIR}/ensure_debug_deps.sh" debug >/dev/null
+
+    # 必须实际选择并检查 GOPATH/bin/migrate，而不是依赖调用方 PATH 的顺序。
+    assert_contains "gopath-migrate -help" "${temp_dir}/commands.log"
 
     # 无论 Kafka 原来是否运行，最终都必须执行幂等 Topic 初始化和拓扑检查。
     assert_contains "make kafka-init" "${temp_dir}/commands.log"
