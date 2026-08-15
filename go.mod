@@ -1,6 +1,6 @@
 module MLC_GO
 
-go 1.24.1
+go 1.26.4
 
 // 这里是项目所依赖的第三方包列表： go get -u 更新依赖包【github.com/spf13/viper】
 
