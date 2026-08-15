@@ -27,6 +27,9 @@ type hgFakeMaintenanceRepo struct {
 func (r *hgFakeMaintenanceRepo) ProjectReactionCounts(context.Context, int) (VideoCommentRepositoryPackage.HGReactionProjectionResult, error) {
 	return VideoCommentRepositoryPackage.HGReactionProjectionResult{Projected: r.projected, CASMisses: r.casMisses}, r.projectErr
 }
+func (r *hgFakeMaintenanceRepo) ProjectReplyCounts(context.Context, int) (VideoCommentRepositoryPackage.HGReplyProjectionResult, error) {
+	return VideoCommentRepositoryPackage.HGReplyProjectionResult{}, nil
+}
 func (r *hgFakeMaintenanceRepo) ClaimImageCleanup(context.Context, time.Time, int, time.Duration) (VideoCommentRepositoryPackage.HGImageCleanupClaim, error) {
 	r.claims++
 	return VideoCommentRepositoryPackage.HGImageCleanupClaim{Assets: r.assets, ExpiredLeaseReclaims: r.leaseReclaims}, nil

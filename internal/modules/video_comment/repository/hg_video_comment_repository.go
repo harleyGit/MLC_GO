@@ -102,6 +102,9 @@ type HGReactionProjectionResult struct {
 	CASMisses int
 }
 
+// HGReplyProjectionResult 返回本批回复计数投影数量和 revision CAS miss 数。
+type HGReplyProjectionResult = HGReactionProjectionResult
+
 // HGImageCleanupClaim 返回成功持有新 fencing token 的资产，以及其中实际从过期 deleting 租约恢复的数量。
 type HGImageCleanupClaim struct {
 	Assets               []HGImageCleanupAsset
@@ -178,17 +181,17 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 		}
 		return HGComment{}, fmt.Errorf("verify commentable submission: %w", err)
 	}
-	var rootCommentID, parentCommentID, replyToUserID any
+	var rootCommentID, parentCommentID, replyToUserID, replyToUserName any
 	if command.ParentCommentID != "" {
-		var parentID, parentUserID string
+		var parentID, parentUserID, parentUserName string
 		var parentRootID sql.NullString
-		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL, command.ParentCommentID, submissionID).Scan(&parentID, &parentRootID, &parentUserID); err != nil {
+		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL, command.ParentCommentID, submissionID).Scan(&parentID, &parentRootID, &parentUserID, &parentUserName); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return HGComment{}, ErrParentNotAvailable
 			}
 			return HGComment{}, fmt.Errorf("select parent comment: %w", err)
 		}
-		parentCommentID, replyToUserID = parentID, parentUserID
+		parentCommentID, replyToUserID, replyToUserName = parentID, parentUserID, parentUserName
 		if parentRootID.Valid {
 			// All nested reply writers lock direct parent then root, preventing parent/root lock-order inversion.
 			var visibleRootID string
@@ -222,7 +225,7 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 	if err != nil {
 		return HGComment{}, fmt.Errorf("marshal comment images: %w", err)
 	}
-	insertResult, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentSQL, command.CommentID, submissionID, command.UserID, command.RequestID, rootCommentID, parentCommentID, replyToUserID, command.Content, string(imageJSON))
+	insertResult, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentSQL, command.CommentID, submissionID, command.UserID, command.RequestID, rootCommentID, parentCommentID, replyToUserID, replyToUserName, command.Content, string(imageJSON))
 	var comment HGComment
 	if hgIsDuplicateKey(err) {
 		comment, err = hgScanComment(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.UserID, command.RequestID))
@@ -247,10 +250,13 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 			}
 		}
 		if err == nil && command.ParentCommentID != "" {
-			var replyResult sql.Result
-			replyResult, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoCommentReplyCountSQL, rootCommentID)
+			replyShard := hgReplyShard(command.CommentID)
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.EnsureVideoCommentReplyShardSQL, rootCommentID)
 			if err == nil {
-				err = hgRequireAffected(replyResult, 1)
+				_, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoCommentReplyShardSQL, rootCommentID, replyShard)
+			}
+			if err == nil {
+				_, err = tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentReplyDirtySQL, rootCommentID, replyShard)
 			}
 		}
 		if err == nil {
@@ -325,6 +331,9 @@ func (r *Repository) ListReplies(ctx context.Context, userID, rootCommentID stri
 	}
 	comments, err := hgScanComments(rows, limit)
 	if err != nil {
+		return HGRepliesResult{}, err
+	}
+	if err := r.hgHydrateReplyToUserNames(ctx, comments); err != nil {
 		return HGRepliesResult{}, err
 	}
 	return HGRepliesResult{Comments: comments, TotalCount: totalCount}, nil
@@ -424,10 +433,17 @@ func (r *Repository) Delete(ctx context.Context, userID, commentID string) (bool
 		err = hgRequireAffected(shardResult, 1)
 	}
 	if err == nil && rootCommentID.Valid {
-		var replyResult sql.Result
-		replyResult, err = tx.ExecContext(ctx, SQLQueriesPackage.DecrementVideoCommentReplyCountSQL, rootCommentID.String)
+		replyShard := hgReplyShard(commentID)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.EnsureVideoCommentReplyShardSQL, rootCommentID.String)
 		if err == nil {
-			err = hgRequireAffected(replyResult, 1)
+			var replyResult sql.Result
+			replyResult, err = tx.ExecContext(ctx, SQLQueriesPackage.DecrementVideoCommentReplyShardSQL, rootCommentID.String, replyShard)
+			if err == nil {
+				err = hgRequireAffected(replyResult, 1)
+			}
+		}
+		if err == nil {
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.MarkVideoCommentReplyDirtySQL, rootCommentID.String, replyShard)
 		}
 	}
 	if err == nil {
@@ -486,6 +502,58 @@ func (r *Repository) ProjectReactionCounts(ctx context.Context, limit int) (HGRe
 		if err != nil {
 			_ = tx.Rollback()
 			return result, fmt.Errorf("project reaction %s: %w", entry.id, err)
+		}
+		if err = tx.Commit(); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
+}
+
+// ProjectReplyCounts 将有界 dirty 根评论的 256 分片和投影到列表列；revision CAS 保证并发回复不会丢失重投信号。
+func (r *Repository) ProjectReplyCounts(ctx context.Context, limit int) (HGReplyProjectionResult, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.ListVideoCommentReplyDirtySQL, limit)
+	if err != nil {
+		return HGReplyProjectionResult{}, fmt.Errorf("list reply count dirty: %w", err)
+	}
+	type dirty struct {
+		id       string
+		shardID  uint32
+		revision uint64
+	}
+	entries := make([]dirty, 0, limit)
+	for rows.Next() {
+		var entry dirty
+		if err := rows.Scan(&entry.id, &entry.shardID, &entry.revision); err != nil {
+			rows.Close()
+			return HGReplyProjectionResult{}, err
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Close(); err != nil {
+		return HGReplyProjectionResult{}, err
+	}
+	result := HGReplyProjectionResult{Projected: len(entries)}
+	for _, entry := range entries {
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return result, err
+		}
+		if _, err = tx.ExecContext(ctx, SQLQueriesPackage.ProjectVideoCommentReplyCountSQL, entry.id); err == nil {
+			var deleteResult sql.Result
+			deleteResult, err = tx.ExecContext(ctx, SQLQueriesPackage.DeleteVideoCommentReplyDirtySQL, entry.id, entry.shardID, entry.revision)
+			if err == nil {
+				var affected int64
+				affected, err = deleteResult.RowsAffected()
+				if err == nil && affected == 0 {
+					result.CASMisses++
+					_, err = tx.ExecContext(ctx, SQLQueriesPackage.RequeueVideoCommentReplyDirtySQL, entry.id, entry.shardID, entry.revision)
+				}
+			}
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return result, fmt.Errorf("project reply count %s: %w", entry.id, err)
 		}
 		if err = tx.Commit(); err != nil {
 			return result, err
@@ -675,6 +743,51 @@ func hgScanComments(rows *sql.Rows, limit int) ([]HGComment, error) {
 	return comments, nil
 }
 
+// hgHydrateReplyToUserNames 仅兼容迁移前的空快照；每页最多执行一次有界批量主键查询，不回写评论热表。
+func (r *Repository) hgHydrateReplyToUserNames(ctx context.Context, comments []HGComment) error {
+	userIDs := make([]string, 0, len(comments))
+	seen := make(map[string]struct{}, len(comments))
+	for _, comment := range comments {
+		if comment.ReplyToUserID == "" || comment.ReplyToUserName != "" {
+			continue
+		}
+		if _, exists := seen[comment.ReplyToUserID]; exists {
+			continue
+		}
+		seen[comment.ReplyToUserID] = struct{}{}
+		userIDs = append(userIDs, comment.ReplyToUserID)
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(userIDs)
+	if err != nil {
+		return fmt.Errorf("marshal reply user ids: %w", err)
+	}
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectVideoCommentReplyUserNamesSQL, string(payload))
+	if err != nil {
+		return fmt.Errorf("list reply user names: %w", err)
+	}
+	defer rows.Close()
+	names := make(map[string]string, len(userIDs))
+	for rows.Next() {
+		var userID, userName string
+		if err := rows.Scan(&userID, &userName); err != nil {
+			return fmt.Errorf("scan reply user name: %w", err)
+		}
+		names[userID] = userName
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate reply user names: %w", err)
+	}
+	for index := range comments {
+		if comments[index].ReplyToUserName == "" {
+			comments[index].ReplyToUserName = names[comments[index].ReplyToUserID]
+		}
+	}
+	return nil
+}
+
 func hgReactionDeltas(oldReaction, newReaction string) (int64, int64) {
 	var like, dislike int64
 	if oldReaction == "like" {
@@ -693,6 +806,8 @@ func hgReactionDeltas(oldReaction, newReaction string) (int64, int64) {
 func hgReactionShard(userID string) uint32 { return crc32.ChecksumIEEE([]byte(userID)) % 32 }
 
 func hgCommentShard(commentID string) uint32 { return crc32.ChecksumIEEE([]byte(commentID)) % 32 }
+
+func hgReplyShard(commentID string) uint32 { return crc32.ChecksumIEEE([]byte(commentID)) % 256 }
 
 func hgRequireAffected(result sql.Result, expected int64) error {
 	affected, err := result.RowsAffected()

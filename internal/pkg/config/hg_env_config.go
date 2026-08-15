@@ -140,7 +140,7 @@ type HGVideoCommentImageConfig struct {
 	RateWindow        time.Duration
 }
 
-// HGVideoCommentMaintenanceConfig 定义赞踩投影与孤儿图片清理的有界后台任务参数。
+// HGVideoCommentMaintenanceConfig 定义赞踩/回复计数投影与孤儿图片清理的有界后台任务参数。
 type HGVideoCommentMaintenanceConfig struct {
 	Enabled                      bool
 	Interval, Timeout, OrphanAge time.Duration

@@ -85,3 +85,19 @@ func TestVideoCommentMigration23DownRequeuesDeletingAssets(t *testing.T) {
 		t.Fatal("down migration must retain the backfill checkpoint across rollback and re-upgrade")
 	}
 }
+
+func TestVideoCommentMigration27AddsReplyNameSnapshotWithoutUnboundedBackfill(t *testing.T) {
+	data, err := os.ReadFile("000027_add_video_comment_reply_name_snapshot.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(data)
+	for _, fragment := range []string{"reply_to_user_name", "video_comment_reply_shards", "shard_id", "< 256", "video_comment_reply_dirty", "revision"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("migration missing %q", fragment)
+		}
+	}
+	if regexp.MustCompile(`(?is)UPDATE\s+` + "`?video_comments`?" + `|INSERT\s+INTO\s+` + "`?video_comments`?").Match(data) {
+		t.Fatal("schema migration must not run an unbounded video_comments backfill")
+	}
+}

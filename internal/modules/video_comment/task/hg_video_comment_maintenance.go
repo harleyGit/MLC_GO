@@ -23,6 +23,7 @@ type HGVideoCommentMaintenanceConfig struct {
 
 type hgMaintenanceRepository interface {
 	ProjectReactionCounts(context.Context, int) (VideoCommentRepositoryPackage.HGReactionProjectionResult, error)
+	ProjectReplyCounts(context.Context, int) (VideoCommentRepositoryPackage.HGReplyProjectionResult, error)
 	ClaimImageCleanup(context.Context, time.Time, int, time.Duration) (VideoCommentRepositoryPackage.HGImageCleanupClaim, error)
 	CompleteImageCleanup(context.Context, VideoCommentRepositoryPackage.HGImageCleanupAsset) error
 	ReleaseImageCleanup(context.Context, VideoCommentRepositoryPackage.HGImageCleanupAsset) error
@@ -40,7 +41,7 @@ type HGVideoCommentMaintenanceLease interface {
 	Release(context.Context, string, string) error
 }
 
-// HGVideoCommentMaintenance 串行执行赞踩投影和已原子 claim 图片的对象清理。
+// HGVideoCommentMaintenance 串行执行赞踩/回复计数投影和已原子 claim 图片的对象清理。
 type HGVideoCommentMaintenance struct {
 	repository hgMaintenanceRepository
 	storage    hgMaintenanceStorage
@@ -134,6 +135,16 @@ func (w *HGVideoCommentMaintenance) RunOnce(ctx context.Context) error {
 	for batch := 0; batch < 10; batch++ {
 		projection, err := w.repository.ProjectReactionCounts(runCtx, w.config.BatchSize)
 		hgReactionProjectionCASMisses.Add(uint64(projection.CASMisses))
+		if err != nil {
+			joined = errors.Join(joined, err)
+			break
+		}
+		if projection.Projected < w.config.BatchSize {
+			break
+		}
+	}
+	for batch := 0; batch < 10; batch++ {
+		projection, err := w.repository.ProjectReplyCounts(runCtx, w.config.BatchSize)
 		if err != nil {
 			joined = errors.Join(joined, err)
 			break

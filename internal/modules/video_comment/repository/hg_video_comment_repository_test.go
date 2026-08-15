@@ -24,7 +24,7 @@ func TestCreateVerifiesSubmissionAndWritesCommentInOneTransaction(t *testing.T) 
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, "hello", `[]`).WillReturnResult(sqlmock.NewResult(1, 1))
+		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, nil, "hello", `[]`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
@@ -56,7 +56,7 @@ func TestCreateResolvesVideoIDBeforeWritingComment(t *testing.T) {
 		WithArgs("video-1", "video-1").
 		WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, "hello", `[]`).
+		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, nil, "hello", `[]`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -198,20 +198,19 @@ func TestCreateReplyDerivesThreadFieldsAndUpdatesShardAndRoot(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL)).
-		WithArgs("CMT_PARENT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id"}).AddRow("CMT_PARENT", "CMT_ROOT", "user-2"))
+		WithArgs("CMT_PARENT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id", "user_name"}).AddRow("CMT_PARENT", "CMT_ROOT", "user-2", "bob"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentRootForUpdateSQL)).
 		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id"}).AddRow("CMT_ROOT"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentImageForAttachSQL)).
 		WithArgs("/uploads/video_comment/a.png", "/uploads/video_comment/a.png", "user-1").WillReturnRows(sqlmock.NewRows([]string{"image_id"}).AddRow("CIMG_1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_PARENT", "user-2", "hello", `["/uploads/video_comment/a.png"]`).
+		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_PARENT", "user-2", "bob", "hello", `["/uploads/video_comment/a.png"]`).
 		WillReturnResult(sqlmock.NewResult(2, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.AttachVideoCommentImageSQL)).
 		WithArgs("CMT_REPLY", "CIMG_1", "user-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	hgExpectReplyShardIncrement(mock, "CMT_ROOT", "CMT_REPLY")
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
 		WithArgs("user-1", "CMT_REPLY").WillReturnRows(hgCommentRows(createdAt).AddRow(2, "CMT_REPLY", "submission-1", "user-1", "alice", "/a.png", "hello", "CMT_ROOT", "CMT_PARENT", "user-2", "bob", 0, 0, 0, "none", `["/uploads/video_comment/a.png"]`, createdAt))
 	mock.ExpectCommit()
@@ -240,15 +239,14 @@ func TestCreateNestedReplyLocksParentThenVisibleRootAndChecksCounterRows(t *test
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL)).
-		WithArgs("CMT_PARENT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id"}).AddRow("CMT_PARENT", "CMT_ROOT", "user-2"))
+		WithArgs("CMT_PARENT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id", "user_name"}).AddRow("CMT_PARENT", "CMT_ROOT", "user-2", "bob"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentRootForUpdateSQL)).
 		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id"}).AddRow("CMT_ROOT"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_PARENT", "user-2", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
+		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_PARENT", "user-2", "bob", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	hgExpectReplyShardIncrement(mock, "CMT_ROOT", "CMT_REPLY")
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
 		WithArgs("user-1", "CMT_REPLY").WillReturnRows(hgCommentRows(createdAt).AddRow(2, "CMT_REPLY", "submission-1", "user-1", "alice", "/a.png", "hello", "CMT_ROOT", "CMT_PARENT", "user-2", "bob", 0, 0, 0, "none", `[]`, createdAt))
 	mock.ExpectCommit()
@@ -276,13 +274,12 @@ func TestCreateDirectRootReplyLocksRootOnlyOnce(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL)).
-		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id"}).AddRow("CMT_ROOT", nil, "user-2"))
+		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id", "user_name"}).AddRow("CMT_ROOT", nil, "user-2", "bob"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_ROOT", "user-2", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
+		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_ROOT", "user-2", "bob", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	hgExpectReplyShardIncrement(mock, "CMT_ROOT", "CMT_REPLY")
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).
 		WithArgs("user-1", "CMT_REPLY").WillReturnRows(hgCommentRows(createdAt).AddRow(2, "CMT_REPLY", "submission-1", "user-1", "alice", "/a.png", "hello", "CMT_ROOT", "CMT_ROOT", "user-2", "bob", 0, 0, 0, "none", `[]`, createdAt))
 	mock.ExpectCommit()
@@ -309,7 +306,7 @@ func TestCreateRejectsMissingCounterMutation(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, "hello", `[]`).WillReturnResult(sqlmock.NewResult(1, 1))
+		WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, nil, "hello", `[]`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
@@ -336,20 +333,22 @@ func TestCreateReplyRejectsMissingRootCounterMutation(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).
 		WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL)).
-		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id"}).AddRow("CMT_ROOT", nil, "user-2"))
+		WithArgs("CMT_ROOT", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"comment_id", "root_comment_id", "user_id", "user_name"}).AddRow("CMT_ROOT", nil, "user-2", "bob"))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).
-		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_ROOT", "user-2", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
+		WithArgs("CMT_REPLY", "submission-1", "user-1", "request-1", "CMT_ROOT", "CMT_ROOT", "user-2", "bob", "hello", `[]`).WillReturnResult(sqlmock.NewResult(2, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReplyShardSQL)).
+		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyShardSQL)).
+		WithArgs("CMT_ROOT", hgReplyShard("CMT_REPLY")).WillReturnError(errors.New("reply shard unavailable"))
 	mock.ExpectRollback()
 
 	_, err = NewRepository(db).Create(context.Background(), HGCreateCommand{
 		CommentID: "CMT_REPLY", SubmissionID: "submission-1", UserID: "user-1", RequestID: "request-1", ParentCommentID: "CMT_ROOT", Content: "hello",
 	})
-	if !errors.Is(err, ErrCounterConsistency) {
-		t.Fatalf("Create() error=%v, want ErrCounterConsistency", err)
+	if err == nil {
+		t.Fatal("Create() expected reply shard error")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -404,6 +403,34 @@ func TestListRepliesUsesSubmissionLeadingReplyIndexAndRootCounter(t *testing.T) 
 	}
 }
 
+func TestListRepliesBatchHydratesLegacyReplyNamesOncePerPage(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+	createdAt := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentRootListMetadataSQL)).
+		WithArgs("CMT_ROOT").WillReturnRows(sqlmock.NewRows([]string{"submission_id", "reply_count"}).AddRow("submission-1", 2))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListVideoCommentRepliesFirstSQL)).
+		WithArgs("user-1", "submission-1", "CMT_ROOT", 21).
+		WillReturnRows(hgCommentRows(createdAt).
+			AddRow(2, "CMT_REPLY_1", "submission-1", "user-2", "alice", "/a.png", "reply", "CMT_ROOT", "CMT_ROOT", "user-3", "", 0, 0, 0, "none", `[]`, createdAt).
+			AddRow(3, "CMT_REPLY_2", "submission-1", "user-4", "dave", "/d.png", "reply", "CMT_ROOT", "CMT_REPLY_1", "user-3", "", 0, 0, 0, "none", `[]`, createdAt.Add(time.Second)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentReplyUserNamesSQL)).
+		WithArgs(`["user-3"]`).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "user_name"}).AddRow("user-3", "charlie"))
+
+	result, err := NewRepository(db).ListReplies(context.Background(), "user-1", "CMT_ROOT", HGListCursor{}, 21)
+	if err != nil || len(result.Comments) != 2 || result.Comments[0].ReplyToUserName != "charlie" || result.Comments[1].ReplyToUserName != "charlie" {
+		t.Fatalf("ListReplies() result=%+v error=%v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
 func TestSetReactionIsIdempotentFinalStateTransaction(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -426,6 +453,33 @@ func TestSetReactionIsIdempotentFinalStateTransaction(t *testing.T) {
 	result, err := NewRepository(db).SetReaction(context.Background(), "user-1", "CMT_1", "dislike")
 	if err != nil || result.LikeCount != 7 || result.DislikeCount != 2 || result.Reaction != "dislike" {
 		t.Fatalf("SetReaction() result=%+v error=%v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestProjectReplyCountsKeepsDirtyShardOnConcurrentWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListVideoCommentReplyDirtySQL)).
+		WithArgs(10).WillReturnRows(sqlmock.NewRows([]string{"root_comment_id", "shard_id", "revision"}).AddRow("CMT_ROOT", 7, 3))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.ProjectVideoCommentReplyCountSQL)).
+		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DeleteVideoCommentReplyDirtySQL)).
+		WithArgs("CMT_ROOT", uint32(7), uint64(3)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.RequeueVideoCommentReplyDirtySQL)).
+		WithArgs("CMT_ROOT", uint32(7), uint64(3)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	result, err := NewRepository(db).ProjectReplyCounts(context.Background(), 10)
+	if err != nil || result.Projected != 1 || result.CASMisses != 1 {
+		t.Fatalf("ProjectReplyCounts() result=%+v error=%v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
@@ -686,7 +740,7 @@ func TestCreateBindsOnlyOwnedPendingImagesInCommentTransaction(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectCommentableSubmissionSQL)).WithArgs("submission-1", "submission-1").WillReturnRows(sqlmock.NewRows([]string{"submission_id"}).AddRow("submission-1"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentImageForAttachSQL)).WithArgs("https://cdn.example.com/video_comment/a.png", "https://cdn.example.com/video_comment/a.png", "user-1").WillReturnRows(sqlmock.NewRows([]string{"image_id"}).AddRow("CIMG_1"))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, "hello", `["https://cdn.example.com/video_comment/a.png"]`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertVideoCommentSQL)).WithArgs("CMT_1", "submission-1", "user-1", "request-1", nil, nil, nil, nil, "hello", `["https://cdn.example.com/video_comment/a.png"]`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.AttachVideoCommentImageSQL)).WithArgs("CMT_1", "CIMG_1", "user-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentStatShardSQL)).WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectVideoCommentByCommentIDSQL)).WithArgs("user-1", "CMT_1").WillReturnRows(hgCommentRows(createdAt).AddRow(1, "CMT_1", "submission-1", "user-1", "alice", "/a.png", "hello", nil, nil, nil, "", 0, 0, 0, "none", `["https://cdn.example.com/video_comment/a.png"]`, createdAt))
@@ -714,8 +768,7 @@ func TestDeleteDecrementsShardAndRootExactlyOnce(t *testing.T) {
 		WithArgs("CMT_REPLY", "user-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DecrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DecrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 1))
+	hgExpectReplyShardDecrement(mock, "CMT_ROOT", "CMT_REPLY", 1)
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentImagesDeletePendingSQL)).
 		WithArgs("CMT_REPLY").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -764,8 +817,7 @@ func TestDeleteReplyRejectsMissingRootCounterMutation(t *testing.T) {
 		WithArgs("CMT_REPLY", "user-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DecrementVideoCommentStatShardSQL)).
 		WithArgs("submission-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DecrementVideoCommentReplyCountSQL)).
-		WithArgs("CMT_ROOT").WillReturnResult(sqlmock.NewResult(0, 0))
+	hgExpectReplyShardDecrement(mock, "CMT_ROOT", "CMT_REPLY", 0)
 	mock.ExpectRollback()
 
 	deleted, err := NewRepository(db).Delete(context.Background(), "user-1", "CMT_REPLY")
@@ -779,4 +831,24 @@ func TestDeleteReplyRejectsMissingRootCounterMutation(t *testing.T) {
 
 func hgCommentRows(_ time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "comment_id", "submission_id", "user_id", "user_name", "avatar_url", "content", "root_comment_id", "parent_comment_id", "reply_to_user_id", "reply_to_user_name", "like_count", "dislike_count", "reply_count", "reaction", "image_urls", "created_at"})
+}
+
+func hgExpectReplyShardIncrement(mock sqlmock.Sqlmock, rootCommentID, commentID string) {
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReplyShardSQL)).
+		WithArgs(rootCommentID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.IncrementVideoCommentReplyShardSQL)).
+		WithArgs(rootCommentID, hgReplyShard(commentID)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentReplyDirtySQL)).
+		WithArgs(rootCommentID, hgReplyShard(commentID)).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func hgExpectReplyShardDecrement(mock sqlmock.Sqlmock, rootCommentID, commentID string, affected int64) {
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.EnsureVideoCommentReplyShardSQL)).
+		WithArgs(rootCommentID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.DecrementVideoCommentReplyShardSQL)).
+		WithArgs(rootCommentID, hgReplyShard(commentID)).WillReturnResult(sqlmock.NewResult(0, affected))
+	if affected == 1 {
+		mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.MarkVideoCommentReplyDirtySQL)).
+			WithArgs(rootCommentID, hgReplyShard(commentID)).WillReturnResult(sqlmock.NewResult(0, 1))
+	}
 }
