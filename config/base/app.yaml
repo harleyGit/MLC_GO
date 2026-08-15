@@ -7,6 +7,18 @@ management:
   host: 127.0.0.1
   port: 9091
 
+crawler:
+  bilibili:
+    # 主应用默认不启动 crawler，防止业务 Deployment 多副本/HPA 把第三方请求按实例数放大。
+    # 仅在确认单副本或已有分布式 lease 时，通过环境配置或 CRAWLER_BILIBILI_ENABLED=true 启用。
+    enabled: false
+    interval: 5m
+    timeout: 10s
+    max_items: 12
+    retry_count: 2
+    rate_per_second: 0.2
+    user_agent: "MLC_GO-HGCrawler/1.0"
+
 api_gateway:
   enabled: true
   # URL 包含 path 和 query；入口先做硬限制，防止超长参数放大解析、日志和下游资源消耗。

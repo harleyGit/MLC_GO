@@ -6,6 +6,8 @@ import (
 	BilibiliModulePackage "MLC_GO/internal/modules/bilibili/module"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
+	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
+	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
@@ -82,6 +84,7 @@ type MLCApplication struct {
 	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
+	crawlerManager          *CrawlerSpiderPackage.HGManager
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -381,6 +384,68 @@ func buildMLCApplication() (*MLCApplication, error) {
 		}
 		correctionRecovery.Start(context.Background())
 	}
+
+	// 主应用模式只托管周期 worker，不直接把 crawler 管理 API 挂到业务端口。
+	// 管理 API 仍由独立 cmd/hg_crawler 提供，避免绕过现有 API Gateway 模块策略和鉴权边界。
+	crawlerConfig, err := ConfigPackage.GetCrawlerConfig()
+	if err != nil {
+		if correctionRecovery != nil {
+			correctionRecovery.Close()
+		}
+		if videoCommentComponents.Maintenance != nil {
+			videoCommentComponents.Maintenance.Close()
+		}
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("Crawler配置失败: %w", err)
+	}
+	var crawlerManager *CrawlerSpiderPackage.HGManager
+	if crawlerConfig.Enabled {
+		crawlerManager, err = CrawlerRuntimePackage.NewHGBilibiliManager(CrawlerRuntimePackage.HGBilibiliRuntimeConfig{
+			Interval: crawlerConfig.Interval, Timeout: crawlerConfig.Timeout,
+			MaxItems: crawlerConfig.MaxItems, RetryCount: crawlerConfig.RetryCount,
+			RatePerSecond: crawlerConfig.RatePerSecond, UserAgent: crawlerConfig.UserAgent,
+		})
+		if err == nil {
+			err = crawlerManager.Start()
+		}
+		if err != nil {
+			if videoDanmakuComponents.Realtime != nil {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), mlcServerShutdownTimeout)
+				_ = videoDanmakuComponents.Realtime.Close(shutdownCtx)
+				cancel()
+			}
+			if correctionRecovery != nil {
+				correctionRecovery.Close()
+			}
+			if videoCommentComponents.Maintenance != nil {
+				videoCommentComponents.Maintenance.Close()
+			}
+			if coinJobs != nil {
+				coinJobs.Close()
+			}
+			if interactionReprojector != nil {
+				interactionReprojector.Close()
+			}
+			if kafkaCloser != nil {
+				kafkaCloser()
+			}
+			_ = sqlManager.Close()
+			_ = redisService.Close()
+			HGLoggerPackage.CloseLogger()
+			return nil, fmt.Errorf("Crawler初始化失败: %w", err)
+		}
+	}
 	HGTestHandlerPackage.RegisterModules()
 
 	// 3. 收集所有模块的路由清单
@@ -436,6 +501,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		correctionRecovery:      correctionRecovery,
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
+		crawlerManager:          crawlerManager,
 	}, nil
 }
 
@@ -614,6 +680,10 @@ func (app *MLCApplication) Close() {
 	}
 	if app.videoCommentMaintenance != nil {
 		app.videoCommentMaintenance.Close()
+	}
+	// crawler 只依赖第三方 HTTP，但必须在 Logger 关闭前停止，确保退出期错误仍可记录。
+	if app.crawlerManager != nil {
+		app.crawlerManager.Stop()
 	}
 	// 实时网关依赖 Redis/MySQL，必须在连接池关闭前停止 worker 和全部 WebSocket 连接。
 	if app.videoDanmakuRealtime != nil {

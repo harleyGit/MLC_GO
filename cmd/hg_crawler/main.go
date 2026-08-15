@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	CrawlerPlatformPackage "MLC_GO/internal/modules/crawler/platform"
+	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
 )
 
@@ -31,13 +31,17 @@ func hgRun() error {
 	once := flag.Bool("once", false, "fetch one recommendation batch and exit")
 	flag.Parse()
 
-	platform, err := CrawlerPlatformPackage.NewHGBilibiliPlatform(nil, CrawlerPlatformPackage.HGBilibiliConfig{RequestTimeout: *timeout})
+	// 独立命令和主应用共用 runtime 工厂，保证限流、重试和协议客户端不会分叉成两套实现。
+	manager, err := CrawlerRuntimePackage.NewHGBilibiliManager(CrawlerRuntimePackage.HGBilibiliRuntimeConfig{
+		Interval:      *interval,
+		Timeout:       *timeout,
+		MaxItems:      12,
+		RetryCount:    2,
+		RatePerSecond: 0.2,
+		UserAgent:     "MLC_GO-HGCrawler/1.0",
+	})
 	if err != nil {
-		return fmt.Errorf("creating bilibili platform: %w", err)
-	}
-	manager, err := CrawlerSpiderPackage.NewHGManager(platform, *interval, *timeout)
-	if err != nil {
-		return fmt.Errorf("creating crawler manager: %w", err)
+		return err
 	}
 	defer manager.Stop()
 

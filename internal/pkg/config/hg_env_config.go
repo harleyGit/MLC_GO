@@ -153,6 +153,18 @@ type HGCorrectionRecoveryConfig struct {
 	BatchSize        int
 }
 
+// HGCrawlerConfig 控制主应用是否内嵌启动 Bilibili 周期 worker。
+// 独立 cmd/hg_crawler 可以不依赖该开关运行；主应用默认关闭，避免多副本部署放大第三方请求。
+type HGCrawlerConfig struct {
+	Enabled       bool
+	Interval      time.Duration
+	Timeout       time.Duration
+	MaxItems      int
+	RetryCount    int
+	RatePerSecond float64
+	UserAgent     string
+}
+
 // HGVideoCommentStorageConfig 描述 local/S3 存储和 CDN；S3 凭据只从环境变量注入。
 type HGVideoCommentStorageConfig struct {
 	Type, Endpoint, Region, Bucket, CDNBaseURL, AccessKeyID, SecretAccessKey string
@@ -418,6 +430,59 @@ func GetCorrectionRecoveryConfig() (HGCorrectionRecoveryConfig, error) {
 	cfg.BatchSize = raw.BatchSize
 	if cfg.BatchSize < 1 || cfg.BatchSize > 100 {
 		return cfg, fmt.Errorf("correction_recovery.batch_size 必须在 1-100 之间")
+	}
+	return cfg, nil
+}
+
+// GetCrawlerConfig 读取并校验主应用内嵌 crawler 的有界运行参数。
+// CRAWLER_BILIBILI_ENABLED 可覆盖 YAML 开关，便于同一镜像只在指定单副本实例启用 worker。
+func GetCrawlerConfig() (HGCrawlerConfig, error) {
+	var raw struct {
+		Enabled       bool    `mapstructure:"enabled"`
+		Interval      string  `mapstructure:"interval"`
+		Timeout       string  `mapstructure:"timeout"`
+		MaxItems      int     `mapstructure:"max_items"`
+		RetryCount    int     `mapstructure:"retry_count"`
+		RatePerSecond float64 `mapstructure:"rate_per_second"`
+		UserAgent     string  `mapstructure:"user_agent"`
+	}
+	var cfg HGCrawlerConfig
+	if err := viper.UnmarshalKey("crawler.bilibili", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 crawler.bilibili 配置失败: %w", err)
+	}
+	if value := strings.TrimSpace(os.Getenv("CRAWLER_BILIBILI_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return cfg, fmt.Errorf("CRAWLER_BILIBILI_ENABLED 必须是布尔值: %w", err)
+		}
+		raw.Enabled = enabled
+	}
+	cfg.Enabled = raw.Enabled
+	if !cfg.Enabled {
+		return cfg, nil
+	}
+	var err error
+	if cfg.Interval, err = time.ParseDuration(raw.Interval); err != nil || cfg.Interval < 10*time.Second {
+		return cfg, fmt.Errorf("crawler.bilibili.interval 必须不小于 10s")
+	}
+	if cfg.Timeout, err = time.ParseDuration(raw.Timeout); err != nil || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval || cfg.Timeout > time.Minute {
+		return cfg, fmt.Errorf("crawler.bilibili.timeout 必须为正、小于 interval 且不超过 1m")
+	}
+	cfg.MaxItems = raw.MaxItems
+	if cfg.MaxItems < 1 || cfg.MaxItems > 50 {
+		return cfg, fmt.Errorf("crawler.bilibili.max_items 必须在 1-50 之间")
+	}
+	cfg.RetryCount = raw.RetryCount
+	if cfg.RetryCount < 0 || cfg.RetryCount > 3 {
+		return cfg, fmt.Errorf("crawler.bilibili.retry_count 必须在 0-3 之间")
+	}
+	cfg.RatePerSecond = raw.RatePerSecond
+	if cfg.RatePerSecond <= 0 || cfg.RatePerSecond > 1 {
+		return cfg, fmt.Errorf("crawler.bilibili.rate_per_second 必须在 0-1 之间")
+	}
+	cfg.UserAgent = strings.TrimSpace(raw.UserAgent)
+	if cfg.UserAgent == "" || len(cfg.UserAgent) > 128 {
+		return cfg, fmt.Errorf("crawler.bilibili.user_agent 不能为空且不能超过 128 字节")
 	}
 	return cfg, nil
 }
