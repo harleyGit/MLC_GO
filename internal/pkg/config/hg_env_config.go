@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-25 15:24:14
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-08-16 16:07:12
  * @FilePath: /MLC_GO/internal/pkg/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -80,6 +80,7 @@ type hgIDGeneratorRawConfig struct {
 }
 
 // HGClickHouseConfig 描述 Statistic 权威事件存储的 HTTP 连接配置。
+// 它是ClickHouse 数据库配置对象，读取后就可以用于创建 ClickHouse 客户端
 type HGClickHouseConfig struct {
 	Enabled              bool          `yaml:"enabled" mapstructure:"enabled"`
 	Scheme               string        `yaml:"scheme" mapstructure:"scheme"`
@@ -98,6 +99,7 @@ type HGClickHouseConfig struct {
 }
 
 // HGStatisticConfig 描述 Redis 投影版本和检测式对账参数。
+// 从配置文件中直接读取出来的“原始统计配置”
 type HGStatisticConfig struct {
 	RedisGeneration   string `yaml:"redis_generation" mapstructure:"redis_generation"`
 	RedisShardCount   int    `yaml:"redis_shard_count" mapstructure:"redis_shard_count"`
@@ -107,6 +109,7 @@ type HGStatisticConfig struct {
 }
 
 // HGStatisticInfrastructureConfig 是校验完成、可直接构造运行期依赖的配置。
+// 它是经过整理、转换之后，真正给业务基础设施使用的配置
 type HGStatisticInfrastructureConfig struct {
 	RedisGeneration   string
 	RedisShardCount   int
@@ -775,8 +778,13 @@ func GetIDGeneratorConfig() (HGIDGeneratorConfig, error) {
 
 // GetStatisticInfrastructureConfig 读取并校验 ClickHouse 和 Statistic 投影配置。
 func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastructureConfig, error) {
+	// clickHouse ClickHouse 数据库配置
 	var clickHouse HGClickHouseConfig
+
+	// rawStatistic 配置文件原始结构
 	var rawStatistic HGStatisticConfig
+
+	// statistic 程序运行时统计基础设施配置
 	var statistic HGStatisticInfrastructureConfig
 	if err := viper.UnmarshalKey("clickhouse", &clickHouse); err != nil {
 		return clickHouse, statistic, fmt.Errorf("读取 ClickHouse 配置失败: %w", err)
@@ -784,6 +792,8 @@ func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastr
 	if err := viper.UnmarshalKey("statistic", &rawStatistic); err != nil {
 		return clickHouse, statistic, fmt.Errorf("读取 Statistic 配置失败: %w", err)
 	}
+
+	// TrimSpace 去掉字符串首尾的空白字符。
 	clickHouse.Scheme = strings.TrimSpace(clickHouse.Scheme)
 	clickHouse.Host = strings.TrimSpace(clickHouse.Host)
 	clickHouse.Port = strings.TrimSpace(clickHouse.Port)
@@ -804,6 +814,8 @@ func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastr
 	if err := hgValidatePort("clickhouse.port", clickHouse.Port); err != nil {
 		return clickHouse, statistic, err
 	}
+
+	// ParseDuration 把字符串格式的时间时长，解析成 time.Duration 类型（int64 纳秒），用于表示一段时间长度，不是解析时间点（不是解析年月日时分秒的时刻）。
 	writeTimeout, err := time.ParseDuration(clickHouse.WriteTimeout)
 	if err != nil || writeTimeout <= 0 {
 		return clickHouse, statistic, fmt.Errorf("clickhouse.write_timeout 必须是正 duration")

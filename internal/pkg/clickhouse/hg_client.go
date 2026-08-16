@@ -84,6 +84,8 @@ type HGClient struct {
 
 // NewHGClient 创建长期复用的 ClickHouse HTTP 客户端。
 func NewHGClient(config HGConfig) (*HGClient, error) {
+
+	// TrimRight、TrimSpace 清理 Endpoint 两边空格，并去掉末尾 /。
 	config.Endpoint = strings.TrimRight(strings.TrimSpace(config.Endpoint), "/")
 	config.Database = strings.TrimSpace(config.Database)
 	config.Username = strings.TrimSpace(config.Username)
