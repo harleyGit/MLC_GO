@@ -278,6 +278,8 @@ func (c *HGClient) GetStatisticTotals(ctx context.Context, generation string) (m
 // Close 释放 HTTP idle connections。
 func (c *HGClient) Close() error {
 	if c != nil && c.client != nil {
+
+		// CloseIdleConnections 关闭当前 HTTP Transport 中处于 idle（空闲）状态的连接。
 		c.client.CloseIdleConnections()
 	}
 	return nil

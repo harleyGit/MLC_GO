@@ -276,8 +276,14 @@ func hgKafkaOnPartitionsLost(_ context.Context, _ *kgo.Client, partitions map[st
 	hgKafkaAssignedPartitionGauge.Add(-int64(count))
 }
 
-// HGConsumerLagObserverOpts 将原有分区计数与 observer 的 revoke/lost 清理组合到同一组 franz-go 回调。
+// HGConsumerLagObserverOpts 在 franz-go 的 Consumer Group Rebalance 生命周期中，同时维护 Kafka 分区统计信息和 HGConsumerLagObserver 自己的分区状态 
+//	@param observer 
+//	@return []kgo.Opt 
 func HGConsumerLagObserverOpts(observer *HGConsumerLagObserver) []kgo.Opt {
+	
+	// OnPartitionsAssigned  分区被分配
+	// OnPartitionsRevoked   分区正常撤销
+	// OnPartitionsLost      分区丢失
 	return []kgo.Opt{
 		kgo.OnPartitionsAssigned(hgKafkaOnPartitionsAssigned),
 		kgo.OnPartitionsRevoked(func(ctx context.Context, client *kgo.Client, partitions map[string][]int32) {

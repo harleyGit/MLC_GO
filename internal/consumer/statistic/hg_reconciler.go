@@ -48,9 +48,13 @@ func NewHGReconciler(authority AggregateReader, redis RedisHashReader, config HG
 func (r *HGReconciler) Reconcile(ctx context.Context) (HGReconcileResult, error) {
 	hgStatisticReconcileRuns.Add(1)
 	if r == nil || r.authority == nil || r.redis == nil || r.config.ShardCount <= 0 || r.config.Timeout <= 0 {
+
+		// hgStatisticReconcileFailures 表示失败了多少次
 		hgStatisticReconcileFailures.Add(1)
 		return HGReconcileResult{}, fmt.Errorf("statistic reconciler dependencies are invalid")
 	}
+
+	// WithTimeout 给本次 Reconcile 操作设置一个最大执行时间，超过 r.config.Timeout 后，Go 会自动取消 reconcileCtx。
 	reconcileCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 	authorityTotals, err := r.authority.GetStatisticTotals(reconcileCtx, r.config.Generation)

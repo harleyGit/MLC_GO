@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-08-16 16:07:12
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-08-17 20:44:59
  * @FilePath: /MLC_GO/internal/pkg/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -737,6 +737,8 @@ func GetVideoRecommendConfig() (HGVideoRecommendConfig, error) {
 	cfg.RedisGeneration = strings.TrimSpace(raw.RedisGeneration)
 	cfg.RedisShardCount = raw.RedisShardCount
 	cfg.RedisMaxItems = raw.RedisMaxItems
+
+	// MatchString 判断一个字符串是否匹配某个正则表达式。
 	if !hgStatisticGenerationPattern.MatchString(cfg.RedisGeneration) {
 		return cfg, fmt.Errorf("video_recommend.redis_generation 必须为 1-32 位字母、数字、下划线或连字符")
 	}

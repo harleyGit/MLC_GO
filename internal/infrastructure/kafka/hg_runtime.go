@@ -166,10 +166,14 @@ func (r *HGRuntime) Start() {
 			}
 		}()
 	}
+
+	// 这类设计很常见：事件驱动负责实时更新，Ticker reconcile 负责周期性校准状态。
 	if r.reconciler != nil {
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
+
+			// ticker 创建一个定时器，每隔 r.reconcileInterval 时间触发一次，用于周期性执行某个任务。
 			ticker := time.NewTicker(r.reconcileInterval)
 			defer ticker.Stop()
 			for {
@@ -177,6 +181,11 @@ func (r *HGRuntime) Start() {
 				case <-r.ctx.Done():
 					return
 				case <-ticker.C:
+
+					// 检查实际 partition
+					// ├── 检查 offset
+					// ├── 检查 lag
+					// └── 修正 Observer 状态
 					_, _ = r.reconciler.Reconcile(r.ctx)
 				}
 			}
