@@ -26,15 +26,16 @@ type HGManager struct {
 	// mu 保护以下运行状态和切片；任何外部 HTTP I/O 都必须在释放锁后执行。
 	mu              sync.RWMutex
 	running         bool
+	stopping        bool
 	executing       bool
 	cancel          context.CancelFunc
+	workerDone      chan struct{}
 	tasks           []HGTaskSnapshot
 	recommendations []CrawlerPlatformPackage.HGRecommendation
 	lastSuccessAt   time.Time
 	lastError       string
 
-	nextTaskID atomic.Int64   // 进程内单调任务 ID，不作为跨实例全局主键。
-	wg         sync.WaitGroup // 等待唯一 worker goroutine 完整退出。
+	nextTaskID atomic.Int64 // 进程内单调任务 ID，不作为跨实例全局主键。
 }
 
 // NewHGManager 创建单 worker 管理器，避免同一进程内任务重入和无界堆积。
@@ -58,32 +59,42 @@ func NewHGManager(platform CrawlerPlatformPackage.HGPlatform, interval, timeout 
 // running 和 cancel 在启动 goroutine 前写入，确保并发 Stop 可以可靠取得取消函数。
 func (m *HGManager) Start() error {
 	m.mu.Lock()
-	if m.running {
+	if m.running || m.stopping {
 		m.mu.Unlock()
 		return errors.New("spider is already running")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	workerDone := make(chan struct{})
 	m.running = true
 	m.cancel = cancel
+	// 每轮 worker 使用独立完成 channel。相比复用 WaitGroup，它允许旧 Stop 等待旧 channel 的同时，
+	// 下一轮 Start 在旧 channel 关闭后安全创建新 worker，不存在 Add/Wait 并发复用窗口。
+	m.workerDone = workerDone
 	m.mu.Unlock()
 
-	m.wg.Add(1)
-	go m.loop(ctx)
+	go m.loop(ctx, workerDone)
 	return nil
 }
 
 // loop 启动后立即执行一次任务，再按固定周期串行执行。
 // RunOnce 自身有不可重入保护，因此手动任务与周期 tick 同时发生时只会有一个真正访问上游。
-func (m *HGManager) loop(ctx context.Context) {
-	defer m.wg.Done()
+func (m *HGManager) loop(ctx context.Context, workerDone chan struct{}) {
 	defer func() {
 		// 后台 goroutine 的 panic 不能扩散导致整个 crawler 进程退出；管理端会看到 lastError。
 		if recover() != nil {
 			m.mu.Lock()
 			m.lastError = "crawler worker recovered from panic"
-			m.running = false
 			m.mu.Unlock()
 		}
+		// Worker 退出是 RUNNING/STOPPING 到 STOPPED 的唯一状态提交点。
+		// 状态和完成信号在同一临界区提交，确保 Start 看到 STOPPED 时旧 worker 已完成全部状态清理。
+		m.mu.Lock()
+		m.running = false
+		m.stopping = false
+		m.cancel = nil
+		m.workerDone = nil
+		close(workerDone)
+		m.mu.Unlock()
 	}()
 
 	_, _ = m.RunOnce(ctx, HGCreateTaskRequest{Platform: m.platform.Name(), Type: "recommendation", Priority: 5})
@@ -108,18 +119,22 @@ func (m *HGManager) Stop() {
 		return
 	}
 	cancel := m.cancel
-	m.running = false
-	m.cancel = nil
+	workerDone := m.workerDone
+	// running 在 worker 真正退出前保持 true，stopping 用于阻止并发 Start 创建第二个 worker。
+	// 多个并发 Stop 只读取并等待同一个完成 channel；channel 仅由 worker 关闭，不会重复释放资源。
+	m.stopping = true
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	m.wg.Wait()
+	if workerDone != nil {
+		<-workerDone
+	}
 }
 
 // RunOnce 同步执行一次推荐抓取，适用于手动任务和 --once 命令。
 // 状态流程：校验请求 -> 锁内登记 RUNNING -> 锁外抓取 -> 锁内更新 SUCCESS/FAILED 与最新快照。
-func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (HGTaskSnapshot, error) {
+func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (task HGTaskSnapshot, runErr error) {
 	if req.Platform == "" {
 		req.Platform = m.platform.Name()
 	}
@@ -140,7 +155,7 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (HG
 	}
 	m.executing = true
 	// 新任务放在切片头部，使默认列表天然按创建时间倒序；超过上限时丢弃最旧记录。
-	task := HGTaskSnapshot{ID: m.nextTaskID.Add(1), Type: req.Type, Platform: req.Platform, Status: "RUNNING", Priority: req.Priority, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC()}
+	task = HGTaskSnapshot{ID: m.nextTaskID.Add(1), Type: req.Type, Platform: req.Platform, Status: "RUNNING", Priority: req.Priority, CreatedAt: time.Now().UTC(), StartedAt: time.Now().UTC()}
 	m.tasks = append([]HGTaskSnapshot{task}, m.tasks...)
 	if len(m.tasks) > hgMaxTaskHistory {
 		m.tasks = m.tasks[:hgMaxTaskHistory]
@@ -149,37 +164,46 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (HG
 
 	// 外部 I/O 严格放在锁外，避免 Dashboard/Tasks 查询被第三方延迟阻塞。
 	ctx, cancel := context.WithTimeout(parent, m.timeout)
-	items, err := m.platform.FetchRecommendations(ctx)
-	cancel()
-	finishedAt := time.Now().UTC()
-	task.FinishedAt = finishedAt
-	task.CostMillis = finishedAt.Sub(task.StartedAt).Milliseconds()
-	task.ItemCount = len(items)
-	if err != nil {
-		task.Status = "FAILED"
-		task.Error = fmt.Sprintf("fetch failed: %v", err)
-	} else {
-		task.Status = "SUCCESS"
-	}
-
-	m.mu.Lock()
-	m.executing = false
-	for i := range m.tasks {
-		if m.tasks[i].ID == task.ID {
-			m.tasks[i] = task
-			break
+	defer cancel()
+	var items []CrawlerPlatformPackage.HGRecommendation
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			// 平台适配器属于可扩展边界，未来实现即使 panic，也必须把当前 RUNNING 任务收敛为 FAILED，
+			// 同时释放 executing，避免整个采集进程永久拒绝后续任务。对外不暴露 panic 内容。
+			runErr = errors.New("crawler task recovered from panic")
 		}
-	}
-	if err != nil {
-		m.lastError = task.Error
-	} else {
-		// 只有成功任务替换推荐快照；上游临时失败时保留上一份可用数据用于管理端降级展示。
-		m.lastError = ""
-		m.lastSuccessAt = finishedAt
-		m.recommendations = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
-	}
-	m.mu.Unlock()
-	return task, err
+		finishedAt := time.Now().UTC()
+		task.FinishedAt = finishedAt
+		task.CostMillis = finishedAt.Sub(task.StartedAt).Milliseconds()
+		task.ItemCount = len(items)
+		if runErr != nil {
+			task.Status = "FAILED"
+			task.Error = fmt.Sprintf("fetch failed: %v", runErr)
+		} else {
+			task.Status = "SUCCESS"
+		}
+
+		m.mu.Lock()
+		m.executing = false
+		for i := range m.tasks {
+			if m.tasks[i].ID == task.ID {
+				m.tasks[i] = task
+				break
+			}
+		}
+		if runErr != nil {
+			m.lastError = task.Error
+		} else {
+			// 只有成功任务替换推荐快照；上游临时失败时保留上一份可用数据用于管理端降级展示。
+			m.lastError = ""
+			m.lastSuccessAt = finishedAt
+			m.recommendations = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
+		}
+		m.mu.Unlock()
+	}()
+
+	items, runErr = m.platform.FetchRecommendations(ctx)
+	return task, runErr
 }
 
 // Spiders 返回管理端使用的平台 worker 状态。
@@ -189,7 +213,10 @@ func (m *HGManager) Spiders() []map[string]interface{} {
 	defer m.mu.RUnlock()
 	status := "STOPPED"
 	workers := 0
-	if m.running {
+	if m.stopping {
+		status = "STOPPING"
+		workers = 1
+	} else if m.running {
 		status = "RUNNING"
 		workers = 1
 	}

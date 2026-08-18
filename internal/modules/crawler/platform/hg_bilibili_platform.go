@@ -123,12 +123,13 @@ func (p *HGBilibiliPlatform) Name() string { return "bilibili" }
 // FetchRecommendations 获取并标准化 Bilibili 首页推荐视频。
 // 仅网络错误、读取错误、429 和网关类 5xx 可以重试；协议错误和业务拒绝码立即失败，避免放大请求。
 func (p *HGBilibiliPlatform) FetchRecommendations(ctx context.Context) ([]HGRecommendation, error) {
-	if err := p.limiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("waiting bilibili rate limiter: %w", err)
-	}
-
 	var lastErr error
 	for attempt := 0; attempt <= p.config.RetryCount; attempt++ {
+		// 限流必须覆盖每一次真实 HTTP 尝试，而不是只覆盖一次业务任务。
+		// 否则 429/502 等可重试错误会通过退避循环绕过 RatePerSecond，在上游异常期间形成请求放大。
+		if err := p.limiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("waiting bilibili rate limiter: %w", err)
+		}
 		items, retry, err := p.fetchOnce(ctx)
 		if err == nil {
 			return items, nil
