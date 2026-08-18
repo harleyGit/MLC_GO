@@ -25,7 +25,7 @@ func main() {
 // hgRun 负责解析命令参数、装配 Bilibili 平台和 crawler manager，并选择单次任务或常驻服务模式。
 // --once 适用于本地验证和 Kubernetes CronJob；常驻模式会同时启动周期 worker 与管理 API。
 func hgRun() error {
-	addr := flag.String("addr", ":8080", "crawler admin API listen address")
+	addr := flag.String("addr", ":8090", "crawler admin API listen address")
 	interval := flag.Duration("interval", 5*time.Minute, "automatic crawl interval, minimum 10s")
 	timeout := flag.Duration("timeout", 10*time.Second, "single crawl timeout")
 	once := flag.Bool("once", false, "fetch one recommendation batch and exit")
