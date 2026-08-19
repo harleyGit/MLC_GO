@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:48:12
  * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-08-16 15:37:21
+ * @LastEditTime: 2026-08-19 16:08:28
  * @FilePath: /MLC_GO/hg_kafka_application.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -149,8 +149,10 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 	}
 	consumerRuntime.Start()
 
-	// Outbox 与消费者共用一个可取消生命周期。先停 dispatcher，再停 consumer，最后 flush producer。
+	// dispatcherCtx Outbox 与消费者共用一个可取消生命周期。先停 dispatcher，再停 consumer，最后 flush producer。
+	// WithCancel 派生上下文，专门控制 outbox 分发协程生命周期
 	dispatcherCtx, cancelDispatcher := context.WithCancel(context.Background())
+	// dispatcherWG 等待 outbox 后台 goroutine 完全退出
 	var dispatcherWG sync.WaitGroup
 	if sqlManager != nil {
 		topic := ""

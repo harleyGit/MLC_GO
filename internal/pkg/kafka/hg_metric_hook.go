@@ -52,8 +52,8 @@ type hgConsumerLagPartition struct {
 	initialized   bool
 }
 
+// 结构体 HGConsumerLagObserver：用来观测 Kafka 消费者消费进度、计算消费 lag（消费延迟）
 // HGConsumerLagObserver 跟踪一个 Consumer 实例所拥有 partition 的应用处理位置。
-//
 // 内部保留 partition 粒度是为了在 rebalance 时精确清理，但 Prometheus 只导出 group/topic 聚合，
 // 避免 partition、client_id 等标签放大时间序列。该指标表示“已观察到的应用处理 lag”，不是通过
 // Kafka Admin API 查询的严格 committed-offset lag；commit 失败由独立 counter 和告警监控。
@@ -82,6 +82,8 @@ func HGNewConsumerLagObserver(group string, topics []string) *HGConsumerLagObser
 }
 
 // ObserveFetch 只更新 broker high watermark，不把已拉取但尚未成功处理的记录误算为完成。
+// Kafka Consumer Lag 观测器在消费组 rebalance 后会被重新分配，旧实例的 partition 状态会被删除，避免残留陈旧 lag。
+//	@param fetches 
 func (o *HGConsumerLagObserver) ObserveFetch(fetches kgo.Fetches) {
 	if o == nil {
 		return
@@ -136,19 +138,37 @@ func (o *HGConsumerLagObserver) ObservePartitionsRevoked(partitions map[string][
 	}
 }
 
+// hgAdvance 每消费到一条 Kafka 消息，调用该方法更新本地记录的「已消费下一条偏移量 nextOffset」。
+//	@param record kgo.Record 代表一条 Kafka 消费到的消息
+// Kafka 概念：
+// record.Offset：当前这条消息的 offset；
+// nextOffset = offset+1：Kafka 消费者 commit 的 offset，代表下一次要读取的 offset。
+// lag = 分区最大 offset − 本地记录的 nextOffset，就是消费堆积量。
+
 func (o *HGConsumerLagObserver) hgAdvance(record *kgo.Record) {
 	if o == nil || record == nil {
 		return
 	}
+	// o.partitions 是共享并发 map，多 goroutine 消费消息，必须加锁，防止并发读写 map panic。
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	// 按 Topic 获取分区集合
+	// 外层 map：topicName → map[partitionId]分区状态
+	// 如果这个 topic 还没有记录，新建分区 map 存入。
 	partitions := o.partitions[record.Topic]
 	if partitions == nil {
 		partitions = make(map[int32]hgConsumerLagPartition)
 		o.partitions[record.Topic] = partitions
 	}
+
+	// state 取出该 topic‑partition 的状态
+	// hgConsumerLagPartition 保存分区状态：
+	// initialized：是否已经初始化过进度
+	// nextOffset：本地记录的消费进度（下一条待消费 offset） 
 	state := partitions[record.Partition]
 	nextOffset := record.Offset + 1
+	// 更新消费进度
 	if !state.initialized || nextOffset > state.nextOffset {
 		state.nextOffset = nextOffset
 		state.initialized = true

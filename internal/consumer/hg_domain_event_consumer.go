@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 18:26:03
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-30 16:48:41
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-08-19 15:22:44
  * @FilePath: /MLC_GO/internal/consumer/hg_domain_event_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -26,8 +26,9 @@ type Delivery struct {
 	Offset    int64
 }
 
-// WithDelivery 把 Kafka 来源坐标附加到业务 Handler context。
+// 存：把delivery放进ctx
 func WithDelivery(ctx context.Context, delivery Delivery) context.Context {
+	// context.WithValue 基于父上下文，生成一个新的 context，把 key‑value 附加到新 ctx 上
 	return context.WithValue(ctx, hgDeliveryContextKey{}, delivery)
 }
 
