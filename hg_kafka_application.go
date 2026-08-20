@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:48:12
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-08-19 16:08:28
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-08-20 10:49:32
  * @FilePath: /MLC_GO/hg_kafka_application.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -163,19 +163,23 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		dispatcherWG.Add(1)
 		go func() {
 			defer dispatcherWG.Done()
+			// outbox 分发器，后台循环：读数据库 outbox 表 → 投递 kafka，阻塞函数
+			// runErr != nil：dispatcher.Run() 返回了错误
+			// dispatcherCtx.Err() == nil：上下文还没有被取消
 			if runErr := dispatcher.Run(dispatcherCtx, time.Second, 100); runErr != nil && dispatcherCtx.Err() == nil {
 				logHG.ErrFInfo("Outbox dispatcher stopped: %v", runErr)
 			}
 		}()
 	}
+	// 返回的是一个关闭回调函数，上层调用方保存这个函数，服务退出时执行做资源清理
 	return func() {
-		cancelDispatcher()
-		dispatcherWG.Wait()
-		consumerRuntime.Close()
+		cancelDispatcher()      // 1.发信号通知outbox分发协程停止
+		dispatcherWG.Wait()     // 2.阻塞等待outbox goroutine完全退出
+		consumerRuntime.Close() // 3.关闭kafka消费
 		if clickHouseClient != nil {
-			_ = clickHouseClient.Close()
+			_ = clickHouseClient.Close() //4.关闭clickhouse
 		}
-		producerCloser()
+		producerCloser() //5.关闭kafka生产者
 	}, consumerRuntime, nil
 }
 
