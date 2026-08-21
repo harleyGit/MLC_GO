@@ -97,6 +97,8 @@ func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) er
 			KafkaOffset: delivery.Offset, RedisGeneration: c.config.RedisGeneration,
 			RedisShard: PersistenceRedisPackage.GetStatisticShard(delivery.Partition, c.config.RedisShardCount), Payload: string(envelope.Payload),
 		}
+
+		// 确认点：StoreStatisticEvent 是否按 EventID 做了幂等？如果没有，这里就是一个重复写入隐患。理想做法是两者都幂等，或者用 outbox 模式。
 		if err := c.store.StoreStatisticEvent(ctx, event); err != nil {
 			hgStatisticAuthorityWriteFailure.Add(1)
 			return fmt.Errorf("store statistic authority event: %w", err)

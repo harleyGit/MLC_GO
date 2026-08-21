@@ -51,6 +51,7 @@ type EventEnvelope struct {
 	RequestID     string          `json:"requestId,omitempty"`
 	Timestamp     int64           `json:"timestamp"`
 	SourceService string          `json:"sourceService"`
+	// Payload json.RawMessage 保留原始事件字节，便于消费侧按 EventName 反序列化成具体业务事件。
 	Payload       json.RawMessage `json:"payload"`
 }
 
