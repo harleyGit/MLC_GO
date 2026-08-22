@@ -194,6 +194,15 @@ func (c *Cache) IncrementVideoStatusCounter(ctx context.Context, status string, 
 	return c.client.HIncrBy(ctx, videoStatusCounterKey(), status, delta).Err()
 }
 
+// IncrementExternalCounterIfPresent increments external only when the complete status-counter hash already exists.
+// A missing or legacy partial hash remains untouched so the next list read performs an exact MySQL initialization.
+func (c *Cache) IncrementExternalCounterIfPresent(ctx context.Context, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	return c.client.Eval(ctx, PersistenceRedisPackage.VideoExternalCounterIncrementIfPresentLuaScript, []string{videoStatusCounterKey()}, delta).Err()
+}
+
 // GetVideoStatusCounters 从 Redis Hash 读取所有状态计数。
 // 返回 hit=false 表示计数器尚未初始化，调用方应回源 MySQL 并回填。
 func (c *Cache) GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error) {

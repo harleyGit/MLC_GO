@@ -67,7 +67,17 @@ type videoUploadRepository interface {
 	SaveSubmissionWithEvents(ctx context.Context, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest, domainEvents ...events.DomainEvent) error
 	GetSubmissionStatus(ctx context.Context, submissionID string, userID string) (string, bool, error)
 	GetVideoListByCursor(ctx context.Context, cursor string, limit int, tagName string) ([]VideoUploadDtoPackage.VideoListItem, error)
+	GetVideoListItemByID(ctx context.Context, contentID string) (VideoUploadDtoPackage.VideoListItem, bool, error)
 	GetVideoStatusCounts(ctx context.Context) (map[string]int64, error)
+}
+
+// GetVideoListItem 点查可播放列表项，供详情页刷新或直达 URL 恢复路由状态。
+func (s *Service) GetVideoListItem(ctx context.Context, contentID string) (VideoUploadDtoPackage.VideoListItem, bool, error) {
+	contentID = strings.TrimSpace(contentID)
+	if contentID == "" || len(contentID) > 256 {
+		return VideoUploadDtoPackage.VideoListItem{}, false, ErrSubmissionInvalid
+	}
+	return s.repo.GetVideoListItemByID(ctx, contentID)
 }
 
 // WithEventBus 注入领域事件总线。
@@ -510,19 +520,6 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int,
 		}
 	}
 
-	if tagName == "" && total == 0 {
-		resp := &VideoUploadDtoPackage.GetVideoListResponse{
-			Total:    0,
-			PageSize: pageSize,
-			HasMore:  false,
-			Videos:   []VideoUploadDtoPackage.VideoListItem{},
-		}
-		if s.cache != nil {
-			_ = s.cache.SetVideoListPage(ctx, cursor, pageSize, tagName, resp)
-		}
-		return resp, nil
-	}
-
 	videos, err := s.repo.GetVideoListByCursor(ctx, cursor, pageSize+1, tagName)
 	if err != nil {
 		return nil, err
@@ -556,6 +553,12 @@ func (s *Service) GetVideoList(ctx context.Context, cursor string, pageSize int,
 func (s *Service) getVideoListTotal(ctx context.Context) (int, error) {
 	if s.cache != nil {
 		counters, hit, err := s.cache.GetVideoStatusCounters(ctx)
+		// migration 28 之前初始化的 Hash 没有 external 字段，必须回源一次，否则外部内容总数会长期显示为 0。
+		if err == nil && hit {
+			if _, hasExternal := counters["external"]; !hasExternal {
+				hit = false
+			}
+		}
 		if err == nil && hit {
 			return videoListTotalFromCounters(counters), nil
 		}
@@ -595,7 +598,7 @@ func isVideoListCountedStatus(status string) bool {
 }
 
 func videoListTotalFromCounters(counters map[string]int64) int {
-	total := counters["reviewing"] + counters["published"]
+	total := counters["reviewing"] + counters["published"] + counters["external"]
 	if total < 0 {
 		return 0
 	}

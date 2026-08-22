@@ -20,6 +20,7 @@ const hgMaxTaskHistory = 500
 type HGManager struct {
 	// platform、interval、timeout 构造后只读，不需要锁保护。
 	platform CrawlerPlatformPackage.HGPlatform
+	store    HGRecommendationStore
 	interval time.Duration
 	timeout  time.Duration
 
@@ -38,9 +39,14 @@ type HGManager struct {
 	nextTaskID atomic.Int64 // 进程内单调任务 ID，不作为跨实例全局主键。
 }
 
+// HGRecommendationStore 定义抓取成功后的持久化边界。
+type HGRecommendationStore interface {
+	UpsertRecommendations(ctx context.Context, items []CrawlerPlatformPackage.HGRecommendation) error
+}
+
 // NewHGManager 创建单 worker 管理器，避免同一进程内任务重入和无界堆积。
 // interval 小于 10 秒时回落到 5 分钟，防止误配置形成第三方请求风暴；单轮超时最大 1 分钟。
-func NewHGManager(platform CrawlerPlatformPackage.HGPlatform, interval, timeout time.Duration) (*HGManager, error) {
+func NewHGManager(platform CrawlerPlatformPackage.HGPlatform, interval, timeout time.Duration, stores ...HGRecommendationStore) (*HGManager, error) {
 	if platform == nil {
 		return nil, errors.New("crawler platform is required")
 	}
@@ -50,7 +56,11 @@ func NewHGManager(platform CrawlerPlatformPackage.HGPlatform, interval, timeout 
 	if timeout <= 0 || timeout > time.Minute {
 		timeout = 10 * time.Second
 	}
-	m := &HGManager{platform: platform, interval: interval, timeout: timeout}
+	var store HGRecommendationStore
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+	m := &HGManager{platform: platform, store: store, interval: interval, timeout: timeout}
 	m.nextTaskID.Store(time.Now().UnixMilli())
 	return m, nil
 }
@@ -203,6 +213,9 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (ta
 	}()
 
 	items, runErr = m.platform.FetchRecommendations(ctx)
+	if runErr == nil && m.store != nil {
+		runErr = m.store.UpsertRecommendations(ctx, items)
+	}
 	return task, runErr
 }
 

@@ -18,6 +18,15 @@ crawler:
     retry_count: 2
     rate_per_second: 0.2
     user_agent: "MLC_GO-HGCrawler/1.0"
+  tasks:
+    # Exact host matches only. Subdomains must be listed separately; HTTPS is required by default.
+    allowed_hosts: [api.bilibili.com]
+    allow_http: false
+    scheduler_enabled: true
+    refresh_interval: 30s
+    max_tasks: 100
+    lease_grace: 30s
+    default_user_agent: "MLC_GO-HGCrawler-Task/1.0"
 
 api_gateway:
   enabled: true

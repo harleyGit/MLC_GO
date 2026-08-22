@@ -168,6 +168,17 @@ type HGCrawlerConfig struct {
 	UserAgent     string
 }
 
+// HGCrawlerTaskConfig defines the outbound target policy and bounded dynamic scheduler runtime.
+type HGCrawlerTaskConfig struct {
+	AllowedHosts     []string
+	AllowHTTP        bool
+	SchedulerEnabled bool
+	RefreshInterval  time.Duration
+	MaxTasks         int
+	LeaseGrace       time.Duration
+	DefaultUserAgent string
+}
+
 // HGVideoCommentStorageConfig 描述 local/S3 存储和 CDN；S3 凭据只从环境变量注入。
 type HGVideoCommentStorageConfig struct {
 	Type, Endpoint, Region, Bucket, CDNBaseURL, AccessKeyID, SecretAccessKey string
@@ -486,6 +497,73 @@ func GetCrawlerConfig() (HGCrawlerConfig, error) {
 	cfg.UserAgent = strings.TrimSpace(raw.UserAgent)
 	if cfg.UserAgent == "" || len(cfg.UserAgent) > 128 {
 		return cfg, fmt.Errorf("crawler.bilibili.user_agent 不能为空且不能超过 128 字节")
+	}
+	return cfg, nil
+}
+
+// GetCrawlerTaskConfig reads and validates configurable crawler task safety and scheduler limits.
+// CRAWLER_TASK_ALLOWED_HOSTS, CRAWLER_TASK_ALLOW_HTTP, and CRAWLER_TASK_SCHEDULER_ENABLED override YAML.
+func GetCrawlerTaskConfig() (HGCrawlerTaskConfig, error) {
+	var raw struct {
+		AllowedHosts     []string `mapstructure:"allowed_hosts"`
+		AllowHTTP        bool     `mapstructure:"allow_http"`
+		SchedulerEnabled bool     `mapstructure:"scheduler_enabled"`
+		RefreshInterval  string   `mapstructure:"refresh_interval"`
+		MaxTasks         int      `mapstructure:"max_tasks"`
+		LeaseGrace       string   `mapstructure:"lease_grace"`
+		DefaultUserAgent string   `mapstructure:"default_user_agent"`
+	}
+	var cfg HGCrawlerTaskConfig
+	if err := viper.UnmarshalKey("crawler.tasks", &raw); err != nil {
+		return cfg, fmt.Errorf("读取 crawler.tasks 配置失败: %w", err)
+	}
+	if value := strings.TrimSpace(os.Getenv("CRAWLER_TASK_ALLOWED_HOSTS")); value != "" {
+		raw.AllowedHosts = strings.Split(value, ",")
+	}
+	for envName, target := range map[string]*bool{
+		"CRAWLER_TASK_ALLOW_HTTP":        &raw.AllowHTTP,
+		"CRAWLER_TASK_SCHEDULER_ENABLED": &raw.SchedulerEnabled,
+	} {
+		if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return cfg, fmt.Errorf("%s 必须是布尔值: %w", envName, err)
+			}
+			*target = parsed
+		}
+	}
+	seen := make(map[string]struct{}, len(raw.AllowedHosts))
+	for _, value := range raw.AllowedHosts {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+		_, hostIsIP := netip.ParseAddr(host)
+		if host == "" || strings.ContainsAny(host, "/@") || (strings.Contains(host, ":") && hostIsIP != nil) {
+			return cfg, fmt.Errorf("crawler.tasks.allowed_hosts 包含无效主机名")
+		}
+		if _, exists := seen[host]; exists {
+			continue
+		}
+		seen[host] = struct{}{}
+		cfg.AllowedHosts = append(cfg.AllowedHosts, host)
+	}
+	if len(cfg.AllowedHosts) == 0 {
+		return cfg, fmt.Errorf("crawler.tasks.allowed_hosts 不能为空")
+	}
+	cfg.AllowHTTP = raw.AllowHTTP
+	cfg.SchedulerEnabled = raw.SchedulerEnabled
+	var err error
+	if cfg.RefreshInterval, err = time.ParseDuration(raw.RefreshInterval); err != nil || cfg.RefreshInterval < 10*time.Second || cfg.RefreshInterval > time.Hour {
+		return cfg, fmt.Errorf("crawler.tasks.refresh_interval 必须在 10s-1h 之间")
+	}
+	cfg.MaxTasks = raw.MaxTasks
+	if cfg.MaxTasks < 1 || cfg.MaxTasks > 500 {
+		return cfg, fmt.Errorf("crawler.tasks.max_tasks 必须在 1-500 之间")
+	}
+	if cfg.LeaseGrace, err = time.ParseDuration(raw.LeaseGrace); err != nil || cfg.LeaseGrace < time.Second || cfg.LeaseGrace > 10*time.Minute {
+		return cfg, fmt.Errorf("crawler.tasks.lease_grace 必须在 1s-10m 之间")
+	}
+	cfg.DefaultUserAgent = strings.TrimSpace(raw.DefaultUserAgent)
+	if cfg.DefaultUserAgent == "" || len(cfg.DefaultUserAgent) > 128 || strings.ContainsAny(cfg.DefaultUserAgent, "\r\n") {
+		return cfg, fmt.Errorf("crawler.tasks.default_user_agent 无效")
 	}
 	return cfg, nil
 }

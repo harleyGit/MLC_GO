@@ -48,6 +48,10 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/corrections/list", true, "查询硬币资产修正", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/asset-permissions/current", true, "查询当前资产权限", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/debug", true, "测试采集请求并识别字段", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save", true, "保存采集任务", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", nil),
 		}
 	}
 
@@ -82,5 +86,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/coin/corrections/list", true, "查询硬币资产修正", opsHandler.ListCoinCorrections),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/asset-permissions/current", true, "查询当前资产权限", opsHandler.GetCurrentAssetPermissions),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/observability/asset-pipeline", true, "查询资产链路状态", opsHandler.GetAssetPipelineStatus),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/debug", true, "测试采集请求并识别字段", opsHandler.DebugCrawlerTask),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save", true, "保存采集任务", opsHandler.SaveCrawlerTask),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", opsHandler.SaveAndRunCrawlerTask),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", opsHandler.ListCrawlerTasks),
 	}
 }

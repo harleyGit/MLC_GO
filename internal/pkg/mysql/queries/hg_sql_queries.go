@@ -479,7 +479,10 @@ WHERE status IN ('reviewing', 'published')`
 SELECT status, COUNT(*)
 FROM video_submissions
 WHERE status IN ('reviewing', 'published')
-GROUP BY status`
+GROUP BY status
+UNION ALL
+SELECT 'external', COUNT(*)
+FROM crawler_external_contents`
 
 	// GetVideoSubmissionStatusSQL 读取单个稿件当前状态，用于写侧计算 Redis 计数 delta。
 	// 索引要求：submission_id 唯一键或高选择性索引；单稿件锁内点查，不扫描大表。
@@ -508,71 +511,84 @@ ON video_submissions (status, submit_time DESC)`
 	// 多查一条用于判断是否还有下一页。
 	GetVideoListByCursorFirstSQL = `
 SELECT
-    vs.submission_id,
-    vs.user_id,
-    vs.title,
-    vs.cover_url,
-    vs.category,
-    vs.video_type,
-    vs.description,
-    vs.visibility,
-    vs.status,
-    vs.video_count,
-    vs.total_size,
-    vs.submit_time,
-    vs.created_at,
-    vf.video_id,
-    vf.file_path,
-    vf.file_name,
-    vf.file_size,
-    vf.mime_type,
-    vf.part_number
-FROM video_submissions vs
-INNER JOIN (
-    SELECT submission_id
-    FROM video_submissions
-    WHERE status IN ('reviewing', 'published')
-    ORDER BY submit_time DESC, submission_id DESC
+    submission_id, user_id, title, cover_url, category, video_type, description,
+    visibility, status, video_count, total_size, submit_time, created_at,
+    video_id, file_path, file_name, file_size, mime_type, part_number,
+    playback_type, source_platform, external_content_id, target_url, author_name,
+    duration_seconds, view_count, like_count, comment_count
+FROM (
+    SELECT
+        vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
+        vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size,
+        vs.submit_time, vs.created_at, vf.video_id, vf.file_path, vf.file_name,
+        vf.file_size, vf.mime_type, vf.part_number, 'native_file' AS playback_type,
+        '' AS source_platform, '' AS external_content_id, '' AS target_url,
+        '' AS author_name, COALESCE(vf.duration, 0) AS duration_seconds,
+        0 AS view_count, 0 AS like_count, 0 AS comment_count
+    FROM video_submissions vs
+    LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
+    WHERE vs.status IN ('reviewing', 'published')
+    ORDER BY vs.submit_time DESC, vs.submission_id DESC
     LIMIT ?
-) AS vs_page ON vs.submission_id = vs_page.submission_id
-LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
-ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+) native_feed
+UNION ALL
+SELECT
+    CONCAT('external:', platform, ':', content_id), author_id, title, cover_url,
+    'Bilibili', '转载', '', 'public', 'published', 1, 0,
+    last_seen_at, created_at, CONCAT('external:', platform, ':', content_id),
+    '', '', 0, '', 1, 'external_link', platform, content_id, target_url,
+    author_name, duration_seconds, view_count, like_count, comment_count
+FROM (
+    SELECT *
+    FROM crawler_external_contents
+    ORDER BY last_seen_at DESC, id DESC
+    LIMIT ?
+) external_feed
+ORDER BY submit_time DESC, submission_id DESC
+LIMIT ?`
 
 	// GetVideoListByCursorSQL 游标分页翻页查询。
 	// 使用 (submit_time, submission_id) 复合游标定位，避免 OFFSET 扫描。
 	// submit_time 相同时用 submission_id 保证分页结果稳定不丢不重。
 	GetVideoListByCursorSQL = `
 SELECT
-    vs.submission_id,
-    vs.user_id,
-    vs.title,
-    vs.cover_url,
-    vs.category,
-    vs.video_type,
-    vs.description,
-    vs.visibility,
-    vs.status,
-    vs.video_count,
-    vs.total_size,
-    vs.submit_time,
-    vs.created_at,
-    vf.video_id,
-    vf.file_path,
-    vf.file_name,
-    vf.file_size,
-    vf.mime_type,
-    vf.part_number
-FROM video_submissions vs
-INNER JOIN (
-    SELECT submission_id
-    FROM video_submissions
-    WHERE status IN ('reviewing', 'published')
-      AND (submit_time < ? OR (submit_time = ? AND submission_id < ?))
-    ORDER BY submit_time DESC, submission_id DESC
+    submission_id, user_id, title, cover_url, category, video_type, description,
+    visibility, status, video_count, total_size, submit_time, created_at,
+    video_id, file_path, file_name, file_size, mime_type, part_number,
+    playback_type, source_platform, external_content_id, target_url, author_name,
+    duration_seconds, view_count, like_count, comment_count
+FROM (
+    SELECT
+        vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
+        vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size,
+        vs.submit_time, vs.created_at, vf.video_id, vf.file_path, vf.file_name,
+        vf.file_size, vf.mime_type, vf.part_number, 'native_file' AS playback_type,
+        '' AS source_platform, '' AS external_content_id, '' AS target_url,
+        '' AS author_name, COALESCE(vf.duration, 0) AS duration_seconds,
+        0 AS view_count, 0 AS like_count, 0 AS comment_count
+    FROM video_submissions vs
+    LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
+    WHERE vs.status IN ('reviewing', 'published')
+      AND (vs.submit_time < ? OR (vs.submit_time = ? AND vs.submission_id < ?))
+    ORDER BY vs.submit_time DESC, vs.submission_id DESC
     LIMIT ?
-) AS vs_page ON vs.submission_id = vs_page.submission_id
-LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_number = 1
-	ORDER BY vs.submit_time DESC, vs.submission_id DESC`
+) native_feed
+UNION ALL
+SELECT
+    CONCAT('external:', platform, ':', content_id), author_id, title, cover_url,
+    'Bilibili', '转载', '', 'public', 'published', 1, 0,
+    last_seen_at, created_at, CONCAT('external:', platform, ':', content_id),
+    '', '', 0, '', 1, 'external_link', platform, content_id, target_url,
+    author_name, duration_seconds, view_count, like_count, comment_count
+FROM (
+    SELECT *
+    FROM crawler_external_contents
+    WHERE last_seen_at < ? OR (last_seen_at = ? AND CONCAT('external:', platform, ':', content_id) < ?)
+    ORDER BY last_seen_at DESC, id DESC
+    LIMIT ?
+) external_feed
+ORDER BY submit_time DESC, submission_id DESC
+LIMIT ?`
 
 	// GetVideoListByTagCursorFirstSQL 按标签查询视频首页。
 	// video_tags 命中 (tag_name,video_id)，video_files 命中 video_id 唯一键，再按稿件状态/时间返回稳定游标结果。
@@ -580,7 +596,8 @@ LEFT JOIN video_files vf ON vs.submission_id = vf.submission_id AND vf.part_numb
 SELECT
     vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
     vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size, vs.submit_time,
-    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number
+	    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number,
+	    'native_file', '', '', '', '', COALESCE(vf.duration, 0), 0, 0, 0
 FROM video_tags vt
 INNER JOIN video_files vf ON vf.video_id = vt.video_id
 INNER JOIN video_submissions vs ON vs.submission_id = vf.submission_id
@@ -594,7 +611,8 @@ LIMIT ?`
 SELECT
     vs.submission_id, vs.user_id, vs.title, vs.cover_url, vs.category, vs.video_type,
     vs.description, vs.visibility, vs.status, vs.video_count, vs.total_size, vs.submit_time,
-    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number
+	    vs.created_at, vf.video_id, vf.file_path, vf.file_name, vf.file_size, vf.mime_type, vf.part_number,
+	    'native_file', '', '', '', '', COALESCE(vf.duration, 0), 0, 0, 0
 FROM video_tags vt
 INNER JOIN video_files vf ON vf.video_id = vt.video_id
 INNER JOIN video_submissions vs ON vs.submission_id = vf.submission_id

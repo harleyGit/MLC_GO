@@ -1,6 +1,14 @@
 package VideoUploadCachePackage
 
-import "testing"
+import (
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	"context"
+	"net"
+	"reflect"
+	"testing"
+
+	"github.com/redis/go-redis/v9"
+)
 
 func TestVideoUploadCacheKeys(t *testing.T) {
 	userID := "user_1"
@@ -29,5 +37,50 @@ func TestVideoUploadCacheKeys(t *testing.T) {
 	}
 	if got := videoListPageKey("2026-07-04T10:00:00Z|submission_1", 20, "MMD·3D"); got != "video_upload:list:cursor:2026-07-04T10:00:00Z|submission_1:size:20:tag:MMD·3D" {
 		t.Fatalf("videoListPageKey(cursor) = %s", got)
+	}
+}
+
+type hgRedisCommandHook struct {
+	command []interface{}
+}
+
+func (h *hgRedisCommandHook) DialHook(next redis.DialHook) redis.DialHook {
+	return func(ctx context.Context, network string, addr string) (net.Conn, error) {
+		return next(ctx, network, addr)
+	}
+}
+
+func (h *hgRedisCommandHook) ProcessHook(redis.ProcessHook) redis.ProcessHook {
+	return func(_ context.Context, cmd redis.Cmder) error {
+		h.command = append([]interface{}(nil), cmd.Args()...)
+		return nil
+	}
+}
+
+func (h *hgRedisCommandHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func TestIncrementExternalCounterIfPresentUsesGuardedLua(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "unused"})
+	defer client.Close()
+	hook := &hgRedisCommandHook{}
+	client.AddHook(hook)
+	cache := &Cache{client: client}
+
+	if err := cache.IncrementExternalCounterIfPresent(context.Background(), 3); err != nil {
+		t.Fatalf("IncrementExternalCounterIfPresent() error = %v", err)
+	}
+	want := []interface{}{"eval", PersistenceRedisPackage.VideoExternalCounterIncrementIfPresentLuaScript, 1, "video_status_counter", int64(3)}
+	if !reflect.DeepEqual(hook.command, want) {
+		t.Fatalf("redis command = %#v, want %#v", hook.command, want)
+	}
+
+	hook.command = nil
+	if err := cache.IncrementExternalCounterIfPresent(context.Background(), 0); err != nil {
+		t.Fatalf("zero delta error = %v", err)
+	}
+	if hook.command != nil {
+		t.Fatalf("zero delta redis command = %#v", hook.command)
 	}
 }

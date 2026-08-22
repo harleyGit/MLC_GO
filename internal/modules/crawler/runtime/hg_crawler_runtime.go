@@ -18,6 +18,7 @@ type HGBilibiliRuntimeConfig struct {
 	RetryCount    int
 	RatePerSecond float64
 	UserAgent     string
+	Store         CrawlerSpiderPackage.HGRecommendationStore
 }
 
 // NewHGBilibiliManager 创建 Bilibili 平台客户端和串行任务管理器。
@@ -33,7 +34,7 @@ func NewHGBilibiliManager(config HGBilibiliRuntimeConfig) (*CrawlerSpiderPackage
 	if err != nil {
 		return nil, fmt.Errorf("creating bilibili crawler platform: %w", err)
 	}
-	manager, err := CrawlerSpiderPackage.NewHGManager(platform, config.Interval, config.Timeout)
+	manager, err := CrawlerSpiderPackage.NewHGManager(platform, config.Interval, config.Timeout, config.Store)
 	if err != nil {
 		return nil, fmt.Errorf("creating bilibili crawler manager: %w", err)
 	}

@@ -231,4 +231,22 @@ type VideoListItem struct {
 	MimeType string `json:"mimeType"`
 	// PartNumber 分 P 序号。
 	PartNumber uint32 `json:"partNumber"`
+	// PlaybackType 播放方式：native_file 为本站媒体文件，external_link 为第三方官方播放器。
+	PlaybackType string `json:"playbackType"`
+	// SourcePlatform 第三方平台标识；本站上传视频为空。
+	SourcePlatform string `json:"sourcePlatform"`
+	// ExternalContentID 第三方内容 ID，例如 Bilibili BVID。
+	ExternalContentID string `json:"externalContentId"`
+	// TargetURL 第三方原站内容地址；不是本站媒体文件路径。
+	TargetURL string `json:"targetUrl"`
+	// AuthorName 抓取时的第三方作者名称快照。
+	AuthorName string `json:"authorName"`
+	// Duration 视频时长，单位秒。
+	Duration int64 `json:"duration"`
+	// ViewCount 第三方播放量快照；本站视频由互动模块提供实时计数。
+	ViewCount int64 `json:"viewCount"`
+	// LikeCount 第三方点赞量快照。
+	LikeCount int64 `json:"likeCount"`
+	// CommentCount 第三方弹幕量快照。
+	CommentCount int64 `json:"commentCount"`
 }

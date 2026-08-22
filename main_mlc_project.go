@@ -6,7 +6,9 @@ import (
 	BilibiliModulePackage "MLC_GO/internal/modules/bilibili/module"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
+	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
+	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
@@ -22,6 +24,7 @@ import (
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	VideoInteractionTaskPackage "MLC_GO/internal/modules/video_interaction/task"
 	VideoRecommendModulePackage "MLC_GO/internal/modules/video_recommend/module"
+	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadModulePackage "MLC_GO/internal/modules/video_upload/module"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
@@ -85,6 +88,7 @@ type MLCApplication struct {
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
 	crawlerManager          *CrawlerSpiderPackage.HGManager
+	crawlerTaskScheduler    *CrawlerRuntimePackage.HGTaskScheduler
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -333,6 +337,23 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
+	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
+	if err != nil {
+		return nil, fmt.Errorf("Crawler task配置失败: %w", err)
+	}
+	crawlerTaskScheduler, err := CrawlerRuntimePackage.NewHGTaskScheduler(
+		opsComponents.CrawlerRepo,
+		opsComponents.CrawlerTasks,
+		crawlerTaskConfig.SchedulerEnabled,
+		crawlerTaskConfig.RefreshInterval,
+		crawlerTaskConfig.MaxTasks,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Crawler task scheduler初始化失败: %w", err)
+	}
+	if err := crawlerTaskScheduler.Start(context.Background()); err != nil {
+		return nil, fmt.Errorf("Crawler task scheduler启动失败: %w", err)
+	}
 	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
 	correctionRecoveryConfig, err := ConfigPackage.GetCorrectionRecoveryConfig()
 	if err != nil {
@@ -411,10 +432,15 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	var crawlerManager *CrawlerSpiderPackage.HGManager
 	if crawlerConfig.Enabled {
+		crawlerStore := CrawlerServicePackage.NewHGExternalContentStore(
+			CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
+			VideoUploadCachePackage.NewCache(redisService),
+		)
 		crawlerManager, err = CrawlerRuntimePackage.NewHGBilibiliManager(CrawlerRuntimePackage.HGBilibiliRuntimeConfig{
 			Interval: crawlerConfig.Interval, Timeout: crawlerConfig.Timeout,
 			MaxItems: crawlerConfig.MaxItems, RetryCount: crawlerConfig.RetryCount,
 			RatePerSecond: crawlerConfig.RatePerSecond, UserAgent: crawlerConfig.UserAgent,
+			Store: crawlerStore,
 		})
 		if err == nil {
 			err = crawlerManager.Start()
@@ -502,6 +528,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
 		crawlerManager:          crawlerManager,
+		crawlerTaskScheduler:    crawlerTaskScheduler,
 	}, nil
 }
 
@@ -682,6 +709,9 @@ func (app *MLCApplication) Close() {
 		app.videoCommentMaintenance.Close()
 	}
 	// crawler 只依赖第三方 HTTP，但必须在 Logger 关闭前停止，确保退出期错误仍可记录。
+	if app.crawlerTaskScheduler != nil {
+		_ = app.crawlerTaskScheduler.Close()
+	}
 	if app.crawlerManager != nil {
 		app.crawlerManager.Stop()
 	}

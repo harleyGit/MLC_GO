@@ -25,6 +25,16 @@ type hgStoppingPlatform struct {
 	once     sync.Once
 }
 
+type hgRecommendationStore struct {
+	items []CrawlerPlatformPackage.HGRecommendation
+	err   error
+}
+
+func (s *hgRecommendationStore) UpsertRecommendations(_ context.Context, items []CrawlerPlatformPackage.HGRecommendation) error {
+	s.items = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
+	return s.err
+}
+
 func (p *hgPanicPlatform) Name() string { return "bilibili" }
 
 func (p *hgPanicPlatform) FetchRecommendations(context.Context) ([]CrawlerPlatformPackage.HGRecommendation, error) {
@@ -107,6 +117,40 @@ func TestHGManagerPreventsOverlappingTasks(t *testing.T) {
 	tasks := manager.Tasks(0, 20, "")
 	if tasks["total"].(int) != 1 {
 		t.Fatalf("Tasks() = %#v", tasks)
+	}
+}
+
+func TestHGManagerPersistsSuccessfulRecommendations(t *testing.T) {
+	platform := &hgBlockingPlatform{started: make(chan struct{}), release: make(chan struct{})}
+	store := &hgRecommendationStore{}
+	manager, err := NewHGManager(platform, time.Minute, time.Second, store)
+	if err != nil {
+		t.Fatalf("NewHGManager() error = %v", err)
+	}
+	close(platform.release)
+	task, err := manager.RunOnce(context.Background(), HGCreateTaskRequest{})
+	if err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if task.Status != "SUCCESS" || len(store.items) != 1 || store.items[0].ContentID != "BV1" {
+		t.Fatalf("task = %#v, stored items = %#v", task, store.items)
+	}
+}
+
+func TestHGManagerMarksPersistenceFailure(t *testing.T) {
+	platform := &hgBlockingPlatform{started: make(chan struct{}), release: make(chan struct{})}
+	store := &hgRecommendationStore{err: context.DeadlineExceeded}
+	manager, err := NewHGManager(platform, time.Minute, time.Second, store)
+	if err != nil {
+		t.Fatalf("NewHGManager() error = %v", err)
+	}
+	close(platform.release)
+	task, err := manager.RunOnce(context.Background(), HGCreateTaskRequest{})
+	if err == nil || task.Status != "FAILED" {
+		t.Fatalf("RunOnce() task = %#v, error = %v", task, err)
+	}
+	if got := manager.Recommendations(); len(got) != 0 {
+		t.Fatalf("Recommendations() = %#v, want previous snapshot preserved", got)
 	}
 }
 

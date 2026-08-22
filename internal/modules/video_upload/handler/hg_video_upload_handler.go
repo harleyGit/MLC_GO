@@ -249,6 +249,34 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
+// GetVideoDetail 点查视频列表项，支持页面刷新后按路由 contentId 恢复播放信息。
+func (h *Handler) GetVideoDetail(w http.ResponseWriter, r *http.Request) {
+	if _, ok := HGContextPackage.CurrentUserID(r); !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+
+	contentID := strings.TrimSpace(r.URL.Query().Get("contentId"))
+	item, found, err := h.service.GetVideoListItem(r.Context(), contentID)
+	if errors.Is(err, VideoUploadServicePackage.ErrSubmissionInvalid) {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "视频详情加载失败"})
+		return
+	}
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "视频不存在"})
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, item)
+}
+
 // UploadCover 接收 base64 编码的封面图，保存为文件并返回访问 URL。
 // 请求体 JSON：{ "image": "data:image/jpeg;base64,..." }
 // 响应 JSON：{ "code": 0, "data": { "url": "http://host/uploads/cover/xxx.jpg" } }

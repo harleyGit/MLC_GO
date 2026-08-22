@@ -331,15 +331,27 @@ func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, li
 		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByTagCursorSQL, tagName, parts[0], parts[0], parts[1], limit)
 	}
 	if cursor == "" {
-		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
+		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit, limit, limit)
 	}
 
 	parts := strings.SplitN(cursor, "|", 2)
 	if len(parts) != 2 {
-		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit)
+		return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorFirstSQL, limit, limit, limit)
 	}
 
-	return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorSQL, parts[0], parts[0], parts[1], limit)
+	return r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListByCursorSQL, parts[0], parts[0], parts[1], limit, parts[0], parts[0], parts[1], limit, limit)
+}
+
+// GetVideoListItemByID 点查列表项，支持原生 video/submission ID 和 external 平台内容 ID。
+func (r *Repository) GetVideoListItemByID(ctx context.Context, contentID string) (VideoUploadDtoPackage.VideoListItem, bool, error) {
+	items, err := r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListItemByIDSQL, contentID, contentID, contentID)
+	if err != nil {
+		return VideoUploadDtoPackage.VideoListItem{}, false, err
+	}
+	if len(items) == 0 {
+		return VideoUploadDtoPackage.VideoListItem{}, false, nil
+	}
+	return items[0], true, nil
 }
 
 // queryVideoList 执行视频列表查询并扫描结果，消除重复代码。
@@ -378,6 +390,15 @@ func (r *Repository) queryVideoList(ctx context.Context, query string, args ...i
 			&fileSize,
 			&mimeType,
 			&partNumber,
+			&item.PlaybackType,
+			&item.SourcePlatform,
+			&item.ExternalContentID,
+			&item.TargetURL,
+			&item.AuthorName,
+			&item.Duration,
+			&item.ViewCount,
+			&item.LikeCount,
+			&item.CommentCount,
 		); err != nil {
 			return nil, err
 		}

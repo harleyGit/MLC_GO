@@ -23,6 +23,7 @@ const (
 	InteractionReprojectLeaseKeyPrefix      = "interaction:reproject:{control}:lease:"
 	InteractionReprojectCheckpointKeyPrefix = "interaction:reproject:{control}:checkpoint:"
 	CoinJobLeaseKeyPrefix                   = "coin:jobs:{global}:lease:"
+	CrawlerTaskLeaseKeyPrefix               = "crawler:tasks:lease:"
 	VideoDanmakuTicketKeyPrefix             = "video:danmaku:ticket:"
 	VideoDanmakuBroadcastChannelPrefix      = "video:danmaku:broadcast:"
 	VideoDanmakuRecentStreamKeyPrefix       = "video:danmaku:recent:"
@@ -70,6 +71,11 @@ func GetInteractionReprojectCheckpointKey(stream string) string {
 }
 
 func GetCoinJobLeaseKey(task string) string { return CoinJobLeaseKeyPrefix + task }
+
+// GetCrawlerTaskLeaseKey returns one independently distributed lease key per persisted task definition.
+func GetCrawlerTaskLeaseKey(taskID uint64) string {
+	return fmt.Sprintf("%s{%d}", CrawlerTaskLeaseKeyPrefix, taskID)
+}
 
 func GetVideoInteractionCountKey(submissionID string) string {
 	return fmt.Sprintf("%s{%s}", VideoInteractionCountKeyPrefix, submissionID)

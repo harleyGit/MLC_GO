@@ -43,6 +43,14 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			NeedAuth: true,
 		},
 		{
+			Path:    "/detail",
+			Version: "v1",
+			Methods: map[string]bool{
+				http.MethodGet: true,
+			},
+			NeedAuth: true,
+		},
+		{
 			Path:    "/account",
 			Version: "v1",
 			Methods: map[string]bool{
@@ -394,6 +402,10 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 		{Path: "/coin/corrections/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/asset-permissions/current", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/observability/asset-pipeline", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
+		{Path: "/crawler/tasks/debug", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/crawler/tasks/save", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/crawler/tasks/save-and-run", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/crawler/tasks/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 	}
 }
 

@@ -96,9 +96,28 @@ func TestGetVideoListReturnsCachedPageWithoutRepositoryQuery(t *testing.T) {
 	}
 }
 
+func TestGetVideoListTotalRefreshesLegacyCounterWithoutExternalField(t *testing.T) {
+	repo := &fakeVideoListRepository{statusCounts: map[string]int64{"reviewing": 1, "published": 1, "external": 12}}
+	cache := &fakeVideoListCache{statusCounters: map[string]int64{"reviewing": 1, "published": 1}}
+	svc := &Service{repo: repo, cache: cache}
+
+	total, err := svc.getVideoListTotal(context.Background())
+	if err != nil {
+		t.Fatalf("getVideoListTotal() error = %v", err)
+	}
+	if total != 14 {
+		t.Fatalf("getVideoListTotal() = %d, want 14", total)
+	}
+	if repo.statusCountCalls != 1 || cache.setCounterCalls != 1 {
+		t.Fatalf("refresh calls = repo:%d cache:%d, want 1/1", repo.statusCountCalls, cache.setCounterCalls)
+	}
+}
+
 type fakeVideoListRepository struct {
-	listCalls int
-	tagName   string
+	listCalls        int
+	tagName          string
+	statusCountCalls int
+	statusCounts     map[string]int64
 }
 
 func (f *fakeVideoListRepository) EnsureVideoListIndex(ctx context.Context) error { return nil }
@@ -119,12 +138,21 @@ func (f *fakeVideoListRepository) GetVideoListByCursor(ctx context.Context, curs
 	f.tagName = tagName
 	return nil, nil
 }
+func (f *fakeVideoListRepository) GetVideoListItemByID(ctx context.Context, contentID string) (VideoUploadDtoPackage.VideoListItem, bool, error) {
+	return VideoUploadDtoPackage.VideoListItem{}, false, nil
+}
 func (f *fakeVideoListRepository) GetVideoStatusCounts(ctx context.Context) (map[string]int64, error) {
+	f.statusCountCalls++
+	if f.statusCounts != nil {
+		return f.statusCounts, nil
+	}
 	return map[string]int64{"reviewing": 1, "published": 1}, nil
 }
 
 type fakeVideoListCache struct {
-	cachedPage *VideoUploadDtoPackage.GetVideoListResponse
+	cachedPage      *VideoUploadDtoPackage.GetVideoListResponse
+	statusCounters  map[string]int64
+	setCounterCalls int
 }
 
 func (f *fakeVideoListCache) TouchUploadSession(ctx context.Context, userID string, submissionID string) error {
@@ -149,9 +177,13 @@ func (f *fakeVideoListCache) IncrementVideoStatusCounter(ctx context.Context, st
 	return nil
 }
 func (f *fakeVideoListCache) GetVideoStatusCounters(ctx context.Context) (map[string]int64, bool, error) {
+	if f.statusCounters != nil {
+		return f.statusCounters, true, nil
+	}
 	return map[string]int64{"reviewing": 1, "published": 1}, true, nil
 }
 func (f *fakeVideoListCache) SetVideoStatusCounters(ctx context.Context, counters map[string]int64) error {
+	f.setCounterCalls++
 	return nil
 }
 func (f *fakeVideoListCache) GetVideoListPage(ctx context.Context, cursor string, pageSize int, tagName string) (*VideoUploadDtoPackage.GetVideoListResponse, bool, error) {

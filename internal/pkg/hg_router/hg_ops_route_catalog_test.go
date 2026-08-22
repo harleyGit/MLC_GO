@@ -45,3 +45,20 @@ func TestOpsRouteCatalogContainsCoinOperations(t *testing.T) {
 		t.Fatalf("missing authenticated coin operation routes: %v", want)
 	}
 }
+
+func TestOpsRouteCatalogContainsCrawlerDebug(t *testing.T) {
+	want := map[string]string{
+		"/api/v1/ops/crawler/tasks/debug":        http.MethodPost,
+		"/api/v1/ops/crawler/tasks/save":         http.MethodPost,
+		"/api/v1/ops/crawler/tasks/save-and-run": http.MethodPost,
+		"/api/v1/ops/crawler/tasks/list":         http.MethodGet,
+	}
+	for _, item := range OpsRouteCatalog() {
+		if method, ok := want[item.Path]; ok && item.Method == method && item.NeedAuth {
+			delete(want, item.Path)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing authenticated crawler task routes: %v", want)
+	}
+}

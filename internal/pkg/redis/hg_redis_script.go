@@ -144,6 +144,18 @@ else
     return 0
 end`
 
+	// VideoExternalCounterIncrementIfPresentLuaScript increments external only after the complete counter hash is initialized.
+	// KEYS[1] is video_status_counter; ARGV[1] is the inserted external-content delta.
+	// Checking all three fields prevents a crawler write from creating a partial hash that would be mistaken for an initialized counter.
+	VideoExternalCounterIncrementIfPresentLuaScript = `
+if redis.call('HEXISTS', KEYS[1], 'reviewing') == 0 or
+   redis.call('HEXISTS', KEYS[1], 'published') == 0 or
+   redis.call('HEXISTS', KEYS[1], 'external') == 0 then
+    return 0
+end
+redis.call('HINCRBY', KEYS[1], 'external', ARGV[1])
+return 1`
+
 	// FeedPublishLuaScript 原子完成 Kafka offset 水位去重、ZSET 写入和容量裁剪。
 	// KEYS[1]：分片 Feed ZSET；KEYS[2]：分片 offset 水位 Hash，两者必须使用同一 Redis Cluster hash tag。
 	// ARGV[1]：submission_id；ARGV[2]：发布时间毫秒；ARGV[3]：最大成员数；ARGV[4]：topic:partition；ARGV[5]：offset。

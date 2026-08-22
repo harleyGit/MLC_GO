@@ -1,10 +1,13 @@
 package OpsHandlerPackage
 
 import (
+	CrawlerDtoPackage "MLC_GO/internal/modules/crawler/dto"
+	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	OpsDtoPackage "MLC_GO/internal/modules/ops/dto"
 	OpsServicePackage "MLC_GO/internal/modules/ops/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,12 +17,204 @@ import (
 // Handler 是 ops 模块的 HTTP 入口。
 // 只负责鉴权上下文读取、HTTP 参数解析、错误码映射和统一响应，不直接写 SQL 或处理业务细节。
 type Handler struct {
-	service *OpsServicePackage.Service
+	service      *OpsServicePackage.Service
+	crawlerDebug *CrawlerServicePackage.HGDebugService
+	crawlerTasks *CrawlerServicePackage.HGTaskService
+	crawlerAuth  interface {
+		HasAssetPermission(context.Context, string, string) (bool, error)
+	}
 }
 
 // NewHandler 创建运维管理处理器，由 module assembly 统一注入 service。
-func NewHandler(service *OpsServicePackage.Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *OpsServicePackage.Service, crawlerDebug ...*CrawlerServicePackage.HGDebugService) *Handler {
+	handler := &Handler{service: service}
+	if len(crawlerDebug) > 0 {
+		handler.crawlerDebug = crawlerDebug[0]
+	}
+	return handler
+}
+
+// WithCrawlerTasks injects persisted crawler task management and its database-backed authorizer.
+func (h *Handler) WithCrawlerTasks(tasks *CrawlerServicePackage.HGTaskService, authorizer interface {
+	HasAssetPermission(context.Context, string, string) (bool, error)
+}) *Handler {
+	h.crawlerTasks = tasks
+	h.crawlerAuth = authorizer
+	return h
+}
+
+// DebugCrawlerTask 执行一次不落库的受控采集请求并返回响应预览和字段建议。
+func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+	if !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.run") {
+		return
+	}
+	if h.crawlerDebug == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集测试服务不可用"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var req CrawlerDtoPackage.HGDebugRequest
+	if err := decoder.Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		return
+	}
+	result, err := h.crawlerDebug.TestRequest(r.Context(), req)
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, CrawlerServicePackage.ErrHGDebugInvalidRequest) || errors.Is(err, CrawlerServicePackage.ErrHGDebugUnsafeTarget) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+		}
+		w.WriteHeader(status)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, result)
+}
+
+// SaveCrawlerTask validates and persists a crawler task definition without executing it.
+func (h *Handler) SaveCrawlerTask(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+	if h.crawlerTasks == nil {
+		hgWriteCrawlerUnavailable(w, r)
+		return
+	}
+	if !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.write") {
+		return
+	}
+	var req CrawlerDtoPackage.HGTaskDefinitionSaveRequest
+	if !hgDecodeCrawlerBody(w, r, &req) {
+		return
+	}
+	definition, err := h.crawlerTasks.Save(r.Context(), req, userID)
+	if err != nil {
+		hgWriteCrawlerTaskError(w, r, err)
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, definition)
+}
+
+// SaveAndRunCrawlerTask persists a definition and returns its first terminal run, including failed runs.
+func (h *Handler) SaveAndRunCrawlerTask(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+	if h.crawlerTasks == nil {
+		hgWriteCrawlerUnavailable(w, r)
+		return
+	}
+	if !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.write") || !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.run") {
+		return
+	}
+	var req CrawlerDtoPackage.HGTaskDefinitionSaveRequest
+	if !hgDecodeCrawlerBody(w, r, &req) {
+		return
+	}
+	definition, run, err := h.crawlerTasks.SaveAndRun(r.Context(), req, userID)
+	if definition != nil && run != nil {
+		HGResponsePakcage.SuccessResult(w, r, map[string]any{"task": definition, "run": run})
+		return
+	}
+	if err != nil {
+		hgWriteCrawlerTaskError(w, r, err)
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, map[string]any{"task": definition, "run": run})
+}
+
+// ListCrawlerTasks returns a bounded persisted-definition cursor page.
+func (h *Handler) ListCrawlerTasks(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+	if h.crawlerTasks == nil {
+		hgWriteCrawlerUnavailable(w, r)
+		return
+	}
+	if !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.read") {
+		return
+	}
+	cursor, _ := strconv.ParseUint(r.URL.Query().Get("cursor"), 10, 64)
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	result, err := h.crawlerTasks.List(r.Context(), CrawlerDtoPackage.HGTaskDefinitionListRequest{Cursor: cursor, Limit: pageSize})
+	if err != nil {
+		hgWriteCrawlerTaskError(w, r, err)
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, map[string]any{"list": result.Items, "nextCursor": result.NextCursor, "hasMore": result.HasMore, "total": -1})
+}
+
+func (h *Handler) hgAuthorizeCrawler(w http.ResponseWriter, r *http.Request, userID, permission string) bool {
+	if h.crawlerAuth == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
+		return false
+	}
+	allowed, err := h.crawlerAuth.HasAssetPermission(r.Context(), userID, permission)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "权限校验失败"})
+		return false
+	}
+	if !allowed {
+		w.WriteHeader(http.StatusForbidden)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无采集任务操作权限"})
+		return false
+	}
+	return true
+}
+
+func hgDecodeCrawlerBody(w http.ResponseWriter, r *http.Request, target any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		return false
+	}
+	return true
+}
+
+func hgWriteCrawlerUnavailable(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusServiceUnavailable)
+	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
+}
+
+func hgWriteCrawlerTaskError(w http.ResponseWriter, r *http.Request, err error) {
+	status := http.StatusInternalServerError
+	code := HGResponsePakcage.InternalError.Code
+	if errors.Is(err, CrawlerServicePackage.ErrHGTaskInvalidDefinition) || errors.Is(err, CrawlerServicePackage.ErrHGCrawlerInvalidRequest) || errors.Is(err, CrawlerServicePackage.ErrHGCrawlerUnsafeTarget) {
+		status = http.StatusBadRequest
+		code = HGResponsePakcage.InvalidParam.Code
+	} else if errors.Is(err, CrawlerServicePackage.ErrHGTaskLeaseNotAcquired) {
+		status = http.StatusConflict
+		code = HGResponsePakcage.Conflict.Code
+	}
+	w.WriteHeader(status)
+	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
 }
 
 // CreateRole 创建角色

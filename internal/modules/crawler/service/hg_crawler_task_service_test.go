@@ -1,0 +1,153 @@
+package service
+
+import (
+	CrawlerDtoPackage "MLC_GO/internal/modules/crawler/dto"
+	CrawlerModelPackage "MLC_GO/internal/modules/crawler/model"
+	CrawlerPlatformPackage "MLC_GO/internal/modules/crawler/platform"
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+)
+
+type hgTaskRepositoryStub struct {
+	definition *CrawlerModelPackage.HGTaskDefinition
+	runs       []*CrawlerModelPackage.HGTaskRun
+	items      []CrawlerPlatformPackage.HGRecommendation
+}
+
+func (s *hgTaskRepositoryStub) SaveTaskDefinition(_ context.Context, definition *CrawlerModelPackage.HGTaskDefinition) error {
+	if definition.ID == 0 {
+		definition.ID = 9
+		definition.Version = 1
+	}
+	copy := *definition
+	copy.Configuration = append(json.RawMessage(nil), definition.Configuration...)
+	s.definition = &copy
+	return nil
+}
+
+func (s *hgTaskRepositoryStub) GetTaskDefinitionByID(context.Context, uint64) (*CrawlerModelPackage.HGTaskDefinition, error) {
+	if s.definition == nil {
+		return nil, errors.New("not found")
+	}
+	copy := *s.definition
+	return &copy, nil
+}
+
+func (s *hgTaskRepositoryStub) ListTaskDefinitions(context.Context, uint64, int) ([]CrawlerModelPackage.HGTaskDefinition, uint64, bool, error) {
+	return nil, 0, false, nil
+}
+
+func (s *hgTaskRepositoryStub) CreateTaskRun(_ context.Context, run *CrawlerModelPackage.HGTaskRun) error {
+	run.ID = uint64(len(s.runs) + 1)
+	copy := *run
+	s.runs = append(s.runs, &copy)
+	return nil
+}
+
+func (s *hgTaskRepositoryStub) CompleteTaskRun(_ context.Context, run *CrawlerModelPackage.HGTaskRun) error {
+	copy := *run
+	s.runs[len(s.runs)-1] = &copy
+	return nil
+}
+
+func (s *hgTaskRepositoryStub) UpsertRecommendations(_ context.Context, items []CrawlerPlatformPackage.HGRecommendation) error {
+	s.items = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
+	return nil
+}
+
+type hgTaskHTTPStub struct {
+	validationErr error
+	result        HGHTTPResult
+	err           error
+}
+
+func (s hgTaskHTTPStub) ValidateRequest(CrawlerDtoPackage.HGDebugRequest) error {
+	return s.validationErr
+}
+func (s hgTaskHTTPStub) Execute(context.Context, CrawlerDtoPackage.HGDebugRequest) (HGHTTPResult, error) {
+	return s.result, s.err
+}
+
+type hgTaskLeaseStub struct {
+	acquired bool
+	ttl      time.Duration
+}
+
+func (s *hgTaskLeaseStub) Acquire(_ context.Context, _ uint64, ttl time.Duration) (string, bool, error) {
+	s.ttl = ttl
+	return "owner", s.acquired, nil
+}
+
+func (*hgTaskLeaseStub) Release(context.Context, uint64, string) error { return nil }
+
+func TestHGTaskServiceRejectsInvalidCronAndRequestPolicy(t *testing.T) {
+	repository := &hgTaskRepositoryStub{}
+	lease := &hgTaskLeaseStub{acquired: true}
+	service, err := NewHGTaskService(repository, hgTaskHTTPStub{validationErr: ErrHGCrawlerUnsafeTarget}, lease, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := hgValidTaskSaveRequest()
+	req.Cron = "invalid"
+	if _, err := service.Save(context.Background(), req, "admin"); !errors.Is(err, ErrHGTaskInvalidDefinition) {
+		t.Fatalf("invalid cron error = %v", err)
+	}
+	req.Cron = "0 * * * * *"
+	if _, err := service.Save(context.Background(), req, "admin"); !errors.Is(err, ErrHGTaskInvalidDefinition) {
+		t.Fatalf("unsafe request error = %v", err)
+	}
+}
+
+func TestHGTaskServiceSaveAndRunCompletesFailureWithoutRemovingDefinition(t *testing.T) {
+	repository := &hgTaskRepositoryStub{}
+	lease := &hgTaskLeaseStub{acquired: true}
+	service, err := NewHGTaskService(repository, hgTaskHTTPStub{err: errors.New("upstream unavailable")}, lease, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, run, err := service.SaveAndRun(context.Background(), hgValidTaskSaveRequest(), "admin")
+	if err == nil || definition == nil || definition.ID != 9 || repository.definition == nil {
+		t.Fatalf("SaveAndRun() definition=%#v run=%#v error=%v", definition, run, err)
+	}
+	if run == nil || run.Status != "failed" || len(repository.runs) != 1 || repository.runs[0].Status != "failed" {
+		t.Fatalf("completed run = %#v, stored runs = %#v", run, repository.runs)
+	}
+	if lease.ttl != 15*time.Second {
+		t.Fatalf("lease TTL = %v, want 15s", lease.ttl)
+	}
+}
+
+func TestHGTaskServiceRunParsesLimitsAndUpserts(t *testing.T) {
+	repository := &hgTaskRepositoryStub{}
+	lease := &hgTaskLeaseStub{acquired: true}
+	httpResult := HGHTTPResult{URL: "https://api.example.com/feed", StatusCode: 200, Body: []byte(`{"items":[{"id":"one","title":"First","url":"/watch/one"}]}`)}
+	service, err := NewHGTaskService(repository, hgTaskHTTPStub{result: httpResult}, lease, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := service.Save(context.Background(), hgValidTaskSaveRequest(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.RunByID(context.Background(), definition.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "succeeded" || run.ItemCount != 1 || len(repository.items) != 1 || repository.items[0].ContentID != "one" {
+		t.Fatalf("run=%#v items=%#v", run, repository.items)
+	}
+}
+
+func hgValidTaskSaveRequest() CrawlerDtoPackage.HGTaskDefinitionSaveRequest {
+	return CrawlerDtoPackage.HGTaskDefinitionSaveRequest{
+		Name: "feed", Platform: "example", Enabled: true, Cron: "0 * * * * *",
+		ParserType: "restricted_jsonpath", ItemPath: "$.items[*]", MaxItems: 10,
+		Configuration: json.RawMessage(`{
+            "request":{"url":"https://api.example.com/feed","method":"GET","timeoutMs":10000},
+            "parser":{"type":"restricted_jsonpath","platform":"example","itemSelector":"$.items[*]","fields":{"contentId":{"selector":"$.id"},"title":{"selector":"$.title"},"targetUrl":{"selector":"$.url"}}}
+        }`),
+	}
+}

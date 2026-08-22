@@ -11,8 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
+	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
+	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
+	ConfigPackage "MLC_GO/internal/pkg/config"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 )
 
 func main() {
@@ -26,10 +32,32 @@ func main() {
 // --once 适用于本地验证和 Kubernetes CronJob；常驻模式会同时启动周期 worker 与管理 API。
 func hgRun() error {
 	addr := flag.String("addr", ":8090", "crawler admin API listen address")
+	env := flag.String("env", "debug", "runtime environment: debug, pre or prod")
+	configDir := flag.String("config-dir", "./config", "configuration root directory")
 	interval := flag.Duration("interval", 5*time.Minute, "automatic crawl interval, minimum 10s")
 	timeout := flag.Duration("timeout", 10*time.Second, "single crawl timeout")
 	once := flag.Bool("once", false, "fetch one recommendation batch and exit")
 	flag.Parse()
+	if err := os.Setenv("MLC_CONFIG_DIR", *configDir); err != nil {
+		return fmt.Errorf("setting crawler config directory: %w", err)
+	}
+	if err := ConfigPackage.LoadConfig(*env); err != nil {
+		return fmt.Errorf("loading crawler config: %w", err)
+	}
+	sqlManager, err := PersistenceSQLPackage.NewSQLManager()
+	if err != nil {
+		return fmt.Errorf("creating crawler sql manager: %w", err)
+	}
+	defer sqlManager.Close()
+	redisService, err := PersistenceRedisPackage.NewRedisServiceWithError(context.Background())
+	if err != nil {
+		return fmt.Errorf("creating crawler redis service: %w", err)
+	}
+	defer redisService.Close()
+	store := CrawlerServicePackage.NewHGExternalContentStore(
+		CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
+		VideoUploadCachePackage.NewCache(redisService),
+	)
 
 	// 独立命令和主应用共用 runtime 工厂，保证限流、重试和协议客户端不会分叉成两套实现。
 	manager, err := CrawlerRuntimePackage.NewHGBilibiliManager(CrawlerRuntimePackage.HGBilibiliRuntimeConfig{
@@ -39,6 +67,7 @@ func hgRun() error {
 		RetryCount:    2,
 		RatePerSecond: 0.2,
 		UserAgent:     "MLC_GO-HGCrawler/1.0",
+		Store:         store,
 	})
 	if err != nil {
 		return err
