@@ -1,12 +1,15 @@
 package spider
 
 import (
+	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
+
+const hgCrawlerModuleBasePath = "/api/v1/crawler"
 
 // hgResponse 对齐 React HttpManagerV1 期望的 code/message/result 响应信封。
 // crawler 当前作为独立服务运行，因此不依赖主业务进程的 response 包和请求上下文中间件。
@@ -23,21 +26,46 @@ type hgResponse struct {
 func NewHGHTTPHandler(manager *HGManager) http.Handler {
 	mux := http.NewServeMux()
 	h := &hgHTTPHandler{manager: manager}
-	mux.HandleFunc("GET /api/v1/crawler/dashboard", h.dashboard)
-	mux.HandleFunc("GET /api/v1/crawler/spiders", h.spiders)
-	mux.HandleFunc("POST /api/v1/crawler/spiders/bilibili/start", h.start)
-	mux.HandleFunc("POST /api/v1/crawler/spiders/bilibili/stop", h.stop)
-	mux.HandleFunc("GET /api/v1/crawler/tasks", h.tasks)
-	mux.HandleFunc("POST /api/v1/crawler/tasks", h.createTask)
-	mux.HandleFunc("GET /api/v1/crawler/recommendations", h.recommendations)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		hgWriteJSON(w, http.StatusOK, "ok", map[string]string{"status": "healthy"})
-	})
+	for _, route := range hgCrawlerRoutes(h) {
+		mux.HandleFunc(route.Method+" "+route.FullPath, route.Handler)
+	}
 	return mux
 }
 
 // hgHTTPHandler 只负责 HTTP 参数和统一响应，任务校验、并发控制和状态更新由 HGManager 完成。
 type hgHTTPHandler struct{ manager *HGManager }
+
+// hgCrawlerRoutes 返回 crawler 独立服务的完整路由定义。
+func hgCrawlerRoutes(handler *hgHTTPHandler) []HGRouterPackage.RouteSpec {
+	if handler == nil {
+		return []HGRouterPackage.RouteSpec{
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/dashboard", false, "获取爬虫管理看板", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/spiders", false, "获取爬虫运行状态", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/spiders/bilibili/start", false, "启动 Bilibili 爬虫", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/spiders/bilibili/stop", false, "停止 Bilibili 爬虫", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/tasks", false, "获取爬虫任务列表", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/tasks", false, "创建爬虫任务", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/recommendations", false, "获取推荐数据", nil),
+			HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, "", "/healthz", false, "检查爬虫服务健康状态", nil),
+		}
+	}
+
+	return []HGRouterPackage.RouteSpec{
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/dashboard", false, "获取爬虫管理看板", handler.dashboard),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/spiders", false, "获取爬虫运行状态", handler.spiders),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/spiders/bilibili/start", false, "启动 Bilibili 爬虫", handler.start),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/spiders/bilibili/stop", false, "停止 Bilibili 爬虫", handler.stop),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/tasks", false, "获取爬虫任务列表", handler.tasks),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodPost, hgCrawlerModuleBasePath, "/tasks", false, "创建爬虫任务", handler.createTask),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, hgCrawlerModuleBasePath, "/recommendations", false, "获取推荐数据", handler.recommendations),
+		HGRouterPackage.NewRouteSpec("crawler", http.MethodGet, "", "/healthz", false, "检查爬虫服务健康状态", handler.health),
+	}
+}
+
+// health 返回 crawler 独立服务存活状态。
+func (h *hgHTTPHandler) health(w http.ResponseWriter, _ *http.Request) {
+	hgWriteJSON(w, http.StatusOK, "ok", map[string]string{"status": "healthy"})
+}
 
 // dashboard 返回指标、趋势和最近任务的内存快照。
 func (h *hgHTTPHandler) dashboard(w http.ResponseWriter, _ *http.Request) {

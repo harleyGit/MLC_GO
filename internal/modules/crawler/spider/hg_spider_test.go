@@ -2,6 +2,7 @@ package spider
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -49,6 +50,35 @@ func (p *hgBlockingPlatform) FetchRecommendations(ctx context.Context) ([]Crawle
 		return nil, ctx.Err()
 	case <-p.release:
 		return []CrawlerPlatformPackage.HGRecommendation{{Platform: "bilibili", ContentID: "BV1"}}, nil
+	}
+}
+
+func TestHGCrawlerRoutes(t *testing.T) {
+	want := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/crawler/dashboard"},
+		{method: http.MethodGet, path: "/api/v1/crawler/spiders"},
+		{method: http.MethodPost, path: "/api/v1/crawler/spiders/bilibili/start"},
+		{method: http.MethodPost, path: "/api/v1/crawler/spiders/bilibili/stop"},
+		{method: http.MethodGet, path: "/api/v1/crawler/tasks"},
+		{method: http.MethodPost, path: "/api/v1/crawler/tasks"},
+		{method: http.MethodGet, path: "/api/v1/crawler/recommendations"},
+		{method: http.MethodGet, path: "/healthz"},
+	}
+
+	routes := hgCrawlerRoutes(&hgHTTPHandler{})
+	if len(routes) != len(want) {
+		t.Fatalf("hgCrawlerRoutes() length = %d, want %d", len(routes), len(want))
+	}
+	for i, route := range routes {
+		if route.Method != want[i].method || route.FullPath != want[i].path {
+			t.Errorf("route[%d] = %s %s, want %s %s", i, route.Method, route.FullPath, want[i].method, want[i].path)
+		}
+		if route.Handler == nil {
+			t.Errorf("route[%d] handler is nil", i)
+		}
 	}
 }
 
