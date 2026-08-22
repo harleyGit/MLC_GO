@@ -74,14 +74,25 @@ func (s *hgTaskRepositoryStub) UpsertTaskRecommendations(_ context.Context, task
 type hgTaskHTTPStub struct {
 	validationErr error
 	result        HGHTTPResult
+	results       []HGHTTPResult
 	err           error
+	executed      int
 }
 
 func (s hgTaskHTTPStub) ValidateRequest(CrawlerDtoPackage.HGDebugRequest) error {
 	return s.validationErr
 }
-func (s hgTaskHTTPStub) Execute(context.Context, CrawlerDtoPackage.HGDebugRequest) (HGHTTPResult, error) {
-	return s.result, s.err
+func (s *hgTaskHTTPStub) Execute(context.Context, CrawlerDtoPackage.HGDebugRequest) (HGHTTPResult, error) {
+	if s.err != nil {
+		return HGHTTPResult{}, s.err
+	}
+	if s.executed < len(s.results) {
+		result := s.results[s.executed]
+		s.executed++
+		return result, nil
+	}
+	s.executed++
+	return s.result, nil
 }
 
 type hgTaskLeaseStub struct {
@@ -99,7 +110,8 @@ func (*hgTaskLeaseStub) Release(context.Context, uint64, string) error { return 
 func TestHGTaskServiceRejectsInvalidCronAndRequestPolicy(t *testing.T) {
 	repository := &hgTaskRepositoryStub{}
 	lease := &hgTaskLeaseStub{acquired: true}
-	service, err := NewHGTaskService(repository, hgTaskHTTPStub{validationErr: ErrHGCrawlerUnsafeTarget}, lease, 5*time.Second)
+	http := &hgTaskHTTPStub{validationErr: ErrHGCrawlerUnsafeTarget}
+	service, err := NewHGTaskService(repository, http, lease, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +129,8 @@ func TestHGTaskServiceRejectsInvalidCronAndRequestPolicy(t *testing.T) {
 func TestHGTaskServiceSaveAndRunCompletesFailureWithoutRemovingDefinition(t *testing.T) {
 	repository := &hgTaskRepositoryStub{}
 	lease := &hgTaskLeaseStub{acquired: true}
-	service, err := NewHGTaskService(repository, hgTaskHTTPStub{err: errors.New("upstream unavailable")}, lease, 5*time.Second)
+	http := &hgTaskHTTPStub{err: errors.New("upstream unavailable")}
+	service, err := NewHGTaskService(repository, http, lease, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +150,8 @@ func TestHGTaskServiceRunParsesLimitsAndUpserts(t *testing.T) {
 	repository := &hgTaskRepositoryStub{}
 	lease := &hgTaskLeaseStub{acquired: true}
 	httpResult := HGHTTPResult{URL: "https://api.example.com/feed", StatusCode: 200, Body: []byte(`{"items":[{"id":"one","title":"First","url":"/watch/one"}]}`)}
-	service, err := NewHGTaskService(repository, hgTaskHTTPStub{result: httpResult}, lease, 5*time.Second)
+	http := &hgTaskHTTPStub{result: httpResult}
+	service, err := NewHGTaskService(repository, http, lease, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +173,7 @@ func TestHGTaskServiceRunParsesLimitsAndUpserts(t *testing.T) {
 
 func TestHGTaskServiceListContentsRequiresTaskIDAndReturnsCursorPage(t *testing.T) {
 	repository := &hgTaskRepositoryStub{contents: []CrawlerModelPackage.HGTaskExternalContent{{AssociationID: 8, TaskDefinitionID: 9}}}
-	service, err := NewHGTaskService(repository, hgTaskHTTPStub{}, &hgTaskLeaseStub{acquired: true}, 5*time.Second)
+	service, err := NewHGTaskService(repository, &hgTaskHTTPStub{}, &hgTaskLeaseStub{acquired: true}, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +186,65 @@ func TestHGTaskServiceListContentsRequiresTaskIDAndReturnsCursorPage(t *testing.
 	}
 	if len(result.Items) != 1 || result.NextCursor != 7 || !result.HasMore {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestHGTaskServiceRunsBoundedURLList(t *testing.T) {
+	repository := &hgTaskRepositoryStub{}
+	http := &hgTaskHTTPStub{results: []HGHTTPResult{
+		{URL: "https://api.example.com/one", StatusCode: 200, Body: []byte(`{"items":[{"id":"one","title":"One","url":"/one"}]}`)},
+		{URL: "https://api.example.com/two", StatusCode: 200, Body: []byte(`{"items":[{"id":"two","title":"Two","url":"/two"}]}`)},
+	}}
+	service, err := NewHGTaskService(repository, http, &hgTaskLeaseStub{acquired: true}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := hgValidTaskSaveRequest()
+	req.Configuration = json.RawMessage(`{
+		"request":{"method":"GET","timeoutMs":10000},
+		"collectType":"url_list",
+		"urls":["https://api.example.com/one","https://api.example.com/two"],
+		"parser":{"type":"restricted_jsonpath","platform":"example","itemSelector":"$.items[*]","fields":{"contentId":{"selector":"$.id"},"title":{"selector":"$.title"},"targetUrl":{"selector":"$.url"}}}
+	}`)
+	definition, err := service.Save(context.Background(), req, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.RunByID(context.Background(), definition.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ItemCount != 2 || len(repository.items) != 2 || http.executed != 2 {
+		t.Fatalf("run=%#v items=%#v requests=%d", run, repository.items, http.executed)
+	}
+}
+
+func TestHGTaskServiceExpandsSitemapURLs(t *testing.T) {
+	repository := &hgTaskRepositoryStub{}
+	http := &hgTaskHTTPStub{results: []HGHTTPResult{
+		{URL: "https://api.example.com/sitemap.xml", StatusCode: 200, Body: []byte(`<urlset><url><loc>https://api.example.com/one</loc></url></urlset>`)},
+		{URL: "https://api.example.com/one", StatusCode: 200, Body: []byte(`{"items":[{"id":"one","title":"One","url":"/one"}]}`)},
+	}}
+	service, err := NewHGTaskService(repository, http, &hgTaskLeaseStub{acquired: true}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := hgValidTaskSaveRequest()
+	req.Configuration = json.RawMessage(`{
+		"request":{"url":"https://api.example.com/sitemap.xml","method":"GET","timeoutMs":10000},
+		"collectType":"sitemap",
+		"parser":{"type":"restricted_jsonpath","platform":"example","itemSelector":"$.items[*]","fields":{"contentId":{"selector":"$.id"},"title":{"selector":"$.title"},"targetUrl":{"selector":"$.url"}}}
+	}`)
+	definition, err := service.Save(context.Background(), req, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.RunByID(context.Background(), definition.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ItemCount != 1 || len(repository.items) != 1 || http.executed != 2 {
+		t.Fatalf("run=%#v items=%#v requests=%d", run, repository.items, http.executed)
 	}
 }
 

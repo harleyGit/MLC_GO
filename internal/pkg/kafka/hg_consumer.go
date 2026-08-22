@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 17:43:19
+ * @LastEditTime: 2026-08-22 18:03:46
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  * 统一消费基类、自动offset管理、DLQ
@@ -474,6 +474,20 @@ func hgProcessFetchBatch(
 	return hgProcessFetchBatchObserved(ctx, fetches, handle, nil, onFailure)
 }
 
+/*
+拉取一批消息
+    │
+    ├─ 按分区遍历
+    │     │
+    │     ├─ 逐条处理
+    │     │     ├─ 成功 → 更新 lastSucceeded，继续
+    │     │     ├─ 失败+parked → 跳过，更新 lastSucceeded，继续
+    │     │     └─ 失败+retryable → 记录失败位点，停止本分区
+    │     │
+    │     └─ 提交 lastSucceeded（该分区最大安全 offset）
+    │
+    └─ 返回 commitRecords + failedOffsets
+*/
 // hgProcessFetchBatchObserved  这是一个基于 kgo（segmentio/kafka-go 的替代库，franz-go）的批量消费处理函数，核心目标是：拉取一批消息后逐分区处理，同时通过 lagObserver 做可观测性埋点，并区分可跳过失败与可重试失败两种错误处理策略。
 //
 //	@param ctx
@@ -559,6 +573,12 @@ func hgProcessFetchBatchObserved(
 	return commitRecords, failedOffsets
 }
 
+// hgInvokeRecordHandler 这是一个防御性包装函数，作用是把业务处理器 handle 可能抛出的 panic 捕获并转换成普通的 error 返回，防止 panic 向上扩散导致整个消费协程崩溃
+//
+//	@param ctx
+//	@param handle
+//	@param record
+//	@return err
 func hgInvokeRecordHandler(ctx context.Context, handle HGRecordHandler, record *kgo.Record) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

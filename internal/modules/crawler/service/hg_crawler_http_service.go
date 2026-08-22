@@ -195,7 +195,11 @@ func (s *HGSafeHTTPService) normalizeRequest(req CrawlerDtoPackage.HGDebugReques
 	if len(req.Headers) > 16 || len(req.Params) > 32 || len(req.Body) > 64<<10 {
 		return nil, "", 0, ErrHGCrawlerInvalidRequest
 	}
-	target, err := s.policy.ValidateTarget(req.URL)
+	normalizedURL, err := hgNormalizeBilibiliVideoURL(req.URL)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	target, err := s.policy.ValidateTarget(normalizedURL)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -222,6 +226,34 @@ func (s *HGSafeHTTPService) normalizeRequest(req CrawlerDtoPackage.HGDebugReques
 		return nil, "", 0, ErrHGCrawlerInvalidRequest
 	}
 	return target, method, time.Duration(timeoutMS) * time.Millisecond, nil
+}
+
+// hgNormalizeBilibiliVideoURL converts a public BV webpage into the allowlisted detail API endpoint.
+func hgNormalizeBilibiliVideoURL(rawURL string) (string, error) {
+	target, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return rawURL, nil
+	}
+	if !strings.EqualFold(target.Hostname(), "www.bilibili.com") {
+		return rawURL, nil
+	}
+	if target.Scheme != "https" || target.User != nil {
+		return "", ErrHGCrawlerInvalidRequest
+	}
+	parts := strings.Split(strings.Trim(target.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "video" || len(parts[1]) < 5 || len(parts[1]) > 32 || !strings.HasPrefix(strings.ToUpper(parts[1]), "BV") {
+		return "", ErrHGCrawlerInvalidRequest
+	}
+	for _, character := range parts[1] {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')) {
+			return "", ErrHGCrawlerInvalidRequest
+		}
+	}
+	endpoint := &url.URL{Scheme: "https", Host: "api.bilibili.com", Path: "/x/web-interface/view"}
+	query := endpoint.Query()
+	query.Set("bvid", parts[1])
+	endpoint.RawQuery = query.Encode()
+	return endpoint.String(), nil
 }
 
 func hgSetCrawlerHeader(headers http.Header, key, value string) error {

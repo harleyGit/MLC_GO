@@ -8,6 +8,7 @@ import (
 	CrawlerPlatformPackage "MLC_GO/internal/modules/crawler/platform"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,8 +27,10 @@ var (
 
 // HGTaskConfiguration is the immutable JSON snapshot used by one formal crawler execution.
 type HGTaskConfiguration struct {
-	Request CrawlerDtoPackage.HGDebugRequest `json:"request"`
-	Parser  CrawlerParserPackage.Config      `json:"parser"`
+	Request     CrawlerDtoPackage.HGDebugRequest `json:"request"`
+	Parser      CrawlerParserPackage.Config      `json:"parser"`
+	CollectType string                           `json:"collectType,omitempty"`
+	URLs        []string                         `json:"urls,omitempty"`
 }
 
 // HGTaskRepository is the persistence surface required by configurable task management and execution.
@@ -219,13 +222,13 @@ func (s *HGTaskService) validateSaveRequest(req CrawlerDtoPackage.HGTaskDefiniti
 	if strings.TrimSpace(configuration.Parser.Platform) == "" {
 		configuration.Parser.Platform = strings.TrimSpace(req.Platform)
 	}
+	if err := s.hgValidateTaskSources(&configuration); err != nil {
+		return HGTaskConfiguration{}, err
+	}
 	if configuration.Parser.Platform != strings.TrimSpace(req.Platform) || string(configuration.Parser.Type) != strings.TrimSpace(req.ParserType) || configuration.Parser.ItemSelector != strings.TrimSpace(req.ItemPath) {
 		return HGTaskConfiguration{}, fmt.Errorf("%w: scalar parser fields do not match configuration", ErrHGTaskInvalidDefinition)
 	}
 	if err := CrawlerParserPackage.Validate(configuration.Parser); err != nil {
-		return HGTaskConfiguration{}, fmt.Errorf("%w: %v", ErrHGTaskInvalidDefinition, err)
-	}
-	if err := s.http.ValidateRequest(configuration.Request); err != nil {
 		return HGTaskConfiguration{}, fmt.Errorf("%w: %v", ErrHGTaskInvalidDefinition, err)
 	}
 	return configuration, nil
@@ -242,32 +245,51 @@ func (s *HGTaskService) validateDefinition(definition *CrawlerModelPackage.HGTas
 	if configuration.Parser.Platform == "" {
 		configuration.Parser.Platform = definition.Platform
 	}
+	if err := s.hgValidateTaskSources(&configuration); err != nil {
+		return HGTaskConfiguration{}, 0, err
+	}
 	if configuration.Parser.Platform != definition.Platform || string(configuration.Parser.Type) != definition.ParserType || configuration.Parser.ItemSelector != definition.ItemPath {
 		return HGTaskConfiguration{}, 0, fmt.Errorf("%w: persisted scalar parser fields do not match configuration", ErrHGTaskInvalidDefinition)
 	}
 	if err := CrawlerParserPackage.Validate(configuration.Parser); err != nil {
 		return HGTaskConfiguration{}, 0, fmt.Errorf("%w: %v", ErrHGTaskInvalidDefinition, err)
 	}
-	if err := s.http.ValidateRequest(configuration.Request); err != nil {
-		return HGTaskConfiguration{}, 0, fmt.Errorf("%w: %v", ErrHGTaskInvalidDefinition, err)
-	}
 	return configuration, timeout, nil
 }
 
 func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPackage.HGTaskDefinition, runID uint64, configuration HGTaskConfiguration) (int, error) {
-	response, err := s.http.Execute(ctx, configuration.Request)
+	requests, err := s.hgExpandTaskRequests(ctx, configuration)
 	if err != nil {
 		return 0, err
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return 0, fmt.Errorf("crawler target returned status %d", response.StatusCode)
-	}
-	items, err := CrawlerParserPackage.Parse(configuration.Parser, response.URL, response.Body)
-	if err != nil {
-		return 0, fmt.Errorf("parse crawler response: %w", err)
-	}
-	if len(items) > int(definition.MaxItems) {
-		items = items[:definition.MaxItems]
+	items := make([]CrawlerPlatformPackage.HGRecommendation, 0, definition.MaxItems)
+	seen := make(map[string]struct{}, definition.MaxItems)
+	for _, request := range requests {
+		response, executeErr := s.http.Execute(ctx, request)
+		if executeErr != nil {
+			return 0, executeErr
+		}
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			return 0, fmt.Errorf("crawler target returned status %d", response.StatusCode)
+		}
+		parsed, parseErr := CrawlerParserPackage.Parse(configuration.Parser, response.URL, response.Body)
+		if parseErr != nil {
+			return 0, fmt.Errorf("parse crawler response: %w", parseErr)
+		}
+		for _, item := range parsed {
+			key := item.Platform + "\x00" + item.ContentID
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			items = append(items, item)
+			if len(items) == int(definition.MaxItems) {
+				break
+			}
+		}
+		if len(items) == int(definition.MaxItems) {
+			break
+		}
 	}
 	if len(items) == 0 {
 		return 0, errors.New("crawler parser returned no valid items")
@@ -276,6 +298,87 @@ func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPac
 		return 0, fmt.Errorf("upsert crawler recommendations: %w", err)
 	}
 	return len(items), nil
+}
+
+const hgCrawlerMaxSourceURLs = 50
+
+type hgSitemapURLSet struct {
+	Locations []string `xml:"url>loc"`
+}
+
+func (s *HGTaskService) hgValidateTaskSources(configuration *HGTaskConfiguration) error {
+	configuration.CollectType = strings.ToLower(strings.TrimSpace(configuration.CollectType))
+	if configuration.CollectType == "" {
+		configuration.CollectType = "api"
+	}
+	if configuration.CollectType != "api" && configuration.CollectType != "page" && configuration.CollectType != "sitemap" && configuration.CollectType != "url_list" {
+		return fmt.Errorf("%w: unsupported collectType", ErrHGTaskInvalidDefinition)
+	}
+	if configuration.CollectType == "url_list" {
+		if len(configuration.URLs) == 0 || len(configuration.URLs) > hgCrawlerMaxSourceURLs {
+			return fmt.Errorf("%w: URL list must contain 1-%d URLs", ErrHGTaskInvalidDefinition, hgCrawlerMaxSourceURLs)
+		}
+		for index, rawURL := range configuration.URLs {
+			configuration.URLs[index] = strings.TrimSpace(rawURL)
+			request := configuration.Request
+			request.URL = configuration.URLs[index]
+			if err := s.http.ValidateRequest(request); err != nil {
+				return fmt.Errorf("%w: invalid URL list item: %v", ErrHGTaskInvalidDefinition, err)
+			}
+		}
+		return nil
+	}
+	if strings.TrimSpace(configuration.Request.URL) == "" {
+		return fmt.Errorf("%w: request URL is required", ErrHGTaskInvalidDefinition)
+	}
+	if err := s.http.ValidateRequest(configuration.Request); err != nil {
+		return fmt.Errorf("%w: %v", ErrHGTaskInvalidDefinition, err)
+	}
+	return nil
+}
+
+func (s *HGTaskService) hgExpandTaskRequests(ctx context.Context, configuration HGTaskConfiguration) ([]CrawlerDtoPackage.HGDebugRequest, error) {
+	if configuration.CollectType == "url_list" {
+		requests := make([]CrawlerDtoPackage.HGDebugRequest, 0, len(configuration.URLs))
+		for _, rawURL := range configuration.URLs {
+			request := configuration.Request
+			request.URL = rawURL
+			requests = append(requests, request)
+		}
+		return requests, nil
+	}
+	if configuration.CollectType != "sitemap" {
+		return []CrawlerDtoPackage.HGDebugRequest{configuration.Request}, nil
+	}
+	response, err := s.http.Execute(ctx, configuration.Request)
+	if err != nil {
+		return nil, fmt.Errorf("fetch sitemap: %w", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("sitemap returned status %d", response.StatusCode)
+	}
+	var sitemap hgSitemapURLSet
+	if err := xml.Unmarshal(response.Body, &sitemap); err != nil {
+		return nil, fmt.Errorf("decode sitemap XML: %w", err)
+	}
+	if len(sitemap.Locations) == 0 {
+		return nil, errors.New("sitemap contains no URLs")
+	}
+	if len(sitemap.Locations) > hgCrawlerMaxSourceURLs {
+		sitemap.Locations = sitemap.Locations[:hgCrawlerMaxSourceURLs]
+	}
+	requests := make([]CrawlerDtoPackage.HGDebugRequest, 0, len(sitemap.Locations))
+	for _, location := range sitemap.Locations {
+		request := configuration.Request
+		request.URL = strings.TrimSpace(location)
+		request.Params = nil
+		request.Body = ""
+		if err := s.http.ValidateRequest(request); err != nil {
+			return nil, fmt.Errorf("invalid sitemap URL: %w", err)
+		}
+		requests = append(requests, request)
+	}
+	return requests, nil
 }
 
 func hgDecodeTaskConfiguration(raw json.RawMessage) (HGTaskConfiguration, time.Duration, error) {
@@ -294,9 +397,6 @@ func hgDecodeTaskConfiguration(raw json.RawMessage) (HGTaskConfiguration, time.D
 	}
 	if timeoutMS < 500 || timeoutMS > 10000 {
 		return configuration, 0, fmt.Errorf("%w: request timeoutMs must be 500-10000", ErrHGTaskInvalidDefinition)
-	}
-	if strings.TrimSpace(configuration.Request.URL) == "" {
-		return configuration, 0, fmt.Errorf("%w: request URL is required", ErrHGTaskInvalidDefinition)
 	}
 	return configuration, time.Duration(timeoutMS) * time.Millisecond, nil
 }

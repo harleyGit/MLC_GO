@@ -1,11 +1,13 @@
 package parser
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/antchfx/htmlquery"
+	"golang.org/x/net/html"
 )
 
 func hgParseCSS(config Config, body []byte) ([]map[string]string, error) {
@@ -16,6 +18,9 @@ func hgParseCSS(config Config, body []byte) ([]map[string]string, error) {
 	rows := make([]map[string]string, 0, hgMaxItems)
 	document.Find(config.ItemSelector).EachWithBreak(func(_ int, item *goquery.Selection) bool {
 		row := make(map[string]string, len(config.Fields))
+		if raw, htmlErr := goquery.OuterHtml(item); htmlErr == nil {
+			row["__raw"] = raw
+		}
 		for name, field := range config.Fields {
 			selected := item.Find(field.Selector).First()
 			if selected.Length() == 0 && item.Is(field.Selector) {
@@ -45,6 +50,10 @@ func hgParseXPath(config Config, body []byte) ([]map[string]string, error) {
 	rows := make([]map[string]string, 0, min(len(items), hgMaxItems))
 	for _, item := range items {
 		row := make(map[string]string, len(config.Fields))
+		var raw bytes.Buffer
+		if renderErr := html.Render(&raw, item); renderErr == nil {
+			row["__raw"] = raw.String()
+		}
 		for name, field := range config.Fields {
 			selected, queryErr := htmlquery.Query(item, field.Selector)
 			if queryErr != nil {

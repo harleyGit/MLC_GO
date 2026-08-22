@@ -2,6 +2,7 @@ package parser
 
 import (
 	CrawlerPlatformPackage "MLC_GO/internal/modules/crawler/platform"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
@@ -95,8 +96,8 @@ func hgValidateConfig(config Config) error {
 	if strings.TrimSpace(config.ItemSelector) == "" {
 		return errors.New("crawler item selector is required")
 	}
-	if len(config.Fields) == 0 || len(config.Fields) > hgMaxFields {
-		return fmt.Errorf("crawler field count must be between 1 and %d", hgMaxFields)
+	if len(config.Fields) > hgMaxFields {
+		return fmt.Errorf("crawler field count must not exceed %d", hgMaxFields)
 	}
 	allowed := map[string]bool{
 		"contentId": true, "title": true, "authorId": true,
@@ -112,11 +113,6 @@ func hgValidateConfig(config Config) error {
 			return fmt.Errorf("crawler field %q selector is required", name)
 		}
 	}
-	for _, required := range []string{"contentId", "title", "targetUrl"} {
-		if _, exists := config.Fields[required]; !exists {
-			return fmt.Errorf("crawler field %q is required", required)
-		}
-	}
 	return nil
 }
 
@@ -128,12 +124,27 @@ func hgMapRecommendation(platformName, sourceURL string, row map[string]string) 
 		AuthorID:   strings.TrimSpace(row["authorId"]),
 		AuthorName: strings.TrimSpace(row["authorName"]),
 	}
-	if item.ContentID == "" || item.Title == "" || strings.TrimSpace(row["targetUrl"]) == "" {
-		return item, errors.New("crawler recommendation contentId, title, and targetUrl are required")
+	raw := strings.TrimSpace(row["__raw"])
+	if item.ContentID == "" {
+		digest := sha256.Sum256([]byte(sourceURL + "\x00" + raw))
+		item.ContentID = fmt.Sprintf("raw-%x", digest[:12])
+	}
+	if item.Title == "" {
+		item.Title = hgBoundCrawlerText(raw, 255)
+		if item.Title == "" {
+			item.Title = hgBoundCrawlerText(sourceURL, 255)
+		}
+	}
+	targetURL := strings.TrimSpace(row["targetUrl"])
+	if targetURL == "" && strings.EqualFold(item.Platform, "bilibili") && strings.HasPrefix(strings.ToUpper(item.ContentID), "BV") {
+		targetURL = "https://www.bilibili.com/video/" + item.ContentID
+	}
+	if targetURL == "" {
+		targetURL = sourceURL
 	}
 
 	var err error
-	if item.TargetURL, err = hgResolveBrowserURL(sourceURL, row["targetUrl"]); err != nil {
+	if item.TargetURL, err = hgResolveBrowserURL(sourceURL, targetURL); err != nil {
 		return item, fmt.Errorf("invalid targetUrl: %w", err)
 	}
 	if strings.TrimSpace(row["coverUrl"]) != "" {
@@ -155,6 +166,17 @@ func hgMapRecommendation(platformName, sourceURL string, row map[string]string) 
 		return item, fmt.Errorf("invalid publishedAt: %w", err)
 	}
 	return item, nil
+}
+
+func hgBoundCrawlerText(value string, maximum int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= maximum {
+		return value
+	}
+	for maximum > 0 && (value[maximum]&0xc0) == 0x80 {
+		maximum--
+	}
+	return value[:maximum]
 }
 
 func hgParseNonnegativeInt(value string) (int64, error) {

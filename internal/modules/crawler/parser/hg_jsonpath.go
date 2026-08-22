@@ -37,6 +37,9 @@ func hgParseJSON(config Config, body []byte) ([]map[string]string, error) {
 	}
 	for _, item := range items {
 		row := make(map[string]string, len(compiled))
+		if raw, marshalErr := json.Marshal(item); marshalErr == nil {
+			row["__raw"] = string(raw)
+		}
 		for name, path := range compiled {
 			values := hgEvaluateJSONPath(item, path)
 			if len(values) > 0 {

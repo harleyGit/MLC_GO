@@ -97,6 +97,22 @@ func TestParseLimitsItemsAndRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestParseUsesRawItemFallbackWhenMappingsAreEmpty(t *testing.T) {
+	config := Config{Type: TypeRestrictedJSONPath, Platform: "custom", ItemSelector: "$.items[*]", Fields: map[string]FieldConfig{}}
+	body := []byte(`{"items":[{"name":"first","value":1}]}`)
+
+	items, err := Parse(config, "https://example.test/items", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !strings.HasPrefix(items[0].ContentID, "raw-") {
+		t.Fatalf("unexpected fallback items: %#v", items)
+	}
+	if items[0].Title != `{"name":"first","value":1}` || items[0].TargetURL != "https://example.test/items" {
+		t.Fatalf("unexpected fallback item: %#v", items[0])
+	}
+}
+
 func TestParseRejectsUnsafeURLNegativeNumberAndUnsupportedJSONPath(t *testing.T) {
 	config := Config{Type: TypeRestrictedJSONPath, ItemSelector: "$[*]", Fields: map[string]FieldConfig{
 		"contentId": {Selector: "$.id"}, "title": {Selector: "$.title"}, "targetUrl": {Selector: "$.url"},
