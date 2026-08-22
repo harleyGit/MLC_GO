@@ -1,3 +1,14 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:36:21
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-08-22 16:44:20
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_metric_hook.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+
+ 功能：prometheus埋点钩子（发送成功/lag/耗时）
+*/
+
 package HGKafkaPackage
 
 import (
@@ -77,13 +88,18 @@ func HGNewConsumerLagObserver(group string, topics []string) *HGConsumerLagObser
 			observer.partitions[topic] = make(map[int32]hgConsumerLagPartition)
 		}
 	}
+
+	// Store 线程安全，多个 goroutine 并发调用不需要额外加 Mutex。
+	// 如果 key 已经存在：覆盖旧 value
+	// 如果 key 不存在：新增这条记录
 	hgKafkaConsumerLagObservers.Store(observer.id, observer)
 	return observer
 }
 
 // ObserveFetch 只更新 broker high watermark，不把已拉取但尚未成功处理的记录误算为完成。
 // Kafka Consumer Lag 观测器在消费组 rebalance 后会被重新分配，旧实例的 partition 状态会被删除，避免残留陈旧 lag。
-//	@param fetches 
+//
+//	@param fetches
 func (o *HGConsumerLagObserver) ObserveFetch(fetches kgo.Fetches) {
 	if o == nil {
 		return
@@ -165,7 +181,7 @@ func (o *HGConsumerLagObserver) hgAdvance(record *kgo.Record) {
 	// state 取出该 topic‑partition 的状态
 	// hgConsumerLagPartition 保存分区状态：
 	// initialized：是否已经初始化过进度
-	// nextOffset：本地记录的消费进度（下一条待消费 offset） 
+	// nextOffset：本地记录的消费进度（下一条待消费 offset）
 	state := partitions[record.Partition]
 	nextOffset := record.Offset + 1
 	// 更新消费进度
@@ -186,6 +202,9 @@ func (o *HGConsumerLagObserver) Close() {
 	})
 }
 
+// hgTopicLags 单实例计算：hgTopicLags() 遍历该 observer 的所有 topic 和 partition，计算每个 topic 的总 lag（高水位 - 本地 nextOffset）。
+//
+//	@return map
 func (o *HGConsumerLagObserver) hgTopicLags() map[string]int64 {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -193,6 +212,23 @@ func (o *HGConsumerLagObserver) hgTopicLags() map[string]int64 {
 	for topic, partitions := range o.partitions {
 		lags[topic] = 0
 		for _, state := range partitions {
+			/**
+			- highWatermark（HW，高水位）：该分区已成功复制到所有 ISR 副本的最新消息的 offset + 1。也就是 consumer 能看到的最新消息位置的下一位。
+			- nextOffset： 该 consumer 下一条将要拉取的消息 offset。即当前消费进度。
+			-  lag： 还有多少条消息没消费。HW - nextOffset。
+
+			举例：分区最新已提交消息 offset 是 999，则 highWatermark = 1000；consumer 已消费到 offset 500，下一条拉 501，则 nextOffset = 501；lag = 1000 - 501 = 499 条未消费。
+
+			state.initialized： consumer 刚启动、还没从 broker 拿到该分区的 highWatermark 时，highWatermark 是零值（0）。如果此时计算 lag = 0 - nextOffset，会得到负数，毫无意义甚至误导监控。
+			所以必须等第一次拿到 HW 后（initialized = true）才纳入统计。
+
+			state.highWatermark > state.nextOffset
+			正常情况下 HW >= nextOffset。但在极端时序下可能出现 HW < nextOffset：
+			 - consumer 刚提交了 offset，但 HW 还没更新（旧缓存）；
+			 - 分区刚发生 rebalance，offset 被重置到较新位置；
+			 - 并发读写导致读到不一致的快照（虽然有读锁，但 state 内部字段可能不是原子更新）。
+			此时 lag 为负，直接跳过，不累加，避免出现 "负延迟" 这种无意义指标。
+			*/
 			if state.initialized && state.highWatermark > state.nextOffset {
 				lags[topic] += state.highWatermark - state.nextOffset
 			}
@@ -237,14 +273,35 @@ func hgObserveCommit(partitions int, elapsed time.Duration, err error) {
 	}
 }
 
+// hgKafkaConsumerLagSeries 函数构成了 Kafka 消费延迟（Consumer Lag）的两级聚合体系：底层单 observer 按 topic 汇总，顶层全局遍历所有 observer 按 group+topic 汇总。最终输出给监控系统（Prometheus / 内部 metrics）做告警和看板
+//
+//	@return map
 func hgKafkaConsumerLagSeries() map[string]int64 {
 	series := make(map[string]int64)
+	/** Range(func(_, value any) 是一个 sync.Map。key 被忽略（_），value 是 *HGConsumerLagObserver。
+
+	为什么用 sync.Map 而不是普通 map+mutex？
+	 - consumer 实例可能在运行时动态创建和销毁（比如不同 group、不同 topic 的 consumer 随时启停）；
+	 - 读多写少场景：metrics 采集（读）频率远高于 consumer 注册 / 注销（写）；
+	sync.Map 在读多写少、key 集合稳定时性能优于加锁 map。
+	*/
 	hgKafkaConsumerLagObservers.Range(func(_, value any) bool {
+		// value.(*HGConsumerLagObserver)：sync.Map 存的是 any，必须断言回具体类型；
 		observer, ok := value.(*HGConsumerLagObserver)
-		if !ok || observer == nil {
+		if !ok || observer == nil { // observer == nil：存了一个 nil 指针（可能是注销时的占位或并发问题）；
 			return true
 		}
 		for topic, lag := range observer.hgTopicLags() {
+			/** Key 设计：group + "\x00" + topic
+			用 \x00（NUL 字节）做分隔符，而不是 :、/、| 等可见字符，原因：
+			 - Kafka 的 group name 和 topic name 允许包含 .、_、- 甚至 :、/ 等字符；
+			 - 如果用 : 分隔，遇到 group=a:b、topic=c 和 group=a、topic=b:c 会产生相同 key a:b:c，造成指标串味；
+			\x00 是 ASCII 控制字符，Kafka group/topic 命名规范中不可能出现，零冲突概率。
+
+			这是监控系统里常见的 "不可见分隔符" 技巧。
+
+			同一个 group+topic 可能被多个 observer 实例覆盖（比如一个 consumer group 有多个 consumer 实例，每个负责一部分分区），所以用 += 把各实例的 lag 加起来，得到整个 group 在该 topic 上的总 lag。
+			*/
 			series[observer.group+"\x00"+topic] += lag
 		}
 		return true
@@ -296,11 +353,12 @@ func hgKafkaOnPartitionsLost(_ context.Context, _ *kgo.Client, partitions map[st
 	hgKafkaAssignedPartitionGauge.Add(-int64(count))
 }
 
-// HGConsumerLagObserverOpts 在 franz-go 的 Consumer Group Rebalance 生命周期中，同时维护 Kafka 分区统计信息和 HGConsumerLagObserver 自己的分区状态 
-//	@param observer 
-//	@return []kgo.Opt 
+// HGConsumerLagObserverOpts 在 franz-go 的 Consumer Group Rebalance 生命周期中，同时维护 Kafka 分区统计信息和 HGConsumerLagObserver 自己的分区状态
+//
+//	@param observer
+//	@return []kgo.Opt
 func HGConsumerLagObserverOpts(observer *HGConsumerLagObserver) []kgo.Opt {
-	
+
 	// OnPartitionsAssigned  分区被分配
 	// OnPartitionsRevoked   分区正常撤销
 	// OnPartitionsLost      分区丢失

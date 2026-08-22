@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-04 16:36:21
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-08-22 17:35:54
+ * @FilePath: /MLC_GO/internal/pkg/kafka/hg_trace.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package HGKafkaPackage
 
 import (
@@ -35,7 +43,11 @@ func HGExtractTraceFromRecord(record *kgo.Record) context.Context {
 	return HGExtractTraceFromRecordContext(context.Background(), record)
 }
 
-// HGExtractTraceFromRecordContext 在保留父 context 取消、deadline 和值的基础上恢复 Kafka trace。
+// HGExtractTraceFromRecordContext 从 Kafka record 的 header 中提取链路追踪信息（如 trace_id、span_id），构造带 trace 的 context.Context，保证业务处理和后续回调都在正确的 trace 上下文中执行。
+//
+//	@param ctx
+//	@param record
+//	@return context.Context
 func HGExtractTraceFromRecordContext(ctx context.Context, record *kgo.Record) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
