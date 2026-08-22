@@ -17,6 +17,8 @@ const (
 	hgMaxRecommendationBatchSize = 50
 	hgDefaultTaskListLimit       = 20
 	hgMaxTaskListLimit           = 100
+	hgDefaultTaskContentLimit    = 20
+	hgMaxTaskContentLimit        = 100
 	hgMaxEnabledTaskListLimit    = 500
 )
 
@@ -124,6 +126,48 @@ func (r *Repository) ListTaskDefinitions(ctx context.Context, cursor uint64, lim
 	return definitions, nextCursor, hasMore, nil
 }
 
+// ListTaskExternalContents returns a bounded newest-first association cursor page for one task.
+func (r *Repository) ListTaskExternalContents(ctx context.Context, taskID, cursor uint64, limit int) ([]CrawlerModelPackage.HGTaskExternalContent, uint64, bool, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, false, errors.New("crawler repository database is required")
+	}
+	if taskID == 0 {
+		return nil, 0, false, errors.New("crawler task definition id is required")
+	}
+	limit = hgBoundListLimit(limit, hgDefaultTaskContentLimit, hgMaxTaskContentLimit)
+	query := SQLQueriesPackage.ListCrawlerTaskExternalContentsFirstSQL
+	args := []any{taskID, limit + 1}
+	if cursor > 0 {
+		query = SQLQueriesPackage.ListCrawlerTaskExternalContentsByCursorSQL
+		args = []any{taskID, cursor, limit + 1}
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("listing crawler task external contents: %w", err)
+	}
+	defer rows.Close()
+	items := make([]CrawlerModelPackage.HGTaskExternalContent, 0, limit+1)
+	for rows.Next() {
+		item, err := hgScanTaskExternalContent(rows)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("scanning crawler task external content: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, false, fmt.Errorf("iterating crawler task external contents: %w", err)
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	nextCursor := uint64(0)
+	if len(items) > 0 {
+		nextCursor = items[len(items)-1].AssociationID
+	}
+	return items, nextCursor, hasMore, nil
+}
+
 // ListEnabledTaskDefinitions returns an explicitly bounded scheduler snapshot using (enabled,id).
 func (r *Repository) ListEnabledTaskDefinitions(ctx context.Context, limit int) ([]CrawlerModelPackage.HGTaskDefinition, error) {
 	if r == nil || r.db == nil {
@@ -216,9 +260,27 @@ func (r *Repository) UpsertRecommendations(ctx context.Context, items []CrawlerP
 	return err
 }
 
+// UpsertTaskRecommendations preserves the task service store interface while associating the committed batch.
+func (r *Repository) UpsertTaskRecommendations(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) error {
+	_, err := r.UpsertTaskRecommendationsWithInserted(ctx, taskID, runID, items)
+	return err
+}
+
 // UpsertRecommendationsWithInserted 在短事务中返回本批次实际新增的外部内容数。
 // 第一条有界 insert-noop 仅补缺并计数，第二条 full upsert 刷新全部字段；唯一键 (platform, content_id) 限制锁范围。
 func (r *Repository) UpsertRecommendationsWithInserted(ctx context.Context, items []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
+	return r.hgUpsertRecommendations(ctx, 0, 0, items)
+}
+
+// UpsertTaskRecommendationsWithInserted commits the global upsert and task associations in one short transaction.
+func (r *Repository) UpsertTaskRecommendationsWithInserted(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
+	if taskID == 0 || runID == 0 {
+		return 0, errors.New("crawler task and run ids are required")
+	}
+	return r.hgUpsertRecommendations(ctx, taskID, runID, items)
+}
+
+func (r *Repository) hgUpsertRecommendations(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("crawler repository database is required")
 	}
@@ -265,6 +327,19 @@ func (r *Repository) UpsertRecommendationsWithInserted(ctx context.Context, item
 	if _, err := tx.ExecContext(ctx, upsertQuery, args...); err != nil {
 		return 0, fmt.Errorf("upserting crawler recommendations: %w", err)
 	}
+	if taskID > 0 {
+		associationKeys := make([]string, 0, len(items))
+		associationArgs := make([]any, 0, 2+len(items)*2)
+		associationArgs = append(associationArgs, taskID, runID)
+		for _, item := range items {
+			associationKeys = append(associationKeys, SQLQueriesPackage.UpsertCrawlerTaskExternalContentsKey)
+			associationArgs = append(associationArgs, item.Platform, item.ContentID)
+		}
+		associationQuery := SQLQueriesPackage.UpsertCrawlerTaskExternalContentsPrefix + strings.Join(associationKeys, " OR ") + SQLQueriesPackage.UpsertCrawlerTaskExternalContentsSuffix
+		if _, err := tx.ExecContext(ctx, associationQuery, associationArgs...); err != nil {
+			return 0, fmt.Errorf("associating crawler task recommendations: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("committing crawler recommendation upsert: %w", err)
 	}
@@ -303,13 +378,42 @@ func hgValidateTaskDefinition(definition *CrawlerModelPackage.HGTaskDefinition) 
 }
 
 func hgBoundTaskListLimit(limit, maximum int) int {
+	return hgBoundListLimit(limit, hgDefaultTaskListLimit, maximum)
+}
+
+func hgBoundListLimit(limit, defaultLimit, maximum int) int {
 	if limit <= 0 {
-		return hgDefaultTaskListLimit
+		return defaultLimit
 	}
 	if limit > maximum {
 		return maximum
 	}
 	return limit
+}
+
+func hgScanTaskExternalContent(scanner hgTaskDefinitionScanner) (CrawlerModelPackage.HGTaskExternalContent, error) {
+	var item CrawlerModelPackage.HGTaskExternalContent
+	var publishedAt sql.NullTime
+	if err := scanner.Scan(
+		&item.AssociationID, &item.TaskDefinitionID, &item.LastRunID,
+		&item.ExternalContentID, &item.Platform, &item.ContentID, &item.Title, &item.AuthorID,
+		&item.AuthorName, &item.CoverURL, &item.TargetURL, &item.DurationSeconds, &item.ViewCount,
+		&item.LikeCount, &item.CommentCount, &publishedAt, &item.FirstSeenAt, &item.LastSeenAt,
+		&item.ContentCreatedAt, &item.ContentUpdatedAt, &item.AssociatedAt, &item.AssociationUpdatedAt,
+	); err != nil {
+		return item, err
+	}
+	if publishedAt.Valid {
+		value := publishedAt.Time.UTC()
+		item.PublishedAt = &value
+	}
+	item.FirstSeenAt = item.FirstSeenAt.UTC()
+	item.LastSeenAt = item.LastSeenAt.UTC()
+	item.ContentCreatedAt = item.ContentCreatedAt.UTC()
+	item.ContentUpdatedAt = item.ContentUpdatedAt.UTC()
+	item.AssociatedAt = item.AssociatedAt.UTC()
+	item.AssociationUpdatedAt = item.AssociationUpdatedAt.UTC()
+	return item, nil
 }
 
 func (r *Repository) hgQueryTaskDefinitions(ctx context.Context, query string, args ...any) ([]CrawlerModelPackage.HGTaskDefinition, error) {

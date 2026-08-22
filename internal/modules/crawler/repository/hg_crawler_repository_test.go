@@ -205,3 +205,54 @@ func TestUpsertRecommendationsWithInsertedRollsBackFullUpsertFailure(t *testing.
 		t.Fatalf("sql expectations: %v", err)
 	}
 }
+
+func TestUpsertTaskRecommendationsAssociatesBatchInSameTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	insertQuery := SQLQueriesPackage.UpsertCrawlerExternalContentsPrefix + SQLQueriesPackage.UpsertCrawlerExternalContentsValue + SQLQueriesPackage.InsertCrawlerExternalContentsNoopSuffix
+	upsertQuery := SQLQueriesPackage.UpsertCrawlerExternalContentsPrefix + SQLQueriesPackage.UpsertCrawlerExternalContentsValue + SQLQueriesPackage.UpsertCrawlerExternalContentsSuffix
+	associationQuery := SQLQueriesPackage.UpsertCrawlerTaskExternalContentsPrefix + SQLQueriesPackage.UpsertCrawlerTaskExternalContentsKey + SQLQueriesPackage.UpsertCrawlerTaskExternalContentsSuffix
+	args := []driver.Value{"bilibili", "BV1", "title", "", "", "", "https://www.bilibili.com/video/BV1", int64(0), int64(0), int64(0), int64(0), nil, sqlmock.AnyArg()}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(insertQuery)).WithArgs(args...).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(upsertQuery)).WithArgs(args...).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(associationQuery)).WithArgs(uint64(9), uint64(11), "bilibili", "BV1").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	inserted, err := NewRepository(db).UpsertTaskRecommendationsWithInserted(context.Background(), 9, 11, []CrawlerPlatformPackage.HGRecommendation{{
+		Platform: "bilibili", ContentID: "BV1", Title: "title", TargetURL: "https://www.bilibili.com/video/BV1",
+	}})
+	if err != nil || inserted != 1 {
+		t.Fatalf("inserted=%d err=%v", inserted, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListTaskExternalContentsUsesReverseAssociationCursor(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	columns := []string{"association_id", "task_definition_id", "last_run_id", "external_content_id", "platform", "content_id", "title", "author_id", "author_name", "cover_url", "target_url", "duration_seconds", "view_count", "like_count", "comment_count", "published_at", "first_seen_at", "last_seen_at", "content_created_at", "content_updated_at", "associated_at", "association_updated_at"}
+	rows := sqlmock.NewRows(columns).
+		AddRow(8, 9, 11, 4, "bilibili", "BV1", "one", "1", "author", "cover", "target", 10, 20, 3, 4, now, now, now, now, now, now, now).
+		AddRow(7, 9, 10, 3, "bilibili", "BV2", "two", "2", "author", "cover", "target", 10, 20, 3, 4, nil, now, now, now, now, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.ListCrawlerTaskExternalContentsByCursorSQL)).WithArgs(uint64(9), uint64(10), 2).WillReturnRows(rows)
+	items, next, more, err := NewRepository(db).ListTaskExternalContents(context.Background(), 9, 10, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].AssociationID != 8 || next != 8 || !more {
+		t.Fatalf("items=%#v next=%d more=%v", items, next, more)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

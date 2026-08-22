@@ -166,6 +166,37 @@ func (h *Handler) ListCrawlerTasks(w http.ResponseWriter, r *http.Request) {
 	HGResponsePakcage.SuccessResult(w, r, map[string]any{"list": result.Items, "nextCursor": result.NextCursor, "hasMore": result.HasMore, "total": -1})
 }
 
+// ListCrawlerTaskContents returns a bounded newest-first association cursor page for one task.
+func (h *Handler) ListCrawlerTaskContents(w http.ResponseWriter, r *http.Request) {
+	userID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
+		return
+	}
+	if h.crawlerTasks == nil {
+		hgWriteCrawlerUnavailable(w, r)
+		return
+	}
+	if !h.hgAuthorizeCrawler(w, r, userID, "crawler.task.read") {
+		return
+	}
+	taskID, err := strconv.ParseUint(r.URL.Query().Get("taskId"), 10, 64)
+	if err != nil || taskID == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "taskId is required"})
+		return
+	}
+	cursor, _ := strconv.ParseUint(r.URL.Query().Get("cursor"), 10, 64)
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	result, err := h.crawlerTasks.ListContents(r.Context(), CrawlerDtoPackage.HGTaskExternalContentListRequest{TaskID: taskID, Cursor: cursor, Limit: pageSize})
+	if err != nil {
+		hgWriteCrawlerTaskError(w, r, err)
+		return
+	}
+	HGResponsePakcage.SuccessResult(w, r, map[string]any{"list": result.Items, "nextCursor": result.NextCursor, "hasMore": result.HasMore, "total": -1})
+}
+
 func (h *Handler) hgAuthorizeCrawler(w http.ResponseWriter, r *http.Request, userID, permission string) bool {
 	if h.crawlerAuth == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)

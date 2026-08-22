@@ -28,6 +28,19 @@ ON DUPLICATE KEY UPDATE
     last_seen_at = VALUES(last_seen_at),
     updated_at = CURRENT_TIMESTAMP(6)`
 
+	// UpsertCrawlerTaskExternalContentsPrefix associates one task/run with the globally deduplicated batch.
+	// The repository appends a bounded list of (platform,content_id) predicates; one INSERT SELECT avoids N+1 lookups.
+	UpsertCrawlerTaskExternalContentsPrefix = `
+INSERT INTO crawler_task_external_contents (task_definition_id, external_content_id, last_run_id)
+SELECT ?, id, ?
+FROM crawler_external_contents
+WHERE `
+	UpsertCrawlerTaskExternalContentsKey    = `(platform = ? AND content_id = ?)`
+	UpsertCrawlerTaskExternalContentsSuffix = `
+ON DUPLICATE KEY UPDATE
+    last_run_id = GREATEST(last_run_id, VALUES(last_run_id)),
+    updated_at = CURRENT_TIMESTAMP(6)`
+
 	// GetCrawlerExternalContentsFirstSQL 使用 recent 索引读取外部内容首页，多查一条判断 hasMore。
 	GetCrawlerExternalContentsFirstSQL = `
 SELECT id, platform, content_id, title, author_id, author_name, cover_url, target_url,
@@ -83,6 +96,32 @@ SELECT id, name, platform, enabled, cron, parser_type, item_path, max_items, con
 FROM crawler_task_definitions
 WHERE id > ?
 ORDER BY id ASC
+LIMIT ?`
+
+	// ListCrawlerTaskExternalContentsFirstSQL uses (task_definition_id,id) for a stable newest-first page.
+	ListCrawlerTaskExternalContentsFirstSQL = `
+SELECT a.id, a.task_definition_id, a.last_run_id,
+       c.id, c.platform, c.content_id, c.title, c.author_id, c.author_name, c.cover_url, c.target_url,
+       c.duration_seconds, c.view_count, c.like_count, c.comment_count, c.published_at,
+       c.first_seen_at, c.last_seen_at, c.created_at, c.updated_at,
+       a.created_at, a.updated_at
+FROM crawler_task_external_contents a
+JOIN crawler_external_contents c ON c.id = a.external_content_id
+WHERE a.task_definition_id = ?
+ORDER BY a.id DESC
+LIMIT ?`
+
+	// ListCrawlerTaskExternalContentsByCursorSQL continues the indexed reverse scan without OFFSET.
+	ListCrawlerTaskExternalContentsByCursorSQL = `
+SELECT a.id, a.task_definition_id, a.last_run_id,
+       c.id, c.platform, c.content_id, c.title, c.author_id, c.author_name, c.cover_url, c.target_url,
+       c.duration_seconds, c.view_count, c.like_count, c.comment_count, c.published_at,
+       c.first_seen_at, c.last_seen_at, c.created_at, c.updated_at,
+       a.created_at, a.updated_at
+FROM crawler_task_external_contents a
+JOIN crawler_external_contents c ON c.id = a.external_content_id
+WHERE a.task_definition_id = ? AND a.id < ?
+ORDER BY a.id DESC
 LIMIT ?`
 
 	// ListEnabledCrawlerTaskDefinitionsSQL uses (enabled,id) and always receives a repository-capped limit.

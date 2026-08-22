@@ -25,6 +25,13 @@ type HGTaskDefinitionListRequest struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
+// HGTaskExternalContentListRequest uses an association ID reverse cursor scoped to one task definition.
+type HGTaskExternalContentListRequest struct {
+	TaskID uint64 `json:"taskId"`
+	Cursor uint64 `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
 // HGTaskRunCreateRequest starts a run for one definition using an immutable configuration snapshot.
 type HGTaskRunCreateRequest struct {
 	TaskDefinitionID uint64          `json:"taskDefinitionId"`

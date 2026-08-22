@@ -39,3 +39,34 @@ func TestCrawlerTaskMigrationHasJSONOptimisticVersionAndCursorIndexes(t *testing
 		t.Fatal("down migration must drop runs before definitions")
 	}
 }
+
+func TestCrawlerTaskContentMigrationHasNormalizedUniqueAndReverseCursorIndexes(t *testing.T) {
+	content, err := os.ReadFile("000031_create_crawler_task_external_contents.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlText := string(content)
+	for _, required := range []string{
+		"CREATE TABLE `crawler_task_external_contents`",
+		"`last_run_id` BIGINT UNSIGNED NOT NULL",
+		"uk_crawler_task_external_content",
+		"(`task_definition_id`, `external_content_id`)",
+		"idx_crawler_task_external_contents_task_id",
+		"(`task_definition_id`, `id` DESC)",
+	} {
+		if !strings.Contains(sqlText, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+	upper := strings.ToUpper(sqlText)
+	if strings.Contains(upper, "FOREIGN KEY (`") || strings.Contains(upper, "\nUSE ") {
+		t.Fatal("crawler task content migration must not contain foreign keys or select a database")
+	}
+	down, err := os.ReadFile("000031_create_crawler_task_external_contents.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(down), "DROP TABLE IF EXISTS `crawler_task_external_contents`;") {
+		t.Fatal("down migration must drop crawler task content associations")
+	}
+}

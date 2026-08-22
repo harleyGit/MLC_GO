@@ -35,6 +35,7 @@ type HGTaskRepository interface {
 	SaveTaskDefinition(context.Context, *CrawlerModelPackage.HGTaskDefinition) error
 	GetTaskDefinitionByID(context.Context, uint64) (*CrawlerModelPackage.HGTaskDefinition, error)
 	ListTaskDefinitions(context.Context, uint64, int) ([]CrawlerModelPackage.HGTaskDefinition, uint64, bool, error)
+	ListTaskExternalContents(context.Context, uint64, uint64, int) ([]CrawlerModelPackage.HGTaskExternalContent, uint64, bool, error)
 	CreateTaskRun(context.Context, *CrawlerModelPackage.HGTaskRun) error
 	CompleteTaskRun(context.Context, *CrawlerModelPackage.HGTaskRun) error
 }
@@ -42,6 +43,7 @@ type HGTaskRepository interface {
 // HGRecommendationStore persists parsed external content and maintains its read-side caches.
 type HGRecommendationStore interface {
 	UpsertRecommendations(context.Context, []CrawlerPlatformPackage.HGRecommendation) error
+	UpsertTaskRecommendations(context.Context, uint64, uint64, []CrawlerPlatformPackage.HGRecommendation) error
 }
 
 // HGTaskHTTPExecutor returns the bounded raw upstream response used by the parser.
@@ -53,6 +55,13 @@ type HGTaskHTTPExecutor interface {
 // HGTaskListResult is a stable cursor page of persisted task definitions.
 type HGTaskListResult struct {
 	Items      []CrawlerModelPackage.HGTaskDefinition
+	NextCursor uint64
+	HasMore    bool
+}
+
+// HGTaskExternalContentListResult is a stable reverse association cursor page.
+type HGTaskExternalContentListResult struct {
+	Items      []CrawlerModelPackage.HGTaskExternalContent
 	NextCursor uint64
 	HasMore    bool
 }
@@ -118,6 +127,18 @@ func (s *HGTaskService) List(ctx context.Context, req CrawlerDtoPackage.HGTaskDe
 	return HGTaskListResult{Items: items, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
+// ListContents returns globally normalized external content associated with one task.
+func (s *HGTaskService) ListContents(ctx context.Context, req CrawlerDtoPackage.HGTaskExternalContentListRequest) (HGTaskExternalContentListResult, error) {
+	if req.TaskID == 0 {
+		return HGTaskExternalContentListResult{}, fmt.Errorf("%w: task id is required", ErrHGTaskInvalidDefinition)
+	}
+	items, nextCursor, hasMore, err := s.repository.ListTaskExternalContents(ctx, req.TaskID, req.Cursor, req.Limit)
+	if err != nil {
+		return HGTaskExternalContentListResult{}, fmt.Errorf("list crawler task external contents: %w", err)
+	}
+	return HGTaskExternalContentListResult{Items: items, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
 // SaveAndRun persists the definition first, then executes its saved snapshot. Execution failure never rolls back the definition.
 func (s *HGTaskService) SaveAndRun(ctx context.Context, req CrawlerDtoPackage.HGTaskDefinitionSaveRequest, actor string) (*CrawlerModelPackage.HGTaskDefinition, *CrawlerModelPackage.HGTaskRun, error) {
 	definition, err := s.Save(ctx, req, actor)
@@ -154,7 +175,7 @@ func (s *HGTaskService) RunByID(ctx context.Context, taskID uint64) (*CrawlerMod
 	if err := s.repository.CreateTaskRun(ctx, run); err != nil {
 		return run, fmt.Errorf("create crawler task run: %w", err)
 	}
-	itemCount, executionErr := s.execute(ctx, definition, configuration)
+	itemCount, executionErr := s.execute(ctx, definition, run.ID, configuration)
 	run.ItemCount = uint32(itemCount)
 	run.FinishedAt = hgCrawlerTimePointer(time.Now().UTC())
 	if executionErr != nil {
@@ -233,7 +254,7 @@ func (s *HGTaskService) validateDefinition(definition *CrawlerModelPackage.HGTas
 	return configuration, timeout, nil
 }
 
-func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPackage.HGTaskDefinition, configuration HGTaskConfiguration) (int, error) {
+func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPackage.HGTaskDefinition, runID uint64, configuration HGTaskConfiguration) (int, error) {
 	response, err := s.http.Execute(ctx, configuration.Request)
 	if err != nil {
 		return 0, err
@@ -251,7 +272,7 @@ func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPac
 	if len(items) == 0 {
 		return 0, errors.New("crawler parser returned no valid items")
 	}
-	if err := s.store.UpsertRecommendations(ctx, items); err != nil {
+	if err := s.store.UpsertTaskRecommendations(ctx, definition.ID, runID, items); err != nil {
 		return 0, fmt.Errorf("upsert crawler recommendations: %w", err)
 	}
 	return len(items), nil

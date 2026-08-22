@@ -8,6 +8,7 @@ import (
 // HGExternalContentRepository persists crawler recommendations and reports rows newly inserted by the committed batch.
 type HGExternalContentRepository interface {
 	UpsertRecommendationsWithInserted(ctx context.Context, items []CrawlerPlatformPackage.HGRecommendation) (int64, error)
+	UpsertTaskRecommendationsWithInserted(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) (int64, error)
 }
 
 // HGExternalContentCache maintains the video-list read model after crawler writes.
@@ -34,6 +35,19 @@ func (s *HGExternalContentStore) UpsertRecommendations(ctx context.Context, item
 		return nil
 	}
 	inserted, err := s.repository.UpsertRecommendationsWithInserted(ctx, items)
+	return s.hgUpdateCacheAfterCommit(ctx, inserted, err)
+}
+
+// UpsertTaskRecommendations atomically persists global content and associations before post-commit cache maintenance.
+func (s *HGExternalContentStore) UpsertTaskRecommendations(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) error {
+	if len(items) == 0 {
+		return nil
+	}
+	inserted, err := s.repository.UpsertTaskRecommendationsWithInserted(ctx, taskID, runID, items)
+	return s.hgUpdateCacheAfterCommit(ctx, inserted, err)
+}
+
+func (s *HGExternalContentStore) hgUpdateCacheAfterCommit(ctx context.Context, inserted int64, err error) error {
 	if err != nil {
 		return err
 	}

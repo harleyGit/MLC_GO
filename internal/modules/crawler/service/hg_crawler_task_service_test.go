@@ -15,6 +15,9 @@ type hgTaskRepositoryStub struct {
 	definition *CrawlerModelPackage.HGTaskDefinition
 	runs       []*CrawlerModelPackage.HGTaskRun
 	items      []CrawlerPlatformPackage.HGRecommendation
+	taskID     uint64
+	runID      uint64
+	contents   []CrawlerModelPackage.HGTaskExternalContent
 }
 
 func (s *hgTaskRepositoryStub) SaveTaskDefinition(_ context.Context, definition *CrawlerModelPackage.HGTaskDefinition) error {
@@ -40,6 +43,10 @@ func (s *hgTaskRepositoryStub) ListTaskDefinitions(context.Context, uint64, int)
 	return nil, 0, false, nil
 }
 
+func (s *hgTaskRepositoryStub) ListTaskExternalContents(context.Context, uint64, uint64, int) ([]CrawlerModelPackage.HGTaskExternalContent, uint64, bool, error) {
+	return s.contents, 7, true, nil
+}
+
 func (s *hgTaskRepositoryStub) CreateTaskRun(_ context.Context, run *CrawlerModelPackage.HGTaskRun) error {
 	run.ID = uint64(len(s.runs) + 1)
 	copy := *run
@@ -54,6 +61,12 @@ func (s *hgTaskRepositoryStub) CompleteTaskRun(_ context.Context, run *CrawlerMo
 }
 
 func (s *hgTaskRepositoryStub) UpsertRecommendations(_ context.Context, items []CrawlerPlatformPackage.HGRecommendation) error {
+	s.items = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
+	return nil
+}
+
+func (s *hgTaskRepositoryStub) UpsertTaskRecommendations(_ context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) error {
+	s.taskID, s.runID = taskID, runID
 	s.items = append([]CrawlerPlatformPackage.HGRecommendation(nil), items...)
 	return nil
 }
@@ -138,6 +151,27 @@ func TestHGTaskServiceRunParsesLimitsAndUpserts(t *testing.T) {
 	}
 	if run.Status != "succeeded" || run.ItemCount != 1 || len(repository.items) != 1 || repository.items[0].ContentID != "one" {
 		t.Fatalf("run=%#v items=%#v", run, repository.items)
+	}
+	if repository.taskID != definition.ID || repository.runID != run.ID {
+		t.Fatalf("association identity task=%d run=%d", repository.taskID, repository.runID)
+	}
+}
+
+func TestHGTaskServiceListContentsRequiresTaskIDAndReturnsCursorPage(t *testing.T) {
+	repository := &hgTaskRepositoryStub{contents: []CrawlerModelPackage.HGTaskExternalContent{{AssociationID: 8, TaskDefinitionID: 9}}}
+	service, err := NewHGTaskService(repository, hgTaskHTTPStub{}, &hgTaskLeaseStub{acquired: true}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ListContents(context.Background(), CrawlerDtoPackage.HGTaskExternalContentListRequest{}); !errors.Is(err, ErrHGTaskInvalidDefinition) {
+		t.Fatalf("missing task id error = %v", err)
+	}
+	result, err := service.ListContents(context.Background(), CrawlerDtoPackage.HGTaskExternalContentListRequest{TaskID: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.NextCursor != 7 || !result.HasMore {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

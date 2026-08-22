@@ -52,6 +52,7 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save", true, "保存采集任务", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/contents", true, "获取采集任务关联内容", nil),
 		}
 	}
 
@@ -90,5 +91,6 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save", true, "保存采集任务", opsHandler.SaveCrawlerTask),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", opsHandler.SaveAndRunCrawlerTask),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", opsHandler.ListCrawlerTasks),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/contents", true, "获取采集任务关联内容", opsHandler.ListCrawlerTaskContents),
 	}
 }

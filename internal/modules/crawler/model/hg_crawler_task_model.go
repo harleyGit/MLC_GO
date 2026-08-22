@@ -42,3 +42,29 @@ type HGTaskRun struct {
 	CreatedAt        time.Time       `json:"createdAt"`
 	UpdatedAt        time.Time       `json:"updatedAt"`
 }
+
+// HGTaskExternalContent is one task association joined with normalized external content for the Ops UI.
+type HGTaskExternalContent struct {
+	AssociationID        uint64     `json:"associationId"`
+	TaskDefinitionID     uint64     `json:"taskDefinitionId"`
+	LastRunID            uint64     `json:"lastRunId"`
+	ExternalContentID    uint64     `json:"externalContentRowId"`
+	Platform             string     `json:"platform"`
+	ContentID            string     `json:"contentId"`
+	Title                string     `json:"title"`
+	AuthorID             string     `json:"authorId"`
+	AuthorName           string     `json:"authorName"`
+	CoverURL             string     `json:"coverUrl"`
+	TargetURL            string     `json:"targetUrl"`
+	DurationSeconds      uint32     `json:"durationSeconds"`
+	ViewCount            uint64     `json:"viewCount"`
+	LikeCount            uint64     `json:"likeCount"`
+	CommentCount         uint64     `json:"commentCount"`
+	PublishedAt          *time.Time `json:"publishedAt,omitempty"`
+	FirstSeenAt          time.Time  `json:"firstSeenAt"`
+	LastSeenAt           time.Time  `json:"lastSeenAt"`
+	ContentCreatedAt     time.Time  `json:"contentCreatedAt"`
+	ContentUpdatedAt     time.Time  `json:"contentUpdatedAt"`
+	AssociatedAt         time.Time  `json:"associatedAt"`
+	AssociationUpdatedAt time.Time  `json:"associationUpdatedAt"`
+}

@@ -11,10 +11,18 @@ type hgExternalContentRepositoryStub struct {
 	inserted int64
 	err      error
 	calls    int
+	taskID   uint64
+	runID    uint64
 }
 
 func (s *hgExternalContentRepositoryStub) UpsertRecommendationsWithInserted(context.Context, []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
 	s.calls++
+	return s.inserted, s.err
+}
+
+func (s *hgExternalContentRepositoryStub) UpsertTaskRecommendationsWithInserted(_ context.Context, taskID, runID uint64, _ []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
+	s.calls++
+	s.taskID, s.runID = taskID, runID
 	return s.inserted, s.err
 }
 
@@ -88,5 +96,18 @@ func TestHGExternalContentStoreSkipsEmptyBatch(t *testing.T) {
 	}
 	if repository.calls != 0 || cache.invalidates != 0 {
 		t.Fatalf("empty batch calls: repository=%d invalidates=%d", repository.calls, cache.invalidates)
+	}
+}
+
+func TestHGExternalContentStoreTaskWriteUpdatesCacheAfterCommit(t *testing.T) {
+	repository := &hgExternalContentRepositoryStub{inserted: 1}
+	cache := &hgExternalContentCacheStub{}
+	store := NewHGExternalContentStore(repository, cache)
+
+	if err := store.UpsertTaskRecommendations(context.Background(), 9, 11, []CrawlerPlatformPackage.HGRecommendation{{Platform: "bilibili", ContentID: "BV1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if repository.taskID != 9 || repository.runID != 11 || len(cache.increments) != 1 || cache.invalidates != 1 {
+		t.Fatalf("repository task=%d run=%d cache=%#v", repository.taskID, repository.runID, cache)
 	}
 }

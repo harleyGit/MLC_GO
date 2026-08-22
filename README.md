@@ -275,7 +275,7 @@ mysql:
   user: root
   password: hh109
   database: HG_MLC_DB
-  migrate_expect_version: 10
+  migrate_expect_version: 31
 
 redis:
   host: 127.0.0.1
@@ -303,7 +303,7 @@ mysql:
   user: root
   password: hh109
   database: HG_MLC_PRE_DB
-  migrate_expect_version: 10
+  migrate_expect_version: 31
 
 redis:
   host: 127.0.0.1
@@ -320,7 +320,7 @@ mysql:
   user: pre_user
   password: 你的密码
   database: pre_db
-  migrate_expect_version: 10
+  migrate_expect_version: 31
 
 redis:
   host: 10.10.1.26
@@ -355,7 +355,7 @@ mysql:
   user: app
   password: "********"
   database: HG_MLC_PROD_DB
-  migrate_expect_version: 10
+  migrate_expect_version: 31
 
 redis:
   host: prod-redis.internal
