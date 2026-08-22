@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 18:03:46
+ * @LastEditTime: 2026-08-22 20:13:32
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  * 统一消费基类、自动offset管理、DLQ
@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -518,6 +519,15 @@ func hgProcessFetchBatchObserved(
 				var lastSucceeded *kgo.Record
 				for _, record := range partition.Records {
 					traceCtx := HGExtractTraceFromRecordContext(ctx, record)
+					/**
+					如果不做这个包装，业务 handle 里一旦 panic（空指针、数组越界、类型断言失败等），panic 会直接穿透 for 循环，终止整个批量处理函数，甚至导致消费 goroutine 退出，整个 consumer 挂掉。
+
+					包装之后：
+					panic 被降级为一个普通 error
+					上层 hgProcessFetchBatchObserved 的错误处理逻辑正常接管
+					可以走 onFailure 回调决定是 parked 还是 retryable
+					消费循环不会中断，后续分区 / 消息仍能继续处理
+					*/
 					if err := hgInvokeRecordHandler(traceCtx, handle, record); err != nil {
 						parked := false
 						if onFailure != nil {
@@ -580,10 +590,23 @@ func hgProcessFetchBatchObserved(
 //	@param record
 //	@return err
 func hgInvokeRecordHandler(ctx context.Context, handle HGRecordHandler, record *kgo.Record) (err error) {
+	/** 命名返回值 (err error)
+	Go 中 defer 里的函数要修改返回值，必须用命名返回值。这里声明了 err 作为返回值变量，后续 defer 中才能对它赋值。如果写成 () error（匿名返回值），defer 里无法修改返回的 error。
+
+	defer func() 注册一个延迟函数，在当前函数返回前（无论正常返回还是 panic）必定执行
+	*/
 	defer func() {
+		// recover() 只能在 defer 中调用，捕获当前 goroutine 的 panic，返回 panic 的值（interface{}）；如果没有 panic，返回 nil
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("kafka record handler panic: %v", recovered)
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			// 通过 runtime.Stack 捕获当前 goroutine 的调用栈，拼进 error 里，方便事后排查。是否需要这样做取决于团队的日志 / 监控体系 —— 如果上层有统一的 panic 日志中间件带堆栈，这里只转 error 就够了。
+			err = fmt.Errorf("kafka record handler panic: %v\n%s", recovered, buf[:n])
 		}
 	}()
+	/** 调用真正的业务处理器。如果 handle 内部：
+	正常返回：返回 nil 或业务 error，defer 中 recover() 返回 nil，err 保持不变
+	发生 panic：函数执行流被中断，进入 defer，recover() 捕获 panic 值，err 被替换为包装后的 error
+	*/
 	return handle(ctx, record)
 }

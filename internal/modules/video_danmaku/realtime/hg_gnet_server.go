@@ -125,18 +125,18 @@ type Server struct {
 	redis     *PersistenceRedisPackage.RedisService
 	config    ConfigPackage.HGVideoDanmakuConfig
 	engine    gnet.Engine
-	lifecycle atomic.Int32
+	lifecycle atomic.Int32 //原子存储服务生命周期状态
 	// lifecycleMu 只协调 Serving->Draining 与异步握手激活，避免连接在 Drain 快照之后才加入房间。
 	// 房间扫描和网络写不持有该锁，防止百万连接关闭阶段形成长临界区。
 	lifecycleMu    sync.RWMutex
 	connections    atomic.Int64
 	queue          chan hgCommand
-	broadcastQueue []chan VideoDanmakuDtoPackage.DanmakuResponse
+	broadcastQueue []chan VideoDanmakuDtoPackage.DanmakuResponse //预分配的广播任务队列数组
 	roomShards     []hgRoomDirectoryShard
-	roomRouter     *hgRoomRouter
-	workers        sync.WaitGroup
-	background     sync.WaitGroup
-	workerCtx      context.Context
+	roomRouter     *hgRoomRouter   //房间路由模块，管理直播间、用户连接路由
+	workers        sync.WaitGroup  //sync.WaitGroup，管控业务 worker 协程
+	background     sync.WaitGroup  //管控后台常驻协程
+	workerCtx      context.Context //带取消的 context，用于整体关闭通知
 	cancel         context.CancelFunc
 	handshakeSlots chan struct{}
 	heartbeatPing  []byte
@@ -189,26 +189,58 @@ func (s *Server) DrainTimeout() time.Duration {
 	return s.config.DrainTimeout
 }
 
-// Serve 启动 worker 后阻塞运行 gnet。
+// Serve 服务入口，启动多组后台 worker 协程，最后调用 gnet.Run() 启动网络事件循环，阻塞。
 func (s *Server) Serve() error {
+	/** 1. 启动普通业务worker池
+	根据配置 WorkerCount 启动 N 个 hgWorker goroutine。
+	s.workers WaitGroup，所有 worker 启动前 Add (1)；worker 退出内部调用 s.workers.Done()。
+	hgWorker()：一般是消费任务 channel，处理弹幕消息、业务逻辑。
+	*/
 	for i := 0; i < s.config.WorkerCount; i++ {
 		s.workers.Add(1)
 		go s.hgWorker()
 	}
+
+	/** 2. 为每一个broadcastQueue队列启动广播worker
+	- broadcastQueue 是一组队列（数组），每个队列绑定一个独立广播协程。
+	- 设计意图：广播弹幕给直播间大量用户，做分片、分片隔离，避免单条广播队列阻塞全部直播间。
+	  - 比如：把直播间 hash 分配到不同 broadcastQueue，每个 queue 一个 goroutine 负责推送消息。
+	- workers WaitGroup 同时管控普通 worker + broadcast worker；服务关闭时 s.workers.Wait() 等待全部业务 worker 退出。
+	*/
 	for index := range s.broadcastQueue {
 		s.workers.Add(1)
 		go s.hgBroadcastWorker(s.broadcastQueue[index])
 	}
+	// 3. 启动房间路由后台协程
 	s.background.Add(1)
 	go func() {
 		defer s.background.Done()
+		// 房间路由主循环，管理直播间、用户连接映射、房间过期清理、rebalance 等逻辑。
+		/**
+		- s.workerCtx.Err() == nil → context还没有被主动取消。
+		- 含义：不是我们主动关闭上下文导致的退出，而是 roomRouter 内部发生意外错误，此时原子把服务生命周期标记为 hgLifecycleStopped，上层感知服务异常停止。
+		- 如果是主动关闭（workerCtx cancel），即使 roomRouter 返回 err，也不会修改 lifecycle 状态，属于正常关闭。
+
+		defer s.background.Done()：协程无论 panic 与否？❗⚠️注意：如果 roomRouter.Run() 内部 panic，defer s.background.Done() 不会执行，WaitGroup 永久等待，goroutine 泄漏。生产代码这里需要 recover 捕获 panic。
+		*/
 		if err := s.roomRouter.Run(s.workerCtx); err != nil && s.workerCtx.Err() == nil {
 			s.lifecycle.Store(int32(hgLifecycleStopped))
 		}
 	}()
+	/** 4. 心跳循环后台协程
+	- hgHeartbeatLoop()：后台心跳循环，维护客户端心跳、超时踢连接、定时上报指标等。
+	- 内部逻辑应当监听 s.workerCtx.Done()，收到取消信号退出，内部调用 s.background.Done()。
+	*/
 	s.background.Add(1)
 	go s.hgHeartbeatLoop()
-	return gnet.Run(s, s.Addr(), gnet.WithMulticore(true), gnet.WithReadBufferCap(s.config.MaxHandshakeBytes), gnet.WithWriteBufferCap(16<<10), gnet.WithTCPKeepAlive(90*time.Second))
+
+	// 5. 启动gnet事件驱动网络，阻塞，直到服务停止返回error； gnet 是 evio 风格 Reactor 高性能网络库。
+	return gnet.Run(s,
+		s.Addr(),
+		gnet.WithMulticore(true), // 多核模式，goroutine 绑定 CPU，充分利用多核。
+		gnet.WithReadBufferCap(s.config.MaxHandshakeBytes), // 每个连接读缓冲区最大容量，握手阶段最大字节限制
+		gnet.WithWriteBufferCap(16<<10),                    // (16<<10) = 16KB，每个连接写缓冲区大小。
+		gnet.WithTCPKeepAlive(90*time.Second))              // TCP keep‑alive 90 秒，检测死连接。
 }
 
 // Ready 表示 gnet 已完成 OnBoot、房间路由可用且尚未进入 Drain。

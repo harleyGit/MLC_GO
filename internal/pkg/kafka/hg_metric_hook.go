@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 16:44:20
+ * @LastEditTime: 2026-08-22 20:38:37
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_metric_hook.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -27,30 +27,30 @@ import (
 )
 
 var (
-	hgKafkaProduceRecords         atomic.Uint64
-	hgKafkaProduceFailures        atomic.Uint64
+	hgKafkaProduceRecords         atomic.Uint64 // 生产成功消息总条数
+	hgKafkaProduceFailures        atomic.Uint64 //生产失败总次数
 	hgKafkaWrittenBatches         atomic.Uint64
-	hgKafkaConsumeBatches         atomic.Uint64
+	hgKafkaConsumeBatches         atomic.Uint64 //消费处理批次总数
 	hgKafkaConsumeBatchRecords    atomic.Uint64
-	hgKafkaConsumeBatchNanos      atomic.Uint64
+	hgKafkaConsumeBatchNanos      atomic.Uint64 //消费批次总耗时 (纳秒，counter，需要 rate 求平均耗时
 	hgKafkaFetchErrors            atomic.Uint64
 	hgKafkaHandlerFailures        atomic.Uint64
-	hgKafkaDLQWrites              atomic.Uint64
-	hgKafkaDLQFailures            atomic.Uint64
-	hgKafkaDLQSuccesses           atomic.Uint64
+	hgKafkaDLQWrites              atomic.Uint64 //死信队列 DLQ 写入计数
+	hgKafkaDLQFailures            atomic.Uint64 //死信队列 DLQ失败计数
+	hgKafkaDLQSuccesses           atomic.Uint64 //死信队列 DLQ成功计数
 	hgKafkaRetryableFailures      atomic.Uint64
 	hgKafkaTerminalFailures       atomic.Uint64
 	hgKafkaConsumerLagSequence    atomic.Uint64
 	hgKafkaConsumerLagObservers   sync.Map
-	hgKafkaCommits                atomic.Uint64
-	hgKafkaCommitFailures         atomic.Uint64
+	hgKafkaCommits                atomic.Uint64 //offset 提交成功 / 失败统计
+	hgKafkaCommitFailures         atomic.Uint64 //offset 提交成功 / 失败统计
 	hgKafkaCommitPartitions       atomic.Uint64
 	hgKafkaCommitNanos            atomic.Uint64
-	hgKafkaConsumerPanics         atomic.Uint64
+	hgKafkaConsumerPanics         atomic.Uint64 //消费逻辑 panic 捕获计数
 	hgKafkaGroupErrors            atomic.Uint64
-	hgKafkaPartitionsAssigned     atomic.Uint64
-	hgKafkaPartitionsRevoked      atomic.Uint64
-	hgKafkaPartitionsLost         atomic.Uint64
+	hgKafkaPartitionsAssigned     atomic.Uint64 //rebalance 分区分配事件计数
+	hgKafkaPartitionsRevoked      atomic.Uint64 //rebalance回收事件计数
+	hgKafkaPartitionsLost         atomic.Uint64 //rebalance丢失事件计数
 	hgKafkaAssignedPartitionGauge atomic.Int64
 )
 
@@ -383,20 +383,35 @@ func hgPartitionCount(partitions map[string][]int32) int {
 	return count
 }
 
-// HGKafkaMetricsHandler 返回 Prometheus text exposition 格式的内存指标，不访问外部依赖。
+// HGKafkaMetricsHandler 返回 Prometheus text exposition 格式的内存指标，不访问外部依赖。用来暴露 Kafka 消费者 / 生产者业务指标，对外提供 /metrics 接口，供 Prometheus 拉取监控数据。
+// 输出格式：Prometheus text exposition format（text/plain; version=0.0.4），标准的 Prometheus 抓取协议。
+//
+//	@param componentWriters  可变参数，扩展钩子；传入一批回调函数，接收 io.Writer(http response)，用于输出额外组件指标，实现插件式扩展，外部可以追加自己的监控指标。
+//	@return http.Handler  可以直接注册到 http.ServeMux，例如 mux.Handle("/metrics/kafka", HGKafkaMetricsHandler())
 func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		// Content‑Type：Prometheus 规定的文本格式 version=0.0.4，Prometheus 客户端识别该 MIME 类型。
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		// Cache‑Control: no‑store：禁止代理、浏览器缓存指标，每次都拉取实时数据。
 		w.Header().Set("Cache-Control", "no-store")
 
+		/** 局部工具函数 writeCounter
+		封装输出 Prometheus Counter 类型指标：
+		# HELP xxx 描述文本：指标说明文档
+		# TYPE xxx counter：声明指标类型是 counter（只递增，不会减少）
+		xxx value：指标名 + 数值
+		_, _ =：忽略 error。http response writer 写失败直接丢弃，不做错误处理；metrics 接口常见写法。
+		Counter：只能单调递增，适合统计总次数：消息总数、失败总数、批次总数。
+		*/
 		writeCounter := func(name string, help string, value uint64) {
 			_, _ = fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", name, help, name)
 			_, _ = fmt.Fprintf(w, "%s %d\n", name, value)
 		}
+		// 大批量 Counter 指标输出；所有 hgKafkaXXX 是原子变量（sync/atomic 的 *uint64），.Load() 原子读取无锁，高并发下安全
 		writeCounter("mlc_kafka_produce_records_total", "Kafka records completed by producers.", hgKafkaProduceRecords.Load())
 		writeCounter("mlc_kafka_produce_failures_total", "Kafka records that failed production.", hgKafkaProduceFailures.Load())
 		writeCounter("mlc_kafka_produce_batches_total", "Kafka batches written to brokers.", hgKafkaWrittenBatches.Load())
@@ -421,8 +436,16 @@ func HGKafkaMetricsHandler(componentWriters ...func(io.Writer)) http.Handler {
 		writeCounter("mlc_kafka_partitions_lost_total", "Kafka partitions lost by this process.", hgKafkaPartitionsLost.Load())
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_assigned_partitions Current Kafka partitions assigned to this process.\n# TYPE mlc_kafka_assigned_partitions gauge\n")
 		_, _ = fmt.Fprintf(w, "mlc_kafka_assigned_partitions %d\n", hgKafkaAssignedPartitionGauge.Load())
+		// gauge：仪表盘，可以上升下降，代表瞬时值，当前进程手上持有的分区数量
 		_, _ = fmt.Fprint(w, "# HELP mlc_kafka_consumer_lag_records Latest observed Kafka consumer lag in records.\n# TYPE mlc_kafka_consumer_lag_records gauge\n")
 		lagSeries := hgKafkaConsumerLagSeries()
+		/*
+		- hgKafkaConsumerLagSeries() 返回一个 map，key 编码为 group\0topic，用零字节 \0 作为分隔符，避免 group/topic 名字里面包含分隔字符导致解析错乱。
+		- 取出所有 key，排序输出：Prometheus metrics 输出排序是好习惯，方便人工阅读，对抓取本身不影响。
+		- strings.IndexByte(key,0) 找到零字节位置，切分出 consumer group 和 topic。
+		- strconv.Quote(group)：给 label 的字符串加引号，严格遵守 prometheus 文本格式，处理特殊字符、换行、引号转义。
+		- 输出带 label 的 gauge：mlc_kafka_consumer_lag_records{group="xxx",topic="yyy"} 1234，代表某个消费组 + topic 的消息堆积 lag。
+		*/
 		keys := make([]string, 0, len(lagSeries))
 		for key := range lagSeries {
 			keys = append(keys, key)

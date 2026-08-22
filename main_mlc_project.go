@@ -610,17 +610,26 @@ func (app *MLCApplication) Serve(ctx context.Context) error {
 		serveErr <- serveNamedMLCServer("management", app.managementServer)
 	}()
 	if app.videoDanmakuRealtime != nil {
+		// 基于 gnet（高性能事件驱动网络库） 的实时弹幕服务启动逻辑；
+		// 外层：启动 videoDanmakuRealtime.Server 放到 goroutine，错误投递到 serveErr channel。
 		go func() { serveErr <- app.videoDanmakuRealtime.Serve() }()
 	}
-
+	/** 监听系统信号（SIGINT Ctrl+C、SIGTERM kill）
+	创建一个 ctx，收到SIGINT(Ctrl+C) / SIGTERM(kill) 自动 cancel。
+	*/
 	stopCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	// 释放信号监听，避免 goroutine 泄漏，标准写法
 	defer stop()
 
 	select {
+	// 任意一个服务（http/gnet 弹幕服务）异常退出，触发关闭流程；比如：gnet 弹幕服务崩溃、HTTP 服务端口冲突，其中一个Serve()返回错误，写入serveErr。
 	case err := <-serveErr:
+		// hgShutdown 执行整套资源释放：HTTP 服务关闭、弹幕服务Drain（排空）→Close 关闭
 		shutdownErr := app.hgShutdown()
+		// hgWaitServeErrors()：等待 N 个服务实例全部退出，带超时，收集各个服务返回的错误；已经收到1 个服务退出 err，还需要等待剩下 serverCount‑1 个服务退出。
+		// 使用 Go1.20+ errors.Join 聚合多个错误，把关闭过程中所有错误打包返回给上层
 		return errors.Join(err, shutdownErr, hgWaitServeErrors(serveErr, serverCount-1, mlcServerShutdownTimeout))
-	case <-stopCtx.Done():
+	case <-stopCtx.Done(): // 收到操作系统终止信号，触发关闭流程
 		return errors.Join(app.hgShutdown(), hgWaitServeErrors(serveErr, serverCount, mlcServerShutdownTimeout))
 	}
 }
@@ -758,6 +767,11 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 
 // serveMLCServer 统一处理 ListenAndServe 返回错误，避免直接退出进程导致 defer 失效。
 func serveMLCServer(srv *http.Server) error {
+	/** ListenAndServe()：开启 HTTP 服务，阻塞调用，直到服务退出。
+	返回非 nil err 代表服务终止。
+	正常优雅关闭时（调用 srv.Shutdown(ctx)），ListenAndServe 返回的错误固定是：http.ErrServerClosed。
+	http.ErrServerClosed：这不是异常错误，是正常关闭的标记错误。
+	*/
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

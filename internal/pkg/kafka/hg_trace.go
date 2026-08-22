@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 17:35:54
+ * @LastEditTime: 2026-08-22 20:51:33
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_trace.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -43,13 +43,14 @@ func HGExtractTraceFromRecord(record *kgo.Record) context.Context {
 	return HGExtractTraceFromRecordContext(context.Background(), record)
 }
 
-// HGExtractTraceFromRecordContext 从 Kafka record 的 header 中提取链路追踪信息（如 trace_id、span_id），构造带 trace 的 context.Context，保证业务处理和后续回调都在正确的 trace 上下文中执行。
+// HGExtractTraceFromRecordContext 从 Kafka 消息的 Header 中提取 TraceID，注入到 context.Context，实现跨进程链路追踪传递。
+// 典型场景：上游服务发 Kafka 消息时把 traceId 放进 kafka header；消费端收到消息，调用本函数拿到 traceId，后续整个消费协程的 ctx 就带上链路 ID，日志、监控、jaeger 可以复用这条链路。
 //
 //	@param ctx
 //	@param record
 //	@return context.Context
 func HGExtractTraceFromRecordContext(ctx context.Context, record *kgo.Record) context.Context {
-	if ctx == nil {
+	if ctx == nil {//context.Context 禁止 nil 使用，如果外部传入nil ctx，兜底创建context.Background()，防止后续 panic。
 		ctx = context.Background()
 	}
 	if record == nil {
