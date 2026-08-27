@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-05-05 16:58:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-15 11:12:32
+ * @LastEditTime: 2026-08-26 20:25:00
  * @FilePath: /MLC_GO/internal/handler/hg_module.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -17,9 +17,9 @@ import (
 type HGModule interface {
 	// Name 返回模块名称，用于日志和路由清单。
 	Name() string
-	// BasePath 返回模块的 API 前缀路径。
+	// BasePath 返回模块的 API 前缀路径。例如 `/api/v1/user`
 	BasePath() string
-	// Handler 返回模块的 HTTP Handler。
+	// Handler 返回模块的 HTTP Handler。模块自己的子 mux，**模块内部已经组装好自己的路由、中间件、拦截器**。
 	Handler() http.Handler
 }
 

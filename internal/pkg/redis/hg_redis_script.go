@@ -159,6 +159,16 @@ return 1`
 	// FeedPublishLuaScript 原子完成 Kafka offset 水位去重、ZSET 写入和容量裁剪。
 	// KEYS[1]：分片 Feed ZSET；KEYS[2]：分片 offset 水位 Hash，两者必须使用同一 Redis Cluster hash tag。
 	// ARGV[1]：submission_id；ARGV[2]：发布时间毫秒；ARGV[3]：最大成员数；ARGV[4]：topic:partition；ARGV[5]：offset。
+	// 整体业务流程梳理
+	// 1. 传入一条feed消息，携带submissionID、score、offset
+	// 2. 根据submissionID哈希分到对应shard
+	// 3. 执行Lua脚本（**原子执行，不会中间被其他命令打断**，Lua在redis单线程运行）
+	//     1. 查历史offset水位
+	//     2. 如果本条offset<=历史，直接返回0，什么都不改
+	//     3. 否则ZADD把submissionID写入zset
+	//     4. 如果zset总条数超过maxItems，删除分数最小的旧条目
+	//     5. 更新hash水位为当前offset
+	//     6. 返回1成功
 	FeedPublishLuaScript = `
 local lastOffset = redis.call('HGET', KEYS[2], ARGV[4])
 if lastOffset and tonumber(ARGV[5]) <= tonumber(lastOffset) then

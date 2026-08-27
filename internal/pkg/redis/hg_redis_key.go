@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-06-08 15:06:31
+ * @LastEditTime: 2026-08-26 17:58:46
 * @FilePath: /MLC_GO/internal/pkg/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -114,11 +114,13 @@ func hgRedisKeyDigest(value string) string {
 	return fmt.Sprintf("%x", digest[:12])
 }
 
-// GetFeedShard 使用稳定哈希把同一 submission 固定到同一 Feed shard。
+// GetFeedShard 把海量 Feed 打散到多个 redis zset，**避免单个 zset 体积过大**。
 func GetFeedShard(submissionID string, shardCount int) int {
+	// 同一个 submissionID 永远落到同一个 shard；shardCount=1 直接返回 0，不分片。
 	if shardCount <= 1 {
 		return 0
 	}
+	// FNV‑32a 哈希算法，对`submissionID`做 hash 取模，分配分片编号。
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(submissionID))
 	return int(hasher.Sum32() % uint32(shardCount))

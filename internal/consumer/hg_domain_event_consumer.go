@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 18:26:03
- * @LastEditors: Harley harelysoa@qq.com
- * @LastEditTime: 2026-08-19 15:22:44
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-08-24 21:29:47
  * @FilePath: /MLC_GO/internal/consumer/hg_domain_event_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -71,7 +71,10 @@ type BatchHandler interface {
 	HandleBatch(context.Context, []DeliveredEnvelope) error
 }
 
-// DecodeEnvelope 把 Kafka value 解成统一事件外壳。
+// DecodeEnvelope 是 Kafka 消费侧的领域事件信封解码器。它把 Kafka 消息的 value 字节流反序列化成 events.EventEnvelope，并做了三件事：必填校验、版本兼容、历史数据补 ID。
+//	@param value 
+//	@return events.EventEnvelope 
+//	@return error 
 func DecodeEnvelope(value []byte) (events.EventEnvelope, error) {
 	var envelope events.EventEnvelope
 	// Kafka value 必须是 EventEnvelope JSON；payload 内部才是具体业务事件。
@@ -79,19 +82,37 @@ func DecodeEnvelope(value []byte) (events.EventEnvelope, error) {
 		return envelope, fmt.Errorf("decode domain event envelope: %w", err)
 	}
 	if envelope.EventName == "" {
-		// EventName 是消费侧路由的最小字段，缺失时不能安全分发。
+		// 为空直接报错 —— 消费端靠它做路由分发，没有就不知道该交给哪个 handler。
 		return envelope, fmt.Errorf("domain event name cannot be empty")
 	}
 	if envelope.Version == 0 {
-		// 升级前的历史 Envelope 没有显式版本，按最早稳定协议 v1 解读。
+		// 视为升级前的老数据，兜底设为 v1；然后只放行 v1，其他版本返回 ErrUnsupportedEnvelopeVersion，防止协议不匹配时静默解析错字段。
 		envelope.Version = events.EventVersionV1
 	}
 	if envelope.Version != events.EventVersionV1 {
 		return envelope, fmt.Errorf("%w: version=%d", ErrUnsupportedEnvelopeVersion, envelope.Version)
 	}
-	if envelope.EventID == "" {
-		// 兼容升级前已持久化到 Outbox/Kafka 的旧 Envelope。完整消息字节的 SHA-256 在重试和重放时稳定，
-		// 仅作为历史数据过渡 ID；新事件始终由生产侧生成 UUID，避免不同合法事件被 EventKey 合并。
+	if envelope.EventID == "" { // 为空时，用整条原始字节的 SHA-256 拼一个 legacy- 前缀的 ID 补上。
+		/**
+		为什么用哈希，而不是直接生成 UUID / 时间戳？
+		
+		核心诉求是同一条消息在重试、重放、重复消费时，每次解码得到的 EventID 必须完全相同。
+		
+		Kafka 是 at-least-once 投递，同一条消息可能被消费多次（rebalance、消费者重启、手动 seek 重放）。消费侧通常靠 EventID 做幂等去重（去重表 / 唯一索引 / 缓存）。如果这里用 uuid.New() 或时间戳，同一条原始消息每次解码都会得到不同 ID，幂等就失效了，重复消费会把业务事件写两遍。
+		
+		用原始字节的 SHA-256 就保证了：
+		 - 确定性：相同 value → 相同哈希 → 相同 EventID，重试和重放天然幂等。
+		 - 唯一性：不同业务事件的字节几乎不可能碰撞（SHA-256 抗碰撞）。
+		 - 无状态：不需要查数据库、不需要生产侧配合，消费端自己就能补出来。
+		
+		 为什么只在 EventID == "" 时才补？
+		
+		注释里说得很明确：新事件必须由生产侧生成 UUID，不能靠消费端哈希兜底。原因有两个：
+		- 生产侧 UUID 是业务语义上的事件唯一标识，从 Outbox 落库、投递 Kafka 到消费端全链路一致，可追溯。
+		- 哈希兜底有一个理论风险：如果两条不同的合法事件恰好被序列化成完全相同的字节（比如业务字段相同、时间戳精度不够、或 Envelope 里没有区分字段），哈希会一样，被消费侧按 "同一事件" 合并掉。生产侧 UUID 从根上避免这个问题。
+
+		*/
+		// Sum256 对原始 Kafka 消息字节算 SHA-256，返回 [32]byte
 		envelope.EventID = fmt.Sprintf("legacy-%x", sha256.Sum256(value))
 	}
 	return envelope, nil

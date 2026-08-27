@@ -100,11 +100,13 @@ func HGBuildRecord(ctx context.Context, topic string, key string, data any) (*kg
 //
 // 同步发送适合必须确认入 Kafka 后才能返回的核心链路；调用方必须传入有超时/取消能力的 ctx，避免 broker 异常时请求无限等待。
 func HGSendBusinessEvent(ctx context.Context, topic string, key string, data any) error {
+	// 把 data（envelope 结构体）序列化为 kafka 消息 value，组装成 kgo 的`*kgo.Record`
 	record, err := HGBuildRecord(ctx, topic, key, data)
 	if err != nil {
 		return err
 	}
 
+	// 获取全局 kafka kgo 客户端
 	client := HGClient()
 	if client == nil {
 		return errors.New("kafka client is not initialized")

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-26 20:06:46
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-05-16 10:48:31
+ * @LastEditTime: 2026-08-26 21:10:22
  * @FilePath: /MLC_GO/internal/handler/hg_root_handler.go
  * @Description: 根路由处理器，支持模块自注册模式
  */
@@ -46,10 +46,14 @@ type HealthCheckConfig struct {
 }
 
 // HGRouteMount 定义一个模块路由挂载点，便于按模块扩展和统一管理前缀策略。
+// 示例：
+// 请求 `/api/v1/user/profile`
+// StripPrefix(`/api/v1/user`) 之后，模块内部收到的路径变成 `/profile`。
+// 注释：根路由只负责挂载模块路由，具体路径由各模块定义，确保模块内路径清晰且不受外层变动影响。
 type HGRouteMount struct {
-	Prefix      string
-	StripPrefix string
-	Handler     http.Handler
+	Prefix      string       // 在根mux上注册的路由前缀，例：/api/v1/user/
+	StripPrefix string       // 需要剥离的前缀，例：/api/v1/user
+	Handler     http.Handler // 模块自己的handler（模块内部子mux，自带中间件、路由）
 }
 
 /*
@@ -61,11 +65,19 @@ func NewRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem)
 }
 
 // NewRootHandlerWithHealth 负责构建根路由，并注册 healthz/readyz 健康检查。
+// 作用：模块化 HTTP 服务脚手架设计，不是业务接口，解决大型 Go 后端多模块协作、K8s 容器部署、可观测性、路由管理的工程问题
+// 把业务路由 和 运维相关路由做代码隔离。
+// 好处：业务代码不混杂 k8s 探针逻辑；单元测试时可以只构建业务 mux，不带健康检查。
 //
 // 健康检查放在根路由层，而不是某个业务模块里，是因为它服务于部署系统和负载均衡，
 // 不属于 auth/user/test 任一业务域。这样新增业务模块时也不会影响探活路径。
 func NewRootHandlerWithHealth(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCatalogItem, health HealthCheckConfig) *http.ServeMux {
+	// rootMux 业务模块路由、元接口、静态文件
 	rootMux := newBusinessRootHandler(routeCatalogs)
+
+	// registerHealthRoutes 健康检查、metrics
+	//	@param rootMux
+	//	@param health
 	registerHealthRoutes(rootMux, health)
 	return rootMux
 }
@@ -88,6 +100,7 @@ func newBusinessRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCata
 
 	// 从注册表获取所有模块并挂载路由
 	mounts := make([]HGRouteMount, 0, 8)
+	// GetRegisteredModules 获取所有已经注册的业务模块（用户模块、投稿模块、统计模块等）。
 	for _, mod := range GetRegisteredModules() {
 		mounts = append(mounts, HGRouteMount{
 			Prefix:      mod.BasePath() + "/",
@@ -112,7 +125,9 @@ func newBusinessRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCata
 	rootMux.Handle(routeCatalogGroupsPath, buildRouteCatalogHandler(newRouteCatalogGroupedHandler(catalogGrouped)))
 
 	// 配置静态文件服务，支持访问上传的图片
-	// 浏览器访问 http://localhost:8080/uploads/user/hg_user_xxx.jpg 时，从 ./uploads/ 目录读取文件
+	// 浏览器访问 http://localhost:8080/uploads/user/hg_user_xxx.jpg 时，服务读取本地磁盘 `./uploads`目录
+	// `http.FileServer`：读取本地文件；
+	// `http.StripPrefix("/uploads/")`：把 url 中的前缀剥离，文件服务器只找后面的路径。
 	rootMux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	// 启动时打印路由清单
@@ -121,13 +136,35 @@ func newBusinessRootHandler(routeCatalogs []HGMiddlewareGroupPackage.HGRouteCata
 	return rootMux
 }
 
+// registerHealthRoutes  健康探针
+//
+//	@param rootMux
+//	@param health
 func registerHealthRoutes(rootMux *http.ServeMux, health HealthCheckConfig) {
 	// /healthz 不检查任何外部依赖，用于判断进程是否存活。
 	// 例如 Kubernetes livenessProbe 使用它，避免依赖短暂抖动导致容器被误杀。
+	// 1. `/healthz`（存活探针 livenessProbe）
+	// 只判断进程活着，**不访问 redis、clickhouse、db 等外部依赖**。
+	//  - 如果 redis 短暂抖动，不能让 k8s 杀掉 pod；进程还在就返回 ok。
+	//  -  作用：只杀卡死、死锁、goroutine 泄露的进程。
 	rootMux.Handle(healthzPath, newHealthzHandler())
+
 	// /readyz 检查外部依赖，用于判断实例是否可以接收流量。
 	// 例如 Kubernetes readinessProbe 使用它，依赖异常时把实例从 service endpoints 中摘除。
+	// 2. `/readyz`（就绪探针 readinessProbe）
+	// 执行传入的`health.ReadyCheck`，检查 Redis、DB、ClickHouse 等依赖是否正常。
+	//  - 返回 5xx：k8s 把该 pod 从 service 后端摘除，不再接收流量；
+	//  - 返回 200：才接入流量。
+	// 场景：服务刚启动，redis 还没连上，此时不要接收流量，等依赖就绪再对外服务。
 	rootMux.Handle(readyzPath, newReadyzHandler(health.ReadyCheck))
+
+	// 可选metrics
+	// 3. metrics：prometheus 指标接口，暴露业务、redis、kafka 各项监控指标。
+	// 为什么分开 healthz /readyz？很多人容易混淆
+	//  - liveness：**我活着吗？死了就重启**
+	//  - readiness：**我现在能干活吗？不能就摘掉流量，不要杀掉我**
+	// 如果把外部依赖检查放到 `/healthz`：redis 短暂抖动，会导致大量 pod 被 k8s 反复重启，引发雪崩。
+	// 这是生产踩坑总结出来的设计。
 	if health.MetricsHandler != nil {
 		rootMux.Handle(metricsPath, health.MetricsHandler)
 	}
@@ -168,7 +205,14 @@ func newReadyzHandler(check DependencyChecker) http.Handler {
 	})
 }
 
-// appendMetaRoutes 添加元数据路由（路由清单接口）。
+// appendMetaRoutes 添加元数据路由（路由清单接口）。追加 2 个元接口到路由清单。简单点来说就是对接口的排序
+// /xxx：查看完整 API 路由清单
+// /xxx/grouped：按模块分组查看 API 路由清单
+// Group:"meta" 代表这是**元信息接口**，属于平台内置接口，不是业务接口；`NeedAuth:false` 不需要鉴权即可访问。
+// 调用 `sort.Slice` 对整个路由清单切片做**稳定排序**，方便输出、打印日志、接口返回给前端时，列表是有序的，不会每次启动顺序乱掉。
+//
+//	@param catalog
+//	@return []HGMiddlewareGroupPackage.HGRouteCatalogItem
 func appendMetaRoutes(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	catalog = append(catalog, HGMiddlewareGroupPackage.HGRouteCatalogItem{
 		Group:    "meta",
@@ -185,9 +229,12 @@ func appendMetaRoutes(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) []H
 		Summary:  "按模块分组查看 API 路由清单",
 	})
 
-	// sort.Slice` 是 Go 标准库的排序函数：
-	// 参数 1：要排序的切片
-	// 参数 2：比较函数，返回 `true` 表示 `i` 应该排在 `j` 前面
+	// sort.Slice(切片, less func(i,j int) bool)
+	// - i、j 是切片里**两个元素的下标。
+	// - less(i,j) 返回 true：代表希望 下标 i 的元素排在下标 j 的元素前面
+	// - 返回 false：j 排 i 前面。
+	//
+	//  注意：不要拿 catalog[i] 和 catalog[i+1] 比，sort 内部会随机传入任意两个下标 i、j，不是相邻遍历
 	sort.Slice(catalog, func(i, j int) bool {
 		// 第一步：先按 Path 排序
 		if catalog[i].Path == catalog[j].Path {
@@ -198,12 +245,39 @@ func appendMetaRoutes(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) []H
 		return catalog[i].Path < catalog[j].Path
 	})
 
+	/** 接口排序：
+	示例：
+	GET  /api/v1/demo
+	POST /api/v1/demo
+
+
+	举个输入输出示例
+
+	原始无序 catalog：
+	POST /api/v1/user
+	GET  /api/v2/video
+	GET  /api/v1/user
+	
+
+	排序之后输出：
+	GET  /api/v1/user
+	POST /api/v1/user
+	GET  /api/v2/video
+	*/
+
 	return catalog
 }
 
 // registerRootPrefixRoutes 统一处理前缀挂载，确保各模块的 strip-prefix 行为一致。
+// 批量把多个子模块的 Handler挂载到顶层根 `rootMux`。
+//
+//	@param rootMux
+//	@param mounts
 func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 	for _, mount := range mounts {
+		// - handler 为空：模块没有提供处理器，跳过，不注册；
+		// - Prefix 为空：根 mux 注册路径为空，无效；
+		// - StripPrefix 为空：要剥离的前缀为空，没有意义；
 		if mount.Handler == nil || mount.Prefix == "" || mount.StripPrefix == "" {
 			continue
 		}
@@ -212,8 +286,7 @@ func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 }
 
 /*
-	把扁平的路由列表按 Group 字段分成多个组，每组内部再按 Path 排序
-
+把扁平的路由列表按 Group 字段分成多个组，每组内部再按 Path 排序
 buildRouteCatalogGrouped 把路由按 group 聚合，便于 App/Web 按模块展示。
 */
 func buildRouteCatalogGrouped(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem {

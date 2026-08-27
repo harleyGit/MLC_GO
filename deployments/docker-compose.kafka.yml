@@ -177,17 +177,21 @@ services:
       timeout: 3s
       retries: 10
 
-  # Prometheus 监控服务。
-  prometheus:
+  # Prometheus 监控服务。在 docker-compose 里拉起一个 Prometheus 监控服务
+  prometheus: # 跑 Prometheus 2.54.1 官方镜像
     image: prom/prometheus:v2.54.1
-    container_name: mlc-prometheus
+    # 容器固定名，方便 docker logs mlc-prometheus 排查
+    container_name: mlc-prometheus 
     ports:
       # 浏览器访问 http://localhost:19090。
+      # 宿主机 19090 → 容器 9090，所以浏览器走 localhost:19090
       - "19090:9090"
     extra_hosts:
       # Linux Docker 也可通过同一名称抓取宿主机上的应用管理端口。
+      # 让容器内能通过 host.docker.internal 解析到宿主机，用来抓宿主机上应用的 metrics 端口（Linux 下默认没有这个域名，所以手动加）
       - "host.docker.internal:host-gateway"
     volumes:
+    # 挂了三件东西：prometheus.yml 主配置（只读）、rules/ 告警规则目录（只读）、prometheus_data 命名卷做数据持久化
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
