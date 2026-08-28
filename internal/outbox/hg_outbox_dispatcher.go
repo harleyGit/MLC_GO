@@ -49,48 +49,71 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, batchSize int) error {
 	return err
 }
 
+// hgDispatchAvailable Outbox（发件箱模式）的调度发送核心函数
+// 整体逻辑：抢占一批待发送 outbox 记录 → 多 goroutine 并发发送 kafka → 根据发送结果标记数据库记录（已发布 / 重试 / 死信）。
+//
+//	@param ctx
+//	@param batchSize
+//	@return int
+//	@return error
 func (d *Dispatcher) hgDispatchAvailable(ctx context.Context, batchSize int) (int, error) {
+
+	// repo：outbox 数据库存储层（操作 outbox 表）
 	if d == nil || d.repo == nil {
 		return 0, fmt.Errorf("outbox dispatcher repository cannot be nil")
 	}
+
+	// producer：kafka 生产者，把 outbox 里的 Envelope 消息发送到 kafka
 	if d.producer == nil {
 		return 0, fmt.Errorf("outbox dispatcher producer cannot be nil")
 	}
 
+	// 批量大小保护：不能大于worker并发数
 	if batchSize <= 0 || batchSize > d.workers {
 		batchSize = d.workers
 	}
+	// 1. 抢占(claim)一批待发送outbox记录，带上租约lease
 	events, err := d.repo.Claim(ctx, batchSize, d.lease)
 	if err != nil {
 		return 0, err
 	}
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(events))
+	// 2. 每条outbox记录启动goroutine并发发送kafka
 	for _, event := range events {
 		event := event
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			var markErr error
+			// 调用producer发送kafka，payload就是完整EventEnvelope json
 			if sendErr := d.producer.Send(ctx, event.Topic, event.EventKey, event.Payload); sendErr != nil {
+				// kafka发送失败
 				if event.RetryCount+1 >= d.maxRetry {
+					// 超过最大重试次数 → 标记死信 MarkDead，不再重试
 					_, markErr = d.repo.MarkDead(ctx, event.ID, event.LeaseToken, sendErr.Error())
 				} else {
+					// 还没到最大重试次数 → MarkRetry，增加重试计数，设置延迟下次再捞
 					_, markErr = d.repo.MarkRetry(ctx, event.ID, event.LeaseToken, sendErr.Error(), hgOutboxRetryDelay(event.RetryCount))
 				}
 			} else {
+				// ✅发送kafka成功，标记这条outbox记录已发布
 				_, markErr = d.repo.MarkPublished(ctx, event.ID, event.LeaseToken)
 			}
+			// 如果标记DB操作出错，把错误丢进errCh
 			if markErr != nil {
 				errCh <- markErr
 			}
 		}()
 	}
+	// 等待所有并发发送goroutine全部完成
 	wg.Wait()
 	close(errCh)
+	// 只要有任意一条记录的标记DB出错，直接返回该错误
 	for dispatchErr := range errCh {
 		return len(events), dispatchErr
 	}
+	// 成功处理这批，返回本次取出多少条outbox事件
 	return len(events), nil
 }
 

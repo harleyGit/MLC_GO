@@ -2,7 +2,7 @@
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-26 17:58:46
+ * @LastEditTime: 2026-08-27 21:04:01
 * @FilePath: /MLC_GO/internal/pkg/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -137,6 +137,12 @@ func GetFeedOffsetWatermarkKey(generation string, shard int) string {
 }
 
 // GetStatisticShard 将 Kafka partition 稳定分散到统计 counter shards。
+// 目的：同一个 kafka partition 的所有消息，落到同一个 Redis 分片。
+// ：打散大流量，避免单 Redis key 成为热 key，对应 yaml 注释里「64 分片 ZSET，避免全局热 key」。
+// 
+//	@param partition kafka 消息所在分区编号
+//	@param shardCount 统计模块 Redis 分片总数（比如 64 分片）
+//	@return int 
 func GetStatisticShard(partition int32, shardCount int) int {
 	if shardCount <= 1 {
 		return 0
