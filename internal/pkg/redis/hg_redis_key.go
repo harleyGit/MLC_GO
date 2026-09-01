@@ -1,8 +1,8 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-21 21:17:38
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-27 21:04:01
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-09-01 08:59:50
 * @FilePath: /MLC_GO/internal/pkg/redis/hg_redis_key.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 */
@@ -114,15 +114,22 @@ func hgRedisKeyDigest(value string) string {
 	return fmt.Sprintf("%x", digest[:12])
 }
 
-// GetFeedShard 把海量 Feed 打散到多个 redis zset，**避免单个 zset 体积过大**。
+// GetFeedShard 把海量 Feed 打散到多个 redis zset，避免单个 zset 体积过大
+// 把一个 submissionID 稳定地映射到 0 ~ shardCount-1 中的某一个分片（shard）。只要 submissionID 不变、shardCount 不变，它每次计算出来的 shard 都一样
+// 
+//	@param submissionID 
+//	@param shardCount 
+//	@return int 
 func GetFeedShard(submissionID string, shardCount int) int {
 	// 同一个 submissionID 永远落到同一个 shard；shardCount=1 直接返回 0，不分片。
 	if shardCount <= 1 {
 		return 0
 	}
-	// FNV‑32a 哈希算法，对`submissionID`做 hash 取模，分配分片编号。
+	// FNV‑32a 哈希算法，把任意长度的数据转换成一个固定大小整数的函数。对submissionID做 hash 取模，分配分片编号。
 	hasher := fnv.New32a()
+	// 把 submissionID 的字节数据输入到 Hash 算法中。
 	_, _ = hasher.Write([]byte(submissionID))
+	// hasher.Sum32()： 拿到最终的 32 位 Hash 值
 	return int(hasher.Sum32() % uint32(shardCount))
 }
 

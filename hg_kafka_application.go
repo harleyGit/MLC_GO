@@ -63,7 +63,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		return producerCloser, nil, err
 	}
 	cfg, _, err := ConfigPackage.GetKafkaConfig()
-	if err != nil {
+	if err != nil { 
 		producerCloser()
 		return nil, nil, err
 	}
