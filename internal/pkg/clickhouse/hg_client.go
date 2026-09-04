@@ -218,8 +218,14 @@ FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
 	return items, nil
 }
 
-// PingContext 验证 ClickHouse HTTP endpoint 可用。
+// PingContext 验证 ClickHouse HTTP endpoint 可用。真正执行http请求
+// PingContext 用来探测 ClickHouse 服务是否存活，底层复用通用的execute函数发送 SELECT 1
 func (c *HGClient) PingContext(ctx context.Context) error {
+	/**
+	- Ping 逻辑：发送`SELECT 1`测试连通性。
+	- 把上层 ctx 透传给 execute，同时传入内部 timeout。
+	- body、params、outputs 全部 nil，只探测连通，不需要返回数据
+	*/
 	return c.execute(ctx, c.config.QueryTimeout, "SELECT 1", nil, nil)
 }
 
@@ -285,34 +291,67 @@ func (c *HGClient) Close() error {
 	return nil
 }
 
+// execute  是通用 HTTP 请求执行函数，负责构造 HTTP 请求、带超时调用 ClickHouse HTTP 接口、处理响应与错误
+//	@param ctx 上层传入父上下文（Ping 的时候就是 pingCtx，可以携带外部超时、取消信号）
+//	@param timeout 函数内部二次超时时间 c.config.QueryTimeout
+//	@param query clickhouse SQL 语句，ping 场景是 SELECT 1
+//	@param body  POST 请求 body，ping 场景 nil；批量 ndjson 查询时填充数据
+//	@param params HTTP query 额外参数
+//	@param outputs 可变参数，把 clickhouse 返回流写入 writer；ping 不需要接收输出传 nil
+//	@return error 
 func (c *HGClient) execute(ctx context.Context, timeout time.Duration, query string, body []byte, params map[string]string, outputs ...io.Writer) error {
+	// 基于**父 ctx**再包装一层超时`timeout`，得到`requestCtx`给 http 请求使用。
+	// 继承父 ctx 的取消信号：如果上层`pingCtx`提前超时 /cancel，`requestCtx`会跟着取消；同时内部又有自己的`timeout`兜底
+	// 超时逻辑：**哪个先到就哪个生效**
+	// 上层 ctx 超时时间 `clickHouseConfig.QueryTimeoutDuration`，内部 timeout `c.config.QueryTimeout`
+	// 如果两个配置不一致，取 更小的那个 触发取消。
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// 解析配置的 ClickHouse 地址（例如 `http://127.0.0.1:8123`）
 	endpoint, err := url.Parse(c.config.Endpoint)
 	if err != nil {
+		// ，`%w` Go1.13 错误包装，保留原始 error，上层可以用`errors.Is`做判断
 		return fmt.Errorf("parse clickhouse endpoint: %w", err)
 	}
+	// 获取 URL 现有的 query 参数
 	values := endpoint.Query()
+	// 设置`query`参数为 SQL 语句（ClickHouse HTTP 协议约定）
 	values.Set("query", query)
+	// 追加自定义 params（例如`database`、`default_format`等 clickHouse http 参数）
 	for key, value := range params {
 		values.Set(key, value)
 	}
+	// Encode 生成编码后的 query 字符串赋值回 UR，示例：http://127.0.0.1:8123?query=SELECT+1
 	endpoint.RawQuery = values.Encode()
+	// http.NewRequestWithContext：绑定 requestCtx 到 http 请求，context 一旦 Done，`c.client.Do(request)`就会中断 http 调用
+	// method: POST；body 用`bytes.NewReader(body)`，ping 场景 body=nil，请求无 body
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build clickhouse request: %w", err)
 	}
+	// BasicAuth：ClickHouse http 接口账号密码认证。
 	request.SetBasicAuth(c.config.Username, c.config.Password)
+	// Content-Type 固定`application/x-ndjson`：适合 ndjson 格式写入；普通 SQL 查询其实不需要这个头，Ping `SELECT 1`下这个 header 是多余的，但不影响 ClickHouse 执行
 	request.Header.Set("Content-Type", "application/x-ndjson")
+	// c.client 是 *http.Client，要注意：http.Client 不要每次新建，全局复用；Transport 要合理配置 MaxIdleConns 等。
+	// client.Do 阻塞发起网络请求；如果requestCtx超时 / 取消，这里直接返回 context 相关错误 (`context.DeadlineExceeded` / `context.Canceled`)。
 	response, err := c.client.Do(request)
 	if err != nil {
 		return fmt.Errorf("execute clickhouse request: %w", err)
 	}
+	// 强制必须写，否则 http 连接无法归还连接池，连接泄漏。即使报错也要 close
 	defer response.Body.Close()
+	// 判断 HTTP 状态码：非 2xx 全部视为错误
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		// `io.LimitReader`：限制读取错误返回 body 最大字节`hgMaxClickHouseErrorBody`，防止报错返回超大响应体吃掉内存；`_`忽略读取错误，尽力拿错误信息
 		message, _ := io.ReadAll(io.LimitReader(response.Body, hgMaxClickHouseErrorBody))
 		return fmt.Errorf("clickhouse returned status %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
+	/**
+	- 如果传入了`io.Writer`，把 response.Body 流拷贝写入 writer（比如文件、buffer）。
+	- Ping 调用时 outputs 传 nil，不走拷贝逻辑；直接 return nil 成功。
+	- Ping 场景下 ClickHouse 收到`SELECT 1` HTTP 请求返回 `1\n`，状态码 200，就代表服务存活
+	*/
 	if len(outputs) > 0 && outputs[0] != nil {
 		if _, err := io.Copy(outputs[0], response.Body); err != nil {
 			return fmt.Errorf("read clickhouse response: %w", err)

@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-01-17 22:19:17
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-17 20:44:59
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-09-04 21:52:48
  * @FilePath: /MLC_GO/internal/pkg/config/hg_env_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -857,6 +857,11 @@ func GetIDGeneratorConfig() (HGIDGeneratorConfig, error) {
 }
 
 // GetStatisticInfrastructureConfig 读取并校验 ClickHouse 和 Statistic 投影配置。
+// 这段代码是一个 "配置读取 + 强校验 + 规范化" 的 Go 函数，从 viper 配置里读出 ClickHouse 数据库配置和统计基础设施（Statistic）配置，做层层校验后转成运行时结构体返回
+// 
+//	@return HGClickHouseConfig ClickHouse 配置
+//	@return HGStatisticInfrastructureConfig Statistic 运行时配置
+//	@return error 错误
 func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastructureConfig, error) {
 	// clickHouse ClickHouse 数据库配置
 	var clickHouse HGClickHouseConfig
@@ -882,9 +887,14 @@ func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastr
 	clickHouse.StatisticEventsTable = strings.TrimSpace(clickHouse.StatisticEventsTable)
 	clickHouse.StatisticTotalsTable = strings.TrimSpace(clickHouse.StatisticTotalsTable)
 	clickHouse.DanmakuHistoryTable = strings.TrimSpace(clickHouse.DanmakuHistoryTable)
+
+	// 密码不写进配置文件，用环境变量注入，且环境变量优先覆盖配置值。这是密码管理的最佳实践：配置文件常进版本库 / CI，密码放里面等于泄露；环境变量属于运行时注入，还能按环境（dev/prod）分别设置。注意空值不覆盖 —— 避免空环境变量把已有配置清掉
+	// Getenv 敏感信息走环境变量 
 	if password := os.Getenv("CLICKHOUSE_PASSWORD"); password != "" {
 		clickHouse.Password = password
 	}
+
+	// 拼错协议导致连接协议错误或安全问题
 	if clickHouse.Scheme != "http" && clickHouse.Scheme != "https" {
 		return clickHouse, statistic, fmt.Errorf("clickhouse.scheme 仅支持 http 或 https")
 	}

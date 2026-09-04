@@ -1,8 +1,8 @@
 /*
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:48:12
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-20 10:49:32
+ * @LastEditors: Harley harelysoa@qq.com
+ * @LastEditTime: 2026-09-04 22:32:25
  * @FilePath: /MLC_GO/hg_kafka_application.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -55,8 +55,40 @@ func initKafkaIfConfigured() (kafkaCloser, error) {
 	return closer, err
 }
 
-// initKafkaWithDependencies 初始化 Producer、独立 Consumer Group 和 Outbox dispatcher。
-// Redis/MySQL 均复用应用现有连接池，避免后台任务重复创建高成本基础设施连接。
+// “初始化整个 Kafka 相关运行环境，并把 Redis、ClickHouse、MySQL、Outbox 等依赖组装起来，最后返回一个统一的关闭函数。”
+/*
+                    initKafkaWithDependencies()
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+       初始化 Kafka Producer              读取各种配置
+             │                                 │
+             ▼                                 ▼
+        producerCloser                  Kafka / ClickHouse
+                                             / Feed / Danmaku
+                                             │
+                                             ▼
+                                      初始化 ClickHouse
+                                             │
+                                             ▼
+                                      组装 RuntimeDependencies
+                                             │
+                       ┌─────────────────────┼──────────────────┐
+                       │                     │                  │
+                     Redis              ClickHouse            MySQL
+                       │                     │                  │
+                       └─────────────────────┼──────────────────┘
+                                             ▼
+                                   Kafka Consumer Runtime
+                                             │
+                                      consumerRuntime.Start()
+                                             │
+                                             ▼
+                                    启动 Outbox Dispatcher
+                                             │
+                                             ▼
+                              返回统一 Close() + Consumer
+*/
 func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, kafkaReadyChecker, error) {
 	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
 	if err != nil || producerCloser == nil {
@@ -89,6 +121,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 			producerCloser()
 			return nil, nil, fmt.Errorf("ClickHouse客户端初始化失败: %w", err)
 		}
+		// 这是一套基于 HTTP 协议封装的 ClickHouse 客户端简易实现
 		pingCtx, cancel := context.WithTimeout(context.Background(), clickHouseConfig.QueryTimeoutDuration)
 		err = clickHouseClient.PingContext(pingCtx)
 		cancel()
