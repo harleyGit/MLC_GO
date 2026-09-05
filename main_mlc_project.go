@@ -141,33 +141,97 @@ func buildMLCServer() (*http.Server, error) {
 	return app.server, nil
 }
 
-// buildMLCApplication 负责构建工程依赖、注册模块并组装 HTTP Server。
+// buildMLCApplication 它负责把 Redis、MySQL、Kafka、各种业务模块、后台定时任务、爬虫、HTTP 路由、健康检查、监控等全部创建出来，组装成一个完整的 MLCApplication，最后交给 main 去启动
 //
 // 构建顺序刻意保持为：Logger -> Redis -> MySQL -> Kafka -> 模块注册 -> 根路由 -> Server。
 // 这样任何一步失败都可以释放前面已成功初始化的资源，避免启动失败时连接泄漏。
+/* https://chatgpt.com/s/p_6a9c0be8e9448191ac4f9e9f71067cbe
+
+                  ┌──────────────┐
+                  │     main     │
+                  └──────┬───────┘
+                         ↓
+              buildMLCApplication()
+                         │
+       ┌─────────────────┼──────────────────┐
+       ↓                 ↓                  ↓
+  基础设施             业务模块            后台任务
+       │                 │                  │
+ ┌─────┼─────┐      ┌────┼────┐       ┌─────┼─────┐
+ ↓     ↓     ↓      ↓    ↓    ↓       ↓     ↓     ↓
+Redis MySQL Kafka  User Video Comment  Reproject Coin Crawler
+                    │     │      │
+                    └─────┼──────┘
+                          ↓
+                     Route Catalog
+                          ↓
+                       rootMux
+                          ↓
+                     Middleware
+                          ↓
+                    HTTP Server
+                          │
+               ┌──────────┴──────────┐
+               ↓                     ↓
+           :业务端口              :管理端口
+               ↓                     ↓
+           /api/...           /healthz /readyz
+                                 /metrics
+
+*/
+/* managementMux、srv、managementServer
+return &MLCApplication{……} 这部分代码结构图意思：
+
+                  MLCApplication
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+     business server              management server
+          │                             │
+     businessHandler             managementMux
+          │                             │
+    业务 API 请求                 运维管理请求
+          │                             │
+     ┌────┴────┐                  ┌─────┴─────┐
+     │         │                  │           │
+   Redis      SQL              Health      Metrics
+     │         │               Check       Prometheus
+     │         │
+     └────┬────┘
+          │
+        Kafka
+          │
+     各种业务组件
+*/
 func buildMLCApplication() (*MLCApplication, error) {
+	// ① 初始化日志系统，保证后续的依赖初始化和模块注册都能有日志输出。
 	HGLoggerPackage.Init()
 
 	// 1. 初始化基础设施。
-	// Redis/MySQL 属于服务 ready 状态的关键依赖；启动期直接校验能尽早暴露配置和网络问题。
+	// ② Redis Redis/MySQL 属于服务 ready 状态的关键依赖；启动期直接校验能尽早暴露配置和网络问题。
 	redisService, err := newRedisServiceWithRecover()
 	if err != nil {
+		// 启动失败，关闭日志系统。
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("Redis初始化失败: %w", err)
 	}
+
+	// 从配置文件 / 环境变量中读取 API Gateway 的配置。
 	gatewayConfig, err := ConfigPackage.GetAPIGatewayConfig()
 	if err != nil {
+		// Redis 已经创建了，不能不管，初始化失败回滚。
 		_ = redisService.Close()
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("API Gateway配置失败: %w", err)
 	}
+	// ③ API Gateway
 	apiGateway, err := HGMiddlewareGroupPackage.NewHGAPIGateway(redisService, gatewayConfig)
 	if err != nil {
 		_ = redisService.Close()
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("API Gateway初始化失败: %w", err)
 	}
-
+	// ④ MySQL
 	sqlManager, err := PersistenceSQLPackage.NewSQLManager()
 	if err != nil {
 		logHG.ErrFInfo("数据库初始化失败: %v", err)
@@ -176,8 +240,9 @@ func buildMLCApplication() (*MLCApplication, error) {
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
 
-	// Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
-	// 成功返回的 closer 会保存到 MLCApplication，在退出阶段统一 flush 并关闭全局 Kafka Client。
+	// ⑤ Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
+	// Kafka 主要负责：业务事件 -> Kafka -> 异步消费 -> 其他业务, 比如：用户点赞 -> 产生 LikeEvent -> -> Kafka -> 统计服务 -> Redis / ClickHouse
+	// kafkaCloser 负责关闭 Kafka； kafkaRuntime 检查Kafka 当前运行状态 / Ready 检查能力。
 	kafkaCloser, kafkaRuntime, err := initKafkaWithDependencies(redisService, sqlManager)
 	if err != nil {
 		logHG.ErrFInfo("Kafka初始化失败: %v", err)
@@ -188,6 +253,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, err
 	}
+	// 读取配置
 	interactionConfig, err := ConfigPackage.GetInteractionReprojectConfig()
 	if err != nil {
 		if kafkaCloser != nil {
@@ -204,6 +270,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		for _, hashRange := range interactionConfig.HashRanges {
 			hashRanges = append(hashRanges, VideoInteractionTaskPackage.HGProjectionHashRange{Start: hashRange.Start, End: hashRange.End})
 		}
+		// ⑥ 后台 Worker / Task，创建一个后台任务，可以将 Redis 中的统计数据和数据库里的权威数据出现差异时，进行重新投影 / 修复。
 		interactionReprojector, err = VideoInteractionTaskPackage.NewHGReprojector(
 			VideoInteractionRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
 			VideoInteractionCachePackage.NewCache(redisService),
@@ -222,8 +289,30 @@ func buildMLCApplication() (*MLCApplication, error) {
 			HGLoggerPackage.CloseLogger()
 			return nil, fmt.Errorf("Interaction reproject初始化失败: %w", err)
 		}
+		/** interactionReprojector的使用距离，例如：
+		MySQL / ClickHouse
+			↓
+			权威数据
+			↓
+			10000 点赞
+		Redis
+			↓
+			9997 点赞
+
+		发现：10000 != 9997
+
+		那么 Reprojector：
+			发现差异
+			↓
+			重新计算
+			↓
+			修正 Redis
+
+		然后：正式启动后台任务，这里不是 HTTP 请求处理，而是应用启动的时候顺便启动一个后台 Worker。
+		*/
 		interactionReprojector.Start(context.Background())
 	}
+	// 读取投币相关任务配置
 	coinJobConfig, err := ConfigPackage.GetCoinJobConfig()
 	if err != nil {
 		if interactionReprojector != nil {
@@ -256,16 +345,29 @@ func buildMLCApplication() (*MLCApplication, error) {
 			HGLoggerPackage.CloseLogger()
 			return nil, fmt.Errorf("Coin jobs初始化失败: %w", err)
 		}
+		/** 简单理解：Coin jobs 是一个后台任务，负责处理投币相关的业务逻辑，例如：
+		用户投币
+		↓
+		业务事件
+		↓
+		数据库
+		↓
+		Coin Jobs
+		↓
+		定期处理 / 汇总 / 对账
+		所以：coinJobs 也是一个后台 Worker
+		*/
 		coinJobs.Start(context.Background())
 	}
 
-	// 2. 注册所有模块（每个模块内部创建自己的 handler）。
-	// ClearModules 用来避免测试或重复构建应用时，全局注册表被 append 出重复模块。
-	// 新增模块只需在此处调用 RegisterModules 即可。
+	// ⑦ 注册业务模块 2. 注册所有模块（每个模块内部创建自己的 handler）。
+	// ClearModules 清空之前注册的模块，用来避免测试或重复构建应用时，全局注册表被 append 出重复模块。
 	HGHandlerPackage.ClearModules()
+	// 新增模块只需在此处调用 RegisterModules 即可，可以理解成：把用户模块安装到这个应用里面
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
+	// 视频上传
 	BilibiliModulePackage.RegisterModules(redisService, sqlManager)
 	if err := VideoRecommendModulePackage.RegisterModules(redisService, sqlManager); err != nil {
 		if coinJobs != nil {
@@ -282,6 +384,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("Video recommend模块初始化失败: %w", err)
 	}
+	// 视频推荐
 	if err := VideoInteractionModulePackage.RegisterModules(redisService, sqlManager); err != nil {
 		if coinJobs != nil {
 			coinJobs.Close()
@@ -297,6 +400,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("Video interaction模块初始化失败: %w", err)
 	}
+	// 注册视频评论模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	videoCommentComponents, err := VideoCommentModulePackage.RegisterModules(redisService, sqlManager, CoinTaskPackage.NewHGRedisJobLease(redisService))
 	if err != nil {
 		if coinJobs != nil {
@@ -314,6 +418,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		return nil, fmt.Errorf("Video comment模块初始化失败: %w", err)
 	}
 	if videoCommentComponents.Maintenance != nil {
+		// Maintenance 通常就是评论模块内部的后台维护任务
 		videoCommentComponents.Maintenance.Start(context.Background())
 	}
 	videoDanmakuComponents, err := VideoDanmakuModulePackage.RegisterModules(redisService, sqlManager)
@@ -337,10 +442,12 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
+	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
 	if err != nil {
 		return nil, fmt.Errorf("Crawler task配置失败: %w", err)
 	}
+	// 创建爬虫任务调度器
 	crawlerTaskScheduler, err := CrawlerRuntimePackage.NewHGTaskScheduler(
 		opsComponents.CrawlerRepo,
 		opsComponents.CrawlerTasks,
@@ -351,6 +458,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Crawler task scheduler初始化失败: %w", err)
 	}
+	// 启动爬虫调度器
 	if err := crawlerTaskScheduler.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("Crawler task scheduler启动失败: %w", err)
 	}

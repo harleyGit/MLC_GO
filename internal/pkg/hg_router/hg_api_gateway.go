@@ -48,7 +48,20 @@ type hgGatewayModuleMetrics struct {
 }
 
 // HGAPIGateway 是业务 HTTP 的统一入口层，负责模块识别、安全响应头和跨实例粗粒度限流。
-// JWT、签名、权限和业务限流继续由现有模块中间件处理，避免重复解析请求或改变外部 API 语义。
+/* 把 API Gateway 作为业务 Handler 前面的一层 Middleware。
+API Gateway 作用：
+  │
+  ├── 鉴权
+  ├── 限流
+  ├── IP控制
+  ├── Token
+  ├── 黑名单
+  ├── Redis
+  └── ...
+  │
+  ↓
+业务 Handler
+*/ 
 type HGAPIGateway struct {
 	enabled        bool
 	eval           hgGatewayRateEval
