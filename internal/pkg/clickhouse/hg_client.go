@@ -92,6 +92,7 @@ func NewHGClient(config HGConfig) (*HGClient, error) {
 	if config.Endpoint == "" || config.Database == "" || config.Username == "" {
 		return nil, fmt.Errorf("clickhouse endpoint, database and username cannot be empty")
 	}
+	// ParseRequestURI 解析一个完整的请求 URI 字符串，返回 `*url.URL` 结构体，专门用来解析「请求地址」，比 `url.Parse` 更严格, 将url地址解析成type URL struct 中对应的变量
 	if _, err := url.ParseRequestURI(config.Endpoint); err != nil {
 		return nil, fmt.Errorf("invalid clickhouse endpoint: %w", err)
 	}
@@ -108,8 +109,11 @@ func NewHGClient(config HGConfig) (*HGClient, error) {
 	if config.WriteTimeout <= 0 || config.QueryTimeout <= 0 {
 		return nil, fmt.Errorf("clickhouse timeouts must be positive")
 	}
+	// .Clone() 是关键：它会深拷贝一份默认 Transport 的配置，而不是在原对象上改。
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// 整个 Transport 允许保持的空闲连接总数上限
 	transport.MaxIdleConns = 50
+	// 对单个 host（主机）允许的空闲连接上限
 	transport.MaxIdleConnsPerHost = 50
 	return &HGClient{config: config, client: &http.Client{Transport: transport}}, nil
 }
@@ -150,6 +154,7 @@ func (c *HGClient) StoreDanmakuHistory(ctx context.Context, items []HGDanmakuHis
 		}
 	}
 	query := fmt.Sprintf("INSERT INTO %s.%s SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", c.config.Database, c.config.DanmakuHistoryTable)
+	// 把一批弹幕历史数据，通过 HTTP/ClickHouse 的 JSONEachRow 格式，异步写入 ClickHouse 指定的表中。
 	return c.execute(ctx, c.config.WriteTimeout, query, body.Bytes(), nil)
 }
 
@@ -188,6 +193,7 @@ FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
 	}
 	items := make([]HGDanmakuHistory, 0, limit)
 	decoder := json.NewDecoder(&response)
+	// 从 response 里面读取下一段 JSON，然后解析成 HGDanmakuHistory。
 	for decoder.More() {
 		var row struct {
 			DanmakuID      string `json:"danmaku_id"`

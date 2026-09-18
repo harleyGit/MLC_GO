@@ -136,6 +136,7 @@ func newHGAPIGateway(eval hgGatewayRateEval, config ConfigPackage.HGAPIGatewayCo
 }
 
 // Middleware 在根路由匹配和 StripPrefix 之前执行，因此 React 公共 URL 与模块内签名路径保持不变。
+// 做这些功能：鉴权、限流、Redis、安全策略
 func (g *HGAPIGateway) Middleware(next http.Handler) http.Handler {
 	if g == nil || !g.enabled {
 		return next

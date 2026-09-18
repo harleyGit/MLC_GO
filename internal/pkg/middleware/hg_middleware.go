@@ -291,6 +291,20 @@ func (w *hgAccessLogResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 }
 
 // AccessLogMiddleware 统一记录请求方法、路径、状态、响应大小、请求 ID 和耗时。
+/* 记录：
+请求 URL
+HTTP Method
+状态码
+耗时
+RequestID
+IP
+
+例如：
+POST /api/video
+status=200
+cost=35ms
+request_id=abc123
+*/
 func AccessLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

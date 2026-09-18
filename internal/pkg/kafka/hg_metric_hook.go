@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:36:21
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 20:38:37
+ * @LastEditTime: 2026-09-09 15:06:04
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_metric_hook.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -383,7 +383,24 @@ func hgPartitionCount(partitions map[string][]int32) int {
 	return count
 }
 
-// HGKafkaMetricsHandler 返回 Prometheus text exposition 格式的内存指标，不访问外部依赖。用来暴露 Kafka 消费者 / 生产者业务指标，对外提供 /metrics 接口，供 Prometheus 拉取监控数据。
+// HGKafkaMetricsHandler 建立 Prometheus metrics，比如：Kafka消费数量、Kafka消费延迟、HTTP请求数量、评论任务数量、投币任务数量、弹幕连接数
+/** 最终：
+Prometheus
+     ↓
+GET /metrics
+     ↓
+Go应用
+     ↓
+返回指标
+
+/metrics 不应该每次访问都去 MySQL / Redis / Kafka 查询。更像是：
+组件内部维护指标
+        ↓
+访问 /metrics
+        ↓
+快速读取内存里的指标
+*/
+// 
 // 输出格式：Prometheus text exposition format（text/plain; version=0.0.4），标准的 Prometheus 抓取协议。
 //
 //	@param componentWriters  可变参数，扩展钩子；传入一批回调函数，接收 io.Writer(http response)，用于输出额外组件指标，实现插件式扩展，外部可以追加自己的监控指标。

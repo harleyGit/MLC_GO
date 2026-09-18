@@ -312,7 +312,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		*/
 		interactionReprojector.Start(context.Background())
 	}
-	// 读取投币相关任务配置
+	// ⑥ 后台 Worker / Task  读取投币相关任务配置
 	coinJobConfig, err := ConfigPackage.GetCoinJobConfig()
 	if err != nil {
 		if interactionReprojector != nil {
@@ -418,9 +418,11 @@ func buildMLCApplication() (*MLCApplication, error) {
 		return nil, fmt.Errorf("Video comment模块初始化失败: %w", err)
 	}
 	if videoCommentComponents.Maintenance != nil {
-		// Maintenance 通常就是评论模块内部的后台维护任务
+		// Maintenance 通常就是评论模块内部的后台维护任务,包括：评论数据清理、评论状态修复、评论、索引维护、异常数据处理
+		// 开启后台 goroutine / worker。
 		videoCommentComponents.Maintenance.Start(context.Background())
 	}
+	// 注册弹幕模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	videoDanmakuComponents, err := VideoDanmakuModulePackage.RegisterModules(redisService, sqlManager)
 	if err != nil {
 		if videoCommentComponents.Maintenance != nil {
@@ -462,7 +464,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if err := crawlerTaskScheduler.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("Crawler task scheduler启动失败: %w", err)
 	}
-	// Recovery shares the exact repository/service instances used by the API, preserving the same idempotency and audit boundaries.
+	// ⑦ 注册业务模块 Correction Recovery 是数据修复 Worker，读取修复配置
 	correctionRecoveryConfig, err := ConfigPackage.GetCorrectionRecoveryConfig()
 	if err != nil {
 		if videoCommentComponents.Maintenance != nil {
@@ -511,10 +513,22 @@ func buildMLCApplication() (*MLCApplication, error) {
 			HGLoggerPackage.CloseLogger()
 			return nil, fmt.Errorf("Correction recovery初始化失败: %w", err)
 		}
+		/** 启动系统的数据纠错 / 恢复后台任务，比如：
+		发现异常数据
+		↓
+		生成 correction
+		↓
+		审批
+		↓
+		执行修复
+		↓
+		记录审计
+		这些属于：运维/数据治理
+		*/
 		correctionRecovery.Start(context.Background())
 	}
 
-	// 主应用模式只托管周期 worker，不直接把 crawler 管理 API 挂到业务端口。
+	// ⑦ 注册业务模块 主应用模式只托管周期 worker，不直接把 crawler 管理 API 挂到业务端口。
 	// 管理 API 仍由独立 cmd/hg_crawler 提供，避免绕过现有 API Gateway 模块策略和鉴权边界。
 	crawlerConfig, err := ConfigPackage.GetCrawlerConfig()
 	if err != nil {
@@ -538,6 +552,20 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("Crawler配置失败: %w", err)
 	}
+
+	/** crawlerManager 负责执行爬虫具体工作。爬虫的scheduler和mananger的区别和联系流程：
+	Scheduler
+	↓
+	决定任务
+	↓
+	CrawlerManager
+	↓
+	真正抓 Bilibili
+	↓
+	Store
+	↓
+	MySQL / Redis
+	*/
 	var crawlerManager *CrawlerSpiderPackage.HGManager
 	if crawlerConfig.Enabled {
 		crawlerStore := CrawlerServicePackage.NewHGExternalContentStore(
@@ -582,37 +610,39 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	HGTestHandlerPackage.RegisterModules()
 
-	// 3. 收集所有模块的路由清单
+	// ⑧ 注册路由 3. 把前面所有业务模块注册的 API 路由收集起来。
 	routeCatalogs := collectRouteCatalogs()
 
-	// 4. 创建根路由。
-	// 这里注入 ReadyCheck，让 /readyz 能检查 Redis/MySQL/Kafka，而 /healthz 保持纯进程存活检查。
-	// kafkaCloser 非 nil 证明 Kafka 已完成初始化和启动期 Ping；运行期间 ready 检查仍需持续验证 broker 可达性。
+	// 4. 所有业务 HTTP 请求最终进入的总入口。
+	// 结构：HTTP Request -> RootMux -> 根据 URL ->  找到具体Handler -> 找到具体业务逻辑 -> 返回结果
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
+	//整个 HTTP Middleware 链，调用链为：客户端 -> CORS -> Recover -> AccessLog -> RequestID -> API Gateway -> rootMux -> 具体业务 Handler
 	businessHandler := HGMiddlewarePackage.Chain(
-		apiGateway.Middleware(rootMux),
-		HGMiddlewarePackage.RequestIDMiddleware,
-		HGMiddlewarePackage.AccessLogMiddleware,
-		HGMiddlewarePackage.RecoverMiddleware,
-		HGMiddlewarePackage.CORSMiddleware,
+		apiGateway.Middleware(rootMux),          //
+		HGMiddlewarePackage.RequestIDMiddleware, //给每个请求一个 ID,方便日志追踪
+		HGMiddlewarePackage.AccessLogMiddleware, //记录请求日志
+		HGMiddlewarePackage.RecoverMiddleware,   // 防止业务Handelr抛出异常，比如panic把整个HTTP Server搞死
+		HGMiddlewarePackage.CORSMiddleware,      // 允许跨域请求，允许所有源
 	)
-	// Component writers expose process-local snapshots only; scraping /metrics never performs MySQL, Redis, Kafka, or other external I/O.
+	// ⑨ 注册管理端口
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime),
 		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics),
 	})
-
+	// ⑨ 创建 HTTP Server ，srv 业务服务器
 	srv := &http.Server{
 		Addr:    buildListenAddr(ConfigPackage.GetServerPort()),
 		Handler: businessHandler,
 		// ReadHeaderTimeout/ReadTimeout/WriteTimeout/IdleTimeout 是标准库 HTTP 服务的资源治理边界。
-		// 没有这些边界时，慢客户端或异常流量会长时间占用连接、goroutine 和内存。
-		ReadHeaderTimeout: mlcServerReadHeaderTimeout,
-		ReadTimeout:       mlcServerReadTimeout,
-		WriteTimeout:      mlcServerWriteTimeout,
-		IdleTimeout:       mlcServerIdleTimeout,
-		MaxHeaderBytes:    mlcServerMaxHeaderBytes,
+		// 防止被恶意客户端发一个HTTP header一直不发完，若是没有超时，会有goroutine、连接、内存被一直占用
+		ReadHeaderTimeout: mlcServerReadHeaderTimeout,// 默认值是 30 秒，限制Header最长读取时间
+		ReadTimeout:       mlcServerReadTimeout, // 限制整个请求读取时间
+		WriteTimeout:      mlcServerWriteTimeout,// 响应写出去的时间。
+		IdleTimeout:       mlcServerIdleTimeout,//限制Keep-Alive 空闲连接时间。
+		MaxHeaderBytes:    mlcServerMaxHeaderBytes,// 限制HTTP Header 最大大小。
 	}
+	// 管理服务器，负责管理端口：运维系统 -> Management server -> HealthCheck / Metrics,避免普通用户访问 /metrics 或 /readyz 造成安全问题。
+	// 或者普通业务API -> 混入运维接口
 	managementServer := &http.Server{
 		Addr:              buildManagementListenAddr(ConfigPackage.GetManagementHost(), ConfigPackage.GetManagementPort()),
 		Handler:           managementMux,
@@ -640,9 +670,11 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}, nil
 }
 
-// newReadyCheck 聚合 Redis/MySQL/Kafka 依赖检查，供 /readyz 区分依赖是否可用。
+// newReadyCheck 服务就绪检查器
+// 聚合 Redis/MySQL/Kafka 依赖检查，供 /readyz 区分依赖是否可用。
 //
-// /healthz 只说明进程还活着；/readyz 说明依赖可用、实例可以接业务流量。
+// /healthz 只说明进程还活着；
+// /readyz 说明依赖可用、实例可以接业务流量。检查：Redis ok； MySQL ok； Kafka ok。Danmaku ok；其他依赖 ok。只要有一个依赖不可用，/readyz 就返回 503，表示实例不 ready。
 // Kubernetes/负载均衡可以据此在依赖不可用时摘掉实例，避免把请求打到不可服务的节点。
 // kafkaEnabled 表达本次启动是否已成功初始化 Kafka；生产启动成功后该值必须为 true。
 // Kafka 已初始化时必须持续检查，防止 broker 故障后实例继续被流量入口视为 ready。
