@@ -162,20 +162,20 @@ services:
       timeout: 3s
       retries: 10
 
-  # Statistic 本地全链路验收专用 Redis，与 debug 默认 6379 端口隔离。
-  redis-statistic:
-    image: redis:7.4.2-alpine
+  # 下面这段配置可以理解成专门给 Statistic 统计链路做本地全链路验收的 Redis，避免测试统计数据时污染你原来的 debug Redis
+  redis-statistic: # Docker Compose 中的 service 名称
+    image: redis:7.4.2-alpine # 表示使用 Docker 镜像, 版本：7.4.2； 系统镜像：Alpine Linux； alpine 是一个比较轻量的 Linux 基础镜像
     container_name: mlc-redis-statistic
     ports:
-      - "127.0.0.1:16379:6379"
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+      - "127.0.0.1:16379:6379" # 宿主机IP:宿主机端口:容器端口； 因此你的 Mac 上：127.0.0.1:16379, 会转发到 Docker 容器里面： 6379 端口
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"] # 启动的时候使用这些参数,通常是为了测试/统计数据链路时，避免 Redis 因为内存策略自动把已有统计数据淘汰掉。
     volumes:
-      - redis_statistic_data:/data
-    healthcheck:
+      - redis_statistic_data:/data # 这个是 数据持久化。
+    healthcheck: # 这是 Docker 的健康检查
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      interval: 5s # 每隔 5 秒检查一次
+      timeout: 3s # 单次健康检查最多等待 3 秒, 超过 3 秒没有正常返回，就认为这次检查失败
+      retries: 10 # 连续失败达到一定次数后，Docker 才会认为这个容器 unhealthy
 
   # Prometheus 监控服务。在 docker-compose 里拉起一个 Prometheus 监控服务
   prometheus: # 跑 Prometheus 2.54.1 官方镜像
