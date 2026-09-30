@@ -90,7 +90,10 @@ func (h *Handler) ListCoinCorrections(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetCurrentAssetPermissions exposes current database-backed asset permissions for later UI gating.
+// GetCurrentAssetPermissions 返回 JWT 当前人对应的数据库活动管理员角色权限。
+// 身份仅取自 hgWithOperator 的 JWT 上下文，不接受 query/body/X-Role 指定的用户或权限。
+// 结果范围为 asset.* 和 payment.recharge_sku.read、payment.recharge_sku.write，用于 UI gating，不能替代服务端授权。
+// 该只读接口只查询权限目录，不查询余额，也不执行任何资产变更。
 func (h *Handler) GetCurrentAssetPermissions(w http.ResponseWriter, r *http.Request) {
 	h.hgWithOperator(w, r, func(operatorID string, operational *OpsServicePackage.HGOperationalService) (any, error) {
 		return operational.GetCurrentAssetPermissions(r.Context(), operatorID)

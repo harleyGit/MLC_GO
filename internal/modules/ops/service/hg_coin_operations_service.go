@@ -435,6 +435,9 @@ func (s *HGOperationalService) ListCoinCorrections(ctx context.Context, operator
 	return &OpsDtoPackage.HGCoinCorrectionListResponse{List: items, NextCursor: nextValue, HasMore: more}, nil
 }
 
+// GetCurrentAssetPermissions 为 JWT 当前人读取 asset.* 和两个充值 SKU 权限，用于 UI gating。
+// operatorID 必须来自已验证的身份上下文而非客户端指定用户；数据库查询失败向上传递，不默认授权。
+// 仅调用权限查询，不读取余额、不修改资产；各业务操作仍独立执行服务端授权。
 func (s *HGOperationalService) GetCurrentAssetPermissions(ctx context.Context, operatorID string) (*OpsDtoPackage.HGAssetPermissionsResponse, error) {
 	if s == nil || s.deps.Authorizer == nil || strings.TrimSpace(operatorID) == "" {
 		return nil, ErrHGOperationsForbidden

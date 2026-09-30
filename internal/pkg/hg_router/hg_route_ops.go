@@ -15,13 +15,16 @@ import (
 
 // opsRoutes 返回 ops 模块完整路由定义。
 // 运维模块接口增长较快，单独放在本文件，避免主路由组文件堆积过多 NewRouteSpec 配置。
+// /asset-permissions/current 由 JWT 确定当前人，只读数据库活动管理员及启用角色、权限的关联，
+// 返回 asset.* 与 payment.recharge_sku.read、payment.recharge_sku.write，供 UI gating 控制入口展示。
+// 它不查询余额；展示结果不能替代各业务接口自己的服务端授权，目录分支与实际绑定均需认证。
 func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 	if opsHandler == nil {
 		return []RouteSpec{
-			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "Create recharge SKU", nil),
-			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "List recharge SKUs", nil),
-			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "Update recharge SKU", nil),
-			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "Delete recharge SKU", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "创建充值档位", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "查询充值档位列表", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "更新充值档位", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "删除充值档位", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", nil),
@@ -61,10 +64,10 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 	}
 
 	return []RouteSpec{
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "Create recharge SKU", opsHandler.HGCreateRechargeSKU),
-		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "List recharge SKUs", opsHandler.HGListRechargeSKUs),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "Update recharge SKU", opsHandler.HGUpdateRechargeSKU),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "Delete recharge SKU", opsHandler.HGDeleteRechargeSKU),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "创建充值档位", opsHandler.HGCreateRechargeSKU),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "查询充值档位列表", opsHandler.HGListRechargeSKUs),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "更新充值档位", opsHandler.HGUpdateRechargeSKU),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "删除充值档位", opsHandler.HGDeleteRechargeSKU),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", opsHandler.CreateRole),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", opsHandler.GetRoleList),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", opsHandler.UpdateRole),

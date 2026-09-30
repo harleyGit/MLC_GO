@@ -303,9 +303,11 @@ type HGCoinCorrectionListResponse struct {
 	HasMore    bool                       `json:"hasMore"`
 }
 
-// HGAssetPermissionsResponse exposes the current JWT operator's database-backed asset permissions.
+// HGAssetPermissionsResponse 是当前 JWT 用户的数据库活动管理员角色权限响应。
+// Permissions 范围为 asset.* 及 payment.recharge_sku.read、payment.recharge_sku.write，用于 UI gating；前端展示控制不改变服务端授权边界，
+// 本 DTO 只表达权限目录，不包含余额等资产数据。
 type HGAssetPermissionsResponse struct {
-	Permissions []string `json:"permissions"`
+	Permissions []string `json:"permissions"` // 必返权限码数组，数据库无匹配权限时返回 []，不是全量权限清单或授权凭据。
 }
 
 // HGAssetOperator contains trusted request metadata populated outside the JSON body.

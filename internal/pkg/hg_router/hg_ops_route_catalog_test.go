@@ -23,6 +23,27 @@ func TestOpsRouteCatalogContainsBilibiliTagCRUD(t *testing.T) {
 	}
 }
 
+func TestHGOpsRouteCatalogContainsRechargeSKURoutes(t *testing.T) {
+	hgWant := map[string]string{
+		"POST /api/v1/ops/payment/recharge/skus":        "创建充值档位",
+		"GET /api/v1/ops/payment/recharge/skus/list":    "查询充值档位列表",
+		"POST /api/v1/ops/payment/recharge/skus/update": "更新充值档位",
+		"POST /api/v1/ops/payment/recharge/skus/delete": "删除充值档位",
+	}
+	for _, hgItem := range OpsRouteCatalog() {
+		hgKey := hgItem.Method + " " + hgItem.Path
+		if hgSummary, hgOK := hgWant[hgKey]; hgOK {
+			if hgItem.Summary != hgSummary || !hgItem.NeedAuth {
+				t.Fatalf("invalid recharge SKU catalog item: %+v", hgItem)
+			}
+			delete(hgWant, hgKey)
+		}
+	}
+	if len(hgWant) != 0 {
+		t.Fatalf("missing authenticated recharge SKU routes: %v", hgWant)
+	}
+}
+
 func TestOpsRouteCatalogContainsCoinOperations(t *testing.T) {
 	want := map[string]string{
 		"/api/v1/ops/coin/users/search":            http.MethodGet,

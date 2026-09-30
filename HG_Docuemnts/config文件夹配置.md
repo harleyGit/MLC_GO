@@ -41,6 +41,7 @@ kafka:
 ---
 
 ## 一、kafka.business 业务事件总线（最重要）
+
 ```yaml
 kafka:
   business:

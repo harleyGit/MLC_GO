@@ -30,7 +30,10 @@ func (r *Repository) HasAssetPermission(ctx context.Context, userID, permission 
 	return allowed == 1, nil
 }
 
-// ListAssetPermissions returns the current operator's active database-backed asset permission codes.
+// ListAssetPermissions 查询当前 JWT 用户在数据库中关联的活动管理员角色权限。
+// 只保留 status=1 且未删除的管理员、status=1 的角色和权限，按权限码去重排序，沿用 LIMIT 34 上限。
+// 返回范围为 asset.* 及 payment.recharge_sku.read、payment.recharge_sku.write，供 UI gating 展示；
+// UI gating 不是服务端授权替代，且本方法只读权限表，不查余额或执行资产操作。
 func (r *Repository) ListAssetPermissions(ctx context.Context, userID string) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.SelectOpsAssetPermissionsSQL, strings.TrimSpace(userID))
 	if err != nil {

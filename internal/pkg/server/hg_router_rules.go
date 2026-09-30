@@ -260,6 +260,10 @@ func VideoDanmakuMethodRules() []HGMiddlewarePackage.HGAPIRule {
 
 func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
+		{Path: "/payment/recharge/skus", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/payment/recharge/skus/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
+		{Path: "/payment/recharge/skus/update", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/payment/recharge/skus/delete", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{
 			Path:    "/admins/list",
 			Version: "v1",
