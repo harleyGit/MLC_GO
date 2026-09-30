@@ -29,12 +29,12 @@ type dispatcherRepository interface {
 
 	// Claim 查询 outbox 表，捞取满足条件的待发送记录； 更新记录：写入`LeaseToken`、设置租约过期时间；
 	// 在同一个 SQL 内完成查询 + 更新，数据库行锁保证，别的实例 claim 不到这条记录
-	// 
-	//	@param ctx 
-	//	@param limit 
+	//
+	//	@param ctx
+	//	@param limit
 	//	@param leaseDuration 租约有效期。如果 worker 崩溃，租约到期后，其他 dispatcher 可以重新 claim 这条消息，避免消息永久卡住。
-	//	@return []Event 
-	//	@return error 
+	//	@return []Event
+	//	@return error
 	Claim(ctx context.Context, limit int, leaseDuration time.Duration) ([]Event, error)
 	MarkPublished(ctx context.Context, id int64, leaseToken string) (bool, error)
 	MarkRetry(ctx context.Context, id int64, leaseToken string, reason string, delay time.Duration) (bool, error)

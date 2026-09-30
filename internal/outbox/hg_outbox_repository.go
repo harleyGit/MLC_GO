@@ -138,7 +138,7 @@ func (r *Repository) Claim(ctx context.Context, limit int, leaseDuration time.Du
 		// 租约太短：worker 还没处理完就过期，会出现多 worker 重复处理；租约太长：worker 宕机后，这条消息要等很久才会被重新消费。
 		leaseDuration = 30 * time.Second
 	}
-	
+
 	// 开启数据库事务，隔离级别为 Read Committed，保证读取到的行是已经提交的最新数据。
 	// 带 context 开启事务，context 取消的时候事务会被中断。
 	// 隔离级别：ReadCommitted 读已提交。Outbox 认领场景够用，不需要更高隔离级别（RepeatableRead / Serializable 会带来锁竞争、死锁）
@@ -177,11 +177,11 @@ func (r *Repository) Claim(ctx context.Context, limit int, leaseDuration time.Du
 			return nil, fmt.Errorf("lease outbox event %d: %w", events[i].ID, execErr)
 		}
 		/** RowsAffected() 告诉这个 SQL 到底影响了多少行校验，这里表示必须正好更新 1 行
-		 - 如果更新 0 行：说明在本事务查询之后、更新之前，这条记录已经被别的 worker 抢占走了；
-		 - 直接返回错误，整个事务回滚，本次一条都不认领。
-		 - 这是防御逻辑：虽然前面`FetchPendingTx FOR UPDATE`行锁，但是部分边界场景做双重保险。
-		 - 这个if判断表示我期望这个 SQL 恰好修改一条记录
-		*/ 
+		- 如果更新 0 行：说明在本事务查询之后、更新之前，这条记录已经被别的 worker 抢占走了；
+		- 直接返回错误，整个事务回滚，本次一条都不认领。
+		- 这是防御逻辑：虽然前面`FetchPendingTx FOR UPDATE`行锁，但是部分边界场景做双重保险。
+		- 这个if判断表示我期望这个 SQL 恰好修改一条记录
+		*/
 		if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
 			return nil, fmt.Errorf("lease outbox event %d affected %d rows: %w", events[i].ID, affected, affectedErr)
 		}
