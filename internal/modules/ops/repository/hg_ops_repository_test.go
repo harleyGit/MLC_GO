@@ -20,6 +20,34 @@ import (
 
 var hgOpsTestDriverOnce sync.Once
 
+func TestHGListAssetPermissionsIncludesOnlyFixedCatalog(t *testing.T) {
+	// Lock the entire WHERE clause: unrelated payment/crawler permissions must not
+	// enter the catalog, and the OR must remain inside the active-admin boundary.
+	const hgWantSuffix = " WHERE au.`user_id` = ? AND au.`status` = 1 AND au.`is_delete` = 0 AND (p.`code` LIKE 'asset.%' OR p.`code` IN ('payment.recharge_sku.read','payment.recharge_sku.write')) ORDER BY p.`code` LIMIT 34"
+	_, hgWhere, hgFound := strings.Cut(SQLQueriesPackage.SelectOpsAssetPermissionsSQL, " WHERE ")
+	if !hgFound || " WHERE "+hgWhere != hgWantSuffix {
+		t.Fatalf("permission catalog predicate changed: %s", SQLQueriesPackage.SelectOpsAssetPermissionsSQL)
+	}
+	hgDB, hgMock, hgErr := sqlmock.New()
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	defer hgDB.Close()
+	hgWant := []string{"asset.coin.grant", "payment.recharge_sku.read", "payment.recharge_sku.write"}
+	hgRows := sqlmock.NewRows([]string{"code"})
+	for _, hgCode := range hgWant {
+		hgRows.AddRow(hgCode)
+	}
+	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsAssetPermissionsSQL)).WithArgs("admin").WillReturnRows(hgRows).RowsWillBeClosed()
+	hgGot, hgErr := NewRepository(hgDB).ListAssetPermissions(context.Background(), " admin ")
+	if hgErr != nil || strings.Join(hgGot, ",") != strings.Join(hgWant, ",") {
+		t.Fatalf("permissions=%v err=%v", hgGot, hgErr)
+	}
+	if hgErr := hgMock.ExpectationsWereMet(); hgErr != nil {
+		t.Fatal(hgErr)
+	}
+}
+
 func TestAssignUserRolesMapsBusinessRoleIDsAndBatchInserts(t *testing.T) {
 	db := newHGTestDB(t)
 	repo := NewRepository(db)

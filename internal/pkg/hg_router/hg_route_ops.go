@@ -18,6 +18,10 @@ import (
 func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 	if opsHandler == nil {
 		return []RouteSpec{
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "Create recharge SKU", nil),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "List recharge SKUs", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "Update recharge SKU", nil),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "Delete recharge SKU", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", nil),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", nil),
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", nil),
@@ -57,6 +61,10 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 	}
 
 	return []RouteSpec{
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus", true, "Create recharge SKU", opsHandler.HGCreateRechargeSKU),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "List recharge SKUs", opsHandler.HGListRechargeSKUs),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "Update recharge SKU", opsHandler.HGUpdateRechargeSKU),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "Delete recharge SKU", opsHandler.HGDeleteRechargeSKU),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", opsHandler.CreateRole),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", opsHandler.GetRoleList),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", opsHandler.UpdateRole),
