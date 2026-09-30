@@ -33,6 +33,7 @@ const (
 	// 环境变量控制，从终端中输入，避免代码泄漏。输入环境变量，如：SERVER_ENV=debug
 	hgConfigDirEnv          = "MLC_CONFIG_DIR"
 	hgDebugMySQLPasswordEnv = "MLC_DEBUG_MYSQL_PASSWORD"
+	hgWalletDebugPaymentEnv = "MLC_WALLET_DEBUG_PAYMENT_ENABLED"
 )
 
 // hgLoadLocalRuntimeEnv 加载不提交到 Git 的本机覆盖文件。
@@ -141,6 +142,11 @@ func hgIsSupportedEnv(env Env) bool {
 
 func IsDebug() bool {
 	return GetEnv() == EnvDebug
+}
+
+// IsWalletDebugPaymentEnabled requires an explicit process flag and strict SERVER_ENV=debug.
+func IsWalletDebugPaymentEnabled() bool {
+	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv(hgWalletDebugPaymentEnv) == "true"
 }
 
 func IsPre() bool {

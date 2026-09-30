@@ -41,14 +41,15 @@ const (
 
 	InsertCoinCommandSQL = `INSERT IGNORE INTO user_coin_commands
 		(user_id, request_id, submission_id, quantity, status) VALUES (?, ?, ?, ?, 'processing')`
-	EnsureCoinWalletSQL  = `INSERT IGNORE INTO user_coin_wallets (user_id, balance) VALUES (?, 0)`
+	EnsureCoinWalletSQL  = `INSERT IGNORE INTO account (user_id, balance) VALUES (?, 0)`
 	SelectCoinCommandSQL = `SELECT submission_id, quantity, status FROM user_coin_commands
 		WHERE user_id = ? AND request_id = ?`
-	SelectCoinWalletForUpdateSQL   = `SELECT balance FROM user_coin_wallets WHERE user_id = ? FOR UPDATE`
+	SelectCoinWalletForUpdateSQL   = `SELECT balance FROM account WHERE user_id = ? FOR UPDATE`
 	SelectCompletedCoinQuantitySQL = `SELECT COALESCE(SUM(quantity), 0) FROM user_coin_commands
 		WHERE user_id = ? AND submission_id = ? AND status = 'completed' FOR UPDATE`
-	DebitCoinWalletSQL = `UPDATE user_coin_wallets SET balance = balance - ?, updated_at = NOW()
+	DebitCoinWalletSQL = `UPDATE account SET balance = balance - ?, version = version + 1, updated_at = NOW()
 		WHERE user_id = ? AND balance >= ?`
+	// 仅保留历史 SQL 契约，不得用于新写入；新记账必须经过 coin 的 request/lot/流水事务。
 	InsertCoinLedgerSQL = `INSERT INTO user_coin_ledger
 		(user_id, request_id, submission_id, delta, balance_after) VALUES (?, ?, ?, ?, ?)`
 	CompleteCoinCommandSQL = `UPDATE user_coin_commands SET status = 'completed', updated_at = NOW()

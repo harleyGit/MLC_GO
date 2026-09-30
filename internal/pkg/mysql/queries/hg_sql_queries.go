@@ -634,14 +634,14 @@ const (
 	// InsertOutboxEventSQL 把领域事件写入本地消息表。
 	// 这条 SQL 必须和业务写库放在同一个 MySQL 事务内：业务数据提交，事件也提交；业务回滚，事件也回滚。
 	InsertOutboxEventSQL = `
-INSERT INTO outbox_events (event_id, event_name, event_key, topic, payload, status, retry_count, next_retry_at)
+INSERT INTO outbox_event (event_id, event_name, event_key, topic, payload, status, retry_count, next_retry_at)
 VALUES (?, ?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)`
 
 	// SelectPendingOutboxEventsSQL 拉取待投递事件。
 	// FOR UPDATE SKIP LOCKED 允许多个 dispatcher 实例并发工作且互不抢同一批记录。
 	SelectPendingOutboxEventsSQL = `
 SELECT id, event_id, event_name, event_key, topic, payload, retry_count
-FROM outbox_events
+FROM outbox_event
 WHERE status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP
 	ORDER BY next_retry_at ASC, id ASC
 	LIMIT ?
@@ -649,7 +649,7 @@ WHERE status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP
 
 	// ClaimOutboxEventSQL 在短事务内写入租约。索引扫描和行锁在事务提交后立即释放，Kafka I/O 不进入事务。
 	ClaimOutboxEventSQL = `
-	UPDATE outbox_events
+	UPDATE outbox_event
 	SET lease_token = ?,
 	    next_retry_at = TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP),
 	    updated_at = CURRENT_TIMESTAMP
@@ -657,13 +657,13 @@ WHERE status = 'pending' AND next_retry_at <= CURRENT_TIMESTAMP
 
 	// MarkOutboxEventPublishedSQL 标记事件已投递 Kafka。
 	MarkOutboxEventPublishedSQL = `
-UPDATE outbox_events
+UPDATE outbox_event
 	SET status = 'published', published_at = CURRENT_TIMESTAMP, last_error = '', lease_token = NULL, updated_at = CURRENT_TIMESTAMP
 	WHERE id = ? AND status = 'pending' AND lease_token = ?`
 
 	// MarkOutboxEventRetrySQL 投递失败时递增重试次数，并按 retry_count 拉长下次重试时间。
 	MarkOutboxEventRetrySQL = `
-UPDATE outbox_events
+UPDATE outbox_event
 SET retry_count = retry_count + 1,
     last_error = ?,
 	    next_retry_at = TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP),
@@ -673,7 +673,7 @@ SET retry_count = retry_count + 1,
 
 	// MarkOutboxEventDeadSQL 超过最大重试次数后进入死信状态，避免一条毒消息阻塞整个队列。
 	MarkOutboxEventDeadSQL = `
-UPDATE outbox_events
+UPDATE outbox_event
 	SET status = 'dead', retry_count = retry_count + 1, last_error = ?, lease_token = NULL, updated_at = CURRENT_TIMESTAMP
 	WHERE id = ? AND status = 'pending' AND lease_token = ?`
 )

@@ -20,13 +20,13 @@ func (hgModule *HGModule) Handler() http.Handler {
 	return hgrouter.HGNewWalletRouteGroup(hgModule.hgHandler)
 }
 
-// HGRegisterModules 注册钱包用户接口，复用已有coin余额服务但不暴露coin写入能力。
+// HGRegisterModules 注册JWT钱包接口；debug入账由wallet仓储复用coin事务适配器。
 func HGRegisterModules(hgSQLManager *hgmysql.HGSQLManager) {
 	if hgSQLManager == nil {
 		panic("钱包模块需要数据库管理器")
 	}
 	hgDB := hgSQLManager.GetSQLDB()
-	hgCoinService := hgcoinsvc.NewHGService(hgcoinrepo.NewHGRepository(hgDB, ""))
+	hgCoinService := hgcoinsvc.NewHGService(hgcoinrepo.NewHGRepository(hgDB, "mlc.domain.events"))
 	hgWalletService := service.HGNewService(repository.HGNewRepository(hgDB), hgCoinService)
 	hgroot.RegisterModule(&HGModule{hgHandler: handler.HGNewHandler(hgWalletService)})
 }

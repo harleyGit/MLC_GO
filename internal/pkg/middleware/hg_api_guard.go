@@ -66,6 +66,12 @@ type compiledAPIRule struct {
 	methodMask uint16
 }
 
+// hgAPIGuardFailure keeps validation free of response writes; Middleware owns the failure response.
+type hgAPIGuardFailure struct {
+	status int
+	result HGResponsePakcage.HGErrorResult
+}
+
 // endregion
 
 // region 权限配置
@@ -151,9 +157,10 @@ func (g *APIGuard) Middleware() Middleware {
 				return
 			}
 
-			ctx := g.checkoutHeader(w, r, rule.NeedAuth)
-			if ctx == nil {
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: "header valid fail"})
+			ctx, failure := g.checkoutHeader(r, rule.NeedAuth)
+			if failure != nil {
+				w.WriteHeader(failure.status)
+				HGResponsePakcage.FailResult[string](w, r, failure.result)
 				logHG.ErrFInfo(`%s: Header校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
@@ -194,7 +201,7 @@ func (g *APIGuard) lookupRule(version string, path string) (compiledAPIRule, boo
 	return rule, ok
 }
 
-func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAuth bool) context.Context {
+func (g *APIGuard) checkoutHeader(r *http.Request, needAuth bool) (context.Context, *hgAPIGuardFailure) {
 	token := r.Header.Get("Authorization")
 	contentType := r.Header.Get("Content-Type")
 	deviceID := r.Header.Get("X-Device-ID")
@@ -216,21 +223,15 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		UtilsPackage.IsEmpty(timestamp) ||
 		UtilsPackage.IsEmpty(signature) {
 
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: HGResponsePakcage.RequestHeaderFailDesc})
-		return nil
+		return nil, &hgAPIGuardFailure{status: http.StatusBadRequest, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: HGResponsePakcage.RequestHeaderFailDesc}}
 	}
 
 	if needAuth && UtilsPackage.IsEmpty(token) {
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailTokenInvalid(w, r, "Authorization不能为空")
-		return nil
+		return nil, &hgAPIGuardFailure{status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "Authorization不能为空"}}
 	}
 
 	if err := verifyTimestamp(timestamp); err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailTokenInvalid(w, r, "timestamp无效或已过期")
-		return nil
+		return nil, &hgAPIGuardFailure{status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "timestamp无效或已过期"}}
 	}
 
 	// 对于 multipart/form-data 或二进制数据请求，使用空字符串作为 body 签名
@@ -241,23 +242,19 @@ func (g *APIGuard) checkoutHeader(w http.ResponseWriter, r *http.Request, needAu
 		var err error
 		body, err = readAndRestoreBody(r, apiGuardMaxSignedBodyBytes)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: "请求体读取失败"})
-			return nil
+			return nil, &hgAPIGuardFailure{status: http.StatusBadRequest, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestHeader.Code, Message: "请求体读取失败"}}
 		}
 	}
 
 	if err := verifySignature(r, body, signature, timestamp, requestID, deviceID, clientType, clientVersion, version, language, token); err != nil {
 		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.Unauthorized.Code)
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailTokenInvalid(w, r, "signature无效")
-		return nil
+		return nil, &hgAPIGuardFailure{status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "signature无效"}}
 	}
 
 	ctx := r.Context()
 	ctx = context.WithValue(ctx, CtxDeviceID, deviceID)
 
-	return ctx
+	return ctx, nil
 }
 
 // hgIsBinarySignedBody preserves existing binary exemptions and limits raw comment image exemption to its route.

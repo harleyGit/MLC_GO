@@ -44,6 +44,10 @@ func (hgStore *hgStore) Balance(hgCtx context.Context, hgUser string) (uint64, e
 	return 123, hgStore.hgErr
 }
 
+func (hgStore *hgStore) HGPayDebug(context.Context, string, string) (model.HGOrder, error) {
+	return model.HGOrder{}, model.HGErrPaymentUnavailable
+}
+
 func TestHGWalletPage(t *testing.T) {
 	hgNow := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 	hgStore := &hgStore{hgItems: []model.HGSKU{
@@ -92,11 +96,11 @@ func TestHGWalletOrderAndPayment(t *testing.T) {
 	if hgErr != nil || hgOrder.HGStatus != "expired" {
 		t.Fatal(hgOrder, hgErr)
 	}
-	if hgErr := hgService.HGPay(context.Background(), "owner", "order"); !errors.Is(hgErr, model.HGErrPaymentUnavailable) {
+	if _, hgErr := hgService.HGPay(context.Background(), "owner", "order", "wechat"); !errors.Is(hgErr, model.HGErrPaymentUnavailable) {
 		t.Fatal(hgErr)
 	}
 	for _, hgUser := range []string{"other", ""} {
-		if hgErr := hgService.HGPay(context.Background(), hgUser, "order"); !errors.Is(hgErr, model.HGErrNotFound) {
+		if _, hgErr := hgService.HGPay(context.Background(), hgUser, "order", "wechat"); !errors.Is(hgErr, model.HGErrNotFound) {
 			t.Fatal(hgErr)
 		}
 	}

@@ -16,7 +16,7 @@ type Producer interface {
 	Send(ctx context.Context, topic string, key string, payload []byte) error
 }
 
-// Dispatcher 负责把 outbox_events 中的 pending 事件可靠投递到 Kafka。
+// Dispatcher 负责把 outbox_event 中的 pending 事件可靠投递到 Kafka。
 type Dispatcher struct {
 	repo     dispatcherRepository
 	producer Producer

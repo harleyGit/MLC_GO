@@ -1,8 +1,10 @@
 package repository
 
 import (
+	hgcoinrepo "MLC_GO/internal/modules/coin/repository"
 	hgcoin "MLC_GO/internal/modules/coin/service"
 	"MLC_GO/internal/modules/wallet/model"
+	hgconfig "MLC_GO/internal/pkg/config"
 	hgqueries "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"crypto/rand"
@@ -15,7 +17,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// HGRepository 只访问目录和订单，不持有任何资产变更能力。
+// HGRepository 负责目录、订单及debug支付和coin同事务编排。
 type HGRepository struct{ hgDB *sql.DB }
 
 // HGNewRepository 复用主服务MySQL连接池，不发起连接或迁移。
@@ -51,7 +53,18 @@ func (hgRepo *HGRepository) HGListCandidates(hgCtx context.Context, hgCursor uin
 
 func hgScanOrder(hgRow interface{ Scan(...any) error }) (model.HGOrder, error) {
 	var hgItem model.HGOrder
-	hgErr := hgRow.Scan(&hgItem.HGOrderID, &hgItem.HGUserID, &hgItem.HGRequestID, &hgItem.HGSKUID, &hgItem.HGDisplayName, &hgItem.HGTitle, &hgItem.HGDescription, &hgItem.HGCurrency, &hgItem.HGPayAmount, &hgItem.HGTotalCoin, &hgItem.HGCreatedAt, &hgItem.HGExpiresAt)
+	var hgPaidAt sql.NullTime
+	var hgTransactionID, hgBalanceAfter sql.NullInt64
+	hgErr := hgRow.Scan(&hgItem.HGOrderID, &hgItem.HGUserID, &hgItem.HGRequestID, &hgItem.HGSKUID, &hgItem.HGDisplayName, &hgItem.HGTitle, &hgItem.HGDescription, &hgItem.HGCurrency, &hgItem.HGPayAmount, &hgItem.HGTotalCoin, &hgItem.HGCreatedAt, &hgItem.HGExpiresAt, &hgItem.HGPaymentMode, &hgItem.HGStatus, &hgPaidAt, &hgTransactionID, &hgBalanceAfter)
+	if hgPaidAt.Valid {
+		hgItem.HGPaidAt = &hgPaidAt.Time
+	}
+	if hgTransactionID.Valid {
+		hgItem.HGPaymentTransactionID = uint64(hgTransactionID.Int64)
+	}
+	if hgBalanceAfter.Valid {
+		hgItem.HGBalanceAfter = uint64(hgBalanceAfter.Int64)
+	}
 	return hgItem, hgErr
 }
 
@@ -108,10 +121,14 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 		return model.HGOrder{}, model.HGErrSKUUnavailable
 	}
 	hgOrder := model.HGOrder{HGOrderID: hex.EncodeToString(hgRandom[:]), HGUserID: hgUser, HGRequestID: hgRequest, HGSKUID: hgSKUItem.HGSKUID, HGTitle: hgSKUItem.HGTitle, HGDescription: fmt.Sprintf("充值获得%d平台币", hgSKUItem.HGTotalCoin), HGCurrency: hgSKUItem.HGCurrency, HGPayAmount: hgSKUItem.HGPayAmount, HGTotalCoin: hgSKUItem.HGTotalCoin, HGCreatedAt: hgNow, HGExpiresAt: hgNow.Add(10 * time.Minute)}
+	hgOrder.HGPaymentMode, hgOrder.HGStatus = "unavailable", "pending"
+	if hgconfig.IsWalletDebugPaymentEnabled() {
+		hgOrder.HGPaymentMode = "platform_debug"
+	}
 	if hgErr = hgTx.QueryRowContext(hgCtx, hgqueries.HGWalletDisplayNameSQL, hgUser).Scan(&hgOrder.HGDisplayName); hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
-	_, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletInsertOrderSQL, hgOrder.HGOrderID, hgUser, hgRequest, hgOrder.HGSKUID, hgOrder.HGDisplayName, hgOrder.HGTitle, hgOrder.HGDescription, hgOrder.HGCurrency, hgOrder.HGPayAmount, hgOrder.HGTotalCoin, hgOrder.HGCreatedAt, hgOrder.HGExpiresAt)
+	_, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletInsertOrderSQL, hgOrder.HGOrderID, hgUser, hgRequest, hgOrder.HGSKUID, hgOrder.HGDisplayName, hgOrder.HGTitle, hgOrder.HGDescription, hgOrder.HGCurrency, hgOrder.HGPayAmount, hgOrder.HGTotalCoin, hgOrder.HGCreatedAt, hgOrder.HGExpiresAt, hgOrder.HGPaymentMode)
 	if hgErr != nil {
 		var hgDuplicate *mysql.MySQLError
 		if errors.As(hgErr, &hgDuplicate) && hgDuplicate.Number == 1062 {
@@ -123,5 +140,58 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 	if hgErr = hgTx.Commit(); hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
+	return hgOrder, nil
+}
+
+// HGPayDebug 锁定本人订单，再在同一短事务入账；失败由调用方按订单重试/查询，不另开资产事务。
+func (hgRepo *HGRepository) HGPayDebug(hgCtx context.Context, hgUser, hgOrderID string) (model.HGOrder, error) {
+	hgTx, hgErr := hgRepo.hgDB.BeginTx(hgCtx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	defer hgTx.Rollback()
+	hgOrder, hgErr := hgScanOrder(hgTx.QueryRowContext(hgCtx, hgqueries.HGWalletOrderForPaySQL, hgOrderID, hgUser))
+	if errors.Is(hgErr, sql.ErrNoRows) {
+		return model.HGOrder{}, model.HGErrNotFound
+	}
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	if hgOrder.HGPaymentMode != "platform_debug" {
+		return model.HGOrder{}, model.HGErrPaymentUnavailable
+	}
+	if hgOrder.HGStatus == "paid" {
+		return hgOrder, nil
+	}
+	if !hgconfig.IsWalletDebugPaymentEnabled() || hgOrder.HGStatus != "pending" {
+		return model.HGOrder{}, model.HGErrPaymentUnavailable
+	}
+	// Check after acquiring the order lock, not at request arrival.
+	hgNow := time.Now().UTC().Truncate(time.Millisecond)
+	if !hgOrder.HGExpiresAt.After(hgNow) {
+		return model.HGOrder{}, model.HGErrOrderExpired
+	}
+	if hgOrder.HGTotalCoin == 0 || hgOrder.HGTotalCoin > hgcoin.HGMaxMutationAmount {
+		return model.HGOrder{}, model.HGErrUnsupported
+	}
+	hgResult, hgErr := hgcoinrepo.NewHGRepository(hgRepo.hgDB, "mlc.domain.events").HGDebugRechargeTx(hgCtx, hgTx, hgUser, hgOrderID, hgOrder.HGTotalCoin)
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	hgUpdate, hgErr := hgTx.ExecContext(hgCtx, hgqueries.HGWalletMarkPaidSQL, hgNow, hgResult.TransactionID, hgResult.BalanceAfter, hgOrderID, hgUser)
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	hgCount, hgErr := hgUpdate.RowsAffected()
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	if hgCount != 1 {
+		return model.HGOrder{}, model.HGErrConflict
+	}
+	if hgErr = hgTx.Commit(); hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	hgOrder.HGStatus, hgOrder.HGPaidAt, hgOrder.HGPaymentTransactionID, hgOrder.HGBalanceAfter = "paid", &hgNow, hgResult.TransactionID, hgResult.BalanceAfter
 	return hgOrder, nil
 }

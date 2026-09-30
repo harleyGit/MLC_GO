@@ -16,6 +16,24 @@ import (
 
 type hgCaptureEventIDArgument struct{}
 
+func TestHGOutboxQueriesUseSingularTable(t *testing.T) {
+	hgTablePattern := regexp.MustCompile(`\b(?:INSERT INTO|FROM|UPDATE) outbox_event\b`)
+	for hgName, hgQuery := range map[string]string{
+		"insert":    SQLQueriesPackage.InsertOutboxEventSQL,
+		"select":    SQLQueriesPackage.SelectPendingOutboxEventsSQL,
+		"claim":     SQLQueriesPackage.ClaimOutboxEventSQL,
+		"published": SQLQueriesPackage.MarkOutboxEventPublishedSQL,
+		"retry":     SQLQueriesPackage.MarkOutboxEventRetrySQL,
+		"dead":      SQLQueriesPackage.MarkOutboxEventDeadSQL,
+	} {
+		t.Run(hgName, func(t *testing.T) {
+			if !hgTablePattern.MatchString(hgQuery) {
+				t.Fatal("Outbox SQL 必须使用单数表名 outbox_event")
+			}
+		})
+	}
+}
+
 func (hgCaptureEventIDArgument) Match(value driver.Value) bool {
 	eventID, ok := value.(string)
 	if !ok || eventID == "" {

@@ -17,6 +17,10 @@ import (
 
 type hgStore struct{ hgCalls int }
 
+func (hgStore *hgStore) HGPayDebug(context.Context, string, string) (model.HGOrder, error) {
+	return model.HGOrder{}, model.HGErrPaymentUnavailable
+}
+
 func (hgStore *hgStore) HGListCandidates(context.Context, uint64) ([]model.HGSKU, error) {
 	hgStore.hgCalls++
 	return nil, nil
@@ -49,9 +53,11 @@ func TestHGWalletHTTPBoundary(t *testing.T) {
 		{"多JSON", "owner", `{"skuId":"sku","requestId":"request"}{}`, hgHandler.HGCreateOrder, 400, "100001"},
 		{"超大请求体", "owner", `{"skuId":"` + strings.Repeat("a", 17<<10) + `"}`, hgHandler.HGCreateOrder, 400, "100001"},
 		{"超过币数上限", "owner", `{"skuId":"sku","requestId":"request"}`, hgHandler.HGCreateOrder, 422, "1000"},
-		{"渠道未配置", "owner", `{"orderId":"order"}`, hgHandler.HGPay, 503, "支付渠道未配置，暂不能付款"},
-		{"他人订单", "other", `{"orderId":"order"}`, hgHandler.HGPay, 404, "订单不存在或无权访问"},
-		{"不存在订单", "owner", `{"orderId":"missing"}`, hgHandler.HGPay, 404, "订单不存在或无权访问"},
+		{"渠道未配置", "owner", `{"orderId":"order","paymentMethod":"wechat"}`, hgHandler.HGPay, 503, "支付渠道未配置，暂不能付款"},
+		{"他人订单", "other", `{"orderId":"order","paymentMethod":"wechat"}`, hgHandler.HGPay, 404, "订单不存在或无权访问"},
+		{"不存在订单", "owner", `{"orderId":"missing","paymentMethod":"alipay"}`, hgHandler.HGPay, 404, "订单不存在或无权访问"},
+		{"缺少渠道", "owner", `{"orderId":"order"}`, hgHandler.HGPay, 400, "钱包参数无效"},
+		{"未知渠道", "owner", `{"orderId":"order","paymentMethod":"mock"}`, hgHandler.HGPay, 400, "钱包参数无效"},
 	} {
 		t.Run(hgCase.hgName, func(t *testing.T) {
 			hgRequest := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(hgCase.hgBody))

@@ -87,7 +87,7 @@ func (hgHandler *HGHandler) HGOrderDetail(w http.ResponseWriter, r *http.Request
 	response.SuccessResult(w, r, hgResult)
 }
 
-// HGPay 验证本人订单后报告渠道未配置，不执行支付或资产入账。
+// HGPay 校验必填支付渠道；仅隔离debug开关允许原子入账，其他渠道明确拒绝。
 func (hgHandler *HGHandler) HGPay(w http.ResponseWriter, r *http.Request) {
 	hgUser, hgOK := hgHandler.HGEnsureUser(w, r)
 	if !hgOK {
@@ -97,11 +97,12 @@ func (hgHandler *HGHandler) HGPay(w http.ResponseWriter, r *http.Request) {
 	if !hgDecode(w, r, &hgRequest) {
 		return
 	}
-	if hgErr := hgHandler.hgService.HGPay(r.Context(), hgUser, hgRequest.HGOrderID); hgErr != nil {
+	hgResult, hgErr := hgHandler.hgService.HGPay(r.Context(), hgUser, hgRequest.HGOrderID, hgRequest.HGPaymentMethod)
+	if hgErr != nil {
 		hgWalletError(w, r, hgErr)
 		return
 	}
-	response.SuccessResult[any](w, r, nil)
+	response.SuccessResult(w, r, hgResult)
 }
 
 func hgDecode(w http.ResponseWriter, r *http.Request, hgTarget any) bool {
@@ -128,6 +129,8 @@ func hgWalletError(w http.ResponseWriter, r *http.Request, hgErr error) {
 		hgStatus, hgMessage = http.StatusNotFound, model.HGErrNotFound.Error()
 	case errors.Is(hgErr, model.HGErrConflict):
 		hgStatus, hgMessage = http.StatusConflict, model.HGErrConflict.Error()
+	case errors.Is(hgErr, model.HGErrOrderExpired):
+		hgStatus, hgMessage = http.StatusConflict, model.HGErrOrderExpired.Error()
 	case errors.Is(hgErr, model.HGErrSKUUnavailable):
 		hgStatus, hgMessage = http.StatusNotFound, model.HGErrSKUUnavailable.Error()
 	case errors.Is(hgErr, model.HGErrUnsupported):

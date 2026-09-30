@@ -4,6 +4,7 @@ import (
 	hgcoin "MLC_GO/internal/modules/coin/service"
 	"MLC_GO/internal/modules/wallet/dto"
 	"MLC_GO/internal/modules/wallet/model"
+	hgconfig "MLC_GO/internal/pkg/config"
 	"context"
 	"regexp"
 	"strconv"
@@ -15,9 +16,10 @@ type hgRepository interface {
 	HGListCandidates(context.Context, uint64) ([]model.HGSKU, error)
 	HGCreate(context.Context, string, string, string, time.Time) (model.HGOrder, error)
 	HGDetail(context.Context, string, string) (model.HGOrder, error)
+	HGPayDebug(context.Context, string, string) (model.HGOrder, error)
 }
 
-// HGService 编排钱包接口，仅依赖coin余额读取接口，不具备入账方法。
+// HGService 编排钱包协议；debug入账由仓储与订单同事务完成。
 type HGService struct {
 	hgRepo hgRepository
 	hgCoin hgBalanceReader
@@ -77,7 +79,15 @@ func (hgService *HGService) HGListSKUs(hgCtx context.Context, hgCursorText, hgSi
 }
 
 func hgSKUResponse(hgItem model.HGSKU) dto.HGSKU {
-	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxMutationAmount, HGPaymentAvailable: false}
+	hgAvailable := []string{}
+	hgMode := "unavailable"
+	if hgconfig.IsWalletDebugPaymentEnabled() {
+		hgMode = "platform_debug"
+	}
+	if hgconfig.IsWalletDebugPaymentEnabled() && hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxMutationAmount {
+		hgAvailable = append(hgAvailable, "platform_debug")
+	}
+	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxMutationAmount, HGPaymentAvailable: len(hgAvailable) > 0, HGPaymentMode: hgMode, HGAvailableMethods: hgAvailable}
 }
 
 // HGCreateOrder 校验客户端幂等键，快照完全由仓储从服务端目录和用户表取得。
@@ -102,12 +112,24 @@ func (hgService *HGService) HGOrderDetail(hgCtx context.Context, hgUser, hgOrder
 	return hgOrderResponse(hgOrder, hgService.hgNow().UTC()), hgErr
 }
 
-// HGPay 校验归属后始终报告渠道未配置，不调用余额或资产变更。
-func (hgService *HGService) HGPay(hgCtx context.Context, hgUser, hgOrderID string) error {
-	if _, hgErr := hgService.HGOrderDetail(hgCtx, hgUser, hgOrderID); hgErr != nil {
-		return hgErr
+// HGPay 严格校验渠道；微信和支付宝即使请求合法也明确拒绝，不退化为模拟支付。
+func (hgService *HGService) HGPay(hgCtx context.Context, hgUser, hgOrderID, hgPaymentMethod string) (dto.HGOrder, error) {
+	hgCtx, hgCancel := context.WithTimeout(hgCtx, 5*time.Second)
+	defer hgCancel()
+	if !hgIdentifier.MatchString(hgOrderID) || (hgPaymentMethod != "platform_debug" && hgPaymentMethod != "wechat" && hgPaymentMethod != "alipay") {
+		return dto.HGOrder{}, model.HGErrInvalid
 	}
-	return model.HGErrPaymentUnavailable
+	if hgUser == "" {
+		return dto.HGOrder{}, model.HGErrNotFound
+	}
+	if hgPaymentMethod != "platform_debug" {
+		if _, hgErr := hgService.HGOrderDetail(hgCtx, hgUser, hgOrderID); hgErr != nil {
+			return dto.HGOrder{}, hgErr
+		}
+		return dto.HGOrder{}, model.HGErrPaymentUnavailable
+	}
+	hgOrder, hgErr := hgService.hgRepo.HGPayDebug(hgCtx, hgUser, hgOrderID)
+	return hgOrderResponse(hgOrder, hgService.hgNow().UTC()), hgErr
 }
 
 func hgOrderResponse(hgOrder model.HGOrder, hgNow time.Time) dto.HGOrder {
@@ -115,7 +137,22 @@ func hgOrderResponse(hgOrder model.HGOrder, hgNow time.Time) dto.HGOrder {
 	if !hgOrder.HGExpiresAt.After(hgNow) {
 		hgStatus = "expired"
 	}
-	return dto.HGOrder{HGOrderID: hgOrder.HGOrderID, HGDisplayName: hgOrder.HGDisplayName, HGTitle: hgOrder.HGTitle, HGDescription: hgOrder.HGDescription, HGPayAmount: hgOrder.HGPayAmount, HGTotalCoin: hgOrder.HGTotalCoin, HGStatus: hgStatus, HGExpiresAt: hgOrder.HGExpiresAt.UTC().Format(time.RFC3339Nano), HGServerTime: hgNow.UTC().Format(time.RFC3339Nano), HGPaymentAvailable: false, HGCurrency: hgOrder.HGCurrency}
+	if hgOrder.HGStatus == "paid" {
+		hgStatus = "paid"
+	}
+	hgAvailable := []string{}
+	if hgStatus == "pending" && hgOrder.HGPaymentMode == "platform_debug" && hgconfig.IsWalletDebugPaymentEnabled() {
+		hgAvailable = append(hgAvailable, "platform_debug")
+	}
+	hgResponse := dto.HGOrder{HGOrderID: hgOrder.HGOrderID, HGDisplayName: hgOrder.HGDisplayName, HGTitle: hgOrder.HGTitle, HGDescription: hgOrder.HGDescription, HGPayAmount: hgOrder.HGPayAmount, HGTotalCoin: hgOrder.HGTotalCoin, HGStatus: hgStatus, HGExpiresAt: hgOrder.HGExpiresAt.UTC().Format(time.RFC3339Nano), HGServerTime: hgNow.UTC().Format(time.RFC3339Nano), HGPaymentAvailable: hgOrder.HGPaymentMode == "platform_debug" && hgconfig.IsWalletDebugPaymentEnabled(), HGPaymentMode: hgOrder.HGPaymentMode, HGAvailableMethods: hgAvailable, HGCurrency: hgOrder.HGCurrency}
+	if hgOrder.HGPaidAt != nil {
+		hgResponse.HGPaidAt = hgOrder.HGPaidAt.UTC().Format(time.RFC3339Nano)
+	}
+	hgResponse.HGPaymentAvailable = len(hgAvailable) > 0
+	if hgOrder.HGStatus == "paid" {
+		hgResponse.HGBalanceAfter = strconv.FormatUint(hgOrder.HGBalanceAfter, 10)
+	}
+	return hgResponse
 }
 
 func hgPage(hgCursorText, hgSizeText string) (uint64, int, error) {

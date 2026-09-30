@@ -11,6 +11,7 @@
       "mode": "auto", // 调试模式（auto/debug/test）
       "dlvFlags": ["--check-go-version=false"], // 当前 Go 版本高于 Delve 声明支持版本时，跳过 Delve 版本检查
       "preLaunchTask": "ensure-debug-deps",
+      "buildFlags": "-tags=production",
       "program": "${workspaceFolder}", // 按 main 包整体启动，避免只编译 main.go 导致同包符号缺失
       "args": [
         "--version=true",
@@ -25,6 +26,8 @@
         "GOPATH": "${env:GOPATH}",
         "MY_ENV": "debug",
         "SERVER_ENV": "debug",
+        // 仅隔离 debug 显式开启；模拟充值会写真实平台币余额。
+        "MLC_WALLET_DEBUG_PAYMENT_ENABLED": "true",
         "KAFKA_REQUIRED": "false"
       },
       "showLog": true, // 显示调试日志

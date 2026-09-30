@@ -8,6 +8,7 @@ import (
 	VideoInteractionCachePackage "MLC_GO/internal/modules/video_interaction/cache"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"database/sql"
@@ -125,7 +126,7 @@ func TestHGInteractionIntegrationKafkaMySQLRedisRecovery(t *testing.T) {
 
 func hgVerifyCoinTransaction(t *testing.T, ctx context.Context, db *sql.DB, userID string, submissionID string) {
 	t.Helper()
-	if _, err := db.ExecContext(ctx, `INSERT INTO user_coin_wallets (user_id, balance) VALUES (?, 10) ON DUPLICATE KEY UPDATE balance = 10`, userID); err != nil {
+	if _, err := db.ExecContext(ctx, SQLQueriesPackage.HGSeedAccountAcceptanceSQL, userID); err != nil {
 		t.Fatalf("seed coin wallet: %v", err)
 	}
 	repo := VideoInteractionRepositoryPackage.NewRepository(db)
@@ -141,13 +142,13 @@ func hgVerifyCoinTransaction(t *testing.T, ctx context.Context, db *sql.DB, user
 	var balance int
 	var ledgerRows int
 	var outboxRows int
-	if err := db.QueryRowContext(ctx, `SELECT balance FROM user_coin_wallets WHERE user_id = ?`, userID).Scan(&balance); err != nil {
+	if err := db.QueryRowContext(ctx, SQLQueriesPackage.SelectCoinWalletSQL, userID).Scan(&balance); err != nil {
 		t.Fatalf("read coin wallet: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM coin_asset_transactions WHERE user_id = ? AND request_id = ? AND operation = 'debit'`, userID, "acceptance-request-1").Scan(&ledgerRows); err != nil {
+	if err := db.QueryRowContext(ctx, SQLQueriesPackage.HGCountAccountDebitAcceptanceSQL, userID, "acceptance-request-1").Scan(&ledgerRows); err != nil {
 		t.Fatalf("read coin ledger: %v", err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox_events WHERE event_key = ? AND event_name = ?`, event.EventKey(), event.EventName()).Scan(&outboxRows); err != nil {
+	if err := db.QueryRowContext(ctx, SQLQueriesPackage.HGCountCoinOutboxAcceptanceSQL, event.EventKey(), event.EventName()).Scan(&outboxRows); err != nil {
 		t.Fatalf("read coin outbox: %v", err)
 	}
 	if balance != 8 || ledgerRows != 1 || outboxRows != 1 {

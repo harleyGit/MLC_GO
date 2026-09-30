@@ -2,6 +2,7 @@ package CoinRepositoryPackage
 
 import (
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"fmt"
@@ -73,7 +74,7 @@ func TestHGRealMySQLConcurrentDebit(t *testing.T) {
 		}
 	}
 	var balance uint64
-	if err := db.QueryRowContext(ctx, "SELECT balance FROM user_coin_wallets WHERE user_id = ?", userID).Scan(&balance); err != nil {
+	if err := db.QueryRowContext(ctx, SQLQueriesPackage.SelectCoinWalletSQL, userID).Scan(&balance); err != nil {
 		t.Fatalf("read final balance: %v", err)
 	}
 	if balance != 98 {

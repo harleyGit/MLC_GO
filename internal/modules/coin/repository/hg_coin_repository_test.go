@@ -41,7 +41,7 @@ func TestHGRepositoryDebitConsumesLotsFEFOAndWritesOutboxAtomically(t *testing.T
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinAllocationSQL)).WithArgs(uint64(9), uint64(2), uint64(2), "debit").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpdateCoinLotRemainingSQL)).WithArgs(uint64(7), uint64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertCoinAllocationSQL)).WithArgs(uint64(9), uint64(1), uint64(1), "debit").WillReturnResult(sqlmock.NewResult(2, 1))
-	mock.ExpectExec("INSERT INTO outbox_events").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOutboxEventSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	repository := NewHGRepository(db, "mlc.domain.events")

@@ -4,7 +4,9 @@ import (
 	"MLC_GO/internal/events"
 	CoinEventsPackage "MLC_GO/internal/events/coin"
 	CoinModelPackage "MLC_GO/internal/modules/coin/model"
+	CoinServicePackage "MLC_GO/internal/modules/coin/service"
 	"MLC_GO/internal/outbox"
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"crypto/sha256"
@@ -149,6 +151,34 @@ func (r *HGRepository) hgMutateOnce(ctx context.Context, command CoinModelPackag
 	}
 	defer tx.Rollback()
 
+	result, err = r.hgMutateTx(ctx, tx, command)
+	if err != nil {
+		return result, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CoinModelPackage.HGMutationResult{}, fmt.Errorf("commit coin mutation: %w", err)
+	}
+	return result, nil
+}
+
+// HGDebugRechargeTx only accepts isolated debug orders and never commits the caller's transaction.
+// The caller must roll back on any error and commit the order alongside the returned asset result.
+func (r *HGRepository) HGDebugRechargeTx(ctx context.Context, tx *sql.Tx, userID, orderID string, amount uint64) (CoinModelPackage.HGMutationResult, error) {
+	if !ConfigPackage.IsWalletDebugPaymentEnabled() || r.topic == "" || tx == nil || userID == "" || orderID == "" || len(orderID) > 64 || amount == 0 || amount > CoinServicePackage.HGMaxMutationAmount {
+		return CoinModelPackage.HGMutationResult{}, ErrHGBusinessLimit
+	}
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.EnsureCoinWalletSQL, userID); err != nil {
+		return CoinModelPackage.HGMutationResult{}, err
+	}
+	command := CoinModelPackage.HGCommand{Operation: CoinModelPackage.HGOperationRecharge, UserID: userID, RequestID: "wallet_debug:" + orderID, Amount: amount, Reason: "isolated_debug_payment", BusinessType: "wallet_debug", BusinessKey: orderID}
+	command.Event = CoinEventsPackage.HGAssetChangedEvent{EventMeta: events.NewEventMeta(ctx), UserID: userID, Operation: string(command.Operation), Amount: amount, BusinessType: command.BusinessType, BusinessKey: orderID}
+	hgResult, hgErr := r.hgMutateTx(ctx, tx, command)
+	// The external transaction has not committed yet.
+	hgResult.Committed = false
+	return hgResult, hgErr
+}
+
+func (r *HGRepository) hgMutateTx(ctx context.Context, tx *sql.Tx, command CoinModelPackage.HGCommand) (result CoinModelPackage.HGMutationResult, err error) {
 	var balance uint64
 	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCoinWalletForUpdateSQL, command.UserID).Scan(&balance); err != nil {
 		return result, fmt.Errorf("lock coin wallet: %w", err)
@@ -158,9 +188,6 @@ func (r *HGRepository) hgMutateOnce(ctx context.Context, command CoinModelPackag
 		return result, err
 	}
 	if legacyReplay {
-		if err := tx.Commit(); err != nil {
-			return result, fmt.Errorf("commit legacy coin replay: %w", err)
-		}
 		return CoinModelPackage.HGMutationResult{BalanceAfter: balance}, nil
 	}
 	hash := hgCommandHash(command)
@@ -203,9 +230,6 @@ func (r *HGRepository) hgMutateOnce(ctx context.Context, command CoinModelPackag
 		if err := outbox.NewRepository(r.db, r.topic).SaveTx(ctx, tx, event); err != nil {
 			return CoinModelPackage.HGMutationResult{}, fmt.Errorf("save coin outbox: %w", err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return CoinModelPackage.HGMutationResult{}, fmt.Errorf("commit coin mutation: %w", err)
 	}
 	result.Committed = true
 	return result, nil
@@ -259,9 +283,6 @@ func (r *HGRepository) hgReplay(ctx context.Context, tx *sql.Tx, command CoinMod
 	}
 	if operation != string(command.Operation) || storedHash != hash || status != "completed" {
 		return CoinModelPackage.HGMutationResult{}, ErrHGIdempotencyConflict
-	}
-	if err := tx.Commit(); err != nil {
-		return CoinModelPackage.HGMutationResult{}, fmt.Errorf("commit coin replay: %w", err)
 	}
 	return CoinModelPackage.HGMutationResult{TransactionID: uint64(transactionID.Int64), BalanceAfter: balanceAfter}, nil
 }

@@ -22,9 +22,9 @@ type Repository struct {
 	topic string
 }
 
-// Event 是 dispatcher 从 outbox_events 拉出来的一条待投递消息。
+// Event 是 dispatcher 从 outbox_event 拉出来的一条待投递消息。
 type Event struct {
-	// ID 是 outbox_events 表自增主键，仅用于本地状态更新。
+	// ID 是 outbox_event 表自增主键，仅用于本地状态更新。
 	ID int64
 	// EventID 是跨服务事件唯一 ID，用于消费侧幂等和排障。
 	EventID string

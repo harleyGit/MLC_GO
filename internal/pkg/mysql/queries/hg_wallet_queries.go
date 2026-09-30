@@ -14,12 +14,16 @@ const HGWalletSKUForShareSQL = `SELECT id, sku_id, title, currency, pay_amount, 
 // 展示名按users.user_id唯一索引点查，只取昵称，不读取手机号邮箱等凭据或隐私字段。
 const HGWalletDisplayNameSQL = `SELECT COALESCE(NULLIF(nickname, ''), NULLIF(user_name, ''), '用户') FROM users WHERE user_id = ?`
 
-// 订单仅插入一次；唯一键(user_id,request_id)保证并发幂等，不进行任何资产写入。
+// 创建仅插入快照并绑定模式；唯一键(user_id,request_id)保证并发幂等，此步骤不写资产。
 const HGWalletInsertOrderSQL = `INSERT INTO wallet_recharge_orders
-	(order_id, user_id, request_id, sku_id, display_name, title, description, currency, pay_amount, total_coin, created_at, expires_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	(order_id, user_id, request_id, sku_id, display_name, title, description, currency, pay_amount, total_coin, created_at, expires_at, payment_mode)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // 点查命中订单唯一键或用户幂等唯一键；owner条件始终在SQL中执行，不泄露其他用户订单。
-const hgWalletOrderColumns = `SELECT order_id, user_id, request_id, sku_id, display_name, title, description, currency, pay_amount, total_coin, created_at, expires_at FROM wallet_recharge_orders `
+const hgWalletOrderColumns = `SELECT order_id, user_id, request_id, sku_id, display_name, title, description, currency, pay_amount, total_coin, created_at, expires_at, payment_mode, status, paid_at, paid_transaction_id, balance_after FROM wallet_recharge_orders `
 const HGWalletOrderByOwnerSQL = hgWalletOrderColumns + `WHERE order_id = ? AND user_id = ?`
 const HGWalletOrderByRequestSQL = hgWalletOrderColumns + `WHERE user_id = ? AND request_id = ?`
+
+// 按订单唯一索引锁一行，固定顺序为订单后coin钱包；与coin入账同短事务，无外部IO。
+const HGWalletOrderForPaySQL = HGWalletOrderByOwnerSQL + ` FOR UPDATE`
+const HGWalletMarkPaidSQL = `UPDATE wallet_recharge_orders SET status = 'paid', paid_at = ?, paid_transaction_id = ?, balance_after = ? WHERE order_id = ? AND user_id = ? AND status = 'pending' AND payment_mode = 'platform_debug'`

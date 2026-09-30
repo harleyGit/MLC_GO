@@ -27,6 +27,6 @@ func hgWalletRoutes(hgHandler *handler.HGHandler) []RouteSpec {
 		NewRouteSpec("wallet", http.MethodGet, HGWalletModuleBasePath, "/recharge/skus", true, "查询有效充值档位", hgSKUs),
 		NewRouteSpec("wallet", http.MethodPost, HGWalletModuleBasePath, "/recharge/orders", true, "创建十分钟充值订单", hgCreate),
 		NewRouteSpec("wallet", http.MethodGet, HGWalletModuleBasePath, "/recharge/orders/detail", true, "查询本人充值订单", hgDetail),
-		NewRouteSpec("wallet", http.MethodPost, HGWalletModuleBasePath, "/recharge/orders/pay", true, "付款入口，渠道尚未配置", hgPay),
+		NewRouteSpec("wallet", http.MethodPost, HGWalletModuleBasePath, "/recharge/orders/pay", true, "付款入口，仅显式debug模拟渠道可用", hgPay),
 	}
 }
