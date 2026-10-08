@@ -47,8 +47,11 @@ func (hgService *HGService) HGBalance(hgCtx context.Context, hgUser string) (dto
 
 // HGListSKUs 只返回服务端确认启用且有效的档位，使用有界内部游标过滤。
 func (hgService *HGService) HGListSKUs(hgCtx context.Context, hgCursorText, hgSizeText string) (dto.HGSKUPage, error) {
+
+	// 这个查询最多执行 5 秒，超过就取消。
 	hgCtx, hgCancel := context.WithTimeout(hgCtx, 5*time.Second)
 	defer hgCancel()
+	// 获取分页参数。
 	hgCursor, hgLimit, hgErr := hgPage(hgCursorText, hgSizeText)
 	if hgErr != nil {
 		return dto.HGSKUPage{}, hgErr
@@ -61,8 +64,10 @@ func (hgService *HGService) HGListSKUs(hgCtx context.Context, hgCursorText, hgSi
 	hgPageResult := dto.HGSKUPage{HGList: make([]dto.HGSKU, 0, hgLimit)}
 	for hgIndex, hgItem := range hgItems {
 		hgCursor = hgItem.HGID
+		// 当前正在生效的 SKU 才返回。开始时间 <= 当前时间 && 结束时间为空 或 结束时间 > 当前时间
 		if !hgItem.HGStartTime.After(hgNow) && (hgItem.HGEndTime == nil || hgItem.HGEndTime.After(hgNow)) {
 			hgPageResult.HGList = append(hgPageResult.HGList, hgSKUResponse(hgItem))
+			// 判断有没有下一页：如果数据库多查出来了数据，说明后面还有数据
 			if len(hgPageResult.HGList) == hgLimit {
 				hgPageResult.HGHasMore = hgIndex+1 < len(hgItems) || len(hgItems) == 201
 				break

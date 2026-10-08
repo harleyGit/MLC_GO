@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2025-12-22 16:49:51
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-07-25 14:28:36
+ * @LastEditTime: 2026-10-08 14:31:31
  * @FilePath: /MLC_GO/config/server_config.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -144,7 +144,7 @@ func IsDebug() bool {
 	return GetEnv() == EnvDebug
 }
 
-// IsWalletDebugPaymentEnabled requires an explicit process flag and strict SERVER_ENV=debug.
+// IsWalletDebugPaymentEnabled requires an explicit process flag and strict SERVER_ENV=debug. 用来在支付买Mb币时，临时开启的虚拟支付渠道。
 func IsWalletDebugPaymentEnabled() bool {
 	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv(hgWalletDebugPaymentEnv) == "true"
 }

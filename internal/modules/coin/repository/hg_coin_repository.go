@@ -164,16 +164,20 @@ func (r *HGRepository) hgMutateOnce(ctx context.Context, command CoinModelPackag
 // HGDebugRechargeTx only accepts isolated debug orders and never commits the caller's transaction.
 // The caller must roll back on any error and commit the order alongside the returned asset result.
 func (r *HGRepository) HGDebugRechargeTx(ctx context.Context, tx *sql.Tx, userID, orderID string, amount uint64) (CoinModelPackage.HGMutationResult, error) {
+	// 前置检查，任何一个不满足条件都直接返回 ErrHGBusinessLimit，避免在事务中浪费锁和资源。
 	if !ConfigPackage.IsWalletDebugPaymentEnabled() || r.topic == "" || tx == nil || userID == "" || orderID == "" || len(orderID) > 64 || amount == 0 || amount > CoinServicePackage.HGMaxMutationAmount {
 		return CoinModelPackage.HGMutationResult{}, ErrHGBusinessLimit
 	}
+	// 如果这个用户还没有平台币钱包，就创建一个。
 	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.EnsureCoinWalletSQL, userID); err != nil {
 		return CoinModelPackage.HGMutationResult{}, err
 	}
+	// 充值命令，给这个用户充值多少币
 	command := CoinModelPackage.HGCommand{Operation: CoinModelPackage.HGOperationRecharge, UserID: userID, RequestID: "wallet_debug:" + orderID, Amount: amount, Reason: "isolated_debug_payment", BusinessType: "wallet_debug", BusinessKey: orderID}
 	command.Event = CoinEventsPackage.HGAssetChangedEvent{EventMeta: events.NewEventMeta(ctx), UserID: userID, Operation: string(command.Operation), Amount: amount, BusinessType: command.BusinessType, BusinessKey: orderID}
+	// 真正修改钱包余额的核心
 	hgResult, hgErr := r.hgMutateTx(ctx, tx, command)
-	// The external transaction has not committed yet.
+	// 充值操作执行了，但数据库事务还没有 Commit
 	hgResult.Committed = false
 	return hgResult, hgErr
 }
