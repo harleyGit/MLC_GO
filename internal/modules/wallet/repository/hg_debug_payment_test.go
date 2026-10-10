@@ -35,53 +35,55 @@ func hgPaymentRows(hgMode, hgStatus string, hgExpires time.Time, hgAmount uint64
 // SQL mocks exercise the real coin repository in the wallet transaction, not a fake credit adapter.
 func TestHGDebugPaymentAtomicCreditAndRollback(t *testing.T) {
 	hgEnablePayment(t)
-	for _, hgFailure := range []string{"", "credit", "transaction", "request", "lot", "outbox", "order", "commit"} {
-		t.Run(hgFailure, func(t *testing.T) {
-			hgDB, hgMock, hgErr := sqlmock.New()
-			if hgErr != nil {
-				t.Fatal(hgErr)
-			}
-			defer hgDB.Close()
-			hgMock.ExpectBegin()
-			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletOrderForPaySQL)).WithArgs("order", "owner").WillReturnRows(hgPaymentRows("platform_debug", "pending", time.Now().Add(time.Minute), 50))
-			hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.EnsureCoinWalletSQL)).WithArgs("owner").WillReturnResult(sqlmock.NewResult(0, 1))
-			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.SelectCoinWalletForUpdateSQL)).WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(20))
-			hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.InsertCoinRequestSQL)).WithArgs("owner", "wallet_debug:order", "recharge", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
-			hgInjected := errors.New("injected failure")
-			for _, hgStep := range []struct{ hgName, hgSQL string }{
-				{"credit", hgqueries.CreditCoinWalletSQL},
-				{"transaction", hgqueries.InsertCoinTransactionSQL},
-				{"request", hgqueries.CompleteCoinRequestSQL},
-				{"lot", hgqueries.InsertCoinLotSQL},
-				{"outbox", hgqueries.InsertOutboxEventSQL},
-				{"order", hgqueries.HGWalletMarkPaidSQL},
-			} {
-				hgExec := hgMock.ExpectExec(regexp.QuoteMeta(hgStep.hgSQL))
-				if hgStep.hgName == hgFailure {
-					hgExec.WillReturnError(hgInjected)
-					break
+	for _, hgAmount := range []uint64{50, 1800, 100000} {
+		for _, hgFailure := range []string{"", "credit", "transaction", "request", "lot", "outbox", "order", "commit"} {
+			t.Run(hgFailure, func(t *testing.T) {
+				hgDB, hgMock, hgErr := sqlmock.New()
+				if hgErr != nil {
+					t.Fatal(hgErr)
 				}
-				hgExec.WillReturnResult(sqlmock.NewResult(9, 1))
-			}
-			if hgFailure == "" {
-				hgMock.ExpectCommit()
-			} else if hgFailure == "commit" {
-				hgMock.ExpectCommit().WillReturnError(hgInjected)
-			} else {
-				hgMock.ExpectRollback()
-			}
-			hgOrder, hgErr := HGNewRepository(hgDB).HGPayDebug(context.Background(), "owner", "order")
-			if hgFailure == "" {
-				if hgErr != nil || hgOrder.HGStatus != "paid" || hgOrder.HGBalanceAfter != 70 || hgOrder.HGPaymentTransactionID != 9 || hgOrder.HGPaidAt == nil {
-					t.Fatalf("order=%+v err=%v", hgOrder, hgErr)
+				defer hgDB.Close()
+				hgMock.ExpectBegin()
+				hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletOrderForPaySQL)).WithArgs("order", "owner").WillReturnRows(hgPaymentRows("platform_debug", "pending", time.Now().Add(time.Minute), hgAmount))
+				hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.EnsureCoinWalletSQL)).WithArgs("owner").WillReturnResult(sqlmock.NewResult(0, 1))
+				hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.SelectCoinWalletForUpdateSQL)).WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(20))
+				hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.InsertCoinRequestSQL)).WithArgs("owner", "wallet_debug:order", "recharge", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+				hgInjected := errors.New("injected failure")
+				for _, hgStep := range []struct{ hgName, hgSQL string }{
+					{"credit", hgqueries.CreditCoinWalletSQL},
+					{"transaction", hgqueries.InsertCoinTransactionSQL},
+					{"request", hgqueries.CompleteCoinRequestSQL},
+					{"lot", hgqueries.InsertCoinLotSQL},
+					{"outbox", hgqueries.InsertOutboxEventSQL},
+					{"order", hgqueries.HGWalletMarkPaidSQL},
+				} {
+					hgExec := hgMock.ExpectExec(regexp.QuoteMeta(hgStep.hgSQL))
+					if hgStep.hgName == hgFailure {
+						hgExec.WillReturnError(hgInjected)
+						break
+					}
+					hgExec.WillReturnResult(sqlmock.NewResult(9, 1))
 				}
-			} else if !errors.Is(hgErr, hgInjected) {
-				t.Fatalf("expected rollback failure: %v", hgErr)
-			}
-			if hgErr := hgMock.ExpectationsWereMet(); hgErr != nil {
-				t.Fatal(hgErr)
-			}
-		})
+				if hgFailure == "" {
+					hgMock.ExpectCommit()
+				} else if hgFailure == "commit" {
+					hgMock.ExpectCommit().WillReturnError(hgInjected)
+				} else {
+					hgMock.ExpectRollback()
+				}
+				hgOrder, hgErr := HGNewRepository(hgDB).HGPayDebug(context.Background(), "owner", "order")
+				if hgFailure == "" {
+					if hgErr != nil || hgOrder.HGStatus != "paid" || hgOrder.HGBalanceAfter != 20+hgAmount || hgOrder.HGPaymentTransactionID != 9 || hgOrder.HGPaidAt == nil {
+						t.Fatalf("order=%+v err=%v", hgOrder, hgErr)
+					}
+				} else if !errors.Is(hgErr, hgInjected) {
+					t.Fatalf("expected rollback failure: %v", hgErr)
+				}
+				if hgErr := hgMock.ExpectationsWereMet(); hgErr != nil {
+					t.Fatal(hgErr)
+				}
+			})
+		}
 	}
 }
 
@@ -99,7 +101,7 @@ func TestHGDebugPaymentGuardsAndPaidReplay(t *testing.T) {
 		{"closed", "debug", "false", "platform_debug", "pending", false, 50, model.HGErrPaymentUnavailable},
 		{"mode", "debug", "true", "unavailable", "pending", false, 50, model.HGErrPaymentUnavailable},
 		{"expired", "debug", "true", "platform_debug", "pending", true, 50, model.HGErrOrderExpired},
-		{"limit", "debug", "true", "platform_debug", "pending", false, 1001, model.HGErrUnsupported},
+		{"limit", "debug", "true", "platform_debug", "pending", false, 100001, model.HGErrUnsupported},
 		{"zero", "debug", "true", "platform_debug", "pending", false, 0, model.HGErrUnsupported},
 		{"paid-closed-expired", "debug", "false", "platform_debug", "paid", true, 50, nil},
 	} {

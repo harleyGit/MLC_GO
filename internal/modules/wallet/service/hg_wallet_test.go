@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 type hgStore struct {
@@ -54,7 +56,7 @@ func TestHGWalletPage(t *testing.T) {
 		{HGID: 1, HGSKUID: "expired", HGEndTime: &hgNow},
 		{HGID: 2, HGSKUID: "future", HGStartTime: hgNow.Add(time.Second)},
 		{HGID: 3, HGSKUID: "valid", HGStartTime: hgNow, HGTotalCoin: 1000},
-		{HGID: 4, HGSKUID: "large", HGTotalCoin: 1001},
+		{HGID: 4, HGSKUID: "large", HGTotalCoin: 100001},
 	}}
 	hgService := HGNewService(hgStore, hgStore)
 	hgService.hgNow = func() time.Time { return hgNow }
@@ -78,6 +80,24 @@ func TestHGWalletPage(t *testing.T) {
 	for _, hgCase := range [][2]string{{"-1", ""}, {"abc", "20"}, {"18446744073709551616", "1"}, {"", "0"}, {"", "-1"}, {"", "2.5"}} {
 		if _, hgErr := hgService.HGListSKUs(context.Background(), hgCase[0], hgCase[1]); !errors.Is(hgErr, model.HGErrInvalid) {
 			t.Fatal(hgCase, hgErr)
+		}
+	}
+}
+
+func TestHGWalletRechargeAvailability(t *testing.T) {
+	hgPrevious := viper.Get("runtime.loaded_env")
+	t.Cleanup(func() { viper.Set("runtime.loaded_env", hgPrevious) })
+	viper.Set("runtime.loaded_env", "debug")
+	t.Setenv("SERVER_ENV", "debug")
+	for _, hgFlag := range []string{"true", "false"} {
+		t.Setenv("MLC_WALLET_DEBUG_PAYMENT_ENABLED", hgFlag)
+		for _, hgAmount := range []uint64{0, 1000, 1001, 1800, 100000, 100001} {
+			hgSKU := hgSKUResponse(model.HGSKU{HGTotalCoin: hgAmount})
+			hgSupported := hgAmount > 0 && hgAmount <= 100000
+			hgAvailable := hgSupported && hgFlag == "true"
+			if hgSKU.HGSupported != hgSupported || hgSKU.HGPaymentAvailable != hgAvailable || (len(hgSKU.HGAvailableMethods) > 0) != hgAvailable {
+				t.Fatalf("amount=%d flag=%s sku=%+v", hgAmount, hgFlag, hgSKU)
+			}
 		}
 	}
 }

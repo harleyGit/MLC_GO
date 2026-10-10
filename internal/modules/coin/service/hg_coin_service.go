@@ -21,6 +21,9 @@ var (
 // HGMaxMutationAmount bounds one command so a debit never requires more than the repository's 1000 locked FEFO lots.
 const HGMaxMutationAmount uint64 = 1000
 
+// HGMaxWalletRechargeAmount 限定钱包单笔充值总币数（含赠币）；入账只创建一个 lot，不放宽消费扣减上限。
+const HGMaxWalletRechargeAmount uint64 = 100000
+
 type hgCoinRepository interface {
 	Mutate(context.Context, CoinModelPackage.HGCommand) (CoinModelPackage.HGMutationResult, error)
 	Balance(context.Context, string) (uint64, error)

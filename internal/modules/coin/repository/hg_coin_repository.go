@@ -165,7 +165,7 @@ func (r *HGRepository) hgMutateOnce(ctx context.Context, command CoinModelPackag
 // The caller must roll back on any error and commit the order alongside the returned asset result.
 func (r *HGRepository) HGDebugRechargeTx(ctx context.Context, tx *sql.Tx, userID, orderID string, amount uint64) (CoinModelPackage.HGMutationResult, error) {
 	// 前置检查，任何一个不满足条件都直接返回 ErrHGBusinessLimit，避免在事务中浪费锁和资源。
-	if !ConfigPackage.IsWalletDebugPaymentEnabled() || r.topic == "" || tx == nil || userID == "" || orderID == "" || len(orderID) > 64 || amount == 0 || amount > CoinServicePackage.HGMaxMutationAmount {
+	if !ConfigPackage.IsWalletDebugPaymentEnabled() || r.topic == "" || tx == nil || userID == "" || orderID == "" || len(orderID) > 64 || amount == 0 || amount > CoinServicePackage.HGMaxWalletRechargeAmount {
 		return CoinModelPackage.HGMutationResult{}, ErrHGBusinessLimit
 	}
 	// 如果这个用户还没有平台币钱包，就创建一个。

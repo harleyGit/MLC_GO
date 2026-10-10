@@ -102,7 +102,7 @@ func TestHGWalletRejectSKUAndRollback(t *testing.T) {
 				hgSelect.WillReturnError(sql.ErrNoRows)
 				hgWant = model.HGErrSKUUnavailable
 			case "too-large":
-				hgSelect.WillReturnRows(hgSKURows(hgNow, 1001))
+				hgSelect.WillReturnRows(hgSKURows(hgNow, 100001))
 			default:
 				hgWant = context.DeadlineExceeded
 				hgSelect.WillReturnError(hgWant)
@@ -145,6 +145,8 @@ func TestHGWalletAmountSafety(t *testing.T) {
 		hgValid                         bool
 	}{
 		{"安全上界", 9007199254740991, 40, 10, 50, true},
+		{"1800币充值", 1800, 1800, 0, 1800, true},
+		{"充值总币数上界", 100000, 99900, 100, 100000, true},
 		{"超过JS安全上界", 9007199254740992, 40, 10, 50, false},
 		{"零金额", 0, 40, 10, 50, false},
 		{"币数不一致", 600, 40, 11, 50, false},

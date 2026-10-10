@@ -125,7 +125,7 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 		return hgExisting, hgErr
 	}
 	var hgRandom [32]byte
-	// 生成 32 字节随机数据。 
+	// 生成 32 字节随机数据。
 	if _, hgErr = rand.Read(hgRandom[:]); hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
@@ -150,7 +150,7 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 	if hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
-	if hgSKUItem.HGTotalCoin > hgcoin.HGMaxMutationAmount {
+	if hgSKUItem.HGTotalCoin > hgcoin.HGMaxWalletRechargeAmount {
 		return model.HGOrder{}, model.HGErrUnsupported
 	}
 	// 检测SKU是否合法
@@ -218,7 +218,7 @@ func (hgRepo *HGRepository) HGPayDebug(hgCtx context.Context, hgUser, hgOrderID 
 	if !hgOrder.HGExpiresAt.After(hgNow) {
 		return model.HGOrder{}, model.HGErrOrderExpired
 	}
-	if hgOrder.HGTotalCoin == 0 || hgOrder.HGTotalCoin > hgcoin.HGMaxMutationAmount {
+	if hgOrder.HGTotalCoin == 0 || hgOrder.HGTotalCoin > hgcoin.HGMaxWalletRechargeAmount {
 		return model.HGOrder{}, model.HGErrUnsupported
 	}
 	// 真正给用户充值：给用户增加 HGTotalCoin 个平台币。

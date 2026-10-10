@@ -89,10 +89,10 @@ func hgSKUResponse(hgItem model.HGSKU) dto.HGSKU {
 	if hgconfig.IsWalletDebugPaymentEnabled() {
 		hgMode = "platform_debug"
 	}
-	if hgconfig.IsWalletDebugPaymentEnabled() && hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxMutationAmount {
+	if hgconfig.IsWalletDebugPaymentEnabled() && hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxWalletRechargeAmount {
 		hgAvailable = append(hgAvailable, "platform_debug")
 	}
-	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxMutationAmount, HGPaymentAvailable: len(hgAvailable) > 0, HGPaymentMode: hgMode, HGAvailableMethods: hgAvailable}
+	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxWalletRechargeAmount, HGPaymentAvailable: len(hgAvailable) > 0, HGPaymentMode: hgMode, HGAvailableMethods: hgAvailable}
 }
 
 // HGCreateOrder 校验客户端幂等键，快照完全由仓储从服务端目录和用户表取得。
