@@ -1,7 +1,7 @@
 package accountrepository
 
 import (
-	"MLC_GO/internal/account"
+	"MLC_GO/internal/modules/account"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"

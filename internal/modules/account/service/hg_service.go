@@ -1,7 +1,7 @@
 package accountservice
 
 import (
-	"MLC_GO/internal/account"
+	"MLC_GO/internal/modules/account"
 	"context"
 	"errors"
 )

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"MLC_GO/internal/account"
-	accountservice "MLC_GO/internal/account/service"
+	"MLC_GO/internal/modules/account"
+	accountservice "MLC_GO/internal/modules/account/service"
 	hgqueries "MLC_GO/internal/pkg/mysql/queries"
 	"github.com/DATA-DOG/go-sqlmock"
 )
