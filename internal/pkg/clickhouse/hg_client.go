@@ -33,26 +33,28 @@ type HGConfig struct {
 
 // HGStatisticEvent 是 ClickHouse 保存的统计权威事件行。
 type HGStatisticEvent struct {
-	EventID           string `json:"event_id"`
-	EventName         string `json:"event_name"`
-	EventKey          string `json:"event_key"`
-	SubmissionID      string `json:"submission_id"`
-	UserID            string `json:"user_id"`
-	EventVersion      int    `json:"event_version"`
-	EventTimestamp    int64  `json:"event_timestamp"`
-	SourceService     string `json:"source_service"`
-	TraceID           string `json:"trace_id"`
-	RequestID         string `json:"request_id"`
-	KafkaTopic        string `json:"kafka_topic"`
-	KafkaPartition    int32  `json:"kafka_partition"`
-	KafkaOffset       int64  `json:"kafka_offset"`
-	RedisGeneration   string `json:"redis_generation"`
-	RedisShard        int    `json:"redis_shard"`
-	Payload           string `json:"payload"`
-	IngestedTimestamp int64  `json:"ingested_timestamp"`
+	EventID           string `json:"event_id"`           // 事件唯一 ID，用于识别一次事件
+	EventName         string `json:"event_name"`         // 事件类型
+	EventKey          string `json:"event_key"`          // 事件关联的业务对象标识，具体语义由业务定义
+	SubmissionID      string `json:"submission_id"`      // 提交记录 ID，可能用于幂等控制
+	UserID            string `json:"user_id"`            // 触发事件的用户 ID
+	EventVersion      int    `json:"event_version"`      // 事件数据结构版本
+	EventTimestamp    int64  `json:"event_timestamp"`    // 事件实际发生时间
+	SourceService     string `json:"source_service"`     // 事件来源服务
+	TraceID           string `json:"trace_id"`           // 分布式链路追踪 ID
+	RequestID         string `json:"request_id"`         // HTTP 请求 ID
+	KafkaTopic        string `json:"kafka_topic"`        // Kafka 消息主题
+	KafkaPartition    int32  `json:"kafka_partition"`    // Kafka 分区编号
+	KafkaOffset       int64  `json:"kafka_offset"`       // Kafka 分区内的消息位置
+	RedisGeneration   string `json:"redis_generation"`   // Redis 统计数据所属代次
+	RedisShard        int    `json:"redis_shard"`        // Redis 统计分片编号
+	Payload           string `json:"payload"`            // 事件附加数据，通常是 JSON 字符串
+	IngestedTimestamp int64  `json:"ingested_timestamp"` //事件被系统接收或写入时的时间
 }
 
 // HGStatisticDimension 标识一个 Redis shard 内的事件计数维度。
+// Redis shard 内的事件表示统计某个 Redis 分片（Shard）中，某种业务事件（EventName）发生了多少次
+// 比如后端需要统计用户点击、浏览、点赞次数
 type HGStatisticDimension struct {
 	Shard     int
 	EventName string
@@ -159,6 +161,33 @@ func (c *HGClient) StoreDanmakuHistory(ctx context.Context, items []HGDanmakuHis
 }
 
 // ListDanmakuHistory 按视频、播放时间窗和复合游标读取历史，禁止 OFFSET 深分页。
+/* 执行流程：
+   ListDanmakuHistory()
+            |
+            v
+   检查 ClickHouse 客户端
+            |
+            v
+   验证视频 ID 和查询参数
+            |
+            v
+   构建 ClickHouse SQL
+            |
+            v
+   设置 SQL 查询参数
+            |
+            v
+   执行 ClickHouse 查询
+            |
+            v
+   获取 JSONEachRow 数据
+            |
+            v
+   JSON 解码为 Go 结构体
+            |
+            v
+   返回 []HGDanmakuHistory
+*/
 func (c *HGClient) ListDanmakuHistory(ctx context.Context, videoID string, fromMS, toMS uint32, cursor HGDanmakuCursor, limit int) ([]HGDanmakuHistory, error) {
 	if c == nil || c.client == nil {
 		return nil, fmt.Errorf("clickhouse client cannot be nil")
@@ -298,13 +327,14 @@ func (c *HGClient) Close() error {
 }
 
 // execute  是通用 HTTP 请求执行函数，负责构造 HTTP 请求、带超时调用 ClickHouse HTTP 接口、处理响应与错误
+//
 //	@param ctx 上层传入父上下文（Ping 的时候就是 pingCtx，可以携带外部超时、取消信号）
 //	@param timeout 函数内部二次超时时间 c.config.QueryTimeout
 //	@param query clickhouse SQL 语句，ping 场景是 SELECT 1
 //	@param body  POST 请求 body，ping 场景 nil；批量 ndjson 查询时填充数据
 //	@param params HTTP query 额外参数
 //	@param outputs 可变参数，把 clickhouse 返回流写入 writer；ping 不需要接收输出传 nil
-//	@return error 
+//	@return error
 func (c *HGClient) execute(ctx context.Context, timeout time.Duration, query string, body []byte, params map[string]string, outputs ...io.Writer) error {
 	// 基于**父 ctx**再包装一层超时`timeout`，得到`requestCtx`给 http 请求使用。
 	// 继承父 ctx 的取消信号：如果上层`pingCtx`提前超时 /cancel，`requestCtx`会跟着取消；同时内部又有自己的`timeout`兜底

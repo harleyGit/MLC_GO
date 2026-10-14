@@ -47,14 +47,14 @@ func NewConsumer(counter Counter, dependencies ...any) *Consumer {
 	consumer := &Consumer{counter: counter, config: HGProjectionConfig{RedisGeneration: hgDefaultStatisticGeneration, RedisShardCount: hgDefaultStatisticShardCount}}
 	// 把事件持久化存入 `EventStore`（底层一般是 ClickHouse，统计事件落库）
 	for _, dependency := range dependencies {
-		switch value := dependency.(type) {// 类型断言 switch（type‑switch）语法
+		switch value := dependency.(type) { // 类型断言 switch（type‑switch）语法
 		case EventStore:
 			consumer.store = value //用来落事件到存储 (ClickHouse)
 		case HGProjectionConfig: // 增量覆盖默认配置
 			if value.RedisGeneration != "" { // 不为空才覆盖
 				consumer.config.RedisGeneration = value.RedisGeneration
 			}
-			if value.RedisShardCount > 0 {// 大于 0 才覆盖
+			if value.RedisShardCount > 0 { // 大于 0 才覆盖
 				consumer.config.RedisShardCount = value.RedisShardCount
 			}
 		}
@@ -64,9 +64,10 @@ func NewConsumer(counter Counter, dependencies ...any) *Consumer {
 
 // Handle 按 EventID 原子去重后计数，避免至少一次投递重复累计。
 // `Handle` 是 kafka 消费回调入口，收到一条事件 envelope 执行处理。
-//	@param ctx 
-//	@param envelope 
-//	@return error 
+//
+//	@param ctx
+//	@param envelope
+//	@return error
 func (c *Consumer) Handle(ctx context.Context, envelope events.EventEnvelope) error {
 
 	// switch  只处理视频审核通过、发布、删除三类事件；其他事件直接返回 nil，跳过不处理。
