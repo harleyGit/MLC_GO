@@ -161,7 +161,8 @@ func (c *HGClient) StoreDanmakuHistory(ctx context.Context, items []HGDanmakuHis
 }
 
 // ListDanmakuHistory 按视频、播放时间窗和复合游标读取历史，禁止 OFFSET 深分页。
-/* 执行流程：
+
+/* ListDanmakuHistory 执行流程：
    ListDanmakuHistory()
             |
             v
@@ -188,6 +189,14 @@ func (c *HGClient) StoreDanmakuHistory(ctx context.Context, items []HGDanmakuHis
             v
    返回 []HGDanmakuHistory
 */
+//	@param ctx 控制查询取消、超时
+//	@param videoID 视频 ID
+//	@param fromMS 查询开始播放时间，毫秒
+//	@param toMS 查询结束播放时间，毫秒
+//	@param cursor 上一页最后一条弹幕的位置
+//	@param limit 本次最多查询多少条
+//	@return []HGDanmakuHistory 弹幕历史列表
+//	@return error 
 func (c *HGClient) ListDanmakuHistory(ctx context.Context, videoID string, fromMS, toMS uint32, cursor HGDanmakuCursor, limit int) ([]HGDanmakuHistory, error) {
 	if c == nil || c.client == nil {
 		return nil, fmt.Errorf("clickhouse client cannot be nil")
@@ -195,9 +204,14 @@ func (c *HGClient) ListDanmakuHistory(ctx context.Context, videoID string, fromM
 	if c.config.DanmakuHistoryTable == "" || strings.TrimSpace(videoID) == "" {
 		return nil, fmt.Errorf("clickhouse danmaku history query is invalid")
 	}
+	// 结束时间必须大于开始时间。
+	// 每次查询的播放时间跨度不能超过 300 秒（5 分钟）。
+	// 每页最多返回 1000 条，最少 1 条。
 	if toMS <= fromMS || toMS-fromMS > 300_000 || limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("clickhouse danmaku history bounds are invalid")
 	}
+	// where是SQL 中的时间过滤； {video_id:String} 是 ClickHouse 的查询参数占位符，表示该参数应按 String 类型处理。
+	// 它不是 Go 的字符串拼接。这样可以避免将用户输入的 videoID 直接拼入 SQL，降低 SQL 注入风险。
 	query := fmt.Sprintf(`SELECT danmaku_id, submission_id, video_id, user_id, request_id, content, progress_ms, mode, color, font_size, created_at, kafka_topic, kafka_partition, kafka_offset
 FROM %s.%s
 WHERE video_id = {video_id:String}
@@ -207,6 +221,7 @@ WHERE video_id = {video_id:String}
 ORDER BY progress_ms, created_at, danmaku_id
 LIMIT {limit:UInt32}
 FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
+	// 构建查询参数
 	params := map[string]string{
 		"param_video_id":        videoID,
 		"param_from_ms":         strconv.FormatUint(uint64(fromMS), 10),
@@ -217,10 +232,14 @@ FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
 		"param_limit":           strconv.Itoa(limit),
 	}
 	var response bytes.Buffer
+	// 执行 SQL
+	// response 是一个内存缓冲区，用来接收 ClickHouse 返回的 JSON 数据；
+	// c.execute() 负责执行查询，具体如何发送 HTTP 请求、处理超时，需要查看该方法的实现。
 	if err := c.execute(ctx, c.config.QueryTimeout, query, nil, params, &response); err != nil {
 		return nil, err
 	}
 	items := make([]HGDanmakuHistory, 0, limit)
+	// json.NewDecoder() 创建 JSON 解码器
 	decoder := json.NewDecoder(&response)
 	// 从 response 里面读取下一段 JSON，然后解析成 HGDanmakuHistory。
 	for decoder.More() {
@@ -240,6 +259,7 @@ FORMAT JSONEachRow`, c.config.Database, c.config.DanmakuHistoryTable)
 			KafkaPartition int32  `json:"kafka_partition"`
 			KafkaOffset    int64  `json:"kafka_offset"`
 		}
+		// 每次读取并解析一个 JSON 对象。
 		if err := decoder.Decode(&row); err != nil {
 			return nil, fmt.Errorf("decode clickhouse danmaku history: %w", err)
 		}
@@ -326,7 +346,7 @@ func (c *HGClient) Close() error {
 	return nil
 }
 
-// execute  是通用 HTTP 请求执行函数，负责构造 HTTP 请求、带超时调用 ClickHouse HTTP 接口、处理响应与错误
+// execute  通过 HTTP POST 请求，把 SQL 语句发送给 ClickHouse 服务器执行，并获取执行结果。
 //
 //	@param ctx 上层传入父上下文（Ping 的时候就是 pingCtx，可以携带外部超时、取消信号）
 //	@param timeout 函数内部二次超时时间 c.config.QueryTimeout
@@ -335,6 +355,59 @@ func (c *HGClient) Close() error {
 //	@param params HTTP query 额外参数
 //	@param outputs 可变参数，把 clickhouse 返回流写入 writer；ping 不需要接收输出传 nil
 //	@return error
+/** 该方法执行流程是：
++--------------------------------------+
+|           ListDanmakuHistory()       |
+|                                      |
+|  SQL: SELECT ... FROM danmaku_history|
++--------------------------------------+
+                    |
+                    v
++--------------------------------------+
+|              execute()               |
+|                                      |
+|  values.Set("query", query)           |
+|  values.Set("param_video_id", "888")  |
++--------------------------------------+
+                    |
+                    v
++--------------------------------------+
+|        http.NewRequestWithContext    |
+|                                      |
+|  Method: POST                        |
+|  URL: http://127.0.0.1:8123          |
+|  Query: SQL + 查询参数               |
++--------------------------------------+
+                    |
+                    v
++--------------------------------------+
+|          c.client.Do(request)        |
+|                                      |
+|        向 ClickHouse 发送请求        |
++--------------------------------------+
+                    |
+                    v
++--------------------------------------+
+|           ClickHouse Server          |
+|                                      |
+|  1. 接收 HTTP 请求                   |
+|  2. 读取 query 中的 SQL              |
+|  3. 绑定 param_* 参数                |
+|  4. 执行 SELECT 查询                 |
+|  5. 返回 JSONEachRow 数据            |
++--------------------------------------+
+                    |
+                    v
++--------------------------------------+
+|             response.Body            |
+|                                      |
+|  io.Copy(&buffer, response.Body)      |
++--------------------------------------+
+                    |
+                    v
+|          Go 解析 JSON 数据           |
++--------------------------------------+
+*/
 func (c *HGClient) execute(ctx context.Context, timeout time.Duration, query string, body []byte, params map[string]string, outputs ...io.Writer) error {
 	// 基于**父 ctx**再包装一层超时`timeout`，得到`requestCtx`给 http 请求使用。
 	// 继承父 ctx 的取消信号：如果上层`pingCtx`提前超时 /cancel，`requestCtx`会跟着取消；同时内部又有自己的`timeout`兜底
@@ -351,12 +424,13 @@ func (c *HGClient) execute(ctx context.Context, timeout time.Duration, query str
 	}
 	// 获取 URL 现有的 query 参数
 	values := endpoint.Query()
-	// 设置`query`参数为 SQL 语句（ClickHouse HTTP 协议约定）
+	// 1. 把 SQL 放到 URL 的 query 参数中
 	values.Set("query", query)
 	// 追加自定义 params（例如`database`、`default_format`等 clickHouse http 参数）
 	for key, value := range params {
 		values.Set(key, value)
 	}
+	// 2. 把参数编码到 URL
 	// Encode 生成编码后的 query 字符串赋值回 UR，示例：http://127.0.0.1:8123?query=SELECT+1
 	endpoint.RawQuery = values.Encode()
 	// http.NewRequestWithContext：绑定 requestCtx 到 http 请求，context 一旦 Done，`c.client.Do(request)`就会中断 http 调用
@@ -370,6 +444,7 @@ func (c *HGClient) execute(ctx context.Context, timeout time.Duration, query str
 	// Content-Type 固定`application/x-ndjson`：适合 ndjson 格式写入；普通 SQL 查询其实不需要这个头，Ping `SELECT 1`下这个 header 是多余的，但不影响 ClickHouse 执行
 	request.Header.Set("Content-Type", "application/x-ndjson")
 	// c.client 是 *http.Client，要注意：http.Client 不要每次新建，全局复用；Transport 要合理配置 MaxIdleConns 等。
+	// 3. 发送 HTTP 请求，ClickHouse 收到后执行 SQL
 	// client.Do 阻塞发起网络请求；如果requestCtx超时 / 取消，这里直接返回 context 相关错误 (`context.DeadlineExceeded` / `context.Canceled`)。
 	response, err := c.client.Do(request)
 	if err != nil {
