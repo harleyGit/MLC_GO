@@ -13,6 +13,7 @@ import (
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
+	hgrecharge "MLC_GO/internal/modules/recharge/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
 	VideoCommentModulePackage "MLC_GO/internal/modules/video_comment/module"
@@ -367,6 +368,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 新增模块只需在此处调用 RegisterModules 即可，可以理解成：把用户模块安装到这个应用里面
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
+	hgrecharge.HGRegisterModules(sqlManager)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
 	// 视频上传
@@ -893,6 +895,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	// 收集 user 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGWalletRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.HGRechargeRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)

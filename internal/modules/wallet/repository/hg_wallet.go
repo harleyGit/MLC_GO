@@ -8,8 +8,10 @@ import (
 	hgqueries "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -61,7 +63,12 @@ func hgScanOrder(hgRow interface{ Scan(...any) error }) (model.HGOrder, error) {
 	var hgItem model.HGOrder
 	var hgPaidAt sql.NullTime
 	var hgTransactionID, hgBalanceAfter sql.NullInt64
-	hgErr := hgRow.Scan(&hgItem.HGOrderID, &hgItem.HGUserID, &hgItem.HGRequestID, &hgItem.HGSKUID, &hgItem.HGDisplayName, &hgItem.HGTitle, &hgItem.HGDescription, &hgItem.HGCurrency, &hgItem.HGPayAmount, &hgItem.HGTotalCoin, &hgItem.HGCreatedAt, &hgItem.HGExpiresAt, &hgItem.HGPaymentMode, &hgItem.HGStatus, &hgPaidAt, &hgTransactionID, &hgBalanceAfter)
+	var hgHash string
+	var hgConsistent bool
+	hgErr := hgRow.Scan(&hgItem.HGOrderID, &hgItem.HGUserID, &hgItem.HGRequestID, &hgItem.HGSKUID, &hgItem.HGDisplayName, &hgItem.HGTitle, &hgItem.HGDescription, &hgItem.HGCurrency, &hgItem.HGPayAmount, &hgItem.HGTotalCoin, &hgItem.HGCreatedAt, &hgItem.HGExpiresAt, &hgItem.HGPaymentMode, &hgItem.HGStatus, &hgPaidAt, &hgTransactionID, &hgBalanceAfter, &hgHash, &hgConsistent)
+	if hgErr == nil && (!hgConsistent || hgHash != hgRequestHash(hgItem.HGSKUID)) {
+		return model.HGOrder{}, model.HGErrConflict
+	}
 	if hgPaidAt.Valid {
 		hgItem.HGPaidAt = &hgPaidAt.Time
 	}
@@ -72,6 +79,15 @@ func hgScanOrder(hgRow interface{ Scan(...any) error }) (model.HGOrder, error) {
 		hgItem.HGBalanceAfter = uint64(hgBalanceAfter.Int64)
 	}
 	return hgItem, hgErr
+}
+
+// hgRequestHash 固定JSON字段和编码；SKU区分大小写，不按数据库排序规则折叠。
+func hgRequestHash(hgSKU string) string {
+	hgJSON, _ := json.Marshal(struct {
+		HGSKU string `json:"skuId"` // 创建请求的原始有效ASCII档位标识。
+	}{hgSKU})
+	hgHash := sha256.Sum256(hgJSON)
+	return hex.EncodeToString(hgHash[:])
 }
 
 // HGDetail 在SQL中限定owner；不存在和他人订单返回相同错误。
@@ -85,7 +101,7 @@ func (hgRepo *HGRepository) HGDetail(hgCtx context.Context, hgUser, hgID string)
 
 func (hgRepo *HGRepository) hgReplay(hgCtx context.Context, hgUser, hgRequest, hgSKU string) (model.HGOrder, error) {
 	hgItem, hgErr := hgScanOrder(hgRepo.hgDB.QueryRowContext(hgCtx, hgqueries.HGWalletOrderByRequestSQL, hgUser, hgRequest))
-	if hgErr == nil && hgItem.HGSKUID != hgSKU {
+	if hgErr == nil && (hgItem.HGSKUID != hgSKU || hgItem.HGUserID != hgUser) {
 		return model.HGOrder{}, model.HGErrConflict
 	}
 	return hgItem, hgErr
@@ -168,7 +184,11 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 		return model.HGOrder{}, hgErr
 	}
 	// 执行 INSERT，把订单保存到数据库。
-	_, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletInsertOrderSQL, hgOrder.HGOrderID, hgUser, hgRequest, hgOrder.HGSKUID, hgOrder.HGDisplayName, hgOrder.HGTitle, hgOrder.HGDescription, hgOrder.HGCurrency, hgOrder.HGPayAmount, hgOrder.HGTotalCoin, hgOrder.HGCreatedAt, hgOrder.HGExpiresAt, hgOrder.HGPaymentMode)
+	hgHash := hgRequestHash(hgSKU)
+	_, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletInsertTradeSQL, hgOrder.HGOrderID, hgUser, hgRequest, hgHash, hgOrder.HGTitle, hgOrder.HGCurrency, hgOrder.HGPayAmount, hgOrder.HGPayAmount, hgOrder.HGExpiresAt, hgOrder.HGCreatedAt)
+	if hgErr == nil {
+		_, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletInsertOrderSQL, hgOrder.HGOrderID, hgOrder.HGOrderID, hgUser, hgRequest, hgHash, hgOrder.HGSKUID, hgOrder.HGDisplayName, hgOrder.HGTitle, hgOrder.HGDescription, hgOrder.HGCurrency, hgOrder.HGPayAmount, hgSKUItem.HGCoinAmount, hgSKUItem.HGBonusCoin, hgOrder.HGTotalCoin, hgOrder.HGCreatedAt, hgOrder.HGExpiresAt, hgOrder.HGPaymentMode)
+	}
 	if hgErr != nil {
 		var hgDuplicate *mysql.MySQLError
 		// 1062 是 MySQL 唯一键冲突。
@@ -176,7 +196,11 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 		// 直接把已经存在的订单返回。这就是典型的幂等处理。
 		if errors.As(hgErr, &hgDuplicate) && hgDuplicate.Number == 1062 {
 			_ = hgTx.Rollback()
-			return hgRepo.hgReplay(hgCtx, hgUser, hgRequest, hgSKU)
+			hgExisting, hgReplayErr := hgRepo.hgReplay(hgCtx, hgUser, hgRequest, hgSKU)
+			if errors.Is(hgReplayErr, sql.ErrNoRows) {
+				hgReplayErr = model.HGErrConflict
+			}
+			return hgExisting, hgReplayErr
 		}
 		return model.HGOrder{}, hgErr
 	}
@@ -226,7 +250,7 @@ func (hgRepo *HGRepository) HGPayDebug(hgCtx context.Context, hgUser, hgOrderID 
 	if hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
-	hgUpdate, hgErr := hgTx.ExecContext(hgCtx, hgqueries.HGWalletMarkPaidSQL, hgNow, hgResult.TransactionID, hgResult.BalanceAfter, hgOrderID, hgUser)
+	hgUpdate, hgErr := hgTx.ExecContext(hgCtx, hgqueries.HGWalletMarkPaidSQL, hgNow, hgNow, hgResult.TransactionID, hgResult.BalanceAfter, hgOrderID, hgUser)
 	if hgErr != nil {
 		return model.HGOrder{}, hgErr
 	}
@@ -236,6 +260,15 @@ func (hgRepo *HGRepository) HGPayDebug(hgCtx context.Context, hgUser, hgOrderID 
 		return model.HGOrder{}, hgErr
 	}
 	if hgCount != 1 {
+		return model.HGOrder{}, model.HGErrConflict
+	}
+	hgUpdate, hgErr = hgTx.ExecContext(hgCtx, hgqueries.HGWalletCompleteTradeSQL, hgNow, hgNow, hgOrderID, hgUser)
+	if hgErr != nil {
+		return model.HGOrder{}, hgErr
+	}
+	if hgCount, hgErr = hgUpdate.RowsAffected(); hgErr != nil {
+		return model.HGOrder{}, hgErr
+	} else if hgCount != 1 {
 		return model.HGOrder{}, model.HGErrConflict
 	}
 	if hgErr = hgTx.Commit(); hgErr != nil {

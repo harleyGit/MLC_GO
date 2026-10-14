@@ -2,32 +2,39 @@ package recharge
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
-// HGPaymentRechargeOrder 是 payment_recharge_order 的数据库模型；total_coin 必须等于 coin_amount 加 bonus_coin。
+// HGPaymentRechargeOrder 是 payment_recharge_order 的数据库模型；新单总币数等于基础币加赠币，旧迁移单保留未知拆分。
 type HGPaymentRechargeOrder struct {
-	ID               uint64     // 数据库内部自增主键。
-	RechargeOrderID  string     // 充值订单业务标识。
-	TradeOrderID     string     // 关联交易订单业务标识。
-	UserID           string     // 充值用户业务标识，兼容 users.user_id。
-	RequestID        string     // 创建请求幂等标识，与 UserID 联合唯一。
-	RequestHash      string     // 请求规范化内容 SHA-256，用于幂等冲突校验。
-	SKUID            string     // 复用 payment_recharge_sku 的档位标识，数据库为 VARCHAR(64) utf8mb4_general_ci。
-	SKUSnapshotTitle string     // 充值档位标题快照。
-	Currency         string     // 充值支付币种仅允许 CNY，禁止使用平台币自充。
-	PayAmount        int64      // 实际支付人民币金额，单位分。
-	CoinAmount       int64      // 基础平台币数量。
-	BonusCoin        int64      // 赠送平台币数量。
-	TotalCoin        int64      // 平台币总数量，等于基础币加赠币。
-	OrderStatus      int8       // 充值订单状态，取值见 payment_recharge_order.order_status。
-	PaymentStatus    int8       // 充值支付状态，取值见 payment_recharge_order.payment_status。
-	ExpireAt         time.Time  // 支付截止时间，UTC 毫秒精度。
-	PaidAt           *time.Time // 支付完成时间，UTC 毫秒精度，可为空。
-	CompletedAt      *time.Time // 充值完成时间，UTC 毫秒精度，可为空。
-	CancelledAt      *time.Time // 取消时间，UTC 毫秒精度，可为空。
-	CreatedAt        time.Time  // 创建时间，UTC 毫秒精度。
-	UpdatedAt        time.Time  // 更新时间，UTC 毫秒精度。
+	ID                uint64        // 数据库内部自增主键。
+	RechargeOrderID   string        // 充值订单业务标识。
+	TradeOrderID      string        // 关联交易订单业务标识。
+	UserID            string        // 充值用户业务标识，兼容 users.user_id。
+	RequestID         string        // 创建请求幂等标识，与 UserID 联合唯一。
+	RequestHash       string        // 请求规范化内容 SHA-256，用于幂等冲突校验。
+	SKUID             string        // 复用 payment_recharge_sku 的档位标识，数据库为 VARCHAR(64) utf8mb4_general_ci。
+	SKUSnapshotTitle  string        // 充值档位标题快照。
+	Currency          string        // 充值支付币种仅允许 CNY，禁止使用平台币自充。
+	PayAmount         int64         // 实际支付人民币金额，单位分。
+	CoinAmount        sql.NullInt64 // 基础平台币数量；wallet_legacy 旧快照缺失时为空。
+	BonusCoin         sql.NullInt64 // 赠送平台币数量；wallet_legacy 旧快照缺失时为空。
+	TotalCoin         int64         // 平台币总数量，等于基础币加赠币。
+	OrderStatus       int8          // 充值订单状态，取值见 payment_recharge_order.order_status。
+	PaymentStatus     int8          // 充值支付状态，取值见 payment_recharge_order.payment_status。
+	ExpireAt          time.Time     // 支付截止时间，UTC 毫秒精度。
+	PaidAt            *time.Time    // 支付完成时间，UTC 毫秒精度，可为空。
+	CompletedAt       *time.Time    // 充值完成时间，UTC 毫秒精度，可为空。
+	CancelledAt       *time.Time    // 取消时间，UTC 毫秒精度，可为空。
+	CreatedAt         time.Time     // 创建时间，UTC 毫秒精度。
+	UpdatedAt         time.Time     // 更新时间，UTC 毫秒精度。
+	DisplayName       string        // 钱包用户展示名快照，非钱包来源可为空。
+	Description       string        // 钱包充值说明快照，非钱包来源可为空。
+	PaymentMode       string        // unavailable 或 platform_debug，不代表第三方支付成功。
+	PaidTransactionID sql.NullInt64 // debug 入账的权威流水 ID，未入账为空。
+	BalanceAfter      sql.NullInt64 // 入账后余额快照，未入账为空，不替代当前余额。
+	SnapshotSource    string        // native、wallet 或 wallet_legacy；后者不伪造历史币数拆分。
 }
 
 // HGRechargeOrderRepository 是充值订单持久化契约，当前未接入账户入账或支付渠道。

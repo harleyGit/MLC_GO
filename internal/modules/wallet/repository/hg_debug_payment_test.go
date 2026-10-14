@@ -25,18 +25,18 @@ func hgEnablePayment(t *testing.T) {
 }
 
 func hgPaymentRows(hgMode, hgStatus string, hgExpires time.Time, hgAmount uint64) *sqlmock.Rows {
-	hgRows := sqlmock.NewRows([]string{"order_id", "user_id", "request_id", "sku_id", "display_name", "title", "description", "currency", "pay_amount", "total_coin", "created_at", "expires_at", "payment_mode", "status", "paid_at", "paid_transaction_id", "balance_after"})
+	hgRows := sqlmock.NewRows([]string{"order_id", "user_id", "request_id", "sku_id", "display_name", "title", "description", "currency", "pay_amount", "total_coin", "created_at", "expires_at", "payment_mode", "status", "paid_at", "paid_transaction_id", "balance_after", "request_hash", "trade_consistent"})
 	if hgStatus == "paid" {
-		return hgRows.AddRow("order", "owner", "request", "sku", "name", "title", "description", "CNY", 600, hgAmount, hgExpires.Add(-10*time.Minute), hgExpires, hgMode, hgStatus, hgExpires.Add(-time.Minute), 9, 70)
+		return hgRows.AddRow("order", "owner", "request", "sku", "name", "title", "description", "CNY", 600, hgAmount, hgExpires.Add(-10*time.Minute), hgExpires, hgMode, hgStatus, hgExpires.Add(-time.Minute), 9, 70, hgRequestHash("sku"), true)
 	}
-	return hgRows.AddRow("order", "owner", "request", "sku", "name", "title", "description", "CNY", 600, hgAmount, hgExpires.Add(-10*time.Minute), hgExpires, hgMode, hgStatus, nil, nil, nil)
+	return hgRows.AddRow("order", "owner", "request", "sku", "name", "title", "description", "CNY", 600, hgAmount, hgExpires.Add(-10*time.Minute), hgExpires, hgMode, hgStatus, nil, nil, nil, hgRequestHash("sku"), true)
 }
 
 // SQL mocks exercise the real coin repository in the wallet transaction, not a fake credit adapter.
 func TestHGDebugPaymentAtomicCreditAndRollback(t *testing.T) {
 	hgEnablePayment(t)
 	for _, hgAmount := range []uint64{50, 1800, 100000} {
-		for _, hgFailure := range []string{"", "credit", "transaction", "request", "lot", "outbox", "order", "commit"} {
+		for _, hgFailure := range []string{"", "credit", "transaction", "request", "lot", "outbox", "order", "trade", "commit"} {
 			t.Run(hgFailure, func(t *testing.T) {
 				hgDB, hgMock, hgErr := sqlmock.New()
 				if hgErr != nil {
@@ -56,6 +56,7 @@ func TestHGDebugPaymentAtomicCreditAndRollback(t *testing.T) {
 					{"lot", hgqueries.InsertCoinLotSQL},
 					{"outbox", hgqueries.InsertOutboxEventSQL},
 					{"order", hgqueries.HGWalletMarkPaidSQL},
+					{"trade", hgqueries.HGWalletCompleteTradeSQL},
 				} {
 					hgExec := hgMock.ExpectExec(regexp.QuoteMeta(hgStep.hgSQL))
 					if hgStep.hgName == hgFailure {

@@ -15,7 +15,7 @@ import (
 )
 
 func hgOrderRows(hgNow time.Time) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"order_id", "user_id", "request_id", "sku_id", "display_name", "title", "description", "currency", "pay_amount", "total_coin", "created_at", "expires_at", "payment_mode", "status", "paid_at", "paid_transaction_id", "balance_after"}).AddRow("order", "owner", "request", "sku", "昵称", "标题", "说明", "CNY", 600, 50, hgNow, hgNow.Add(10*time.Minute), "unavailable", "pending", nil, nil, nil)
+	return sqlmock.NewRows([]string{"order_id", "user_id", "request_id", "sku_id", "display_name", "title", "description", "currency", "pay_amount", "total_coin", "created_at", "expires_at", "payment_mode", "status", "paid_at", "paid_transaction_id", "balance_after", "request_hash", "trade_consistent"}).AddRow("order", "owner", "request", "sku", "昵称", "标题", "说明", "CNY", 600, 50, hgNow, hgNow.Add(10*time.Minute), "unavailable", "pending", nil, nil, nil, hgRequestHash("sku"), true)
 }
 func hgSKURows(hgNow time.Time, hgCoins uint64) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "sku_id", "title", "currency", "pay_amount", "coin_amount", "bonus_coin", "total_coin", "start_time", "end_time"}).AddRow(1, "sku", "标题", "CNY", 600, hgCoins, 0, hgCoins, hgNow, nil)
@@ -34,7 +34,8 @@ func TestHGWalletCreateSnapshotAndDuplicate(t *testing.T) {
 			hgMock.ExpectBegin()
 			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletSKUForShareSQL)).WithArgs("sku", hgNow, hgNow).WillReturnRows(hgSKURows(hgNow, 50))
 			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletDisplayNameSQL)).WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("昵称"))
-			hgInsert := hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertOrderSQL)).WithArgs(sqlmock.AnyArg(), "owner", "request", "sku", "昵称", "标题", "充值获得50平台币", "CNY", uint64(600), uint64(50), hgNow, hgNow.Add(10*time.Minute), "unavailable")
+			hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertTradeSQL)).WithArgs(sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "标题", "CNY", uint64(600), uint64(600), hgNow.Add(10*time.Minute), hgNow).WillReturnResult(sqlmock.NewResult(1, 1))
+			hgInsert := hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertOrderSQL)).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "sku", "昵称", "标题", "充值获得50平台币", "CNY", uint64(600), uint64(50), uint64(0), uint64(50), hgNow, hgNow.Add(10*time.Minute), "unavailable")
 			if hgDuplicate {
 				hgInsert.WillReturnError(&mysql.MySQLError{Number: 1062})
 				hgMock.ExpectRollback()
@@ -166,6 +167,7 @@ func TestHGWalletAmountSafety(t *testing.T) {
 			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletSKUForShareSQL)).WithArgs("sku", hgNow, hgNow).WillReturnRows(hgRows)
 			if hgCase.hgValid {
 				hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletDisplayNameSQL)).WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("昵称"))
+				hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertTradeSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
 				hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertOrderSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
 				hgMock.ExpectCommit()
 			} else {
