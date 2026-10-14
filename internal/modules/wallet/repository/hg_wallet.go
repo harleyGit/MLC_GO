@@ -81,17 +81,24 @@ func hgScanOrder(hgRow interface{ Scan(...any) error }) (model.HGOrder, error) {
 	return hgItem, hgErr
 }
 
-// hgRequestHash 固定JSON字段和编码；SKU区分大小写，不按数据库排序规则折叠。
+// hgRequestHash 将商品档位 ID（SKU）转换成 SHA-256 哈希值，用于生成请求指纹，判断请求内容是否相同
 func hgRequestHash(hgSKU string) string {
+	// 1. 将 SKU 转换成 JSON 格式
 	hgJSON, _ := json.Marshal(struct {
-		HGSKU string `json:"skuId"` // 创建请求的原始有效ASCII档位标识。
+		HGSKU string `json:"skuId"`
 	}{hgSKU})
+
+	// 2. 对 JSON 数据进行 SHA-256 哈希计算
 	hgHash := sha256.Sum256(hgJSON)
+
+	// 3. 将哈希结果转换成十六进制字符串
+	// hgHash[:] 将数组转换成 []byte 切片，方便传给 hex.EncodeToString()。
 	return hex.EncodeToString(hgHash[:])
 }
 
 // HGDetail 在SQL中限定owner；不存在和他人订单返回相同错误。
 func (hgRepo *HGRepository) HGDetail(hgCtx context.Context, hgUser, hgID string) (model.HGOrder, error) {
+	// QueryRowContext 执行 SQL 查询，并读取查询结果中的第一行数据
 	hgItem, hgErr := hgScanOrder(hgRepo.hgDB.QueryRowContext(hgCtx, hgqueries.HGWalletOrderByOwnerSQL, hgID, hgUser))
 	if errors.Is(hgErr, sql.ErrNoRows) {
 		hgErr = model.HGErrNotFound

@@ -2,11 +2,33 @@ package main
 
 import (
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	"bytes"
 	"io"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestHGRunHelp 验证终端及调试启动使用的帮助参数正常退出，且不打开数据库。
+func TestHGRunHelp(t *testing.T) {
+	for _, hgArg := range []string{"-h", "--help"} {
+		t.Run(hgArg, func(t *testing.T) {
+			var hgOut bytes.Buffer
+			hgOpen := func() (*PersistenceSQLPackage.HGSQLManager, error) {
+				t.Fatal("帮助模式不应打开数据库")
+				return nil, nil
+			}
+			if hgErr := hgRun([]string{hgArg}, &hgOut, hgOpen); hgErr != nil {
+				t.Fatalf("帮助模式应正常退出: %v", hgErr)
+			}
+			for _, hgText := range []string{"Usage of hg_recharge_migrate", "-env", "-confirm-stopped-writes", "-low", "-high"} {
+				if !strings.Contains(hgOut.String(), hgText) {
+					t.Fatalf("帮助信息缺少 %q", hgText)
+				}
+			}
+		})
+	}
+}
 
 func TestHGRunRequiresExplicitWriteAuthorization(t *testing.T) {
 	hgOpened := false

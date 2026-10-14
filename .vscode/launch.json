@@ -87,6 +87,39 @@
       "console": "integratedTerminal"
     },
     {
+      // 打开 cmd/<入口>/main.go 后选择此项，以整个包启动，配置路径始终相对工程根目录。
+      "name": "🛠️ Launch cmd（当前入口）",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
+      "program": "${fileDirname}",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SERVER_ENV": "debug",
+        "MLC_CONFIG_DIR": "${workspaceFolder}/config"
+      },
+      // 默认查看入口参数；执行具体任务时按该入口的 --help 修改 args。
+      "args": ["--help"],
+      "console": "integratedTerminal"
+    },
+    {
+      // 运行和调试面板可直接选择 cmd 入口，不依赖当前打开的文件。
+      "name": "🛠️ Launch cmd（选择入口）",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
+      "program": "${workspaceFolder}/cmd/${input:hgCmdEntry}",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SERVER_ENV": "debug",
+        "MLC_CONFIG_DIR": "${workspaceFolder}/config"
+      },
+      "args": ["--help"],
+      "console": "integratedTerminal"
+    },
+    {
       //针对包的调试配置
       "name": "Launch Package",
       "type": "go",
@@ -141,6 +174,20 @@
       "dlvFlags": ["--check-go-version=false"],
       "program": "${workspaceFolder}/TestNotes/performance_practice/performance_analysis_main.go",
       "args": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "hgCmdEntry",
+      "type": "pickString",
+      "description": "选择 cmd 下可运行的 main 包（cmd/server 暂无 main 函数）",
+      "options": [
+        "hg_recharge_migrate",
+        "hg_config_check",
+        "hg_crawler",
+        "hg_video_comment_reaction_backfill"
+      ],
+      "default": "hg_recharge_migrate"
     }
   ]
 }

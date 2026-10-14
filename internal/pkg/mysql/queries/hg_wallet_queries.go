@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-09-30 20:29:42
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-10-13 21:20:41
+ * @FilePath: /MLC_GO/internal/pkg/mysql/queries/hg_wallet_queries.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package SQLQueriesPackage
 
 // 钱包目录按(is_deleted,status,id)索引向后扫描固定候选窗口，不做COUNT/OFFSET。
@@ -35,6 +43,8 @@ const hgWalletOrderColumns = `SELECT r.recharge_order_id, r.user_id, r.request_i
 	AND r.payment_status = 0 AND ((r.order_status = 1 AND t.trade_status = 1 AND r.paid_at IS NULL AND r.completed_at IS NULL AND r.paid_transaction_id IS NULL AND r.balance_after IS NULL)
 	OR (r.order_status = 3 AND t.trade_status = 4 AND r.payment_mode = 'platform_debug' AND r.paid_at IS NOT NULL AND r.completed_at = r.paid_at AND r.paid_transaction_id > 0 AND r.balance_after IS NOT NULL)), 0)
 	FROM payment_recharge_order r LEFT JOIN trade_order t ON t.trade_order_id = r.trade_order_id `
+
+// 查询指定用户的充值订单，并验证充值订单与交易订单的数据是否一致
 const HGWalletOrderByOwnerSQL = hgWalletOrderColumns + `WHERE r.recharge_order_id = ? AND BINARY r.user_id = BINARY ? AND r.snapshot_source IN ('wallet', 'wallet_legacy')`
 const HGWalletOrderByRequestSQL = hgWalletOrderColumns + `WHERE r.user_id = ? AND r.request_id = ?`
 

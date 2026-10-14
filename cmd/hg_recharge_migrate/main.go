@@ -38,6 +38,9 @@ func main() {
 // hgRun 只执行一个显式授权的主键区间；缺少任一安全参数时在连接数据库前退出。
 func hgRun(hgArgs []string, hgOut io.Writer, hgOpen hgMigrationDBOpener) error {
 	hgOptions, hgErr := hgParseOptions(hgArgs, hgOut)
+	if errors.Is(hgErr, flag.ErrHelp) {
+		return nil
+	}
 	if hgErr != nil {
 		return hgErr
 	}
