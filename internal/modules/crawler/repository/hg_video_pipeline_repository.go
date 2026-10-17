@@ -50,6 +50,53 @@ func (r *Repository) hgDiscoverVideos(ctx context.Context, tx *sql.Tx, taskID, r
 	return nil
 }
 
+// HGBackfillVideoPage 为最多100条历史列表补发缺失详情的发现事件，返回续页主键及投递数。
+// 调用方必须串行推进游标并限制总页数；事务内仅写采集身份和 Outbox。
+func (r *Repository) HGBackfillVideoPage(ctx context.Context, hgAfter uint64) (uint64, int, error) {
+	if !r.hgVideoPipeline {
+		return hgAfter, 0, errors.New("详情流水线未启用")
+	}
+	hgRows, hgErr := r.db.QueryContext(ctx, SQLQueriesPackage.HGBackfillVideoPageSQL, hgAfter)
+	if hgErr != nil {
+		return hgAfter, 0, hgErr
+	}
+	hgNext := hgAfter
+	hgItems := make([]CrawlerPlatformPackage.HGRecommendation, 0, 100)
+	for hgRows.Next() {
+		var hgID uint64
+		var hgPlatform, hgBVID string
+		var hgStored bool
+		if hgErr = hgRows.Scan(&hgID, &hgPlatform, &hgBVID, &hgStored); hgErr != nil {
+			hgRows.Close()
+			return hgAfter, 0, hgErr
+		}
+		hgNext = hgID
+		if hgPlatform == "bilibili" && !hgStored && CrawlerPlatformPackage.HGValidBVID(hgBVID) {
+			hgItems = append(hgItems, CrawlerPlatformPackage.HGRecommendation{Platform: hgPlatform, ContentID: hgBVID})
+		}
+	}
+	hgErr = hgRows.Err()
+	hgRows.Close()
+	if hgErr != nil {
+		return hgAfter, 0, hgErr
+	}
+	if len(hgItems) == 0 {
+		return hgNext, 0, nil
+	}
+	hgTx, hgErr := r.db.BeginTx(ctx, nil)
+	if hgErr != nil {
+		return hgAfter, 0, hgErr
+	}
+	defer hgTx.Rollback()
+	if hgErr = r.hgDiscoverVideos(ctx, hgTx, 0, 0, hgItems); hgErr != nil {
+		return hgAfter, 0, hgErr
+	}
+	if hgErr = hgTx.Commit(); hgErr != nil {
+		return hgAfter, 0, hgErr
+	}
+	return hgNext, len(hgItems), nil
+}
+
 // HGCollectionStatus 按采集主键查询进度；缺失身份属于协议错误，不能自动新建。
 func (r *Repository) HGCollectionStatus(ctx context.Context, id, bvid string) (string, error) {
 	var storedBVID, status string

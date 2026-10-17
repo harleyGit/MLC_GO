@@ -48,3 +48,24 @@ func TestHGAdvanceDuplicateDoesNotRepublish(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestHGBackfillRollbackKeepsCursor 验证补采事件失败整页回滚，并保留原游标供恢复。
+func TestHGBackfillRollbackKeepsCursor(t *testing.T) {
+	hgDB, hgMock, hgErr := sqlmock.New()
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	defer hgDB.Close()
+	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGBackfillVideoPageSQL)).WithArgs(uint64(10)).WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "content_id", "skip"}).AddRow(11, "bilibili", "BV1GJ411x7h7", false))
+	hgMock.ExpectBegin()
+	hgMock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertVideoCollectionSQL)).WillReturnResult(sqlmock.NewResult(0, 1))
+	hgMock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOutboxEventSQL)).WillReturnError(errors.New("模拟Outbox失败"))
+	hgMock.ExpectRollback()
+	hgNext, hgCount, hgErr := NewRepository(hgDB).WithHGVideoPipeline(true).HGBackfillVideoPage(context.Background(), 10)
+	if hgErr == nil || hgNext != 10 || hgCount != 0 {
+		t.Fatalf("失败页不应推进游标: %d %d %v", hgNext, hgCount, hgErr)
+	}
+	if hgErr = hgMock.ExpectationsWereMet(); hgErr != nil {
+		t.Fatal(hgErr)
+	}
+}

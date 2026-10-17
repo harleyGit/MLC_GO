@@ -67,14 +67,15 @@ func HGCleanBilibiliDetail(body []byte, bvid string, collectedAt time.Time) (Cra
 	var hgRequired struct {
 		Code *int `json:"code"` // 必须显式返回业务码。
 		Data struct {
-			Stat map[string]*int64 `json:"stat"`
+			Stat map[string]json.RawMessage `json:"stat"` // 上游包含evaluation等非计数字段，仅校验约定的七项统计。
 		} `json:"data"` // 校验统计字段存在性。
 	}
 	if err := json.Unmarshal(body, &hgRequired); err != nil || hgRequired.Code == nil {
 		return result, errors.New("详情缺少业务状态")
 	}
 	for _, hgKey := range []string{"view", "like", "coin", "favorite", "share", "reply", "danmaku"} {
-		if hgRequired.Data.Stat[hgKey] == nil {
+		var hgCount *int64
+		if hgErr := json.Unmarshal(hgRequired.Data.Stat[hgKey], &hgCount); hgErr != nil || hgCount == nil {
 			return result, fmt.Errorf("详情缺少统计字段%s", hgKey)
 		}
 	}

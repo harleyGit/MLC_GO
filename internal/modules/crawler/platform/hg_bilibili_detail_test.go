@@ -22,6 +22,8 @@ func TestHGCleanDetailRejectsInvalidSnapshots(t *testing.T) {
 	for _, test := range []struct{ name, old, next string }{
 		{"负计数", `"view":100`, `"view":-1`},
 		{"缺失计数", `"view":100,`, ``},
+		{"空计数", `"view":100`, `"view":null`},
+		{"字符串计数", `"view":100`, `"view":"100"`},
 		{"错误身份", `"bvid":"BV1GJ411x7h7"`, `"bvid":"BV1GJ411x7h8"`},
 		{"空标题", `"title":" 测试视频 "`, `"title":" "`},
 		{"错误分P", `"page":1`, `"page":2`},
@@ -32,5 +34,12 @@ func TestHGCleanDetailRejectsInvalidSnapshots(t *testing.T) {
 				t.Fatal("应拒绝无效快照")
 			}
 		})
+	}
+}
+
+func TestHGCleanDetailAllowsUpstreamStatMetadata(t *testing.T) {
+	hgBody := strings.Replace(hgDetailFixture, `"view":100`, `"evaluation":"","argue_msg":"","view":100`, 1)
+	if _, hgErr := HGCleanBilibiliDetail([]byte(hgBody), "BV1GJ411x7h7", time.Now()); hgErr != nil {
+		t.Fatalf("上游额外统计元数据不应导致清洗失败: %v", hgErr)
 	}
 }

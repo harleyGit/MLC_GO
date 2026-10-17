@@ -1,5 +1,20 @@
 package SQLQueriesPackage
 
+// HGBackfillVideoPageSQL 按主键游标扫描最多100条历史列表；详情表按主键点查，跳过已入库记录。
+// 仅供显式授权的补采命令使用，不修改推荐摘要及任务关联。
+const HGBackfillVideoPageSQL = `SELECT e.id, e.platform, e.content_id,
+ (EXISTS(SELECT 1 FROM crawler_video_details d WHERE d.bvid=e.content_id) OR
+ COALESCE((SELECT c.status IN ('pending','raw','cleaned') FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),0))
+ FROM crawler_external_contents e WHERE e.id > ? ORDER BY e.id ASC LIMIT 100`
+
+// HGBackfillVideoVerifySQL 按列表主键每页最多100条检查入库；详情/统计主键连接，状态使用idx_video_recent限1。
+const HGBackfillVideoVerifySQL = `SELECT e.id, e.content_id, d.bvid IS NOT NULL AND s.bvid IS NOT NULL,
+ COALESCE((SELECT CONCAT(c.status,IF(c.error_message='', '', CONCAT(':',c.error_message))) FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),'missing')
+ FROM crawler_external_contents e
+ LEFT JOIN crawler_video_details d ON d.bvid=e.content_id AND e.platform='bilibili'
+ LEFT JOIN crawler_video_stats_latest s ON s.bvid=d.bvid
+ WHERE e.id > ? ORDER BY e.id ASC LIMIT 100`
+
 const (
 	// HGGetCrawlerMigrationVersionSQL 供debug验收前检查迁移版本，仅读取单行元数据。
 	HGGetCrawlerMigrationVersionSQL = `SELECT version,dirty FROM schema_migrations LIMIT 1`
