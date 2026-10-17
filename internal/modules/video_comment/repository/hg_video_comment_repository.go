@@ -175,7 +175,7 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 	defer tx.Rollback()
 
 	var submissionID string
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectCommentableSubmissionSQL, command.SubmissionID, command.SubmissionID).Scan(&submissionID); err != nil {
+	if err := tx.QueryRowContext(ctx, hgCommentTargetSQL(command.SubmissionID), command.SubmissionID, command.SubmissionID).Scan(&submissionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return HGComment{}, ErrSubmissionNotCommentable
 		}
@@ -276,7 +276,7 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 // 解析与两个读取均为独立只读语句，不需要事务；可见性策略与 Create 保持一致。
 func (r *Repository) List(ctx context.Context, userID, targetID, sort string, cursor HGListCursor, limit int) (HGListResult, error) {
 	var submissionID string
-	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectCommentableSubmissionSQL, targetID, targetID).Scan(&submissionID); err != nil {
+	if err := r.db.QueryRowContext(ctx, hgCommentTargetSQL(targetID), targetID, targetID).Scan(&submissionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return HGListResult{}, ErrSubmissionNotCommentable
 		}

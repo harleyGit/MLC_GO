@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -63,7 +64,8 @@ func NewRepositoryWithTopic(db *sql.DB, topic string) *Repository {
 // ResolveVideo 验证视频处于页面可见状态、公开且未关闭弹幕。
 func (r *Repository) ResolveVideo(ctx context.Context, videoID string) (string, error) {
 	var resolved, submissionID string
-	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectDanmakuVideoTargetSQL, videoID).Scan(&resolved, &submissionID); err != nil {
+	hgSQL, hgArgs := hgDanmakuTarget(videoID)
+	if err := r.db.QueryRowContext(ctx, hgSQL, hgArgs...).Scan(&resolved, &submissionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrVideoNotDanmakuEnabled
 		}
@@ -80,7 +82,8 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGDan
 	}
 	defer tx.Rollback()
 	var videoID, submissionID string
-	if err = tx.QueryRowContext(ctx, SQLQueriesPackage.SelectDanmakuVideoTargetSQL, command.VideoID).Scan(&videoID, &submissionID); err != nil {
+	hgSQL, hgArgs := hgDanmakuTarget(command.VideoID)
+	if err = tx.QueryRowContext(ctx, hgSQL, hgArgs...).Scan(&videoID, &submissionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return HGDanmaku{}, false, ErrVideoNotDanmakuEnabled
 		}
@@ -121,6 +124,14 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGDan
 		return HGDanmaku{}, false, fmt.Errorf("commit video danmaku: %w", err)
 	}
 	return item, created, nil
+}
+
+// hgDanmakuTarget 为外部视频按已入库CID解析目标，原生视频保留现有权限查询。
+func hgDanmakuTarget(hgID string) (string, []any) {
+	if strings.HasPrefix(hgID, "external:") {
+		return SQLQueriesPackage.HGExternalDanmakuTargetSQL, []any{hgID, hgID}
+	}
+	return SQLQueriesPackage.SelectDanmakuVideoTargetSQL, []any{hgID}
 }
 
 // List 使用视频时间窗和复合游标读取；总数只聚合最多 64 个计数分片。
