@@ -39,6 +39,7 @@ func GetKafkaConfig() (HGKafkaPackage.HGKafkaClusterConfig, bool, error) {
 		return cfg, false, fmt.Errorf("读取 Kafka 配置失败: %w", err)
 	}
 
+	hgConfigureCrawlerConsumers(&cfg.Business)
 	// 去除每个 broker 两侧空白并丢弃空字符串，避免 YAML 中的 " " 被当成有效地址。
 	cfg.Business.Brokers = trimKafkaBrokers(cfg.Business.Brokers)
 	cfg.Log.Brokers = trimKafkaBrokers(cfg.Log.Brokers)
@@ -81,9 +82,16 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		{name: "audit", cfg: groups.Audit},
 		{name: "interaction", cfg: groups.Interaction},
 		{name: "danmaku", cfg: groups.Danmaku},
+		{name: "crawler_fetch", cfg: groups.CrawlerFetch},
+		{name: "crawler_clean", cfg: groups.CrawlerClean},
+		{name: "crawler_store", cfg: groups.CrawlerStore},
+		{name: "crawler_history", cfg: groups.CrawlerHistory},
 	}
 	seen := make(map[string]string, len(configs))
 	for _, item := range configs {
+		if strings.HasPrefix(item.name, "crawler_") && !item.cfg.Enabled && item.cfg.GroupID == "" {
+			continue
+		}
 		item.cfg.GroupID = strings.TrimSpace(item.cfg.GroupID)
 		if item.cfg.GroupID == "" {
 			return fmt.Errorf("consumer %s group_id 不能为空", item.name)

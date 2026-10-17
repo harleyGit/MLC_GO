@@ -344,12 +344,19 @@ func (r *Repository) GetVideoListByCursor(ctx context.Context, cursor string, li
 
 // GetVideoListItemByID 点查列表项，支持原生 video/submission ID 和 external 平台内容 ID。
 func (r *Repository) GetVideoListItemByID(ctx context.Context, contentID string) (VideoUploadDtoPackage.VideoListItem, bool, error) {
-	items, err := r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListItemByIDSQL, contentID, contentID, contentID)
+	platform, externalID := "", ""
+	if parts := strings.SplitN(contentID, ":", 3); len(parts) == 3 && parts[0] == "external" {
+		platform, externalID = parts[1], parts[2]
+	}
+	items, err := r.queryVideoList(ctx, SQLQueriesPackage.GetVideoListItemByIDSQL, contentID, contentID, platform, externalID)
 	if err != nil {
 		return VideoUploadDtoPackage.VideoListItem{}, false, err
 	}
 	if len(items) == 0 {
 		return VideoUploadDtoPackage.VideoListItem{}, false, nil
+	}
+	if err := r.hgLoadExternalDetail(ctx, &items[0]); err != nil {
+		return VideoUploadDtoPackage.VideoListItem{}, false, err
 	}
 	return items[0], true, nil
 }

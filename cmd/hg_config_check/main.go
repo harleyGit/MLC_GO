@@ -2,6 +2,7 @@ package main
 
 import (
 	ConfigPackage "MLC_GO/internal/pkg/config"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
 	"flag"
@@ -72,6 +73,21 @@ func main() {
 		fmt.Println(redisConfig.Port)
 	case "mysql":
 		checkMySQL(mysqlConfig)
+	case "migration-version":
+		// 只读schema_migrations，不执行DDL，不输出连接凭据。
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(hgErr)
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		var hgVersion uint64
+		var hgDirty bool
+		if hgErr = hgDB.QueryRowContext(hgCtx, SQLQueriesPackage.HGGetCrawlerMigrationVersionSQL).Scan(&hgVersion, &hgDirty); hgErr != nil {
+			exitWithError(hgErr)
+		}
+		fmt.Printf("migration_version=%d dirty=%t\n", hgVersion, hgDirty)
 	case "redis":
 		checkRedis(redisConfig)
 	default:

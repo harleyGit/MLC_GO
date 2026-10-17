@@ -33,7 +33,8 @@ var (
 
 // Repository 持久化第三方公开内容元数据，不写入本站投稿和媒体文件表。
 type Repository struct {
-	db *sql.DB
+	db              *sql.DB
+	hgVideoPipeline bool // 启用时推荐与详情发现 Outbox 同事务提交。
 }
 
 // NewRepository 创建 crawler 外部内容仓储。
@@ -280,6 +281,7 @@ func (r *Repository) UpsertTaskRecommendationsWithInserted(ctx context.Context, 
 	return r.hgUpsertRecommendations(ctx, taskID, runID, items)
 }
 
+// hgUpsertRecommendations 最多50条，内容、关联和可选发现事件同一短事务提交；事务内无HTTP/Kafka请求。
 func (r *Repository) hgUpsertRecommendations(ctx context.Context, taskID, runID uint64, items []CrawlerPlatformPackage.HGRecommendation) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("crawler repository database is required")
@@ -340,12 +342,16 @@ func (r *Repository) hgUpsertRecommendations(ctx context.Context, taskID, runID 
 			return 0, fmt.Errorf("associating crawler task recommendations: %w", err)
 		}
 	}
+	if err := r.hgDiscoverVideos(ctx, tx, taskID, runID, items); err != nil {
+		return 0, fmt.Errorf("写入视频详情发现事件: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("committing crawler recommendation upsert: %w", err)
 	}
 	return inserted, nil
 }
 
+// hgValidateRecommendation 在事务前检查推荐存储边界，避免部分写入后才发现坏数据。
 func hgValidateRecommendation(item CrawlerPlatformPackage.HGRecommendation) error {
 	if strings.TrimSpace(item.Platform) == "" || strings.TrimSpace(item.ContentID) == "" || strings.TrimSpace(item.Title) == "" || strings.TrimSpace(item.TargetURL) == "" {
 		return errors.New("crawler recommendation required fields are missing")
@@ -359,6 +365,7 @@ func hgValidateRecommendation(item CrawlerPlatformPackage.HGRecommendation) erro
 	return nil
 }
 
+// hgValidateTaskDefinition 规范化标量字段并校验JSON和列长度，不执行网络请求。
 func hgValidateTaskDefinition(definition *CrawlerModelPackage.HGTaskDefinition) error {
 	definition.Name = strings.TrimSpace(definition.Name)
 	definition.Platform = strings.TrimSpace(definition.Platform)
@@ -471,6 +478,7 @@ func hgScanTaskDefinition(scanner hgTaskDefinitionScanner) (CrawlerModelPackage.
 	return definition, nil
 }
 
+// nullableTime 将缺失时间写为NULL，其余统一UTC，避免零时间写入MySQL失败。
 func nullableTime(value time.Time) any {
 	if value.IsZero() {
 		return nil

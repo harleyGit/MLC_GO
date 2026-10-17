@@ -3,11 +3,14 @@ package kafka
 import (
 	"MLC_GO/internal/consumer"
 	AuditConsumerPackage "MLC_GO/internal/consumer/audit"
+	CrawlerConsumerPackage "MLC_GO/internal/consumer/crawler"
 	DanmakuConsumerPackage "MLC_GO/internal/consumer/danmaku"
 	FeedConsumerPackage "MLC_GO/internal/consumer/feed"
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	SearchConsumerPackage "MLC_GO/internal/consumer/search"
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
+	CrawlerEventPackage "MLC_GO/internal/events/crawler"
+	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"fmt"
@@ -50,6 +53,9 @@ type RuntimeDependencies struct {
 	InteractionStore           InteractionConsumerPackage.EventStore
 	DanmakuStore               DanmakuConsumerPackage.HistoryStore
 	DanmakuRecent              DanmakuConsumerPackage.RecentProjector
+	CrawlerStore               CrawlerConsumerPackage.HGStore           // 采集阶段权威存储与Outbox。
+	CrawlerHTTP                CrawlerServicePackage.HGTaskHTTPExecutor // 复用SSRF防护请求服务。
+	CrawlerHistory             CrawlerConsumerPackage.HGHistoryStore    // 历史统计批量存储。
 }
 
 // HGRuntime 管理各读模型独立消费组的创建、运行与关闭。
@@ -157,6 +163,18 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 	}
 
 	// specs 声明所有消费组 spec：6 个读模型，其中 search 和 audit 的 implemented 默认为 false（占位，未实现）。
+	if (cfg.Consumers.CrawlerFetch.Enabled || cfg.Consumers.CrawlerClean.Enabled || cfg.Consumers.CrawlerStore.Enabled) && deps.CrawlerStore == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("采集消费者缺少MySQL阶段存储")
+	}
+	if cfg.Consumers.CrawlerFetch.Enabled && deps.CrawlerHTTP == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("采集消费者缺少安全HTTP客户端")
+	}
+	if cfg.Consumers.CrawlerHistory.Enabled && deps.CrawlerHistory == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("采集历史消费者缺少ClickHouse存储")
+	}
 	// 3.specs: 定义所有消费者；specs 是一个切片，用来统一描述每个 Kafka Worker。
 	// 可以把每个 hgConsumerWorker 理解成一份消费者配置说明书。
 	specs := []hgConsumerWorker{
@@ -181,6 +199,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		// InteractionConsumerPackage.NewConsumer 它是创建一个 Interaction 业务处理器，负责处理点赞、关注等事件。
 		{name: "interaction", config: cfg.Consumers.Interaction, handler: InteractionConsumerPackage.NewConsumer(deps.InteractionStore), implemented: true},
 		{name: "danmaku", config: cfg.Consumers.Danmaku, handler: DanmakuConsumerPackage.NewConsumer(deps.DanmakuStore, deps.DanmakuRecent), implemented: true},
+		{name: "crawler_fetch", config: cfg.Consumers.CrawlerFetch, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGDiscovered, deps.CrawlerStore, deps.CrawlerHTTP, nil), implemented: true},
+		{name: "crawler_clean", config: cfg.Consumers.CrawlerClean, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGRaw, deps.CrawlerStore, nil, nil), implemented: true},
+		{name: "crawler_store", config: cfg.Consumers.CrawlerStore, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGCleaned, deps.CrawlerStore, nil, nil), implemented: true},
+		{name: "crawler_history", config: cfg.Consumers.CrawlerHistory, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGStored, nil, nil, deps.CrawlerHistory), implemented: true},
 	}
 
 	// for 遍历创建实际 worker; 4.遍历 specs：只创建需要的 Consumer

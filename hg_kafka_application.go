@@ -13,6 +13,8 @@ import (
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	InfrastructureEventBusPackage "MLC_GO/internal/infrastructure/eventbus"
 	InfrastructureKafkaPackage "MLC_GO/internal/infrastructure/kafka"
+	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
+	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	"MLC_GO/internal/outbox"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
@@ -57,37 +59,37 @@ func initKafkaIfConfigured() (kafkaCloser, error) {
 
 // “初始化整个 Kafka 相关运行环境，并把 Redis、ClickHouse、MySQL、Outbox 等依赖组装起来，最后返回一个统一的关闭函数。”
 /*
-                    initKafkaWithDependencies()
-                              │
-             ┌────────────────┴────────────────┐
-             │                                 │
-       初始化 Kafka Producer              读取各种配置
-             │                                 │
-             ▼                                 ▼
-        producerCloser                  Kafka / ClickHouse
-                                             / Feed / Danmaku
-                                             │
-                                             ▼
-                                      初始化 ClickHouse
-                                             │
-                                             ▼
-                                      组装 RuntimeDependencies
-                                             │
-                       ┌─────────────────────┼──────────────────┐
-                       │                     │                  │
-                     Redis              ClickHouse            MySQL
-                       │                     │                  │
-                       └─────────────────────┼──────────────────┘
-                                             ▼
-                                   Kafka Consumer Runtime
-                                             │
-                                      consumerRuntime.Start()
-                                             │
-                                             ▼
-                                    启动 Outbox Dispatcher
-                                             │
-                                             ▼
-                              返回统一 Close() + Consumer
+                initKafkaWithDependencies()
+                          │
+         ┌────────────────┴────────────────┐
+         │                                 │
+   初始化 Kafka Producer              读取各种配置
+         │                                 │
+         ▼                                 ▼
+    producerCloser                  Kafka / ClickHouse
+                                         / Feed / Danmaku
+                                         │
+                                         ▼
+                                  初始化 ClickHouse
+                                         │
+                                         ▼
+                                  组装 RuntimeDependencies
+                                         │
+                   ┌─────────────────────┼──────────────────┐
+                   │                     │                  │
+                 Redis              ClickHouse            MySQL
+                   │                     │                  │
+                   └─────────────────────┼──────────────────┘
+                                         ▼
+                               Kafka Consumer Runtime
+                                         │
+                                  consumerRuntime.Start()
+                                         │
+                                         ▼
+                                启动 Outbox Dispatcher
+                                         │
+                                         ▼
+                          返回统一 Close() + Consumer
 */
 func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, kafkaReadyChecker, error) {
 	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
@@ -95,7 +97,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		return producerCloser, nil, err
 	}
 	cfg, _, err := ConfigPackage.GetKafkaConfig()
-	if err != nil { 
+	if err != nil {
 		producerCloser()
 		return nil, nil, err
 	}
@@ -105,7 +107,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		return nil, nil, fmt.Errorf("Statistic基础设施配置失败: %w", err)
 	}
 	var clickHouseClient *ClickHousePackage.HGClient
-	if cfg.Business.Consumers.Statistic.Enabled || cfg.Business.Consumers.Danmaku.Enabled {
+	if cfg.Business.Consumers.Statistic.Enabled || cfg.Business.Consumers.Danmaku.Enabled || cfg.Business.Consumers.CrawlerHistory.Enabled {
 		if !clickHouseConfig.Enabled {
 			producerCloser()
 			return nil, nil, fmt.Errorf("Statistic消费者启用时 ClickHouse 必须启用")
@@ -134,6 +136,31 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 	runtimeDeps := InfrastructureKafkaPackage.RuntimeDependencies{
 		Redis: redisService, StatisticStore: clickHouseClient, StatisticAggregate: clickHouseClient, StatisticRedis: redisService,
 		StatisticConfig: StatisticConsumerPackage.HGProjectionConfig{RedisGeneration: statisticConfig.RedisGeneration, RedisShardCount: statisticConfig.RedisShardCount},
+	}
+	// 详情流水线复用MySQL连接池和安全HTTP客户端，按独立消费组装配。
+	if cfg.Business.Consumers.CrawlerFetch.Enabled || cfg.Business.Consumers.CrawlerClean.Enabled || cfg.Business.Consumers.CrawlerStore.Enabled {
+		if sqlManager == nil {
+			if clickHouseClient != nil {
+				_ = clickHouseClient.Close()
+			}
+			producerCloser()
+			return nil, nil, fmt.Errorf("采集消费者需要MySQL")
+		}
+		runtimeDeps.CrawlerStore = CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB())
+		policy, policyErr := CrawlerServicePackage.NewHGTargetPolicy([]string{"api.bilibili.com"}, false)
+		if policyErr == nil {
+			runtimeDeps.CrawlerHTTP, policyErr = CrawlerServicePackage.NewHGSafeHTTPService(policy, "MLC_GO-HGCrawler/1.0")
+		}
+		if policyErr != nil {
+			if clickHouseClient != nil {
+				_ = clickHouseClient.Close()
+			}
+			producerCloser()
+			return nil, nil, policyErr
+		}
+	}
+	if clickHouseClient != nil {
+		runtimeDeps.CrawlerHistory = clickHouseClient
 	}
 	videoRecommendConfig, err := ConfigPackage.GetVideoRecommendConfig()
 	if err != nil {

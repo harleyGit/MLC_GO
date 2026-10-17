@@ -248,5 +248,28 @@ type VideoListItem struct {
 	// LikeCount 第三方点赞量快照。
 	LikeCount int64 `json:"likeCount"`
 	// CommentCount 第三方弹幕量快照。
-	CommentCount int64 `json:"commentCount"`
+	CommentCount     int64                  `json:"commentCount"`
+	HGExternalDetail *HGExternalVideoDetail `json:"externalDetail,omitempty"` // 外部详情扩展，列表不加载；保持既有字段语义。
+}
+
+// HGExternalVideoDetail 是视频详情API扩展协议，状态与已成功入库快照独立展示。
+type HGExternalVideoDetail struct {
+	Status       string                `json:"status"`       // pending/raw/cleaned/stored/failed/not_collected。
+	ErrorMessage string                `json:"errorMessage"` // 脱敏失败摘要。
+	AuthorAvatar string                `json:"authorAvatar"` // 原站头像URL。
+	CollectedAt  string                `json:"collectedAt"`  // UTC RFC3339采集时间，无快照为空。
+	Coin         int64                 `json:"coin"`         // 原站投币枚数。
+	Favorite     int64                 `json:"favorite"`     // 原站收藏次数。
+	Share        int64                 `json:"share"`        // 原站分享次数。
+	Reply        int64                 `json:"reply"`        // 原站评论条数。
+	Danmaku      int64                 `json:"danmaku"`      // 原站弹幕条数。
+	Parts        []HGExternalVideoPart `json:"parts"`        // 有界分P列表。
+}
+
+// HGExternalVideoPart 是播放页分P选择协议，CID使用字符串保持精度。
+type HGExternalVideoPart struct {
+	CID      string `json:"cid"`      // 原站分P标识。
+	Page     int    `json:"page"`     // 从1开始的分P序号。
+	Title    string `json:"title"`    // 分P标题。
+	Duration int64  `json:"duration"` // 时长秒。
 }

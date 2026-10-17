@@ -43,12 +43,16 @@ type HGConsumerConfig struct {
 
 // HGConsumerGroupConfigs 为各读模型分配独立消费位点。
 type HGConsumerGroupConfigs struct {
-	Feed        HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
-	Search      HGConsumerConfig `yaml:"search" mapstructure:"search"`
-	Statistic   HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
-	Audit       HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
-	Interaction HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
-	Danmaku     HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
+	Feed           HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
+	Search         HGConsumerConfig `yaml:"search" mapstructure:"search"`
+	Statistic      HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
+	Audit          HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
+	Interaction    HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
+	Danmaku        HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
+	CrawlerFetch   HGConsumerConfig `yaml:"crawler_fetch" mapstructure:"crawler_fetch"`     // 详情抓取独立消费组。
+	CrawlerClean   HGConsumerConfig `yaml:"crawler_clean" mapstructure:"crawler_clean"`     // 原始详情清洗消费组。
+	CrawlerStore   HGConsumerConfig `yaml:"crawler_store" mapstructure:"crawler_store"`     // MySQL持久化消费组。
+	CrawlerHistory HGConsumerConfig `yaml:"crawler_history" mapstructure:"crawler_history"` // ClickHouse历史投影消费组。
 }
 
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
@@ -116,12 +120,16 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 		return cfg
 	}
 	return HGConsumerGroupConfigs{
-		Feed:        normalize(groups.Feed),
-		Search:      normalize(groups.Search),
-		Statistic:   normalize(groups.Statistic),
-		Audit:       normalize(groups.Audit),
-		Interaction: normalize(groups.Interaction),
-		Danmaku:     normalize(groups.Danmaku),
+		Feed:           normalize(groups.Feed),
+		Search:         normalize(groups.Search),
+		Statistic:      normalize(groups.Statistic),
+		Audit:          normalize(groups.Audit),
+		Interaction:    normalize(groups.Interaction),
+		Danmaku:        normalize(groups.Danmaku),
+		CrawlerFetch:   normalize(groups.CrawlerFetch),
+		CrawlerClean:   normalize(groups.CrawlerClean),
+		CrawlerStore:   normalize(groups.CrawlerStore),
+		CrawlerHistory: normalize(groups.CrawlerHistory),
 	}
 }
 

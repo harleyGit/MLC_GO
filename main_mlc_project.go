@@ -573,7 +573,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	var crawlerManager *CrawlerSpiderPackage.HGManager
 	if crawlerConfig.Enabled {
 		crawlerStore := CrawlerServicePackage.NewHGExternalContentStore(
-			CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
+			CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()).WithHGVideoPipeline(ConfigPackage.HGCrawlerVideoPipelineEnabled()),
 			VideoUploadCachePackage.NewCache(redisService),
 		)
 		crawlerManager, err = CrawlerRuntimePackage.NewHGBilibiliManager(CrawlerRuntimePackage.HGBilibiliRuntimeConfig{
@@ -639,11 +639,11 @@ func buildMLCApplication() (*MLCApplication, error) {
 		Handler: businessHandler,
 		// ReadHeaderTimeout/ReadTimeout/WriteTimeout/IdleTimeout 是标准库 HTTP 服务的资源治理边界。
 		// 防止被恶意客户端发一个HTTP header一直不发完，若是没有超时，会有goroutine、连接、内存被一直占用
-		ReadHeaderTimeout: mlcServerReadHeaderTimeout,// 默认值是 30 秒，限制Header最长读取时间
-		ReadTimeout:       mlcServerReadTimeout, // 限制整个请求读取时间
-		WriteTimeout:      mlcServerWriteTimeout,// 响应写出去的时间。
-		IdleTimeout:       mlcServerIdleTimeout,//限制Keep-Alive 空闲连接时间。
-		MaxHeaderBytes:    mlcServerMaxHeaderBytes,// 限制HTTP Header 最大大小。
+		ReadHeaderTimeout: mlcServerReadHeaderTimeout, // 默认值是 30 秒，限制Header最长读取时间
+		ReadTimeout:       mlcServerReadTimeout,       // 限制整个请求读取时间
+		WriteTimeout:      mlcServerWriteTimeout,      // 响应写出去的时间。
+		IdleTimeout:       mlcServerIdleTimeout,       //限制Keep-Alive 空闲连接时间。
+		MaxHeaderBytes:    mlcServerMaxHeaderBytes,    // 限制HTTP Header 最大大小。
 	}
 	// 管理服务器，负责管理端口：运维系统 -> Management server -> HealthCheck / Metrics,避免普通用户访问 /metrics 或 /readyz 造成安全问题。
 	// 或者普通业务API -> 混入运维接口

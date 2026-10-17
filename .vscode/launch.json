@@ -31,6 +31,7 @@
         "MLC_CONFIG_DIR": "${workspaceFolder}/config",
         // 联合调试由独立 crawler 进程采集，避免主服务同时运行另一份 Bilibili worker。
         "CRAWLER_BILIBILI_ENABLED": "false",
+        "CRAWLER_VIDEO_PIPELINE_ENABLED": "true",
         // 仅隔离 debug 显式开启；模拟充值会写真实平台币余额。
         "MLC_WALLET_DEBUG_PAYMENT_ENABLED": "true",
         "KAFKA_REQUIRED": "false"
@@ -52,6 +53,7 @@
       "output": "${env:TMPDIR}/hg-crawler-debug",
       "env": {
         "SERVER_ENV": "debug",
+        "CRAWLER_VIDEO_PIPELINE_ENABLED": "true",
         "MLC_CONFIG_DIR": "${workspaceFolder}/config"
       },
       "args": [

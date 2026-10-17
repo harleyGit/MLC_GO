@@ -71,6 +71,7 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 		panic(err)
 	}
 	crawlerRepo := CrawlerRepositoryPackage.NewRepository(deps.SQLManager.GetSQLDB())
+	crawlerRepo.WithHGVideoPipeline(ConfigPackage.HGCrawlerVideoPipelineEnabled())
 	externalStore := CrawlerServicePackage.NewHGExternalContentStore(crawlerRepo, VideoUploadCachePackage.NewCache(deps.RedisService))
 	crawlerTasks, err := CrawlerServicePackage.NewHGTaskService(crawlerRepo, httpService, CrawlerLeasePackage.NewHGRedisTaskLease(deps.RedisService), crawlerConfig.LeaseGrace, externalStore)
 	if err != nil {

@@ -181,6 +181,6 @@ SELECT
     '', '', 0, '', 1, 'external_link', platform, content_id, target_url,
     author_name, duration_seconds, view_count, like_count, comment_count
 FROM crawler_external_contents
-WHERE CONCAT('external:', platform, ':', content_id) = ?
+WHERE platform = ? AND content_id = ?
 LIMIT 1`
 )

@@ -55,7 +55,7 @@ func hgRun() error {
 	}
 	defer redisService.Close()
 	store := CrawlerServicePackage.NewHGExternalContentStore(
-		CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()),
+		CrawlerRepositoryPackage.NewRepository(sqlManager.GetSQLDB()).WithHGVideoPipeline(ConfigPackage.HGCrawlerVideoPipelineEnabled()),
 		VideoUploadCachePackage.NewCache(redisService),
 	)
 

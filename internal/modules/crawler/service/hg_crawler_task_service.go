@@ -257,6 +257,8 @@ func (s *HGTaskService) validateDefinition(definition *CrawlerModelPackage.HGTas
 	return configuration, timeout, nil
 }
 
+// execute 串行解析有界来源并按平台/内容去重；成功只表示推荐及发现事件提交，不表示异步详情已完成。
+// 详情抓取由Kafka独立消费组处理，不占用此任务租约或HTTP响应预算。
 func (s *HGTaskService) execute(ctx context.Context, definition *CrawlerModelPackage.HGTaskDefinition, runID uint64, configuration HGTaskConfiguration) (int, error) {
 	requests, err := s.hgExpandTaskRequests(ctx, configuration)
 	if err != nil {
@@ -381,6 +383,7 @@ func (s *HGTaskService) hgExpandTaskRequests(ctx context.Context, configuration 
 	return requests, nil
 }
 
+// hgDecodeTaskConfiguration 严格解析配置；返回单请求超时，调用方不可将其视为多URL任务总预算。
 func hgDecodeTaskConfiguration(raw json.RawMessage) (HGTaskConfiguration, time.Duration, error) {
 	var configuration HGTaskConfiguration
 	if !json.Valid(raw) || len(raw) > 128<<10 {
