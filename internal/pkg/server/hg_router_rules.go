@@ -168,6 +168,7 @@ func PublicAPIRules() []HGMiddlewarePackage.HGAPIRule {
 
 func VideoUploadMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
+		{Path: "/external-playback", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{
 			Path:     "/detail",
 			Version:  "v1",

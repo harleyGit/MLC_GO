@@ -39,11 +39,12 @@ const (
 // 只负责鉴权上下文读取、HTTP 参数解析、错误码映射和统一响应，不直接写 SQL 或处理文件存储细节。
 type Handler struct {
 	service *VideoUploadServicePackage.Service
+	hgMedia *hgMediaProxy
 }
 
 // NewHandler 创建视频投稿处理器，由 module assembly 统一注入 service。
 func NewHandler(service *VideoUploadServicePackage.Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{service: service, hgMedia: hgNewMediaProxy()}
 }
 
 // UploadVideo 接收 multipart/form-data 视频文件并创建/追加稿件分 P。

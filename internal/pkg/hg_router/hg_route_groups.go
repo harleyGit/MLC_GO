@@ -147,7 +147,7 @@ func UserRouteCatalog() []RouteCatalogItem {
 // region VideoUpload 路由组
 
 func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Handler) http.Handler {
-	return NewRouteGroup(
+	hgGroup := NewRouteGroup(
 		RouteGroupConfig{
 			BasePath:       VideoUploadModuleBasePath,
 			Rules:          HGServerPackage.VideoUploadMethodRules(),
@@ -155,10 +155,20 @@ func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Hand
 		},
 		videoUploadRoutes(videoUploadHandler),
 	)
+	// 原生媒体请求使用短期HttpOnly凭证，不能伪造公共签名头或跳过媒体凭证校验。
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/external-stream" && videoUploadHandler != nil {
+			videoUploadHandler.HGExternalStream(w, r)
+			return
+		}
+		hgGroup.ServeHTTP(w, r)
+	})
 }
 
 func VideoUploadRouteCatalog() []RouteCatalogItem {
-	return BuildRouteCatalogItems(videoUploadRoutes(nil))
+	hgItems := BuildRouteCatalogItems(videoUploadRoutes(nil))
+	// 流媒体在路由组入口校验短期HttpOnly凭证，不走JSON签名Guard。
+	return append(hgItems, RouteCatalogItem{Group: "video_upload", Method: http.MethodGet, Path: VideoUploadModuleBasePath + "/external-stream", NeedAuth: true, Summary: "短期播放凭证鉴权的Range媒体流"}, RouteCatalogItem{Group: "video_upload", Method: http.MethodHead, Path: VideoUploadModuleBasePath + "/external-stream", NeedAuth: true, Summary: "短期播放凭证鉴权的媒体元信息"})
 }
 
 func NewVideoInteractionRouteGroup(handler *VideoInteractionHandlerPackage.Handler) http.Handler {

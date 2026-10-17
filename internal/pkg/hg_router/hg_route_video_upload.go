@@ -9,6 +9,7 @@ import (
 func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []RouteSpec {
 	if videoUploadHandler == nil {
 		return []RouteSpec{
+			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/external-playback", true, "获取外部视频播放凭证", nil),
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", nil),
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", nil),
 			NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", nil),
@@ -19,6 +20,7 @@ func videoUploadRoutes(videoUploadHandler *VideoUploadHandlerPackage.Handler) []
 	}
 
 	return []RouteSpec{
+		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/external-playback", true, "获取外部视频播放凭证", videoUploadHandler.HGExternalPlayback),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/upload", true, "上传视频文件", videoUploadHandler.UploadVideo),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/draft", true, "保存视频稿件草稿", videoUploadHandler.SaveDraft),
 		NewRouteSpec("video_upload", http.MethodPost, VideoUploadModuleBasePath, "/submit", true, "提交视频稿件审核", videoUploadHandler.Submit),
