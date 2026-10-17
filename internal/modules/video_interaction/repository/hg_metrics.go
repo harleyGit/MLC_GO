@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-31 13:08:51
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-10-16 16:36:40
+ * @FilePath: /MLC_GO/internal/modules/video_interaction/repository/hg_metrics.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package VideoInteractionRepositoryPackage
 
 import (
@@ -7,16 +15,21 @@ import (
 	"time"
 )
 
-var (
-	hgPersistenceBatches  atomic.Uint64
-	hgPersistenceEvents   atomic.Uint64
-	hgPersistenceFailures atomic.Uint64
-	hgPersistenceNanos    atomic.Uint64
+var (// 调用 .Add 通常是原子计数操作（具体取决于变量定义），支持并发安全地累加。
+	hgPersistenceBatches  atomic.Uint64 // 累计处理批次数
+	hgPersistenceEvents   atomic.Uint64 // 累计尝试处理事件数量, 该记录的是传入的事件数，不代表实际成功写入数据库的记录数，因为可能存在重复事件或者事务失败。
+	hgPersistenceFailures atomic.Uint64// 累计处理失败批次数
+	hgPersistenceNanos    atomic.Uint64 // 累计数据库处理耗时（纳秒）
 	hgInboxDuplicates     atomic.Uint64
 	hgInboxConflicts      atomic.Uint64
 	hgWalletDebits        atomic.Uint64
 )
 
+// hgObservePersistenceBatch 记录监控指标
+//
+//	@param events 
+//	@param elapsed 计算处理耗时
+//	@param err 
 func hgObservePersistenceBatch(events int, elapsed time.Duration, err error) {
 	hgPersistenceBatches.Add(1)
 	hgPersistenceEvents.Add(uint64(events))

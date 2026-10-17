@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 16:34:42
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-22 14:45:42
+ * @LastEditTime: 2026-10-17 11:23:22
  * @FilePath: /MLC_GO/internal/pkg/kafka/hg_config_builder.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
@@ -128,23 +128,48 @@ func HGNewBusinessConsumerOpts(cfg HGClusterConfig, topics []string, groupID str
 		不同 groupID 互相独立，各自维护自己的 offset，可以实现同一条消息被多个业务消费组分别消费。
 		*/
 		kgo.ConsumerGroup(groupID),
-		/** 关闭自动提交 offset。 ⭐ 核心配置
-		默认情况下，kgo 会定期自动把消费到的 offset 提交到 broker。
-		关闭后，必须由业务代码手动调用 CommitRecords / CommitOffsets 来提交 offset。
-		为什么要关？ 自动提交的问题：
-		 - 消息拉下来就提交 offset，但业务还没处理完，如果此时进程崩溃，消息就丢了（offset 已推进，但消息没处理）。
-		 - 手动提交可以做到"处理成功后再提交"，保证 at-least-once 语义。
-		典型流程：Poll 拉消息 → 业务处理 → 处理成功 → CommitRecords。处理失败不提交，下次 rebalance 或重启后从上次提交的 offset 重新消费。
+		/** 不等于自动保证消息不丢失
+		这个配置本身只是关闭自动提交 Offset。真正的安全性取决于业务代码是否按照正确顺序执行：
+		Kafka 拉取消息
+		|
+		v
+		处理业务
+		|
+		v
+		数据库事务 Commit 成功
+		|
+		v
+		Kafka CommitRecords()
+		|
+		v
+		继续消费
+
+		如果数据库提交成功，但 Kafka Offset 提交失败：
+		数据库已经成功写入
+			|
+			v
+		Kafka Offset 未提交
+			|
+			v
+		消费者重启
+			|
+			v
+		同一条消息再次消费
+			|
+			v
+		通过 Inbox EventID 幂等去重
+
+
+		这正是你前面 hgClaimInbox() 方法的重要用途。
+		手动提交 + 数据库幂等处理，是实现可靠的 At-Least-Once（至少一次）消费的一种常见方案。
 		*/
 		kgo.DisableAutoCommit(),
 		/** Poll 期间阻塞 Rebalance。 ⭐ 非常关键的配置
 		消费者组发生 rebalance 时（有实例加入 / 退出、订阅 topic 变化），partition 会重新分配。
 		默认行为：rebalance 发生时，正在处理的消息可能被打断，partition 被撤走，导致处理到一半的消息被另一个实例重新消费。
-		开启 BlockRebalanceOnPoll 后：
-		 - kgo 会在 Poll 调用期间持有 rebalance 锁
-		 - rebalance 会等待当前 Poll 批次处理完成后才发生
-		 - 保证一个 Poll 批次的消息要么完整处理完，要么不处理，不会出现 "处理到一半分区被抢走" 的情况
-		代价：如果业务处理一条消息很慢（比如几秒），rebalance 会被阻塞，组内其他实例也要等。所以要控制单条消息处理时间，或者配合 PollRecords 的批量处理。
+		开启 BlockRebalanceOnPoll 后：阻止分区 Rebalance 在应用仍持有当前 Poll 批次的处理权期间完成，但不保证业务处理成功，也不提供事务原子性。
+		比如：Poll 获取 100 条消息，处理第 1～50 条，第 51 条处理失败，前 50 条可能已经写入数据库。BlockRebalanceOnPoll() 并不会自动回滚前 50 条数据。
+		另外，它通常需要业务在适当时机调用：client.AllowRebalance()，主动释放 Rebalance 阻塞。因此，不能理解成“Poll 执行结束就自动解除阻塞”。
 		*/
 		kgo.BlockRebalanceOnPoll(),
 		/** 监控钩子。 和生产者类似，但这里只挂了 MetricHook，没有 TraceHook。
@@ -160,7 +185,7 @@ func HGNewBusinessConsumerOpts(cfg HGClusterConfig, topics []string, groupID str
 		 - 回调签名通常是 func(ctx context.Context, client *kgo.Client, assigned map[string][]int32)
 		*/
 		kgo.OnPartitionsAssigned(hgKafkaOnPartitionsAssigned),
-		/** 分区回收回调（正常撤销）。 当 partition 被正常回收时触发（rebalance 中这个 partition 要分给别人了）。
+		/** 这个回调表示当前 Consumer 的某些分区正在被正常撤销
 		最关键的用途：在分区被撤走前，提交当前已处理但未提交的 offset。
 		因为手动提交模式下，如果不在这里提交，partition 被撤走后，新的消费者会从上次提交的 offset 开始消费，导致已处理但未提交的消息被重复消费。
 		典型流程：Revoked 触发 → flush 本地缓冲 → 提交 offset → 清理资源 → 返回

@@ -2,7 +2,7 @@
  * @Author: GangHuang harleysor@qq.com
  * @Date: 2026-07-04 18:26:03
  * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-08-24 21:29:47
+ * @LastEditTime: 2026-10-16 15:56:00
  * @FilePath: /MLC_GO/internal/consumer/hg_domain_event_consumer.go
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -20,10 +20,11 @@ import (
 type hgDeliveryContextKey struct{}
 
 // Delivery 描述 Kafka 消息的稳定来源坐标，用于按 topic/partition/offset 做有界永久幂等。
+// 这些信息可以用于消息追踪、去重和幂等处理。
 type Delivery struct {
-	Topic     string
-	Partition int32
-	Offset    int64
+	Topic     string //  消息属于哪个主题
+	Partition int32 // 消息位于哪个分区
+	Offset    int64 // 消息在分区中的位置
 }
 
 // 存：把delivery放进ctx

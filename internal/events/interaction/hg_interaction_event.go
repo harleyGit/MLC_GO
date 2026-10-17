@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-07-31 12:46:59
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-10-16 15:52:45
+ * @FilePath: /MLC_GO/internal/events/interaction/hg_interaction_event.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package interaction
 
 import (
@@ -6,7 +14,11 @@ import (
 )
 
 const (
+
+	// VideoInteractionChangedEventName 视频互动变化事件，例如点赞、取消点赞
 	VideoInteractionChangedEventName = "video.interaction.changed"
+
+	// UserFollowChangedEventName  用户关注变化事件，例如关注、取消关注
 	UserFollowChangedEventName       = "user.follow.changed"
 )
 
