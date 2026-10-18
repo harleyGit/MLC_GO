@@ -1,4 +1,8 @@
-##主要针对的是：`/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/Makefile` 文件解读。
+## 主要针对的是文件：
+**`/Users/ganghuang/HGFiles/GitHub/GoProject/src/MLC_GO/Makefile`** 文件解读。
+
+***
+<br/>
 
 `Makefile` 是 Go 工程中常用的自动化命令管理文件，主要作用是：把编译、测试、代码检查、数据库初始化等操作封装成简单的命令。
 
