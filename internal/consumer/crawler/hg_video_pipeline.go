@@ -45,7 +45,7 @@ type HGHistoryRow struct {
 	Danmaku      int64  `json:"danmaku_count"`  // 原站累计弹幕条数。
 }
 
-// HGStageConsumer 每个阶段一个独立消费组；抓取限制单进程1请求/秒且无并行外部请求。
+// HGStageConsumer 当前 Kafka 消费者对象（每个阶段一个独立消费组）；抓取限制单进程1请求/秒且无并行外部请求。
 type HGStageConsumer struct {
 	stage   string                                   // 必须匹配专用 topic 的事件名。
 	store   HGStore                                  // MySQL权威写入及阶段状态。
@@ -60,8 +60,13 @@ func NewHGStageConsumer(stage string, store HGStore, httpClient CrawlerServicePa
 }
 
 // hgDecode 校验专用消息身份和载荷上限，错误进入可靠DLQ后才允许推进offset。
+//
+//	@param e 接收到的事件消息
+//	@return CrawlerEventPackage.HGVideoEvent 解析后的视频采集事
+//	@return error 解析或验证失败时返回错误
 func (c *HGStageConsumer) hgDecode(e events.EventEnvelope) (CrawlerEventPackage.HGVideoEvent, error) {
 	var item CrawlerEventPackage.HGVideoEvent
+	// 协议版本必须为 1；事件名称必须匹配当前消费阶段；JSON 数据不能超过 2 MiB
 	if e.Version != 1 || e.EventName != c.stage || len(e.Payload) > 2<<20 {
 		return item, errors.New("采集事件协议或大小无效")
 	}
@@ -71,47 +76,132 @@ func (c *HGStageConsumer) hgDecode(e events.EventEnvelope) (CrawlerEventPackage.
 	if _, err := uuid.Parse(item.CollectionID); err != nil {
 		return item, errors.New("采集身份无效")
 	}
+	// 作用： 防止事件外层标识和 JSON 内部数据不一致，避免不同视频、不同采集阶段的数据混淆。
+	// 注意：这里是业务一致性验证，并不是密码学签名验证，不能单独防止恶意伪造。
 	if !CrawlerPlatformPackage.HGValidBVID(item.BVID) || e.EventKey != "bilibili:"+item.BVID || e.EventID != CrawlerEventPackage.HGEventID(item.CollectionID, c.stage) {
 		return item, errors.New("采集事件身份不匹配")
 	}
 	return item, nil
 }
 
-// Handle 完成当前阶段持久化后返回成功，基础设施负责手动offset提交及重放。
+// Handle 该方法是 Kafka 视频爬虫消费者的核心业务处理方法。
+// 主要作用：根据当前采集阶段，执行视频详情抓取、数据清洗、数据存储，并将任务推进到下一个阶段。
+/* 执行流程：
+Kafka 接收到视频采集事件
+             |
+             v
+      Handle(ctx, e)
+             |
+             v
+    设置15秒处理超时
+             |
+             v
+    hgDecode() 解析事件
+             |
+             v
+    查询数据库当前状态
+             |
+             v
+    判断当前采集阶段
+             |
+             +-- discovered（发现）
+             |      |
+             |      v
+             |   HTTP请求B站视频详情
+             |      |
+             |      v
+             |     raw
+             |
+             +-- raw（原始数据）
+             |      |
+             |      v
+             |   清洗、校验视频数据
+             |      |
+             |      v
+             |    cleaned
+             |
+             +-- cleaned（已清洗）
+             |      |
+             |      v
+             |   验证数据并准备入库
+             |      |
+             |      v
+             |    stored
+             |
+             +-- stored（已存储）
+                    |
+                    v
+              hgHistory()
+                    |
+                    v
+              历史处理流程
+*/
 func (c *HGStageConsumer) Handle(ctx context.Context, e events.EventEnvelope) error {
+
+	// 1. 设置处理超时
+	/* 给本次 Kafka 消费处理设置 15 秒超时。
+	- 超过 15 秒，ctx 会被取消。
+	- defer cancel() 在方法退出时释放相关资源。
+	- 如果上层 ctx 提前取消，也会立即传递下来。
+	注意：超时不会强制中断所有代码，具体操作需要支持并正确响应 ctx。
+	*/
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	// 2. 解析 Kafka 消息
+	/* 调用hgDecode()，验证事件格式和身份。
+	HGNewTerminalError(err) 表示将错误标记为终止性错误。
+	通常用于告诉上层消费者：这类错误不适合继续自动重试。
+	实际是否进入 DLQ（死信队列），由外层 Kafka 消费框架决定。
+	*/
 	item, err := c.hgDecode(e)
 	if err != nil {
 		return HGKafkaPackage.HGNewTerminalError(err)
 	}
+	// 3.特殊处理 stored 阶段； 如果当前是 stored 阶段，直接交给 hgHistory() 处理。
 	if c.stage == CrawlerEventPackage.HGStored {
 		return c.hgHistory(ctx, []consumer.DeliveredEnvelope{{Envelope: e}})
 	}
+	// 4. 查询当前数据库状态
 	expected := map[string]string{CrawlerEventPackage.HGDiscovered: "pending", CrawlerEventPackage.HGRaw: "raw", CrawlerEventPackage.HGCleaned: "cleaned"}[c.stage]
+	// 根据采集任务 ID 和视频 BVID 查询数据库当前状态。
 	status, err := c.store.HGCollectionStatus(ctx, item.CollectionID, item.BVID)
 	if err != nil {
 		return err
 	}
+	// failed：任务已经失败，不再自动执行
+	/* 为什么需要下面2个判断？
+	Kafka 可能重复投递消息。例如数据库已经是 cleaned，却再次收到 discovered 消息。
+	此时跳过，避免重复抓取。
+	这属于幂等处理的一部分，但完整的幂等保障还依赖数据库状态更新的实现。
+	*/
 	if status == "failed" {
 		return HGKafkaPackage.HGNewTerminalError(errors.New("采集已失败，保留消息用于人工恢复"))
 	}
+	// status != expected：数据库状态与当前消息不匹配，直接跳过。
 	if status != expected {
 		return nil
 	}
 	var detail *CrawlerModelPackage.HGVideoDetail
 	var next, stage string
 	switch c.stage {
-	case CrawlerEventPackage.HGDiscovered:
-		if err = c.limiter.Wait(ctx); err != nil {
+	case CrawlerEventPackage.HGDiscovered: //抓取视频详情
+		if err = c.limiter.Wait(ctx); err != nil { // 第一步：限流；等待限流器允许发送请求，避免短时间请求过多。
 			return err
 		}
+		// 第二步：请求 B 站视频详情接口； 发送 GET 请求，获取视频详情 JSON。单次 HTTP 请求配置了 10 秒超时。
 		response, fetchErr := c.http.Execute(ctx, CrawlerDtoPackage.HGDebugRequest{Method: "GET", URL: "https://api.bilibili.com/x/web-interface/view?bvid=" + item.BVID, TimeoutMS: 10000})
 		if fetchErr != nil {
 			return fetchErr
 		}
+		/* 第三步：处理 HTTP 状态码
+		200 ： 继续处理
+		403 / 429：降低请求频率，标记采集失败
+		500 及以上：返回错误，交给上层处理
+		其他非 200：标记采集失败
+		*/
 		if response.StatusCode == 403 || response.StatusCode == 429 {
 			// 限制响应停止该次采集，避免Kafka重试持续冲击上游；人工重跑创建新的采集身份。
+			// 将限流速率调整为平均每 30 秒允许一个请求
 			c.limiter.SetLimit(rate.Every(30 * time.Second))
 			return c.hgFail(ctx, item, expected, "上游限制访问，请降低采集频率后重跑")
 		}
@@ -121,7 +211,8 @@ func (c *HGStageConsumer) Handle(ctx context.Context, e events.EventEnvelope) er
 		if response.StatusCode != 200 {
 			return c.hgFail(ctx, item, expected, "详情上游拒绝请求")
 		}
-		// 为信封和JSON转义预留空间，使消息及DLQ包装均低于4MiB topic上限。
+		// 第四步：检查响应数据
+		// 限制原始响应最大为 1 MiB。
 		if len(response.Body) > 1<<20 {
 			return c.hgFail(ctx, item, expected, "详情原始响应超过1MiB消息预算")
 		}
@@ -131,42 +222,53 @@ func (c *HGStageConsumer) Handle(ctx context.Context, e events.EventEnvelope) er
 		if err = json.Unmarshal(response.Body, &code); err != nil {
 			return c.hgFail(ctx, item, expected, "详情响应不是JSON")
 		}
+		// 解析B站业务返回码，要求code.Code == 0
 		if code.Code != 0 {
 			return c.hgFail(ctx, item, expected, fmt.Sprintf("详情上游业务码%d", code.Code))
 		}
+		// 第五步：保存原始数据并设置下一阶段; 表示抓取完成，准备进入 raw 阶段
 		item.Data = response.Body
 		item.CollectedAt = time.Now().UTC().Truncate(time.Microsecond)
 		next = "raw"
 		stage = CrawlerEventPackage.HGRaw
-	case CrawlerEventPackage.HGRaw:
+	case CrawlerEventPackage.HGRaw: // 阶段二： HGRaw（清洗原始数据）
+		// 调用清洗函数，将 B 站原始 JSON 转换为系统自己的视频数据模型。
 		cleaned, cleanErr := CrawlerPlatformPackage.HGCleanBilibiliDetail(item.Data, item.BVID, item.CollectedAt)
 		if cleanErr != nil {
 			return c.hgFail(ctx, item, expected, "详情清洗校验失败")
 		}
+		// 将清洗后的Go结构体重新转换成JSON
 		item.Data, err = json.Marshal(cleaned)
 		if err != nil {
 			return err
 		}
+		// 准备进入下一个阶段
 		next = "cleaned"
 		stage = CrawlerEventPackage.HGCleaned
-	case CrawlerEventPackage.HGCleaned:
+	case CrawlerEventPackage.HGCleaned: //  阶段三：HGCleaned（验证并准备存储）
+
+		// 先将清洗后的 JSON 解析为业务模型：
 		var cleaned CrawlerModelPackage.HGVideoDetail
 		if err = json.Unmarshal(item.Data, &cleaned); err != nil {
 			return c.hgFail(ctx, item, expected, "清洗快照JSON无效")
 		}
+		// 检查视频身份和关键业务字段是否符合要求。
 		if err = hgValidateSnapshot(item, cleaned); err != nil {
 			return c.hgFail(ctx, item, expected, "清洗快照身份或字段无效")
 		}
+		//表示视频详情数据已经准备好写入数据库。
 		detail = &cleaned
 		next = "stored"
 		stage = CrawlerEventPackage.HGStored
 	default:
 		return HGKafkaPackage.HGNewTerminalError(errors.New("未知采集阶段"))
 	}
+	// 根据下一阶段的名称和数据，构建新的 Kafka 事件信封。
 	event, err := CrawlerEventPackage.HGEnvelope(stage, item)
 	if err != nil {
 		return err
 	}
+	// 负责推进数据库中的采集状态，并处理下一阶段事件。
 	return c.store.HGAdvanceVideo(ctx, item, expected, next, "", &event, detail)
 }
 
@@ -194,35 +296,48 @@ func (c *HGStageConsumer) HandleBatch(ctx context.Context, items []consumer.Deli
 	return nil
 }
 
-// hgHistory 一个分区最多500条；ClickHouse失败不推进offset，重试使用同一collection_id。
+// hgHistory 批量提取视频统计数据并保存历史记录【视频统计数据的批量历史入库】
+// 一个分区最多500条；ClickHouse失败不推进offset，重试使用同一collection_id。
 func (c *HGStageConsumer) hgHistory(ctx context.Context, items []consumer.DeliveredEnvelope) error {
+
+	// 每批最多处理 500 条 Kafka 事件，防止单批数据过大。
 	if len(items) > 500 {
 		return errors.New("历史批次超过500条")
 	}
 	rows := make([]HGHistoryRow, 0, len(items))
+	// 遍历 Kafka 消息
+	// i：当前消息在批次中的索引，从 0 开始；e：当前 Kafka 消息。
 	for i, e := range items {
+		// item：解析出来的采集事件
 		item, err := c.hgDecode(e.Envelope)
+		// d：存放视频详情数据
 		var d CrawlerModelPackage.HGVideoDetail
 		if err == nil {
 			err = json.Unmarshal(item.Data, &d)
 		}
 		if err == nil {
+			// 验证视频快照合法性
 			err = hgValidateSnapshot(item, d)
 		}
+		// 遇到错误时的处理
 		if err != nil {
 			if len(rows) > 0 {
 				if writeErr := c.history.HGStoreCrawlerHistory(ctx, rows); writeErr != nil {
 					return writeErr
 				}
 			}
+			// 比如有5条数据，处理前3条成功，处理到第4条时失败，则返回第4条的索引（也就是批次中的位置，方便上层kafka批处理逻辑定位失败记录）和错误。第五条不会再有本次循环中进行处理
 			return HGKafkaPackage.HGNewBatchRecordError(i, HGKafkaPackage.HGNewTerminalError(errors.New("历史快照校验失败")))
 		}
 		s := d.Stats
+		// 将视频详情中的统计数据转换为历史记录。
 		rows = append(rows, HGHistoryRow{CollectionID: item.CollectionID, BVID: item.BVID, CollectedAt: item.CollectedAt.UnixMilli(), View: s.View, Like: s.Like, Coin: s.Coin, Favorite: s.Favorite, Share: s.Share, Reply: s.Reply, Danmaku: s.Danmaku})
 	}
 	if len(rows) == 0 {
 		return nil
 	}
+
+	// 批量写入数据库并返回，否则一次性批量写入数据库，避免每条消息都单独执行一次数据库写入。
 	return c.history.HGStoreCrawlerHistory(ctx, rows)
 }
 

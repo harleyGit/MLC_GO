@@ -1,15 +1,24 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-10-17 14:35:13
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-10-19 11:00:58
+ * @FilePath: /MLC_GO/internal/events/crawler/hg_video_event.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 // Package crawler 定义外部视频采集流水线 v1 消息协议。
 package crawler
 
 import (
 	"MLC_GO/internal/events"
 	"encoding/json"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
-	HGDiscovered  = "crawler.video.discovered.v1"
+	HGDiscovered  = "crawler.video.discovered.v1" // 阶段消息名，供消费侧路由和幂等。
 	HGRaw         = "crawler.video.raw.v1"
 	HGCleaned     = "crawler.video.cleaned.v1"
 	HGStored      = "crawler.video.stored.v1"

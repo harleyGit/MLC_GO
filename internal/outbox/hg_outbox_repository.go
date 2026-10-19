@@ -90,6 +90,26 @@ type sqlExecer interface {
 }
 
 // SaveEnvelopeExec 使用传入的执行器写入 Outbox，兼容 *sql.DB 和 *sql.Tx。
+/*这是Transactional Outbox（事务发件箱模式），比如：
+BEGIN TRANSACTION
+       |
+       +-- INSERT video_collection
+       |
+       +-- INSERT outbox_event
+       |
+       v
+COMMIT
+
+
+只有事务成功提交，两个操作才一起生效。
+
+它解决了一个常见问题：
+数据库已经保存成功，但是 Kafka 消息发送失败怎么办？
+
+使用 Outbox 后，先将待发送消息可靠保存到数据库，再由独立的 Publisher 异步发送到 Kafka。
+
+注意：Outbox 通常保证可靠投递基础，但仍可能重复发送，需要消费者具备幂等处理能力。
+*/
 func (r *Repository) SaveEnvelopeExec(ctx context.Context, execer sqlExecer, envelope events.EventEnvelope, payload []byte) error {
 	// 数据库 event_id 与 Kafka envelope.EventID 必须一致，消费侧才能按同一个 ID 原子去重。
 	_, err := execer.ExecContext(ctx, SQLQueriesPackage.InsertOutboxEventSQL, envelope.EventID, envelope.EventName, envelope.EventKey, r.topic, payload)

@@ -53,21 +53,50 @@ type hgDetailResponse struct {
 	} `json:"data"` // 视频详情。
 }
 
-// HGCleanBilibiliDetail 校验身份、字符数、计数和分 P，生成 UTC 快照；异常数据不得静默补零。
+// HGCleanBilibiliDetail 将 B 站返回的复杂 JSON 转换成自己系统统一的数据结构，同时校验数据的完整性和正确性。
+/*整体流程：
+B站视频详情 API
+       |
+       v
+原始 JSON 数据
+       |
+       v
+HGCleanBilibiliDetail()
+       |
+       v
+标准化 HGVideoDetail
+       |
+       v
+数据库保存视频详情
+       |
+       v
+Kafka HGStored 事件
+       |
+       v
+hgHistory()
+       |
+       v
+提取播放、点赞、收藏等统计数据
+       |
+       v
+批量写入历史数据库
+*/
 func HGCleanBilibiliDetail(body []byte, bvid string, collectedAt time.Time) (CrawlerModelPackage.HGVideoDetail, error) {
 	var result CrawlerModelPackage.HGVideoDetail
 	var response hgDetailResponse
+	// 验证JSON 数据是否超过允许大小 ｜｜ 是否为合法 UTF-8 编码
 	if len(body) > hgBilibiliMaxResponseBytes || !utf8.Valid(body) {
 		return result, errors.New("详情响应大小或编码无效")
 	}
+	// JSON反序列化，将B站JSON转换为Go结构体
 	if err := json.Unmarshal(body, &response); err != nil {
 		return result, fmt.Errorf("解析视频详情: %w", err)
 	}
-	// 必需统计字段缺失不能被encoding/json零值掩盖为真实0，避免覆盖已有快照。
+	// 验证七个统计字段是否存在【临时定义校验结构，不必单独声明类型】
 	var hgRequired struct {
-		Code *int `json:"code"` // 必须显式返回业务码。
+		Code *int `json:"code"` // 区分字段不存在和数值为 0
 		Data struct {
-			Stat map[string]json.RawMessage `json:"stat"` // 上游包含evaluation等非计数字段，仅校验约定的七项统计。
+			Stat map[string]json.RawMessage `json:"stat"` // 保存 JSON 原始字段值【上游包含evaluation等非计数字段，仅校验约定的七项统计。】
 		} `json:"data"` // 校验统计字段存在性。
 	}
 	if err := json.Unmarshal(body, &hgRequired); err != nil || hgRequired.Code == nil {
@@ -75,11 +104,13 @@ func HGCleanBilibiliDetail(body []byte, bvid string, collectedAt time.Time) (Cra
 	}
 	for _, hgKey := range []string{"view", "like", "coin", "favorite", "share", "reply", "danmaku"} {
 		var hgCount *int64
+		// 目的：防止上游接口缺失字段时，错误地将已有播放量、点赞量等覆盖成 0。
 		if hgErr := json.Unmarshal(hgRequired.Data.Stat[hgKey], &hgCount); hgErr != nil || hgCount == nil {
 			return result, fmt.Errorf("详情缺少统计字段%s", hgKey)
 		}
 	}
 	d := response.Data
+	// 校验视频身份和业务数据
 	if response.Code != 0 || !HGValidBVID(bvid) || d.BVID != bvid || d.AID <= 0 || d.Owner.MID <= 0 || d.Pubdate <= 0 || collectedAt.IsZero() {
 		return result, errors.New("视频详情身份、业务码或时间无效")
 	}
@@ -87,8 +118,9 @@ func HGCleanBilibiliDetail(body []byte, bvid string, collectedAt time.Time) (Cra
 		CoverURL: hgNormalizeHTTPS(d.Pic), AuthorID: strconv.FormatInt(d.Owner.MID, 10), AuthorName: strings.TrimSpace(d.Owner.Name),
 		AuthorAvatar: hgNormalizeHTTPS(d.Owner.Face), Category: strings.TrimSpace(d.TName), Duration: d.Duration,
 		PublishedAt: time.Unix(d.Pubdate, 0).UTC(), CollectedAt: collectedAt.UTC(),
+		// Stats 字段保存播放量、点赞量、投币量等七项统计数据。
 		Stats: CrawlerModelPackage.HGVideoStats{View: d.Stat.View, Like: d.Stat.Like, Coin: d.Stat.Coin, Favorite: d.Stat.Favorite, Share: d.Stat.Share, Reply: d.Stat.Reply, Danmaku: d.Stat.Danmaku}}
-	for _, p := range d.Pages {
+	for _, p := range d.Pages { // 处理多 P 视频；B 站一个视频可能包含多个分 P。
 		result.Parts = append(result.Parts, CrawlerModelPackage.HGVideoPart{CID: strconv.FormatInt(p.CID, 10), Page: p.Page, Title: strings.TrimSpace(p.Part), Duration: p.Duration})
 	}
 	return result, HGValidateVideoDetail(result)
