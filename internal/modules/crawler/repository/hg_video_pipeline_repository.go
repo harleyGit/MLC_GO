@@ -87,9 +87,9 @@ func (r *Repository) hgDiscoverVideos(ctx context.Context, tx *sql.Tx, taskID, r
 //
 //	@param ctx
 //	@param hgAfter 是游标，通常表示上一页最后一条记录的自增 ID
-//	@return uint64
-//	@return int
-//	@return error
+//	@return uint64 本页处理后的新游标
+//	@return int 本页提交的发现事件数量
+//	@return error 执行错误
 func (r *Repository) HGBackfillVideoPage(ctx context.Context, hgAfter uint64) (uint64, int, error) {
 	if !r.hgVideoPipeline {
 		return hgAfter, 0, errors.New("详情流水线未启用")

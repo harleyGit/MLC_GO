@@ -159,8 +159,75 @@ func (r *Repository) ScheduleImageCleanup(ctx context.Context, imageID, userID s
 	return nil
 }
 
-// Create 在短事务内完成资格/父链校验、幂等插入、分片计数和可选根回复计数。
+// Create 是一个视频评论创建方法，用于处理用户发表评论、回复评论、上传评论图片，以及更新评论统计数据。它不仅仅是执行一条 INSERT SQL，而是将多个数据库操作放在同一个事务中，保证数据一致性。
+/* 执行流程：
+用户发表评论
+     |
+     v
+检查 RequestID（防止重复提交）
+     |
+     v
+开启 MySQL 事务
+     |
+     v
+验证视频是否允许评论
+     |
+     v
+是否回复其他评论？
+     |
+     +-- 是 --> 查询父评论、根评论并加锁
+     |
+     v
+验证评论图片是否可用
+     |
+     v
+INSERT 插入评论
+     |
+     +-- 主键/唯一键冲突 --> 尝试读取已有评论
+     |
+     v
+绑定评论图片
+     |
+     v
+更新视频评论数（分片计数）
+     |
+     v
+如果是回复，更新根评论回复数
+     |
+     v
+查询完整评论对象
+     |
+     v
+COMMIT 提交事务
+     |
+     v
+返回 HGComment
+*/
+// Create @param ctx
+//	@param ctx
+//	@param command
+//	@return HGComment
+//	@return error
 func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGComment, error) {
+	//  幂等检查：防止重复发表评论
+	/* 幂等：同一个请求重复执行多次，最终只创建一条评论。例如：用户点击发表评论后，网络超时，又点击一次：
+	第一次请求：RequestID = abc123
+	    |
+	    v
+	成功创建评论 ID = 1001
+
+	第二次请求：RequestID = abc123
+	    |
+	    v
+	查询到已有评论 1001
+	    |
+	    v
+	直接返回，不重复创建
+
+	这里有一个值得注意的地方：if len(command.ImageURLs) > 0
+	只有带图片的评论才会提前查询幂等记录。
+	普通文字评论主要依靠后面的数据库唯一键冲突处理来实现幂等。
+	*/
 	if len(command.ImageURLs) > 0 {
 		if existing, existingErr := hgScanComment(r.db.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.UserID, command.RequestID)); existingErr == nil {
 			return existing, nil
@@ -168,6 +235,7 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 			return HGComment{}, fmt.Errorf("read idempotent comment: %w", existingErr)
 		}
 	}
+	// BeginTx() 开启 MySQL 事务。sql.LevelReadCommitted 表示 读已提交（RC）隔离级别，普通一致性读不会读取其他事务尚未提交的数据。
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return HGComment{}, fmt.Errorf("begin comment transaction: %w", err)
@@ -175,16 +243,30 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 	defer tx.Rollback()
 
 	var submissionID string
+	// 检查视频是否允许评论
 	if err := tx.QueryRowContext(ctx, hgCommentTargetSQL(command.SubmissionID), command.SubmissionID, command.SubmissionID).Scan(&submissionID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) { // 没有找到，返回视频不可评论错误。具体允许评论的判断条件，由 hgCommentTargetSQL() 决定。
 			return HGComment{}, ErrSubmissionNotCommentable
 		}
 		return HGComment{}, fmt.Errorf("verify commentable submission: %w", err)
 	}
 	var rootCommentID, parentCommentID, replyToUserID, replyToUserName any
-	if command.ParentCommentID != "" {
+	// 处理父评论和根评论
+	/* 假设评论结构如下：
+	视频 A
+	  |
+	  +-- 评论 100（根评论）
+	        |
+	        +-- 评论 101（回复100）
+	        |      |
+	        |      +-- 评论 103（回复101）
+	        |
+	        +-- 评论 102（回复100）
+	*/
+	if command.ParentCommentID != "" { // 父评论 ID 不为空，说明是回复其他评论
 		var parentID, parentUserID, parentUserName string
 		var parentRootID sql.NullString
+		// 查询直接回复的父评论
 		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentParentForUpdateSQL, command.ParentCommentID, submissionID).Scan(&parentID, &parentRootID, &parentUserID, &parentUserName); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return HGComment{}, ErrParentNotAvailable
@@ -192,6 +274,15 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 			return HGComment{}, fmt.Errorf("select parent comment: %w", err)
 		}
 		parentCommentID, replyToUserID, replyToUserName = parentID, parentUserID, parentUserName
+
+		/* 例如回复评论 101：
+		字段	             值
+		parentCommentID	    101
+		rootCommentID	    100
+		replyToUserID	 评论101的作者ID
+
+		这样前端既能知道回复了谁，也能知道这条回复属于哪个根评论。
+		*/
 		if parentRootID.Valid {
 			// All nested reply writers lock direct parent then root, preventing parent/root lock-order inversion.
 			var visibleRootID string
@@ -201,40 +292,57 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 				}
 				return HGComment{}, fmt.Errorf("select root comment: %w", err)
 			}
+			// 回复的是子评论，需要找到根评论
 			rootCommentID = visibleRootID
 		} else {
-			// A direct root reply already holds the root row lock through the parent lookup.
+			// 直接回复根评论
 			rootCommentID = parentID
 		}
 	}
+
+	// 检查评论图片
 	if command.ImageURLs == nil {
+		// 没有图片使用空数组，不是nil
 		command.ImageURLs = []string{}
 	}
 	imageIDs := make([]string, 0, len(command.ImageURLs))
+	// 遍历图片
 	for _, imageURL := range command.ImageURLs {
 		var imageID string
+		// 查询并锁定图片记录，检查图片是否属于当前用户、是否允许绑定等，具体取决于 SQL。
 		if err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentImageForAttachSQL, imageURL, imageURL, command.UserID).Scan(&imageID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) { // 若是图片不可用
 				return HGComment{}, ErrImageNotAvailable
 			}
 			return HGComment{}, fmt.Errorf("lock comment image: %w", err)
 		}
 		imageIDs = append(imageIDs, imageID)
 	}
+	// 图片地址数组转换为JOSN字符串
 	imageJSON, err := json.Marshal(command.ImageURLs)
 	if err != nil {
 		return HGComment{}, fmt.Errorf("marshal comment images: %w", err)
 	}
+	// 插入评论，这里将评论的所有核心字段写入数据库。
+	// CommentID：评论唯一 ID。
+	// RequestID：请求幂等标识。
+	// rootCommentID：根评论 ID。
+	// parentCommentID：直接回复的评论 ID。
+	// Content：评论内容。
+	// imageJSON：图片地址列表。
 	insertResult, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertVideoCommentSQL, command.CommentID, submissionID, command.UserID, command.RequestID, rootCommentID, parentCommentID, replyToUserID, replyToUserName, command.Content, string(imageJSON))
 	var comment HGComment
 	if hgIsDuplicateKey(err) {
+		// 尝试查询已经存在的评论并返回，避免重复创建。这里需要确保数据库有合适的唯一约束，例如 (user_id, request_id)，并且冲突确实来自幂等键；否则其他唯一键冲突也会进入这个分支。
 		comment, err = hgScanComment(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByRequestIDSQL, command.UserID, command.UserID, command.RequestID))
 	} else if err == nil {
 		if err = hgRequireAffected(insertResult, 1); err == nil {
 			for _, imageID := range imageIDs {
 				var imageResult sql.Result
+				// 把图片记录绑定到刚刚创建的评论。
 				imageResult, err = tx.ExecContext(ctx, SQLQueriesPackage.AttachVideoCommentImageSQL, command.CommentID, imageID, command.UserID)
 				if err == nil {
+					// 用于确认 SQL 恰好影响了 1 行，避免图片绑定操作没有真正成功。
 					err = hgRequireAffected(imageResult, 1)
 				}
 				if err != nil {
@@ -244,12 +352,42 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 		}
 		if err == nil {
 			var shardResult sql.Result
+			// 更新视频评论数量：分片计数
+			/* 这里使用了分片计数器（Sharded Counter）。为什么不直接更新视频表的 comment_count？
+
+			假设热门视频每秒有 10 万条评论，所有请求都执行：
+			UPDATE video
+			SET comment_count = comment_count + 1
+			WHERE video_id = 'A';
+
+			所有更新都竞争同一行，容易出现严重的行锁争用。
+
+			分片计数的思路是：
+			视频 A 评论计数
+			      |
+			      +-- Shard 0：1000
+			      +-- Shard 1：1200
+			      +-- Shard 2：1100
+			      +-- Shard 3：1300
+			      |
+			      v
+			总评论数 = 4600
+
+			通过 hgCommentShard(command.CommentID) 把不同评论分配到不同计数分片，从而降低单行写入热点。
+			*/
 			shardResult, err = tx.ExecContext(ctx, SQLQueriesPackage.IncrementVideoCommentStatShardSQL, submissionID, hgCommentShard(command.CommentID))
 			if err == nil {
 				err = hgRequirePositiveAffected(shardResult)
 			}
 		}
 		if err == nil && command.ParentCommentID != "" {
+			// 如果当前评论是回复，还需要更新根评论的回复统计。
+			/*从命名看，分别负责：
+			1. 确保根评论的回复计数分片存在。
+			2. 增加对应分片的回复数量。
+			3. 标记回复统计需要后续处理或刷新。
+			具体含义仍需结合 SQL 确认。
+			*/
 			replyShard := hgReplyShard(command.CommentID)
 			_, err = tx.ExecContext(ctx, SQLQueriesPackage.EnsureVideoCommentReplyShardSQL, rootCommentID)
 			if err == nil {
@@ -260,12 +398,14 @@ func (r *Repository) Create(ctx context.Context, command HGCreateCommand) (HGCom
 			}
 		}
 		if err == nil {
+			// 查询评论并提交事务，读取刚创建的完整评论对象。
 			comment, err = hgScanComment(tx.QueryRowContext(ctx, SQLQueriesPackage.SelectVideoCommentByCommentIDSQL, command.UserID, command.CommentID))
 		}
 	}
 	if err != nil {
 		return HGComment{}, fmt.Errorf("save video comment: %w", err)
 	}
+	// 只有事务成功提交后，才将评论返回给调用方。
 	if err := tx.Commit(); err != nil {
 		return HGComment{}, fmt.Errorf("commit comment transaction: %w", err)
 	}
@@ -831,6 +971,7 @@ func hgRequirePositiveAffected(result sql.Result) error {
 	return nil
 }
 
+// 发生唯一键冲突
 func hgIsDuplicateKey(err error) bool {
 	var mysqlErr *mysql.MySQLError
 	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062

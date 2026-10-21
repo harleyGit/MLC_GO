@@ -6,6 +6,11 @@
 ># <h2 id="kafka中Topic、Partition、Offset解读">kafka中Topic、Partition、Offset解读</h2>
 
 
+## Outbox 事件是什么？
+
+这里使用的是 Transactional Outbox（事务发件箱）模式。
+
+它解决的问题是：数据库写入成功，但 Kafka 消息发送失败怎么办？
 
 ```go
 hg_interaction_consumer.go 中有
