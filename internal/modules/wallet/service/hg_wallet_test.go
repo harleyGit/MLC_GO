@@ -55,8 +55,8 @@ func TestHGWalletPage(t *testing.T) {
 	hgStore := &hgStore{hgItems: []model.HGSKU{
 		{HGID: 1, HGSKUID: "expired", HGEndTime: &hgNow},
 		{HGID: 2, HGSKUID: "future", HGStartTime: hgNow.Add(time.Second)},
-		{HGID: 3, HGSKUID: "valid", HGStartTime: hgNow, HGTotalCoin: 1000},
-		{HGID: 4, HGSKUID: "large", HGTotalCoin: 100001},
+		{HGID: 3, HGSKUID: "valid", HGStartTime: hgNow, HGCurrency: "CNY", HGPayAmount: 1000, HGCoinAmount: 1000, HGTotalCoin: 1000},
+		{HGID: 4, HGSKUID: "large", HGCurrency: "CNY", HGPayAmount: 100001, HGCoinAmount: 100001, HGTotalCoin: 100001},
 	}}
 	hgService := HGNewService(hgStore, hgStore)
 	hgService.hgNow = func() time.Time { return hgNow }
@@ -92,7 +92,7 @@ func TestHGWalletRechargeAvailability(t *testing.T) {
 	for _, hgFlag := range []string{"true", "false"} {
 		t.Setenv("MLC_WALLET_DEBUG_PAYMENT_ENABLED", hgFlag)
 		for _, hgAmount := range []uint64{0, 1000, 1001, 1800, 100000, 100001} {
-			hgSKU := hgSKUResponse(model.HGSKU{HGTotalCoin: hgAmount})
+			hgSKU := hgSKUResponse(model.HGSKU{HGCurrency: "CNY", HGPayAmount: hgAmount, HGCoinAmount: hgAmount, HGTotalCoin: hgAmount})
 			hgSupported := hgAmount > 0 && hgAmount <= 100000
 			hgAvailable := hgSupported && hgFlag == "true"
 			if hgSKU.HGSupported != hgSupported || hgSKU.HGPaymentAvailable != hgAvailable || (len(hgSKU.HGAvailableMethods) > 0) != hgAvailable {

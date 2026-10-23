@@ -177,12 +177,13 @@ func (hgRepo *HGRepository) HGCreate(hgCtx context.Context, hgUser, hgSKU, hgReq
 		return model.HGOrder{}, model.HGErrUnsupported
 	}
 	// 检测SKU是否合法
-	if hgSKUItem.HGSKUID != hgSKU || hgSKUItem.HGCurrency != "CNY" || hgSKUItem.HGPayAmount == 0 || hgSKUItem.HGPayAmount > 9007199254740991 || hgSKUItem.HGTotalCoin == 0 || hgSKUItem.HGCoinAmount == 0 || hgSKUItem.HGCoinAmount > hgSKUItem.HGTotalCoin || hgSKUItem.HGBonusCoin != hgSKUItem.HGTotalCoin-hgSKUItem.HGCoinAmount {
+	// 固定汇率：1元=100币，即1分=1基础币；历史订单快照不受目录调整影响。
+	if hgSKUItem.HGSKUID != hgSKU || hgSKUItem.HGCurrency != "CNY" || hgSKUItem.HGPayAmount == 0 || hgSKUItem.HGPayAmount > 9007199254740991 || hgSKUItem.HGCoinAmount != hgSKUItem.HGPayAmount || hgSKUItem.HGCoinAmount > hgSKUItem.HGTotalCoin || hgSKUItem.HGBonusCoin != hgSKUItem.HGTotalCoin-hgSKUItem.HGCoinAmount {
 		return model.HGOrder{}, model.HGErrSKUUnavailable
 	}
 	// hex.EncodeToString(hgRandom[:]) 把它变成字符串订单ID
 	// 把用户、SKU、金额、平台币数量、创建时间、过期时间等组装成一个订单。
-	hgOrder := model.HGOrder{HGOrderID: hex.EncodeToString(hgRandom[:]), HGUserID: hgUser, HGRequestID: hgRequest, HGSKUID: hgSKUItem.HGSKUID, HGTitle: hgSKUItem.HGTitle, HGDescription: fmt.Sprintf("充值获得%d平台币", hgSKUItem.HGTotalCoin), HGCurrency: hgSKUItem.HGCurrency, HGPayAmount: hgSKUItem.HGPayAmount, HGTotalCoin: hgSKUItem.HGTotalCoin, HGCreatedAt: hgNow, HGExpiresAt: hgNow.Add(10 * time.Minute)}
+	hgOrder := model.HGOrder{HGOrderID: hex.EncodeToString(hgRandom[:]), HGUserID: hgUser, HGRequestID: hgRequest, HGSKUID: hgSKUItem.HGSKUID, HGTitle: hgSKUItem.HGTitle, HGDescription: fmt.Sprintf("充值获得%d平台币", hgSKUItem.HGTotalCoin), HGCurrency: hgSKUItem.HGCurrency, HGPayAmount: hgSKUItem.HGPayAmount, HGTotalCoin: hgSKUItem.HGTotalCoin, HGCreatedAt: hgNow, HGExpiresAt: hgNow.Add(model.HGRechargeOrderTTL)}
 	hgOrder.HGPaymentMode, hgOrder.HGStatus = "unavailable", "pending"
 	if hgconfig.IsWalletDebugPaymentEnabled() {
 		hgOrder.HGPaymentMode = "platform_debug"

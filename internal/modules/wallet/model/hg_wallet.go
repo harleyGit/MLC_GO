@@ -5,11 +5,14 @@ import (
 	"time"
 )
 
+// HGRechargeOrderTTL 是新建充值订单有效期；历史订单仍按已保存的 expire_at 判断。
+const HGRechargeOrderTTL = 15 * time.Minute
+
 var (
 	HGErrInvalid            = errors.New("钱包参数无效")
 	HGErrNotFound           = errors.New("订单不存在或无权访问")
 	HGErrSKUUnavailable     = errors.New("充值档位不可用")
-	HGErrUnsupported        = errors.New("暂不支持单笔超过1000币的充值")
+	HGErrUnsupported        = errors.New("暂不支持单笔超过100000币的充值")
 	HGErrConflict           = errors.New("requestId已绑定其他充值档位")
 	HGErrPaymentUnavailable = errors.New("支付渠道未配置，暂不能付款")
 	HGErrOrderExpired       = errors.New("充值订单已过期")

@@ -114,7 +114,7 @@ func TestHGWalletChineseErrors(t *testing.T) {
 		{model.HGErrInvalid, 400, "钱包参数无效"},
 		{model.HGErrConflict, 409, "requestId已绑定其他充值档位"},
 		{model.HGErrSKUUnavailable, 404, "充值档位不可用"},
-		{model.HGErrUnsupported, 422, "暂不支持单笔超过1000币的充值"},
+		{model.HGErrUnsupported, 422, "暂不支持单笔超过100000币的充值"},
 		{errors.New("内部数据库诊断不可外泄"), 500, "钱包服务暂不可用"},
 	} {
 		hgRecorder := httptest.NewRecorder()

@@ -39,7 +39,8 @@ func hgValidateRechargeSKU(req OpsDtoPackage.HGPaymentRechargeSKUCreateRequest, 
 	if !hgRechargeSKUCode.MatchString(req.SKUCode) || !utf8.ValidString(req.Title) || strings.TrimSpace(req.Title) == "" || utf8.RuneCountInString(req.Title) > 128 || req.PayAmount == nil || req.CoinAmount == nil || req.BonusCoin == nil || req.Status == nil || req.SortOrder == nil {
 		return item, ErrHGRechargeSKUInvalid
 	}
-	if *req.PayAmount == 0 || *req.PayAmount > hgRechargeSKUMaxSafe || *req.CoinAmount == 0 || *req.CoinAmount > hgRechargeSKUMaxSafe || *req.BonusCoin > hgRechargeSKUMaxSafe-*req.CoinAmount || (*req.Status != 0 && *req.Status != 1) || *req.SortOrder > math.MaxInt32 {
+	// 固定汇率：人民币分数等于基础币数；赠币单独计入总币数。
+	if *req.PayAmount == 0 || *req.PayAmount > hgRechargeSKUMaxSafe || *req.CoinAmount != *req.PayAmount || *req.BonusCoin > hgRechargeSKUMaxSafe-*req.CoinAmount || (*req.Status != 0 && *req.Status != 1) || *req.SortOrder > math.MaxInt32 {
 		return item, ErrHGRechargeSKUInvalid
 	}
 	start := defaultStart

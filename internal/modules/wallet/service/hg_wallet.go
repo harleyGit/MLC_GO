@@ -86,13 +86,15 @@ func (hgService *HGService) HGListSKUs(hgCtx context.Context, hgCursorText, hgSi
 func hgSKUResponse(hgItem model.HGSKU) dto.HGSKU {
 	hgAvailable := []string{}
 	hgMode := "unavailable"
+	// 旧上架档位可能不符合当前汇率，标记为不可下单，历史订单不变。
+	hgSupported := hgItem.HGCurrency == "CNY" && hgItem.HGPayAmount > 0 && hgItem.HGCoinAmount == hgItem.HGPayAmount && hgItem.HGTotalCoin >= hgItem.HGCoinAmount && hgItem.HGBonusCoin == hgItem.HGTotalCoin-hgItem.HGCoinAmount && hgItem.HGTotalCoin <= hgcoin.HGMaxWalletRechargeAmount
 	if hgconfig.IsWalletDebugPaymentEnabled() {
 		hgMode = "platform_debug"
 	}
-	if hgconfig.IsWalletDebugPaymentEnabled() && hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxWalletRechargeAmount {
+	if hgconfig.IsWalletDebugPaymentEnabled() && hgSupported {
 		hgAvailable = append(hgAvailable, "platform_debug")
 	}
-	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgItem.HGTotalCoin > 0 && hgItem.HGTotalCoin <= hgcoin.HGMaxWalletRechargeAmount, HGPaymentAvailable: len(hgAvailable) > 0, HGPaymentMode: hgMode, HGAvailableMethods: hgAvailable}
+	return dto.HGSKU{HGSKUID: hgItem.HGSKUID, HGTitle: hgItem.HGTitle, HGDescription: "购买后到账平台币", HGCurrency: hgItem.HGCurrency, HGPayAmount: hgItem.HGPayAmount, HGCoinAmount: hgItem.HGCoinAmount, HGBonusCoin: hgItem.HGBonusCoin, HGTotalCoin: hgItem.HGTotalCoin, HGSupported: hgSupported, HGPaymentAvailable: len(hgAvailable) > 0, HGPaymentMode: hgMode, HGAvailableMethods: hgAvailable}
 }
 
 // HGCreateOrder 校验客户端幂等键，快照完全由仓储从服务端目录和用户表取得。

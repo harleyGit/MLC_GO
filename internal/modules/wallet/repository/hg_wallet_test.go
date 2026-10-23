@@ -32,10 +32,10 @@ func TestHGWalletCreateSnapshotAndDuplicate(t *testing.T) {
 			hgNow := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletOrderByRequestSQL)).WithArgs("owner", "request").WillReturnError(sql.ErrNoRows)
 			hgMock.ExpectBegin()
-			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletSKUForShareSQL)).WithArgs("sku", hgNow, hgNow).WillReturnRows(hgSKURows(hgNow, 50))
+			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletSKUForShareSQL)).WithArgs("sku", hgNow, hgNow).WillReturnRows(hgSKURows(hgNow, 600))
 			hgMock.ExpectQuery(regexp.QuoteMeta(hgqueries.HGWalletDisplayNameSQL)).WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("昵称"))
-			hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertTradeSQL)).WithArgs(sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "标题", "CNY", uint64(600), uint64(600), hgNow.Add(10*time.Minute), hgNow).WillReturnResult(sqlmock.NewResult(1, 1))
-			hgInsert := hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertOrderSQL)).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "sku", "昵称", "标题", "充值获得50平台币", "CNY", uint64(600), uint64(50), uint64(0), uint64(50), hgNow, hgNow.Add(10*time.Minute), "unavailable")
+			hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertTradeSQL)).WithArgs(sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "标题", "CNY", uint64(600), uint64(600), hgNow.Add(model.HGRechargeOrderTTL), hgNow).WillReturnResult(sqlmock.NewResult(1, 1))
+			hgInsert := hgMock.ExpectExec(regexp.QuoteMeta(hgqueries.HGWalletInsertOrderSQL)).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "owner", "request", sqlmock.AnyArg(), "sku", "昵称", "标题", "充值获得600平台币", "CNY", uint64(600), uint64(600), uint64(0), uint64(600), hgNow, hgNow.Add(model.HGRechargeOrderTTL), "unavailable")
 			if hgDuplicate {
 				hgInsert.WillReturnError(&mysql.MySQLError{Number: 1062})
 				hgMock.ExpectRollback()
@@ -45,7 +45,12 @@ func TestHGWalletCreateSnapshotAndDuplicate(t *testing.T) {
 				hgMock.ExpectCommit()
 			}
 			hgOrder, hgErr := HGNewRepository(hgDB).HGCreate(context.Background(), "owner", "sku", "request", hgNow)
-			if hgErr != nil || hgOrder.HGPayAmount != 600 || hgOrder.HGTotalCoin != 50 || hgOrder.HGDisplayName != "昵称" || !hgOrder.HGExpiresAt.Equal(hgNow.Add(10*time.Minute)) {
+			// 并发重放返回已保存的旧快照，不能把其10分钟截止时间改为新订单的15分钟。
+			hgWantCoin, hgWantTTL := uint64(600), model.HGRechargeOrderTTL
+			if hgDuplicate {
+				hgWantCoin, hgWantTTL = 50, 10*time.Minute
+			}
+			if hgErr != nil || hgOrder.HGPayAmount != 600 || hgOrder.HGTotalCoin != hgWantCoin || hgOrder.HGDisplayName != "昵称" || !hgOrder.HGExpiresAt.Equal(hgNow.Add(hgWantTTL)) {
 				t.Fatal(hgOrder, hgErr)
 			}
 			if !hgDuplicate && len(hgOrder.HGOrderID) != 64 {
@@ -145,9 +150,10 @@ func TestHGWalletAmountSafety(t *testing.T) {
 		hgPay, hgCoin, hgBonus, hgTotal uint64
 		hgValid                         bool
 	}{
-		{"安全上界", 9007199254740991, 40, 10, 50, true},
+		{"不符合固定汇率的旧大额档位", 9007199254740991, 40, 10, 50, false},
+		{"固定汇率与赠币", 600, 600, 200, 800, true},
 		{"1800币充值", 1800, 1800, 0, 1800, true},
-		{"充值总币数上界", 100000, 99900, 100, 100000, true},
+		{"充值总币数上界", 99900, 99900, 100, 100000, true},
 		{"超过JS安全上界", 9007199254740992, 40, 10, 50, false},
 		{"零金额", 0, 40, 10, 50, false},
 		{"币数不一致", 600, 40, 11, 50, false},
