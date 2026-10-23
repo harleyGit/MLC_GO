@@ -13,6 +13,7 @@ import (
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
+	HGMallModulePackage "MLC_GO/internal/modules/product/module"
 	hgrecharge "MLC_GO/internal/modules/recharge/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
@@ -368,6 +369,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 新增模块只需在此处调用 RegisterModules 即可，可以理解成：把用户模块安装到这个应用里面
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
+	HGMallModulePackage.HGRegisterModules(sqlManager)
 	hgrecharge.HGRegisterModules(sqlManager)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
