@@ -47,8 +47,14 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusBadRequest, "商城参数无效"
 	case errors.Is(err, ErrHGForbidden):
 		status, message = http.StatusForbidden, "无权操作"
-	case errors.Is(err, ErrHGConflict):
+	case errors.Is(err, ErrHGConflict), errors.Is(err, ErrHGState), errors.Is(err, ErrHGStock), errors.Is(err, ErrHGFunds):
 		status, message = http.StatusConflict, "当前状态已变化，请刷新重试"
+		if errors.Is(err, ErrHGFunds) {
+			message = "M币余额不足或有效批次不足"
+		}
+		if errors.Is(err, ErrHGStock) {
+			message = "库存不足、金额超出单笔上限或商品不可购买"
+		}
 	case errors.Is(err, sql.ErrNoRows):
 		status, message = http.StatusNotFound, "未找到记录"
 	}
@@ -218,4 +224,117 @@ func (h *HGHandler) HGReviewProduct(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, struct {
 		ProductID string `json:"productId"`
 	}{req.ProductID})
+}
+
+// HGBuy 从当前登录用户读取身份；请求只传商品、数量、地址和幂等键，价格由服务端快照。
+func (h *HGHandler) HGBuy(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req HGBuyRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	order, err := h.service.HGBuy(r.Context(), user, req)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+func (h *HGHandler) HGOrders(w http.ResponseWriter, r *http.Request)         { h.hgOrders(w, r, false) }
+func (h *HGHandler) HGMerchantOrders(w http.ResponseWriter, r *http.Request) { h.hgOrders(w, r, true) }
+func (h *HGHandler) hgOrders(w http.ResponseWriter, r *http.Request, merchant bool) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.service.HGOrders(r.Context(), user, r.URL.Query().Get("cursor"), merchant)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, page)
+}
+
+func (h *HGHandler) HGOrder(w http.ResponseWriter, r *http.Request)         { h.hgOrder(w, r, false) }
+func (h *HGHandler) HGMerchantOrder(w http.ResponseWriter, r *http.Request) { h.hgOrder(w, r, true) }
+func (h *HGHandler) hgOrder(w http.ResponseWriter, r *http.Request, merchant bool) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	order, err := h.service.HGOrder(r.Context(), user, r.URL.Query().Get("orderId"), merchant)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+func (h *HGHandler) HGShip(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req HGShipRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.HGShip(r.Context(), user, req); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	order, err := h.service.HGOrder(r.Context(), user, req.OrderID, true)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+func (h *HGHandler) HGReceive(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		OrderID string `json:"orderId"`
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.HGReceive(r.Context(), user, req.OrderID); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	order, err := h.service.HGOrder(r.Context(), user, req.OrderID, false)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+func (h *HGHandler) HGRefund(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req HGRefundRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.HGRefund(r.Context(), user, req); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	order, err := h.service.HGOrder(r.Context(), user, req.OrderID, false)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
 }

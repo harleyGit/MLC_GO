@@ -24,7 +24,8 @@ type HGCatalogItem struct {
 	SKUID      string `json:"skuId"`            // 单规格 SKU 业务标识。
 	SKUTitle   string `json:"skuTitle"`         // 规格标题。
 	Amount     int64  `json:"amount"`           // 整数 M币单价，禁止客户端换算为真实现金价格。
-	Status     int8   `json:"status,omitempty"` // 本人/审核列表的 0待审核、1已上架、2拒绝；公开目录省略。
+	Available  uint32 `json:"available"`        // 实物商品剩余可售件数；会员和旧目录记录为 0。
+	Status     int8   `json:"status,omitempty"` // 本人/审核列表的商城 review_status：0待审核、1通过、2拒绝；公开目录省略。
 }
 
 // HGPage 是商品游标页协议；nextCursor 为空表示无后续页，不返回大表总数。
@@ -49,6 +50,7 @@ type HGProductDraft struct {
 	Summary  string `json:"summary"`  // 1-512 个字符纯文本。
 	SKUTitle string `json:"skuTitle"` // 1-128 个字符规格。
 	Amount   int64  `json:"amount"`   // 1 到 2^53-1 的整数 M币。
+	Stock    uint32 `json:"stock"`    // 实物首次发布的可售件数，1-100000；会员仅展示，固定为 0。
 }
 
 // HGTimeLimit 控制目录与审核单次数据库操作的最长时长。

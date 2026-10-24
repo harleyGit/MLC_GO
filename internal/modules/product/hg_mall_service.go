@@ -1,7 +1,8 @@
 package product
 
 import (
-	"MLC_GO/internal/pkg/utils"
+	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
+	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"database/sql"
 	"errors"
@@ -23,12 +24,19 @@ type HGReviewer interface {
 
 // HGService 将目录、商家准入和审核规则置于 HTTP 与数据库之间。
 type HGService struct {
-	store    HGStore
-	reviewer HGReviewer
+	store    HGStore      // 商家准入和商品目录的 MySQL 读写接口。
+	reviewer HGReviewer   // 服务端 Ops RBAC 审核鉴权，不能使用前端角色声明。
+	orders   HGOrderStore // 同库实物订单/coin/库存短事务接口；由模块构造时注入。
 }
 
 func HGNewService(store HGStore, reviewer HGReviewer) *HGService {
 	return &HGService{store: store, reviewer: reviewer}
+}
+
+// HGWithOrders 在模块装配时注入与商品目录共用 MySQL 池的订单仓储。
+func (s *HGService) HGWithOrders(orders HGOrderStore) *HGService {
+	s.orders = orders
+	return s
 }
 
 var hgCategories = map[string]bool{"digital": true, "appliance": true, "clothing": true, "beauty": true, "membership": true}
@@ -77,7 +85,7 @@ func (s *HGService) Apply(ctx context.Context, user, shopName string) (HGMerchan
 	}
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()
-	m := HGMerchantApplication{MerchantID: utils.GenerateBusinessID("MER"), UserID: user, ShopName: shopName}
+	m := HGMerchantApplication{MerchantID: UtilsPackage.GenerateBusinessID("MER"), UserID: user, ShopName: shopName}
 	if err := s.store.Apply(ctx, m); err != nil {
 		return HGMerchantApplication{}, err
 	}
@@ -146,7 +154,7 @@ func hgBusinessID(id string) bool {
 // Publish stores a single-SKU M币 catalog draft; this never reserves stock, charges coins or grants benefits.
 func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDraft) (HGCatalogItem, error) {
 	if user == "" || !hgText(draft.Title, 128) || !hgText(draft.Summary, 512) || !hgText(draft.SKUTitle, 128) || draft.Amount < 1 || draft.Amount > 9007199254740991 || !hgCategories[draft.Category] ||
-		(draft.Type == "MEMBERSHIP" && draft.Category != "membership") || (draft.Type == "PHYSICAL_PRODUCT" && draft.Category == "membership") || (draft.Type != "MEMBERSHIP" && draft.Type != "PHYSICAL_PRODUCT") {
+		(draft.Type == "MEMBERSHIP" && (draft.Category != "membership" || draft.Stock != 0)) || (draft.Type == "PHYSICAL_PRODUCT" && (draft.Category == "membership" || draft.Stock == 0 || draft.Stock > 100000 || draft.Amount > int64(CoinRepositoryPackage.HGMaxMallMutationAmount))) || (draft.Type != "MEMBERSHIP" && draft.Type != "PHYSICAL_PRODUCT") {
 		return HGCatalogItem{}, ErrHGInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
@@ -158,7 +166,7 @@ func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDra
 	if err != nil {
 		return HGCatalogItem{}, err
 	}
-	item := HGCatalogItem{ProductID: utils.GenerateBusinessID("PRD"), SKUID: utils.GenerateBusinessID("PSKU"), MerchantID: m.MerchantID, ShopName: m.ShopName, Title: draft.Title, Type: draft.Type, Category: draft.Category, Summary: draft.Summary, SKUTitle: draft.SKUTitle, Amount: draft.Amount}
+	item := HGCatalogItem{ProductID: UtilsPackage.GenerateBusinessID("PRD"), SKUID: UtilsPackage.GenerateBusinessID("PSKU"), MerchantID: m.MerchantID, ShopName: m.ShopName, Title: draft.Title, Type: draft.Type, Category: draft.Category, Summary: draft.Summary, SKUTitle: draft.SKUTitle, Amount: draft.Amount, Available: draft.Stock}
 	if err := s.store.Publish(ctx, user, item); err != nil {
 		return HGCatalogItem{}, err
 	}
@@ -178,7 +186,7 @@ func (s *HGService) ReviewProduct(ctx context.Context, user, productID string, a
 	if approve {
 		status = 1
 	}
-	return s.store.ReviewProduct(ctx, productID, status)
+	return s.store.ReviewProduct(ctx, user, productID, status)
 }
 
 func (s *HGService) List(ctx context.Context, category, cursor string) (HGPage, error) {

@@ -898,6 +898,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.UserRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGWalletRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGRechargeRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.HGMallRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)

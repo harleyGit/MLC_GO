@@ -1,10 +1,10 @@
 package module
 
 import (
-	"MLC_GO/internal/handler"
-	"MLC_GO/internal/modules/ops/repository"
+	HGHandlerPackage "MLC_GO/internal/handler"
+	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	"MLC_GO/internal/modules/product"
-	"MLC_GO/internal/pkg/hg_router"
+	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	"net/http"
 )
@@ -22,6 +22,6 @@ func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager) {
 		panic("商城模块需要数据库管理器")
 	}
 	db := manager.GetSQLDB()
-	service := product.HGNewService(product.HGNewRepository(db), OpsRepositoryPackage.NewRepository(db))
-	handler.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service)})
+	service := product.HGNewService(product.HGNewRepository(db), OpsRepositoryPackage.NewRepository(db)).HGWithOrders(product.HGNewOrderRepository(db))
+	HGHandlerPackage.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service)})
 }

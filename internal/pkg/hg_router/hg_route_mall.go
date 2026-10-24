@@ -2,8 +2,8 @@ package HGRouterPackage
 
 import (
 	"MLC_GO/internal/modules/product"
-	"MLC_GO/internal/modules/user/middleware"
-	"MLC_GO/internal/pkg/server"
+	hguser "MLC_GO/internal/modules/user/middleware"
+	hgserver "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 
@@ -11,16 +11,24 @@ const HGMallModuleBasePath = "/api/v1/mall"
 
 // HGNewMallRouteGroup 复用现有签名、Guard 和 JWT 链；审核权限由 product.Service 再次查库。
 func HGNewMallRouteGroup(h *product.HGHandler) http.Handler {
-	return NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Rules: HGServerPackage.HGMallMethodRules(), AuthMiddleware: middleware.AuthMiddleware}, hgMallRoutes(h))
+	group := NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Rules: hgserver.HGMallMethodRules(), AuthMiddleware: hguser.AuthMiddleware}, hgMallRoutes(h))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 订单地址、手机号与商家申请均属于登录态数据，不允许代理或浏览器缓存。
+		w.Header().Set("Cache-Control", "no-store")
+		group.ServeHTTP(w, r)
+	})
 }
 
 func HGMallRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(hgMallRoutes(nil)) }
 
 func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct http.HandlerFunc
+	var buy, orders, order, receive, refund, merchantOrders, merchantOrder, ship http.HandlerFunc
 	if h != nil {
 		list, detail, mine, publish, merchant, apply = h.HGList, h.HGDetail, h.HGMine, h.HGPublish, h.HGMerchant, h.HGApply
 		pendingMerchants, reviewMerchant, pendingProducts, reviewProduct = h.HGPendingMerchants, h.HGReviewMerchant, h.HGPendingProducts, h.HGReviewProduct
+		buy, orders, order, receive, refund = h.HGBuy, h.HGOrders, h.HGOrder, h.HGReceive, h.HGRefund
+		merchantOrders, merchantOrder, ship = h.HGMerchantOrders, h.HGMerchantOrder, h.HGShip
 	}
 	return []RouteSpec{
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products", true, "商品目录", list),
@@ -33,5 +41,13 @@ func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/merchants/decision", true, "审核商家", reviewMerchant),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/products", true, "待审核商品", pendingProducts),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/products/decision", true, "审核商品", reviewProduct),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/buy", true, "实物商品库存与M币原子支付", buy),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders", true, "本人实物订单", orders),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders/detail", true, "本人订单物流", order),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/receive", true, "确认收货并结算商家", receive),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/refund", true, "未发货原扣款全额退款", refund),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/merchant/orders", true, "本店订单", merchantOrders),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/merchant/orders/detail", true, "本店订单物流", merchantOrder),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/merchant/orders/ship", true, "本店手动填写运单", ship),
 	}
 }

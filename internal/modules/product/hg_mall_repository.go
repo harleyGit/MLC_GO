@@ -18,7 +18,7 @@ type HGStore interface {
 	ReviewMerchant(context.Context, string, string, int8) error
 	PendingMerchants(context.Context, uint64) ([]HGMerchantApplication, error)
 	Publish(context.Context, string, HGCatalogItem) error
-	ReviewProduct(context.Context, string, int8) error
+	ReviewProduct(context.Context, string, string, int8) error
 	List(context.Context, string, uint64) ([]HGCatalogItem, error)
 	Detail(context.Context, string) (HGCatalogItem, error)
 	Mine(context.Context, string, uint64) ([]HGCatalogItem, error)
@@ -120,16 +120,25 @@ func (r *HGRepository) Publish(ctx context.Context, owner string, item HGCatalog
 	if _, err = tx.ExecContext(ctx, q.HGMallSKUInsertSQL, item.SKUID, item.ProductID, item.SKUID, item.SKUTitle, item.Amount); err != nil {
 		return hgCatalogDBError(err)
 	}
+	if item.Type == "PHYSICAL_PRODUCT" {
+		if _, err = tx.ExecContext(ctx, q.HGMallInventoryInsertSQL, item.SKUID, item.Available); err != nil {
+			return hgCatalogDBError(err)
+		}
+	}
 	return tx.Commit()
 }
 
-func (r *HGRepository) ReviewProduct(ctx context.Context, productID string, status int8) error {
-	return hgOne(r.db.ExecContext(ctx, q.HGMallProductReviewSQL, status, productID))
+func (r *HGRepository) ReviewProduct(ctx context.Context, operator, productID string, status int8) error {
+	lifecycle := int8(0)
+	if status == 1 {
+		lifecycle = 1
+	}
+	return hgOne(r.db.ExecContext(ctx, q.HGMallProductReviewSQL, lifecycle, status, productID, operator))
 }
 
 func hgScanCatalog(row interface{ Scan(...any) error }, includeStatus bool) (HGCatalogItem, error) {
 	var item HGCatalogItem
-	fields := []any{&item.ID, &item.ProductID, &item.Type, &item.Title, &item.Category, &item.Summary, &item.MerchantID, &item.ShopName, &item.SKUID, &item.SKUTitle, &item.Amount}
+	fields := []any{&item.ID, &item.ProductID, &item.Type, &item.Title, &item.Category, &item.Summary, &item.MerchantID, &item.ShopName, &item.SKUID, &item.SKUTitle, &item.Amount, &item.Available}
 	if includeStatus {
 		fields = append(fields, &item.Status)
 	}
