@@ -61,8 +61,16 @@ func (r *HGOrderRepository) Orders(ctx context.Context, user string, merchant bo
 }
 
 func (r *HGOrderRepository) hgReplayBuy(ctx context.Context, user, requestID, hash string) (HGOrder, error) {
-	order, err := hgOrderScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallOrderByRequestSQL, user, requestID))
-	if err == nil && order.Hash != hash {
+	var orderID, savedHash string
+	if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallBuyReplayKeySQL, user, requestID).Scan(&orderID, &savedHash); err != nil {
+		return HGOrder{}, err
+	}
+	if savedHash != hash {
+		return HGOrder{}, ErrHGConflict
+	}
+	order, err := hgOrderScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallOrderByOwnerSQL, user, orderID))
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (order.OrderID != orderID || order.Hash != savedHash)) {
+		// 已存在幂等键却缺少实物订单快照，绝不可继续支付并覆盖其他订单类型。
 		return HGOrder{}, ErrHGConflict
 	}
 	return order, err

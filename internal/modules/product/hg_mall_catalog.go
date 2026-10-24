@@ -11,7 +11,7 @@ type HGMerchantApplication struct {
 	Status     int8   `json:"status,omitempty"` // 审核状态：0待审核、1通过、2拒绝。
 }
 
-// HGCatalogItem 是 MLC 商城目录协议；amount 的单位为 M币，当前不支持库存和交易。
+// HGCatalogItem 是 MLC 商城目录协议；amount 单位为 M币，实物商品库存是可用量的读取快照。
 type HGCatalogItem struct {
 	ID         uint64 `json:"-"`                // 商品内部游标，只用于生成下一页位置。
 	ProductID  string `json:"productId"`        // 商品对外业务标识。

@@ -19,11 +19,11 @@ func TestHGBuyChecksStockBeforeWalletMutation(t *testing.T) {
 	}
 	defer db.Close()
 	req := HGBuyRequest{ProductID: "PRD_1", RequestID: "buy-1", Quantity: 2, ReceiverName: "王明", ReceiverPhone: "13800000000", ReceiverAddress: "上海市收货地址"}
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByRequestSQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyProductSQL)).WithArgs(req.ProductID).WillReturnRows(sqlmock.NewRows([]string{"product_id", "title", "merchant_id", "user_id", "sku_id", "sku_title", "amount", "available"}).AddRow(req.ProductID, "商品", "MER_1", "seller", "SKU_1", "标准版", 50, 1))
 	mock.ExpectRollback()
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByRequestSQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}))
 	repo := HGNewOrderRepository(db)
 	_, err = repo.Buy(context.Background(), "buyer", req, hgBuyHash(req))
 	if !errors.Is(err, ErrHGStock) {
@@ -41,14 +41,52 @@ func TestHGBuyConcurrentReplayAfterStockExhaustionReturnsOriginalOrder(t *testin
 	}
 	defer db.Close()
 	req := HGBuyRequest{ProductID: "PRD_1", RequestID: "buy-1", Quantity: 1, ReceiverName: "王明", ReceiverPhone: "13800000000", ReceiverAddress: "上海市收货地址"}
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByRequestSQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyProductSQL)).WithArgs(req.ProductID).WillReturnRows(sqlmock.NewRows([]string{"product_id", "title", "merchant_id", "user_id", "sku_id", "sku_title", "amount", "available"}).AddRow(req.ProductID, "商品", "MER_1", "seller", "SKU_1", "标准版", 100, 0))
 	mock.ExpectRollback()
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByRequestSQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"id", "order_id", "merchant_id", "user_id", "product_id", "product_title", "sku_title", "sku_id", "quantity", "unit_amount", "payable_amount", "trade_status", "shipping_status", "receiver_name", "receiver_phone", "receiver_address", "carrier", "tracking_number", "request_hash", "debit_id", "payment_id"}).AddRow(1, "MORD_1", "MER_1", "buyer", req.ProductID, "商品", "标准版", "SKU_1", 1, 100, 100, 2, 0, req.ReceiverName, req.ReceiverPhone, req.ReceiverAddress, "", "", hgBuyHash(req), 12, "MPAY_1"))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}).AddRow("MORD_1", hgBuyHash(req)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByOwnerSQL)).WithArgs("buyer", "MORD_1").WillReturnRows(sqlmock.NewRows([]string{"id", "order_id", "merchant_id", "user_id", "product_id", "product_title", "sku_title", "sku_id", "quantity", "unit_amount", "payable_amount", "trade_status", "shipping_status", "receiver_name", "receiver_phone", "receiver_address", "carrier", "tracking_number", "request_hash", "debit_id", "payment_id"}).AddRow(1, "MORD_1", "MER_1", "buyer", req.ProductID, "商品", "标准版", "SKU_1", 1, 100, 100, 2, 0, req.ReceiverName, req.ReceiverPhone, req.ReceiverAddress, "", "", hgBuyHash(req), 12, "MPAY_1"))
 	order, err := HGNewOrderRepository(db).Buy(context.Background(), "buyer", req, hgBuyHash(req))
 	if err != nil || order.OrderID != "MORD_1" {
 		t.Fatalf("并发重放未返回已付订单: %+v, %v", order, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGBuyReplayKeyConflictDoesNotStartTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	req := HGBuyRequest{ProductID: "PRD_1", RequestID: "buy-1", Quantity: 1}
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).
+		WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}).AddRow("MORD_1", "old-request-hash"))
+	_, err = HGNewOrderRepository(db).Buy(context.Background(), "buyer", req, hgBuyHash(req))
+	if !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("复用请求键但载荷不同应拒绝: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGBuyReplayKeyWithoutFulfillmentCannotChargeAgain(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	req := HGBuyRequest{ProductID: "PRD_1", RequestID: "buy-1", Quantity: 1}
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).
+		WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}).AddRow("MORD_1", hgBuyHash(req)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByOwnerSQL)).WithArgs("buyer", "MORD_1").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	_, err = HGNewOrderRepository(db).Buy(context.Background(), "buyer", req, hgBuyHash(req))
+	if !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("已占用请求键但缺少履约快照时应拒绝继续扣款: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -62,7 +100,7 @@ func TestHGBuyCommitsOrderStockPaymentAndCoinTogether(t *testing.T) {
 	}
 	defer db.Close()
 	req := HGBuyRequest{ProductID: "PRD_1", RequestID: "buy-2", Quantity: 2, ReceiverName: "王明", ReceiverPhone: "13800000000", ReceiverAddress: "上海市收货地址"}
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByRequestSQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyReplayKeySQL)).WithArgs("buyer", req.RequestID).WillReturnRows(sqlmock.NewRows([]string{"trade_order_id", "request_hash"}))
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallBuyProductSQL)).WithArgs(req.ProductID).WillReturnRows(sqlmock.NewRows([]string{"product_id", "title", "merchant_id", "user_id", "sku_id", "sku_title", "amount", "available"}).AddRow("PRD_1", "商品", "MER_1", "seller", "SKU_1", "标准版", 50, 3))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGMallTakeStockSQL)).WithArgs(uint32(2), uint32(2), "SKU_1", uint32(2), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))

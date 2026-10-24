@@ -16,9 +16,12 @@ const HGMallItemInsertSQL = `INSERT INTO trade_order_item(order_item_id,trade_or
 const HGMallPaymentInsertSQL = `INSERT INTO payment_order(payment_id,trade_order_id,user_id,request_id,request_hash,payment_type,currency,amount,payment_status,expire_at,paid_at) VALUES(?,?,?,?,?,'COIN','MLC_COIN',?,2,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))`
 const HGMallFulfillmentInsertSQL = `INSERT INTO mall_fulfillment(trade_order_id,merchant_id,user_id,sku_id,payment_id,quantity,debit_transaction_id,receiver_name,receiver_phone,receiver_address) VALUES(?,?,?,?,?,?,?,?,?,?)`
 
+// 购买热路径先按 trade_order 的 uk_trade_order_request_user 检查幂等键；首次购买不做订单明细与地址联查。
+// 请求重放再按订单业务 ID 和买家身份读取完整快照；写入结果未知时继续以同一请求键查询，不能再次扣款。
+const HGMallBuyReplayKeySQL = `SELECT trade_order_id,request_hash FROM trade_order WHERE user_id=? AND request_id=? LIMIT 1`
+
 // 订单主键、本人唯一请求键、(user_id,id) 和 (merchant_id,id) 游标保证可重复查询，地址仅通过买家或店主作用域返回。
 const HGMallOrderSelectFieldsSQL = `SELECT f.id,f.trade_order_id,f.merchant_id,f.user_id,ti.product_id,ti.product_title,ti.sku_title,f.sku_id,f.quantity,ti.unit_amount,t.payable_amount,t.trade_status,f.shipping_status,f.receiver_name,f.receiver_phone,f.receiver_address,f.carrier,f.tracking_number,t.request_hash,f.debit_transaction_id,f.payment_id`
-const HGMallOrderByRequestSQL = HGMallOrderSelectFieldsSQL + ` FROM trade_order t JOIN mall_fulfillment f ON f.trade_order_id=t.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=t.trade_order_id AND ti.line_no=1 WHERE t.user_id=? AND t.request_id=? LIMIT 1`
 const HGMallOrderByOwnerSQL = HGMallOrderSelectFieldsSQL + ` FROM mall_fulfillment f JOIN trade_order t ON t.trade_order_id=f.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=t.trade_order_id AND ti.line_no=1 WHERE f.user_id=? AND f.trade_order_id=? LIMIT 1`
 const HGMallOrderByMerchantSQL = HGMallOrderSelectFieldsSQL + ` FROM mall_fulfillment f JOIN mall_merchant m ON m.merchant_id=f.merchant_id JOIN trade_order t ON t.trade_order_id=f.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=t.trade_order_id AND ti.line_no=1 WHERE m.user_id=? AND m.status=1 AND f.trade_order_id=? LIMIT 1`
 const HGMallBuyerOrdersSQL = HGMallOrderSelectFieldsSQL + ` FROM mall_fulfillment f JOIN trade_order t ON t.trade_order_id=f.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=t.trade_order_id AND ti.line_no=1 WHERE f.user_id=? AND f.id<? ORDER BY f.id DESC LIMIT ?`
