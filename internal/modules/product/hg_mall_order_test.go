@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -141,6 +142,46 @@ func TestHGShipRejectsRefundedOrderBeforeWritingTracking(t *testing.T) {
 	err = HGNewOrderRepository(db).Ship(context.Background(), "seller", HGShipRequest{OrderID: "MORD_1", Carrier: "快递", TrackingNumber: "ABC123"})
 	if !errors.Is(err, ErrHGState) {
 		t.Fatalf("已退款订单不允许发货: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGShipAcceptsDottedTrackingAndPersistsForSeller(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	req := HGShipRequest{OrderID: "MORD_1", Carrier: "京东", TrackingNumber: "JD20261024.6.am.11.36"}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallSellerOrderForUpdateSQL)).WithArgs(req.OrderID, "seller").
+		WillReturnRows(sqlmock.NewRows([]string{"payable_amount", "trade_status", "shipping_status", "user_id", "carrier", "tracking_number"}).AddRow(100, 2, 0, "buyer", "", ""))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGMallShipSQL)).WithArgs(req.Carrier, req.TrackingNumber, req.OrderID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGMallTradeShippedSQL)).WithArgs(req.OrderID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	service := HGNewService(nil, nil).HGWithOrders(HGNewOrderRepository(db))
+	if err := service.HGShip(context.Background(), "seller", req); err != nil {
+		t.Fatalf("含英文句点的运单号应能由商家保存: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGShipRejectsNonTrackingCharactersBeforeDatabase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := HGNewService(nil, nil).HGWithOrders(HGNewOrderRepository(db))
+	for _, tracking := range []string{"", "JD/123", "JD 123", "JD\n123", "中文123", strings.Repeat("A", 129)} {
+		req := HGShipRequest{OrderID: "MORD_1", Carrier: "京东", TrackingNumber: tracking}
+		if err := service.HGShip(context.Background(), "seller", req); !errors.Is(err, ErrHGInvalid) {
+			t.Fatalf("非法运单号应在数据库访问前拒绝: %v", err)
+		}
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

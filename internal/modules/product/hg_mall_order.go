@@ -64,7 +64,7 @@ type HGOrderPage struct {
 type HGShipRequest struct {
 	OrderID        string `json:"orderId"`        // 本店已付款且未发货的订单。
 	Carrier        string `json:"carrier"`        // 承运商纯文本名称，1-64字符。
-	TrackingNumber string `json:"trackingNumber"` // 运单号，1-128个 ASCII 字符。
+	TrackingNumber string `json:"trackingNumber"` // 运单号，1-128个 ASCII 字母/数字及点、连字符、下划线。
 }
 
 // HGRefundRequest 是未发货全额原扣款退款协议，不接受客户端金额或任意扣款流水 ID。
@@ -148,7 +148,7 @@ func (s *HGService) HGShip(ctx context.Context, user string, req HGShipRequest) 
 		return ErrHGInvalid
 	}
 	for _, c := range req.TrackingNumber {
-		if (c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '-' && c != '_' {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '-' && c != '_' && c != '.' {
 			return ErrHGInvalid
 		}
 	}
