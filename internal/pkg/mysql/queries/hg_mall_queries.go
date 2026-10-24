@@ -57,12 +57,50 @@ const HGMallImageUndoDeleteSQL = `UPDATE mall_product_image SET status=1 WHERE i
 
 // 本人未发布图片最多20张；按 (user_id,status,id) 覆盖索引稳定倒序读取，无跨用户扫描。
 const HGMallImageUnusedListSQL = `SELECT image_url FROM mall_product_image WHERE user_id=? AND status IN (1,3) ORDER BY id DESC LIMIT 20`
+
+// 补图只操作本人已上架商品，按 product_id 唯一索引锁住商品行；已公开图片与未审补图之和最多5张。
+const HGMallMediaOwnProductSQL = `SELECT COALESCE(p.image_urls,JSON_ARRAY()) FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE p.product_id=? AND m.user_id=? AND p.status=1 AND p.review_status=1 FOR UPDATE`
+const HGMallMediaPendingCountSQL = `SELECT COUNT(*) FROM mall_product_image WHERE product_id=? AND status=4`
+const HGMallMediaStageSQL = `UPDATE mall_product_image SET product_id=?,status=4 WHERE image_url_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=1`
+
+// 审核队列按 (status,id) 限量扫描；连接商品/商家仅按业务唯一键点查。
+const HGMallMediaPendingSQL = `SELECT pi.id,pi.product_id,pi.image_url,p.title,m.shop_name,m.user_id FROM mall_product_image pi JOIN product p ON p.product_id=pi.product_id AND p.status=1 AND p.review_status=1 JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE pi.status=4 AND pi.id<? ORDER BY pi.id DESC LIMIT ?`
+const HGMallMediaTargetSQL = `SELECT product_id FROM mall_product_image WHERE image_url_hash=UNHEX(SHA2(?,256)) AND image_url=? AND status=4`
+const HGMallMediaReviewerProductSQL = `SELECT COALESCE(p.image_urls,JSON_ARRAY()) FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE p.product_id=? AND m.user_id<>? AND p.status=1 AND p.review_status=1 FOR UPDATE`
+const HGMallMediaApproveImageSQL = `UPDATE mall_product_image SET status=2 WHERE image_url_hash=UNHEX(SHA2(?,256)) AND image_url=? AND product_id=? AND status=4`
+const HGMallMediaRejectImageSQL = `UPDATE mall_product_image SET product_id=NULL,status=1 WHERE image_url_hash=UNHEX(SHA2(?,256)) AND image_url=? AND product_id=? AND status=4`
+const HGMallMediaPublishSQL = `UPDATE product SET image_urls=? WHERE product_id=? AND status=1 AND review_status=1`
 const HGMallSKUInsertSQL = `INSERT INTO product_sku(sku_id,product_id,sku_code,title,currency,amount,status) VALUES(?,?,?,?,'MLC_COIN',?,1)`
 const HGMallInventoryInsertSQL = `INSERT INTO mall_inventory(sku_id,available) VALUES(?,?)`
-const HGMallMyProductsSQL = `SELECT p.id,p.product_id,p.product_type,p.title,p.category,p.summary,p.merchant_id,m.shop_name,s.sku_id,s.title,s.amount,COALESCE(i.available,0),p.review_status,p.description,p.image_urls
+const HGMallMyProductsSQL = `SELECT p.id,p.product_id,p.product_type,p.title,p.category,p.summary,p.merchant_id,m.shop_name,s.sku_id,s.title,s.amount,COALESCE(i.available,0),p.review_status,p.status,p.description,p.image_urls
 FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id JOIN product_sku s ON s.product_id=p.product_id AND s.id=(SELECT s2.id FROM product_sku s2 WHERE s2.product_id=p.product_id ORDER BY s2.id LIMIT 1) LEFT JOIN mall_inventory i ON i.sku_id=s.sku_id
 WHERE m.user_id=? AND p.id<? ORDER BY p.id DESC LIMIT ?`
-const HGMallPendingProductsSQL = `SELECT p.id,p.product_id,p.product_type,p.title,p.category,p.summary,p.merchant_id,m.shop_name,s.sku_id,s.title,s.amount,COALESCE(i.available,0),p.review_status,p.description,p.image_urls
+
+// 商品 ID 与商家用户分别走唯一索引；同本人列表字段顺序，支持归档商品精确查询。
+const HGMallMineByProductIDSQL = `SELECT p.id,p.product_id,p.product_type,p.title,p.category,p.summary,p.merchant_id,m.shop_name,s.sku_id,s.title,s.amount,COALESCE(i.available,0),p.review_status,p.status,p.description,p.image_urls
+FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id JOIN product_sku s ON s.product_id=p.product_id AND s.id=(SELECT s2.id FROM product_sku s2 WHERE s2.product_id=p.product_id ORDER BY s2.id LIMIT 1) LEFT JOIN mall_inventory i ON i.sku_id=s.sku_id
+WHERE p.product_id=? AND m.user_id=? LIMIT 1`
+
+// 归档是有所有权条件的单商品软删除；已有订单保留快照与履约能力，不执行图片外部删除。
+const HGMallMineArchiveSQL = `UPDATE product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 SET p.status=2 WHERE p.product_id=? AND m.user_id=? AND p.status IN (0,1)`
+
+// 归档后释放本商品有界补图和待审文字，避免审核队列留下不可审批记录。
+const HGMallMineCancelMediaSQL = `UPDATE mall_product_image SET status=1,product_id=NULL WHERE product_id=? AND status=4`
+const HGMallMineCancelEditSQL = `UPDATE mall_product_edit SET status=2 WHERE product_id=? AND status=0`
+
+// 按 product_id 唯一索引锁商品，编辑内容先写独立审核记录，不影响已上架商品与订单快照。
+const HGMallEditOwnSQL = `SELECT p.product_id FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE p.product_id=? AND m.user_id=? AND p.status=1 AND p.review_status=1 FOR UPDATE`
+const HGMallEditStatusSQL = `SELECT status FROM mall_product_edit WHERE product_id=? FOR UPDATE`
+const HGMallEditInsertSQL = `INSERT INTO mall_product_edit(product_id,user_id,title,summary,description,status) VALUES(?,?,?,?,?,0)`
+const HGMallEditResubmitSQL = `UPDATE mall_product_edit SET user_id=?,title=?,summary=?,description=?,status=0,reviewed_by=NULL WHERE product_id=? AND status IN (1,2)`
+
+// 审核队列按 (status,id) 索引有界游标读取；商家和商品通过唯一业务键点查。
+const HGMallEditPendingSQL = `SELECT e.id,e.product_id,e.title,e.summary,e.description,m.shop_name,e.user_id FROM mall_product_edit e JOIN product p ON p.product_id=e.product_id AND p.status=1 AND p.review_status=1 JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE e.status=0 AND e.id<? ORDER BY e.id DESC LIMIT ?`
+const HGMallEditReviewerProductSQL = `SELECT p.product_id FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE p.product_id=? AND m.user_id<>? AND p.status=1 AND p.review_status=1 FOR UPDATE`
+const HGMallEditPendingOneSQL = `SELECT title,summary,description FROM mall_product_edit WHERE product_id=? AND status=0 FOR UPDATE`
+const HGMallEditPublishSQL = `UPDATE product SET title=?,summary=?,description=? WHERE product_id=? AND status=1 AND review_status=1`
+const HGMallEditDecisionSQL = `UPDATE mall_product_edit SET status=?,reviewed_by=? WHERE product_id=? AND status=0`
+const HGMallPendingProductsSQL = `SELECT p.id,p.product_id,p.product_type,p.title,p.category,p.summary,p.merchant_id,m.shop_name,s.sku_id,s.title,s.amount,COALESCE(i.available,0),p.review_status,p.status,p.description,p.image_urls
 FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 JOIN product_sku s ON s.product_id=p.product_id AND s.id=(SELECT s2.id FROM product_sku s2 WHERE s2.product_id=p.product_id ORDER BY s2.id LIMIT 1) LEFT JOIN mall_inventory i ON i.sku_id=s.sku_id
 WHERE p.review_status=0 AND p.status=0 AND p.id<? ORDER BY p.id DESC LIMIT ?`
 

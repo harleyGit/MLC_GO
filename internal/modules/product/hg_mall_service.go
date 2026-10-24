@@ -254,6 +254,26 @@ func (s *HGService) Mine(ctx context.Context, user, cursor string) (HGPage, erro
 	return hgProductPage(items), nil
 }
 
+// MineDetail 只读取当前登录商家的指定商品；不把前端传入的商家身份作为授权依据。
+func (s *HGService) MineDetail(ctx context.Context, user, productID string) (HGCatalogItem, error) {
+	if user == "" || !hgBusinessID(productID) {
+		return HGCatalogItem{}, ErrHGInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
+	defer cancel()
+	return s.store.MineDetail(ctx, user, productID)
+}
+
+// Archive 仅按本人商品业务 ID 软删除，不改变已支付及预留订单的履约快照。
+func (s *HGService) Archive(ctx context.Context, user, productID string) error {
+	if user == "" || !hgBusinessID(productID) {
+		return ErrHGInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
+	defer cancel()
+	return s.store.Archive(ctx, user, productID)
+}
+
 func (s *HGService) PendingProducts(ctx context.Context, user, cursor string) (HGPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()

@@ -172,6 +172,41 @@ func (h *HGHandler) HGMine(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, page)
 }
 
+// HGMineDetail 按本人商品 ID 精确查找，不遍历海量商品列表。
+func (h *HGHandler) HGMineDetail(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	item, err := h.service.MineDetail(r.Context(), user, r.URL.Query().Get("productId"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, item)
+}
+
+// HGArchive 保留订单历史，仅停止向买家展示和发起新交易。
+func (h *HGHandler) HGArchive(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		ProductID string `json:"productId"` // 仅限本人未归档的商品业务 ID。
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.Archive(r.Context(), user, req.ProductID); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		ProductID string `json:"productId"`
+	}{req.ProductID})
+}
+
 func (h *HGHandler) HGPendingMerchants(w http.ResponseWriter, r *http.Request) {
 	user, ok := hgAuth(w, r)
 	if !ok {

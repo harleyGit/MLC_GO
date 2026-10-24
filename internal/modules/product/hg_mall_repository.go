@@ -23,7 +23,15 @@ type HGStore interface {
 	List(context.Context, string, uint64) ([]HGCatalogItem, error)
 	Detail(context.Context, string) (HGCatalogItem, error)
 	Mine(context.Context, string, uint64) ([]HGCatalogItem, error)
+	MineDetail(context.Context, string, string) (HGCatalogItem, error)
+	Archive(context.Context, string, string) error
+	StageEdit(context.Context, string, HGEditRequest) error
+	PendingEdits(context.Context, uint64) ([]HGEditItem, error)
+	ReviewEdit(context.Context, string, string, bool) error
 	PendingProducts(context.Context, uint64) ([]HGCatalogItem, error)
+	StageMedia(context.Context, string, string, []string) error
+	PendingMedia(context.Context, uint64) ([]HGMediaItem, error)
+	ReviewMedia(context.Context, string, string, bool) error
 }
 
 // HGRepository 使用共享 MySQL 池；商品和 SKU 在同一短事务创建，读取只走有界游标。
@@ -156,7 +164,7 @@ func hgScanCatalog(row interface{ Scan(...any) error }, includeStatus bool) (HGC
 	var images []byte
 	fields := []any{&item.ID, &item.ProductID, &item.Type, &item.Title, &item.Category, &item.Summary, &item.MerchantID, &item.ShopName, &item.SKUID, &item.SKUTitle, &item.Amount, &item.Available}
 	if includeStatus {
-		fields = append(fields, &item.Status)
+		fields = append(fields, &item.Status, &item.LifecycleStatus)
 	}
 	fields = append(fields, &item.Description, &images)
 	err := row.Scan(fields...)
@@ -216,6 +224,30 @@ func (r *HGRepository) Mine(ctx context.Context, owner string, cursor uint64) ([
 		return nil, err
 	}
 	return hgCatalogRows(rows, true)
+}
+
+// MineDetail 使用商品业务唯一键与商家归属查单件，兼容已归档和待审商品。
+func (r *HGRepository) MineDetail(ctx context.Context, owner, productID string) (HGCatalogItem, error) {
+	return hgScanCatalog(r.db.QueryRowContext(ctx, q.HGMallMineByProductIDSQL, productID, owner), true)
+}
+
+// Archive 保留订单快照和实物，不再允许新订单；本人已归档商品再次操作返回冲突。
+func (r *HGRepository) Archive(ctx context.Context, owner, productID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = hgOne(tx.ExecContext(ctx, q.HGMallMineArchiveSQL, productID, owner)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, q.HGMallMineCancelMediaSQL, productID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, q.HGMallMineCancelEditSQL, productID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *HGRepository) PendingProducts(ctx context.Context, cursor uint64) ([]HGCatalogItem, error) {

@@ -24,6 +24,8 @@ func HGMallRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(hgM
 func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct, adminStatus, image, deleteImage, unusedImages http.HandlerFunc
 	var buy, pay, pendingOrders, orders, order, receive, refund, merchantOrders, merchantOrder, ship http.HandlerFunc
+	var stageMedia, pendingMedia, reviewMedia http.HandlerFunc
+	var mineDetail, archive, stageEdit, pendingEdits, reviewEdit http.HandlerFunc
 	if h != nil {
 		list, detail, mine, publish, merchant, apply = h.HGList, h.HGDetail, h.HGMine, h.HGPublish, h.HGMerchant, h.HGApply
 		adminStatus = h.HGAdminStatus
@@ -34,6 +36,8 @@ func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 		buy, orders, order, receive, refund = h.HGBuy, h.HGOrders, h.HGOrder, h.HGReceive, h.HGRefund
 		pay, pendingOrders = h.HGPay, h.HGPendingOrders
 		merchantOrders, merchantOrder, ship = h.HGMerchantOrders, h.HGMerchantOrder, h.HGShip
+		stageMedia, pendingMedia, reviewMedia = h.HGStageMedia, h.HGPendingMedia, h.HGReviewMedia
+		mineDetail, archive, stageEdit, pendingEdits, reviewEdit = h.HGMineDetail, h.HGArchive, h.HGStageEdit, h.HGPendingEdits, h.HGReviewEdit
 	}
 	return []RouteSpec{
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/admin-status", true, "当前管理员身份", adminStatus),
@@ -43,13 +47,21 @@ func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products", true, "商品目录", list),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/detail", true, "商品详情", detail),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/mine", true, "商家本人商品", mine),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/mine/detail", true, "本人单件商品", mineDetail),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/archive", true, "本人商品归档", archive),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/edit", true, "本人商品文字编辑待审", stageEdit),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/publish", true, "发布单 SKU 商品草稿", publish),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/images/stage", true, "本人已上架商品补图待审", stageMedia),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/merchant", true, "本人商家入驻状态", merchant),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/merchant/apply", true, "申请商家入驻", apply),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/merchants", true, "待审核商家", pendingMerchants),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/merchants/decision", true, "审核商家", reviewMerchant),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/products", true, "待审核商品", pendingProducts),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/products/decision", true, "审核商品", reviewProduct),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/images", true, "待审商品补图", pendingMedia),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/images/decision", true, "审核商品补图", reviewMedia),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/edits", true, "待审商品编辑", pendingEdits),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/edits/decision", true, "审核商品编辑", reviewEdit),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/buy", true, "实物商品预留库存并创建待支付订单", buy),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/pay", true, "本人待支付订单M币原子支付", pay),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders/pending", true, "本人待支付与超时取消订单", pendingOrders),
