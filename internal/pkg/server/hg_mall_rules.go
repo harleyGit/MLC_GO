@@ -19,6 +19,8 @@ func HGMallMethodRules() []hgmiddleware.APIRule {
 		{Path: "/review/products", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/review/products/decision", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
 		{Path: "/orders/buy", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/orders/pay", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/orders/pending", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/orders", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/orders/detail", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/orders/receive", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},

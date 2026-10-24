@@ -13,6 +13,7 @@ import (
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
+	"MLC_GO/internal/modules/product"
 	HGMallModulePackage "MLC_GO/internal/modules/product/module"
 	hgrecharge "MLC_GO/internal/modules/recharge/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
@@ -87,6 +88,7 @@ type MLCApplication struct {
 	kafkaRuntime            kafkaReadyChecker
 	interactionReprojector  *VideoInteractionTaskPackage.HGReprojector
 	coinJobs                *CoinTaskPackage.HGJobs
+	mallExpiry              *product.HGExpiryWorker
 	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
@@ -668,6 +670,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		kafkaRuntime:            kafkaRuntime,
 		interactionReprojector:  interactionReprojector,
 		coinJobs:                coinJobs,
+		mallExpiry:              product.HGStartExpiryWorker(product.HGNewOrderRepository(sqlManager.GetSQLDB())),
 		correctionRecovery:      correctionRecovery,
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
@@ -856,6 +859,9 @@ func (app *MLCApplication) Close() {
 	}
 	if app.coinJobs != nil {
 		app.coinJobs.Close()
+	}
+	if app.mallExpiry != nil {
+		app.mallExpiry.Close()
 	}
 	if app.correctionRecovery != nil {
 		app.correctionRecovery.Close()

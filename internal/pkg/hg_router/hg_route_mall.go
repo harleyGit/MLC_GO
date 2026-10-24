@@ -23,11 +23,12 @@ func HGMallRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(hgM
 
 func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct http.HandlerFunc
-	var buy, orders, order, receive, refund, merchantOrders, merchantOrder, ship http.HandlerFunc
+	var buy, pay, pendingOrders, orders, order, receive, refund, merchantOrders, merchantOrder, ship http.HandlerFunc
 	if h != nil {
 		list, detail, mine, publish, merchant, apply = h.HGList, h.HGDetail, h.HGMine, h.HGPublish, h.HGMerchant, h.HGApply
 		pendingMerchants, reviewMerchant, pendingProducts, reviewProduct = h.HGPendingMerchants, h.HGReviewMerchant, h.HGPendingProducts, h.HGReviewProduct
 		buy, orders, order, receive, refund = h.HGBuy, h.HGOrders, h.HGOrder, h.HGReceive, h.HGRefund
+		pay, pendingOrders = h.HGPay, h.HGPendingOrders
 		merchantOrders, merchantOrder, ship = h.HGMerchantOrders, h.HGMerchantOrder, h.HGShip
 	}
 	return []RouteSpec{
@@ -41,7 +42,9 @@ func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/merchants/decision", true, "审核商家", reviewMerchant),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/products", true, "待审核商品", pendingProducts),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/products/decision", true, "审核商品", reviewProduct),
-		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/buy", true, "实物商品库存与M币原子支付", buy),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/buy", true, "实物商品预留库存并创建待支付订单", buy),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/pay", true, "本人待支付订单M币原子支付", pay),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders/pending", true, "本人待支付与超时取消订单", pendingOrders),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders", true, "本人实物订单", orders),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders/detail", true, "本人订单物流", order),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/receive", true, "确认收货并结算商家", receive),

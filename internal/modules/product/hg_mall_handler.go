@@ -226,7 +226,7 @@ func (h *HGHandler) HGReviewProduct(w http.ResponseWriter, r *http.Request) {
 	}{req.ProductID})
 }
 
-// HGBuy 从当前登录用户读取身份；请求只传商品、数量、地址和幂等键，价格由服务端快照。
+// HGBuy 从当前登录用户读取身份；下单预留库存十五分钟，不立即扣币。
 func (h *HGHandler) HGBuy(w http.ResponseWriter, r *http.Request) {
 	user, ok := hgAuth(w, r)
 	if !ok {
@@ -237,6 +237,40 @@ func (h *HGHandler) HGBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order, err := h.service.HGBuy(r.Context(), user, req)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+// HGPendingOrders 只返回登录买家的待支付及过期取消记录，支持有界游标分页。
+func (h *HGHandler) HGPendingOrders(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.service.HGPendingOrders(r.Context(), user, r.URL.Query().Get("cursor"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, page)
+}
+
+// HGPay 仅按本人订单号支付既有待支付订单，金额由服务端快照读取。
+func (h *HGHandler) HGPay(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		OrderID string `json:"orderId"` // 本人未过期的待支付订单业务标识，不接受客户端金额。
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	order, err := h.service.HGPay(r.Context(), user, req.OrderID)
 	if err != nil {
 		hgError(w, r, err)
 		return

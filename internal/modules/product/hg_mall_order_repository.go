@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"strconv"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -31,6 +33,33 @@ func hgOrderScan(row interface{ Scan(...any) error }) (HGOrder, error) {
 	return order, err
 }
 
+func hgPendingScan(row interface{ Scan(...any) error }) (HGOrder, error) {
+	var order HGOrder
+	var expires time.Time
+	err := row.Scan(&order.ID, &order.OrderID, &order.MerchantID, &order.UserID, &order.ProductID, &order.Title, &order.SKUTitle, &order.SKUID, &order.Quantity, &order.UnitAmount, &order.Amount, &order.TradeStatus, &order.ReceiverName, &order.ReceiverPhone, &order.ReceiverAddress, &order.Hash, &expires)
+	if err == nil {
+		order.ExpiresAt = expires.UTC().Format(time.RFC3339Nano)
+	}
+	return order, err
+}
+
+func (r *HGOrderRepository) PendingOrders(ctx context.Context, user string, cursor uint64) ([]HGOrder, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.HGMallPendingOrdersSQL, user, strconv.FormatUint(cursor, 10), 21)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]HGOrder, 0, 21)
+	for rows.Next() {
+		order, err := hgPendingScan(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, order)
+	}
+	return items, rows.Err()
+}
+
 func (r *HGOrderRepository) Order(ctx context.Context, user, orderID string, merchant bool) (HGOrder, error) {
 	query := SQLQueriesPackage.HGMallOrderByOwnerSQL
 	if merchant {
@@ -44,7 +73,7 @@ func (r *HGOrderRepository) Orders(ctx context.Context, user string, merchant bo
 	if merchant {
 		query = SQLQueriesPackage.HGMallSellerOrdersSQL
 	}
-	rows, err := r.db.QueryContext(ctx, query, user, cursor, 21)
+	rows, err := r.db.QueryContext(ctx, query, user, strconv.FormatUint(cursor, 10), 21)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +98,9 @@ func (r *HGOrderRepository) hgReplayBuy(ctx context.Context, user, requestID, ha
 		return HGOrder{}, ErrHGConflict
 	}
 	order, err := hgOrderScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallOrderByOwnerSQL, user, orderID))
+	if errors.Is(err, sql.ErrNoRows) {
+		order, err = hgPendingScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallPendingByOwnerSQL, user, orderID))
+	}
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && (order.OrderID != orderID || order.Hash != savedHash)) {
 		// 已存在幂等键却缺少实物订单快照，绝不可继续支付并覆盖其他订单类型。
 		return HGOrder{}, ErrHGConflict
@@ -86,8 +118,8 @@ func (r *HGOrderRepository) hgReplayAfterBuyFailure(ctx context.Context, tx *sql
 	return previous, err
 }
 
-// Buy 先按商品/库存、再按钱包行加锁；单事务保存不可变订单和支付快照及资产流水。
-// 结果未知时可凭买家和 requestId 重放，绝不在扣款后另起事务保存订单。
+// Buy 先锁商品库存，在同一事务预留15分钟库存并写订单及收货快照，不触碰钱包。
+// 结果未知时凭买家和 requestId 重放，不得重新占用库存。
 func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyRequest, hash string) (HGOrder, error) {
 	previous, err := r.hgReplayBuy(ctx, user, req.RequestID, hash)
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -116,8 +148,7 @@ func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyReque
 	}
 	amount := unit * int64(req.Quantity)
 	orderID := UtilsPackage.GenerateBusinessID("MORD")
-	paymentID := UtilsPackage.GenerateBusinessID("MPAY")
-	stockResult, err := tx.ExecContext(ctx, SQLQueriesPackage.HGMallTakeStockSQL, req.Quantity, req.Quantity, skuID, req.Quantity, req.Quantity)
+	stockResult, err := tx.ExecContext(ctx, SQLQueriesPackage.HGMallReserveStockSQL, req.Quantity, skuID, req.Quantity)
 	if err != nil {
 		return HGOrder{}, err
 	}
@@ -140,6 +171,65 @@ func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyReque
 		}
 		return HGOrder{}, err
 	}
+	itemID := UtilsPackage.GenerateBusinessID("MITM")
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGMallItemInsertSQL, itemID, orderID, user, productID, skuID, title, skuTitle, req.Quantity, unit, amount); err != nil {
+		return HGOrder{}, err
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallPendingInsertSQL, orderID, user, merchantID, skuID, req.Quantity, req.ReceiverName, req.ReceiverPhone, req.ReceiverAddress, orderID, user)); err != nil {
+		return HGOrder{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return HGOrder{}, err
+	}
+	return hgPendingScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallPendingByOwnerSQL, user, orderID))
+}
+
+// Pay 锁本人预留订单后一次提交扣币、支付事实、履约快照与订单状态；成功重放不二次扣币。
+func (r *HGOrderRepository) Pay(ctx context.Context, user, orderID string) (HGOrder, error) {
+	paid, err := r.Order(ctx, user, orderID, false)
+	if err == nil {
+		return paid, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return HGOrder{}, err
+	}
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return HGOrder{}, err
+	}
+	defer tx.Rollback()
+	var merchant, sku, name, phone, address, hash string
+	var status int8
+	var amount int64
+	var quantity uint32
+	var beforeExpire bool
+	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGMallPendingForPaymentSQL, orderID, user).Scan(&status, &amount, &hash, &beforeExpire, &merchant, &sku, &quantity, &name, &phone, &address)
+	if errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
+		paid, err = r.Order(ctx, user, orderID, false)
+		if err == nil {
+			return paid, nil
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGOrder{}, ErrHGState
+		}
+		return HGOrder{}, err
+	}
+	if err != nil {
+		return HGOrder{}, err
+	}
+	if status != 1 || !beforeExpire || amount < 1 || amount > int64(CoinRepositoryPackage.HGMaxMallMutationAmount) {
+		_ = tx.Rollback()
+		if status == 1 && !beforeExpire {
+			if err := r.HGExpireOrder(ctx, orderID); err != nil {
+				return HGOrder{}, err
+			}
+		}
+		return HGOrder{}, ErrHGState
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallCountPaidStockSQL, quantity, sku, quantity)); err != nil {
+		return HGOrder{}, err
+	}
 	coinResult, err := r.coin.HGMarketTx(ctx, tx, "debit", user, orderID, uint64(amount), 0)
 	if errors.Is(err, CoinRepositoryPackage.ErrHGInsufficientBalance) || errors.Is(err, CoinRepositoryPackage.ErrHGBusinessLimit) {
 		return HGOrder{}, ErrHGFunds
@@ -147,20 +237,95 @@ func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyReque
 	if err != nil {
 		return HGOrder{}, err
 	}
-	itemID := UtilsPackage.GenerateBusinessID("MITM")
-	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGMallItemInsertSQL, itemID, orderID, user, productID, skuID, title, skuTitle, req.Quantity, unit, amount); err != nil {
-		return HGOrder{}, err
-	}
+	paymentID := UtilsPackage.GenerateBusinessID("MPAY")
 	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGMallPaymentInsertSQL, paymentID, orderID, user, "mall:"+orderID, hash, amount); err != nil {
 		return HGOrder{}, err
 	}
-	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGMallFulfillmentInsertSQL, orderID, merchantID, user, skuID, paymentID, req.Quantity, coinResult.TransactionID, req.ReceiverName, req.ReceiverPhone, req.ReceiverAddress); err != nil {
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGMallFulfillmentInsertSQL, orderID, merchant, user, sku, paymentID, quantity, coinResult.TransactionID, name, phone, address); err != nil {
+		return HGOrder{}, err
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallTradePaidSQL, orderID, user)); err != nil {
+		if errors.Is(err, ErrHGConflict) {
+			return HGOrder{}, ErrHGState
+		}
+		return HGOrder{}, err
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallPendingDeleteSQL, orderID)); err != nil {
 		return HGOrder{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return HGOrder{}, err
 	}
-	return HGOrder{OrderID: orderID, MerchantID: merchantID, UserID: user, ProductID: productID, Title: title, SKUTitle: skuTitle, SKUID: skuID, Quantity: req.Quantity, UnitAmount: unit, Amount: amount, TradeStatus: 2, ReceiverName: req.ReceiverName, ReceiverPhone: req.ReceiverPhone, ReceiverAddress: req.ReceiverAddress}, nil
+	return r.Order(ctx, user, orderID, false)
+}
+
+// HGExpireOrder 逐单短事务锁定过期预留，只释放一次库存并保留取消订单的本人快照。
+func (r *HGOrderRepository) HGExpireOrder(ctx context.Context, orderID string) error {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var status int8
+	var sku string
+	var qty uint32
+	var reserved bool
+	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGMallExpiredForUpdateSQL, orderID).Scan(&status, &sku, &qty, &reserved)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		return nil
+	}
+	if status != 1 || qty == 0 || qty > 10 {
+		return ErrHGState
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallReleaseReservationSQL, qty, sku, qty)); err != nil {
+		return err
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallTradeCancelSQL, orderID)); err != nil {
+		return err
+	}
+	if err = hgOne(tx.ExecContext(ctx, SQLQueriesPackage.HGMallPendingReleaseSQL, orderID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// HGExpireBatch 每轮最多读取100条过期业务键，再逐单短事务处理；失败留待下一轮重试。
+func (r *HGOrderRepository) HGExpireBatch(ctx context.Context) error {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.HGMallExpiredReservationsSQL, 100)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, 100)
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			break
+		}
+		ids = append(ids, id)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	_ = rows.Close()
+	if err != nil {
+		return err
+	}
+	var failures error
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return errors.Join(failures, ctx.Err())
+		}
+		if err := r.HGExpireOrder(ctx, id); err != nil {
+			failures = errors.Join(failures, err)
+		}
+	}
+	return failures
 }
 
 func (r *HGOrderRepository) Ship(ctx context.Context, seller string, req HGShipRequest) error {
