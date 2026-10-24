@@ -120,6 +120,14 @@ func (s *HGService) PendingMerchants(ctx context.Context, user, cursor string) (
 		page.List = items[:20]
 		page.NextCursor = strconv.FormatUint(page.List[19].ID, 10)
 	}
+	// 数据库拒绝审核人审核自己的申请；按原始页计算游标后再过滤，避免跳过其他申请。
+	reviewable := make([]HGMerchantApplication, 0, len(page.List))
+	for _, item := range page.List {
+		if item.UserID != user {
+			reviewable = append(reviewable, item)
+		}
+	}
+	page.List = reviewable
 	return page, nil
 }
 
