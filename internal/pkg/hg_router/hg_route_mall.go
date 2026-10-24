@@ -22,16 +22,24 @@ func HGNewMallRouteGroup(h *product.HGHandler) http.Handler {
 func HGMallRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(hgMallRoutes(nil)) }
 
 func hgMallRoutes(h *product.HGHandler) []RouteSpec {
-	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct http.HandlerFunc
+	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct, adminStatus, image, deleteImage, unusedImages http.HandlerFunc
 	var buy, pay, pendingOrders, orders, order, receive, refund, merchantOrders, merchantOrder, ship http.HandlerFunc
 	if h != nil {
 		list, detail, mine, publish, merchant, apply = h.HGList, h.HGDetail, h.HGMine, h.HGPublish, h.HGMerchant, h.HGApply
+		adminStatus = h.HGAdminStatus
+		image = h.HGImage
+		deleteImage = h.HGDeleteUnusedImage
+		unusedImages = h.HGUnusedImages
 		pendingMerchants, reviewMerchant, pendingProducts, reviewProduct = h.HGPendingMerchants, h.HGReviewMerchant, h.HGPendingProducts, h.HGReviewProduct
 		buy, orders, order, receive, refund = h.HGBuy, h.HGOrders, h.HGOrder, h.HGReceive, h.HGRefund
 		pay, pendingOrders = h.HGPay, h.HGPendingOrders
 		merchantOrders, merchantOrder, ship = h.HGMerchantOrders, h.HGMerchantOrder, h.HGShip
 	}
 	return []RouteSpec{
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/admin-status", true, "当前管理员身份", adminStatus),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/image", true, "上传商品展示图片", image),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/products/image/delete", true, "删除未使用的商品图片", deleteImage),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/images/unused", true, "本人未发布图片", unusedImages),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products", true, "商品目录", list),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/detail", true, "商品详情", detail),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/mine", true, "商家本人商品", mine),

@@ -109,4 +109,46 @@ func TestHGPublishRejectsUnsellablePhysicalPriceAndMissingStock(t *testing.T) {
 	if _, err := service.Publish(context.Background(), "seller", draft); !errors.Is(err, ErrHGInvalid) {
 		t.Fatalf("无库存实物不得发布: %v", err)
 	}
+	draft.Stock, draft.ImageURLs = 1, []string{"one", "two", "three", "four", "five", "six"}
+	if _, err := service.Publish(context.Background(), "seller", draft); !errors.Is(err, ErrHGInvalid) {
+		t.Fatalf("超过图片上限不得发布: %v", err)
+	}
+}
+
+func TestHGPublishImageOwnershipIsAtomic(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallMerchantApprovedForUpdateSQL)).WithArgs("seller").WillReturnRows(sqlmock.NewRows([]string{"merchant_id"}).AddRow("MER_1"))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGMallProductInsertSQL)).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGMallImageBindSQL)).WithArgs("PRD_1", "https://cdn.example/image.jpg", "https://cdn.example/image.jpg", "seller").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	item := HGCatalogItem{ProductID: "PRD_1", MerchantID: "MER_1", ImageURLs: []string{"https://cdn.example/image.jpg"}}
+	if err := HGNewRepository(db).Publish(context.Background(), "seller", item); !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("非本人或已绑定图片应回滚: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGDetailReturnsProductImagesAndIntroduction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallCatalogDetailSQL)).WithArgs("PRD_1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "product_type", "title", "category", "summary", "merchant_id", "shop_name", "sku_id", "sku_title", "amount", "available", "description", "image_urls"}).
+			AddRow(1, "PRD_1", "PHYSICAL_PRODUCT", "商品", "digital", "摘要", "MER_1", "店铺", "SKU_1", "标准", 100, 2, "商品展示介绍", `["/uploads/mall_product/a.png","/uploads/mall_product/b.png"]`))
+	item, err := HGNewRepository(db).Detail(context.Background(), "PRD_1")
+	if err != nil || item.Description != "商品展示介绍" || len(item.ImageURLs) != 2 || item.ImageURLs[1] != "/uploads/mall_product/b.png" {
+		t.Fatalf("商品介绍与多图读取失败: %+v %v", item, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

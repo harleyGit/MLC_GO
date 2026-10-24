@@ -4,6 +4,7 @@ import (
 	q "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"math"
 	"strconv"
@@ -114,8 +115,22 @@ func (r *HGRepository) Publish(ctx context.Context, owner string, item HGCatalog
 	if merchantID != item.MerchantID {
 		return ErrHGForbidden
 	}
-	if _, err = tx.ExecContext(ctx, q.HGMallProductInsertSQL, item.ProductID, item.Type, item.Title, item.MerchantID, item.Category, item.Summary); err != nil {
+	images, err := json.Marshal(item.ImageURLs)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, q.HGMallProductInsertSQL, item.ProductID, item.Type, item.Title, item.MerchantID, item.Category, item.Summary, item.Description, images); err != nil {
 		return hgCatalogDBError(err)
+	}
+	seen := make(map[string]bool, len(item.ImageURLs))
+	for _, imageURL := range item.ImageURLs {
+		if seen[imageURL] {
+			return ErrHGInvalid
+		}
+		seen[imageURL] = true
+		if err = hgOne(tx.ExecContext(ctx, q.HGMallImageBindSQL, item.ProductID, imageURL, imageURL, owner)); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, q.HGMallSKUInsertSQL, item.SKUID, item.ProductID, item.SKUID, item.SKUTitle, item.Amount); err != nil {
 		return hgCatalogDBError(err)
@@ -138,11 +153,19 @@ func (r *HGRepository) ReviewProduct(ctx context.Context, operator, productID st
 
 func hgScanCatalog(row interface{ Scan(...any) error }, includeStatus bool) (HGCatalogItem, error) {
 	var item HGCatalogItem
+	var images []byte
 	fields := []any{&item.ID, &item.ProductID, &item.Type, &item.Title, &item.Category, &item.Summary, &item.MerchantID, &item.ShopName, &item.SKUID, &item.SKUTitle, &item.Amount, &item.Available}
 	if includeStatus {
 		fields = append(fields, &item.Status)
 	}
+	fields = append(fields, &item.Description, &images)
 	err := row.Scan(fields...)
+	if err == nil && len(images) != 0 {
+		err = json.Unmarshal(images, &item.ImageURLs)
+	}
+	if item.ImageURLs == nil {
+		item.ImageURLs = []string{}
+	}
 	return item, err
 }
 

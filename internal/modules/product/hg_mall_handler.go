@@ -11,9 +11,15 @@ import (
 )
 
 // HGHandler 提供商城目录、商家申请、商品草稿和数据库 RBAC 审核接口。
-type HGHandler struct{ service *HGService }
+type HGHandler struct {
+	service *HGService
+	images  *HGImageStore
+}
 
 func HGNewHandler(service *HGService) *HGHandler { return &HGHandler{service: service} }
+
+// HGWithImages 装配商品图片上传能力，不更改已有 Handler 构造签名。
+func (h *HGHandler) HGWithImages(images *HGImageStore) *HGHandler { h.images = images; return h }
 
 func hgAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := ctxuser.CurrentUserID(r)
@@ -73,6 +79,22 @@ func (h *HGHandler) HGList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.SuccessResult(w, r, page)
+}
+
+// HGAdminStatus 使用登录态身份查询管理员状态；不接受客户端传入用户 ID。
+func (h *HGHandler) HGAdminStatus(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	admin, err := h.service.HGAdminStatus(r.Context(), user)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		IsAdmin bool `json:"isAdmin"`
+	}{admin})
 }
 
 func (h *HGHandler) HGDetail(w http.ResponseWriter, r *http.Request) {

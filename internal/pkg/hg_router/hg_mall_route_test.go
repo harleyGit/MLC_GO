@@ -11,7 +11,7 @@ import (
 func TestHGMallCatalogAndGuardAgree(t *testing.T) {
 	items := HGMallRouteCatalog()
 	rules := hgserver.HGMallMethodRules()
-	if len(items) != len(rules) || len(items) != 20 {
+	if len(items) != len(rules) || len(items) != 24 {
 		t.Fatalf("商城路由数=%d 规则数=%d", len(items), len(rules))
 	}
 	for _, item := range items {

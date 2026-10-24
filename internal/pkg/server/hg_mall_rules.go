@@ -8,6 +8,10 @@ import (
 // HGMallMethodRules 同步商城模块路由目录；发布和审核需要 JWT，审核还需服务端 Ops RBAC。
 func HGMallMethodRules() []hgmiddleware.APIRule {
 	return []hgmiddleware.APIRule{
+		{Path: "/admin-status", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
+		{Path: "/products/image", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/products/image/delete", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true},
+		{Path: "/products/images/unused", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/products", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/products/detail", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},
 		{Path: "/products/mine", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true},

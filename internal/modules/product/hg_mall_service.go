@@ -22,6 +22,19 @@ type HGReviewer interface {
 	HasAssetPermission(context.Context, string, string) (bool, error)
 }
 
+// HGAdminStatus 仅返回数据库中当前 JWT 用户的有效管理员身份，供前端导航与路由展示使用。
+func (s *HGService) HGAdminStatus(ctx context.Context, user string) (bool, error) {
+	checker, ok := s.reviewer.(interface {
+		IsActiveAdmin(context.Context, string) (bool, error)
+	})
+	if !ok || user == "" {
+		return false, ErrHGForbidden
+	}
+	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
+	defer cancel()
+	return checker.IsActiveAdmin(ctx, user)
+}
+
 // HGService 将目录、商家准入和审核规则置于 HTTP 与数据库之间。
 type HGService struct {
 	store    HGStore      // 商家准入和商品目录的 MySQL 读写接口。
@@ -162,6 +175,7 @@ func hgBusinessID(id string) bool {
 // Publish stores a single-SKU M币 catalog draft; this never reserves stock, charges coins or grants benefits.
 func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDraft) (HGCatalogItem, error) {
 	if user == "" || !hgText(draft.Title, 128) || !hgText(draft.Summary, 512) || !hgText(draft.SKUTitle, 128) || draft.Amount < 1 || draft.Amount > 9007199254740991 || !hgCategories[draft.Category] ||
+		!utf8.ValidString(draft.Description) || utf8.RuneCountInString(draft.Description) > 4096 || strings.ContainsAny(draft.Description, "<>\x00") || len(draft.ImageURLs) > 5 ||
 		(draft.Type == "MEMBERSHIP" && (draft.Category != "membership" || draft.Stock != 0)) || (draft.Type == "PHYSICAL_PRODUCT" && (draft.Category == "membership" || draft.Stock == 0 || draft.Stock > 100000 || draft.Amount > int64(CoinRepositoryPackage.HGMaxMallMutationAmount))) || (draft.Type != "MEMBERSHIP" && draft.Type != "PHYSICAL_PRODUCT") {
 		return HGCatalogItem{}, ErrHGInvalid
 	}
@@ -174,7 +188,7 @@ func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDra
 	if err != nil {
 		return HGCatalogItem{}, err
 	}
-	item := HGCatalogItem{ProductID: UtilsPackage.GenerateBusinessID("PRD"), SKUID: UtilsPackage.GenerateBusinessID("PSKU"), MerchantID: m.MerchantID, ShopName: m.ShopName, Title: draft.Title, Type: draft.Type, Category: draft.Category, Summary: draft.Summary, SKUTitle: draft.SKUTitle, Amount: draft.Amount, Available: draft.Stock}
+	item := HGCatalogItem{ProductID: UtilsPackage.GenerateBusinessID("PRD"), SKUID: UtilsPackage.GenerateBusinessID("PSKU"), MerchantID: m.MerchantID, ShopName: m.ShopName, Title: draft.Title, Type: draft.Type, Category: draft.Category, Summary: draft.Summary, Description: draft.Description, ImageURLs: draft.ImageURLs, SKUTitle: draft.SKUTitle, Amount: draft.Amount, Available: draft.Stock}
 	if err := s.store.Publish(ctx, user, item); err != nil {
 		return HGCatalogItem{}, err
 	}

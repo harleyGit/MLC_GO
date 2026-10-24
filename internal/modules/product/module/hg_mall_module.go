@@ -4,8 +4,10 @@ import (
 	HGHandlerPackage "MLC_GO/internal/handler"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	"MLC_GO/internal/modules/product"
+	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	HGUploadPackage "MLC_GO/internal/pkg/upload"
 	"net/http"
 )
 
@@ -22,6 +24,23 @@ func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager) {
 		panic("商城模块需要数据库管理器")
 	}
 	db := manager.GetSQLDB()
+	config, err := ConfigPackage.GetVideoCommentConfig()
+	if err != nil {
+		panic(err)
+	}
+	uploadConfig := HGUploadPackage.DefaultConfig()
+	uploadConfig.MaxFileSize = 5 << 20
+	uploadConfig.AllowedTypes = []string{HGUploadPackage.ImageTypeJPG, HGUploadPackage.ImageTypeJPEG, HGUploadPackage.ImageTypePNG, HGUploadPackage.ImageTypeWebP}
+	if config.Storage.Type == "s3" {
+		uploadConfig.StorageType = "s3"
+		uploadConfig.S3Config = &HGUploadPackage.S3Config{Endpoint: config.Storage.Endpoint, Region: config.Storage.Region, BucketName: config.Storage.Bucket, AccessKeyID: config.Storage.AccessKeyID, SecretAccessKey: config.Storage.SecretAccessKey, CDNBaseURL: config.Storage.CDNBaseURL, RequestTimeout: config.Storage.RequestTimeout}
+	} else {
+		uploadConfig.BaseURL = "http://localhost:8080"
+	}
+	uploader, err := HGUploadPackage.NewUploaderStrict(uploadConfig)
+	if err != nil {
+		panic(err)
+	}
 	service := product.HGNewService(product.HGNewRepository(db), OpsRepositoryPackage.NewRepository(db)).HGWithOrders(product.HGNewOrderRepository(db))
-	HGHandlerPackage.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service)})
+	HGHandlerPackage.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service).HGWithImages(product.HGNewImageStore(db, uploader))})
 }
