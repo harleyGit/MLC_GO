@@ -460,9 +460,45 @@ func TestHGOrderLookupIsScopedToBuyer(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByOwnerSQL)).WithArgs("other-user", "MORD_1").WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallPendingByOwnerSQL)).WithArgs("other-user", "MORD_1").WillReturnError(sql.ErrNoRows)
 	_, err = HGNewOrderRepository(db).Order(context.Background(), "other-user", "MORD_1", false)
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("跨用户读取订单应不可见: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGOrderDetailIncludesOnlyBuyerPendingSnapshot(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByOwnerSQL)).WithArgs("buyer", "MORD_1").WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallPendingByOwnerSQL)).WithArgs("buyer", "MORD_1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "trade_order_id", "merchant_id", "user_id", "product_id", "product_title", "sku_title", "sku_id", "quantity", "unit_amount", "payable_amount", "trade_status", "receiver_name", "receiver_phone", "receiver_address", "request_hash", "expire_at",
+	}).AddRow(1, "MORD_1", "MER_1", "buyer", "PRD_1", "商品", "规格", "SKU_1", 2, 50, 100, 1, "收件人", "13800000000", "收货地址", "hash", time.Now().UTC()))
+	order, err := HGNewOrderRepository(db).Order(context.Background(), "buyer", "MORD_1", false)
+	if err != nil || order.TradeStatus != 1 || order.ReceiverAddress != "收货地址" || order.ExpiresAt == "" {
+		t.Fatalf("本人待支付详情读取失败: %+v %v", order, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGMerchantOrderDetailNeverReadsPendingAddress(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallOrderByMerchantSQL)).WithArgs("seller", "MORD_1").WillReturnError(sql.ErrNoRows)
+	_, err = HGNewOrderRepository(db).Order(context.Background(), "seller", "MORD_1", true)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("商家不可读取待支付详情: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -28,7 +28,7 @@ type HGBuyRequest struct {
 	ReceiverAddress string `json:"receiverAddress"` // 收货地址纯文本，1-512 个字符。
 }
 
-// HGOrder 是商城实物订单 API 快照；仅向买家与该订单所属商家返回收货信息，不包含钱包流水 ID。
+// HGOrder 是商城实物订单 API 快照；待支付收货信息仅买家可见，付款后的快照仅买家与该店商家可见，不包含钱包流水 ID。
 type HGOrder struct {
 	ID              uint64 `json:"-"`                   // 内部游标。
 	OrderID         string `json:"orderId"`             // 对外交易业务标识。
@@ -168,6 +168,7 @@ func (s *HGService) HGOrders(ctx context.Context, user, cursor string, merchant 
 	return hgOrderPage(items), nil
 }
 
+// HGOrder 按本人或本店身份读取单笔商品订单；买家可读取待支付快照，商家只可读取已付款履约单。
 func (s *HGService) HGOrder(ctx context.Context, user, id string, merchant bool) (HGOrder, error) {
 	if user == "" || !hgBusinessID(id) {
 		return HGOrder{}, ErrHGInvalid

@@ -60,12 +60,22 @@ func (r *HGOrderRepository) PendingOrders(ctx context.Context, user string, curs
 	return items, rows.Err()
 }
 
-func (r *HGOrderRepository) Order(ctx context.Context, user, orderID string, merchant bool) (HGOrder, error) {
+// 支付幂等判定仅查询真实履约快照，不将待支付详情误判为已支付结果。
+func (r *HGOrderRepository) hgPaidOrder(ctx context.Context, user, orderID string, merchant bool) (HGOrder, error) {
 	query := SQLQueriesPackage.HGMallOrderByOwnerSQL
 	if merchant {
 		query = SQLQueriesPackage.HGMallOrderByMerchantSQL
 	}
 	return hgOrderScan(r.db.QueryRowContext(ctx, query, user, orderID))
+}
+
+func (r *HGOrderRepository) Order(ctx context.Context, user, orderID string, merchant bool) (HGOrder, error) {
+	order, err := r.hgPaidOrder(ctx, user, orderID, merchant)
+	if !merchant && errors.Is(err, sql.ErrNoRows) {
+		// 未付款快照只按买家身份点查；商家详情绝不回退读取收货地址。
+		return hgPendingScan(r.db.QueryRowContext(ctx, SQLQueriesPackage.HGMallPendingByOwnerSQL, user, orderID))
+	}
+	return order, err
 }
 
 func (r *HGOrderRepository) Orders(ctx context.Context, user string, merchant bool, cursor uint64) ([]HGOrder, error) {
@@ -186,7 +196,7 @@ func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyReque
 
 // Pay 锁本人预留订单后一次提交扣币、支付事实、履约快照与订单状态；成功重放不二次扣币。
 func (r *HGOrderRepository) Pay(ctx context.Context, user, orderID string) (HGOrder, error) {
-	paid, err := r.Order(ctx, user, orderID, false)
+	paid, err := r.hgPaidOrder(ctx, user, orderID, false)
 	if err == nil {
 		return paid, nil
 	}
@@ -206,7 +216,7 @@ func (r *HGOrderRepository) Pay(ctx context.Context, user, orderID string) (HGOr
 	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGMallPendingForPaymentSQL, orderID, user).Scan(&status, &amount, &hash, &beforeExpire, &merchant, &sku, &quantity, &name, &phone, &address)
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Rollback()
-		paid, err = r.Order(ctx, user, orderID, false)
+		paid, err = r.hgPaidOrder(ctx, user, orderID, false)
 		if err == nil {
 			return paid, nil
 		}

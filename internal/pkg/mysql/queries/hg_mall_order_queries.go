@@ -33,7 +33,8 @@ const HGMallTradePaidSQL = `UPDATE trade_order SET trade_status=2,paid_at=UTC_TI
 // 请求重放再按订单业务 ID 和买家身份读取完整快照；写入结果未知时继续以同一请求键查询，不能再次扣款。
 const HGMallBuyReplayKeySQL = `SELECT trade_order_id,request_hash FROM trade_order WHERE user_id=? AND request_id=? LIMIT 1`
 
-// 待支付列表用 (user_id,id) 倒序翻页，最多取21行；无符号游标以十进制文本传入并只转换参数，保持索引范围查找。
+// 本人详情按 trade_order_id 唯一点查，先锁定买家作用域；列表用 (user_id,id) 倒序翻页，最多取21行。
+// 无符号游标以十进制文本传入并只转换参数，保持索引范围查找。
 const HGMallPendingSelectFieldsSQL = `SELECT p.id,p.trade_order_id,p.merchant_id,p.user_id,ti.product_id,ti.product_title,ti.sku_title,p.sku_id,p.quantity,ti.unit_amount,t.payable_amount,t.trade_status,p.receiver_name,p.receiver_phone,p.receiver_address,t.request_hash,p.expire_at`
 const HGMallPendingByOwnerSQL = HGMallPendingSelectFieldsSQL + ` FROM mall_pending_order p JOIN trade_order t ON t.trade_order_id=p.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=p.trade_order_id AND ti.line_no=1 WHERE p.user_id=? AND p.trade_order_id=? LIMIT 1`
 const HGMallPendingOrdersSQL = HGMallPendingSelectFieldsSQL + ` FROM mall_pending_order p JOIN trade_order t ON t.trade_order_id=p.trade_order_id JOIN trade_order_item ti ON ti.trade_order_id=p.trade_order_id AND ti.line_no=1 WHERE p.user_id=? AND p.id<CAST(? AS UNSIGNED) ORDER BY p.id DESC LIMIT ?`
