@@ -58,9 +58,16 @@ const HGMallImageUndoDeleteSQL = `UPDATE mall_product_image SET status=1 WHERE i
 // 本人未发布图片最多20张；按 (user_id,status,id) 覆盖索引稳定倒序读取，无跨用户扫描。
 const HGMallImageUnusedListSQL = `SELECT image_url FROM mall_product_image WHERE user_id=? AND status IN (1,3) ORDER BY id DESC LIMIT 20`
 
+// 仅本机隔离 debug 上传回归使用；唯一生成的测试用户可定点清理其全部未绑定图片与店铺。
+const HGMallDebugRemoveImagesSQL = `DELETE FROM mall_product_image WHERE user_id=? AND status IN (0,1,3)`
+const HGMallDebugRemoveMerchantSQL = `DELETE FROM mall_merchant WHERE merchant_id=? AND user_id=?`
+
 // 补图只操作本人已上架商品，按 product_id 唯一索引锁住商品行；已公开图片与未审补图之和最多5张。
 const HGMallMediaOwnProductSQL = `SELECT COALESCE(p.image_urls,JSON_ARRAY()) FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 WHERE p.product_id=? AND m.user_id=? AND p.status=1 AND p.review_status=1 FOR UPDATE`
 const HGMallMediaPendingCountSQL = `SELECT COUNT(*) FROM mall_product_image WHERE product_id=? AND status=4`
+
+// 本人已上架商品唯一键点查，LEFT JOIN 保留无待审图片的空结果；图片按 (product_id,id) 至多取5张。
+const HGMallMediaOwnPendingSQL = `SELECT pi.image_url FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id AND m.status=1 LEFT JOIN mall_product_image pi ON pi.product_id=p.product_id AND pi.status=4 WHERE p.product_id=? AND m.user_id=? AND p.status=1 AND p.review_status=1 ORDER BY pi.id ASC LIMIT 5`
 const HGMallMediaStageSQL = `UPDATE mall_product_image SET product_id=?,status=4 WHERE image_url_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=1`
 
 // 审核队列按 (status,id) 限量扫描；连接商品/商家仅按业务唯一键点查。

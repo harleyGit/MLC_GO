@@ -31,6 +31,7 @@ type HGStore interface {
 	PendingProducts(context.Context, uint64) ([]HGCatalogItem, error)
 	StageMedia(context.Context, string, string, []string) error
 	PendingMedia(context.Context, uint64) ([]HGMediaItem, error)
+	OwnPendingMedia(context.Context, string, string) ([]string, error)
 	ReviewMedia(context.Context, string, string, bool) error
 }
 

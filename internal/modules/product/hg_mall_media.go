@@ -88,6 +88,34 @@ func (r *HGRepository) PendingMedia(ctx context.Context, cursor uint64) ([]HGMed
 	return items, rows.Err()
 }
 
+// OwnPendingMedia 只返回本人已上架商品的待审核补图；无图片也返回空数组，不泄露他人商品。
+func (r *HGRepository) OwnPendingMedia(ctx context.Context, owner, productID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, q.HGMallMediaOwnPendingSQL, productID, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	images := make([]string, 0, 5)
+	found := false
+	for rows.Next() {
+		found = true
+		var url sql.NullString
+		if err = rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		if url.Valid {
+			images = append(images, url.String)
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrHGForbidden
+	}
+	return images, nil
+}
+
 // ReviewMedia 锁住商品后原子修改图片状态及公开目录 JSON；拒绝不修改已上架商品。
 func (r *HGRepository) ReviewMedia(ctx context.Context, reviewer, url string, approve bool) error {
 	var productID string
@@ -175,6 +203,27 @@ func (s *HGService) HGPendingMedia(ctx context.Context, user, cursor string) (HG
 	return page, nil
 }
 
+// HGOwnPendingMedia 按 JWT 店主和已上架商品业务 ID 返回至多5张待审照片。
+func (s *HGService) HGOwnPendingMedia(ctx context.Context, user, productID string) ([]string, error) {
+	if user == "" || !hgBusinessID(productID) {
+		return nil, ErrHGInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
+	defer cancel()
+	return s.store.OwnPendingMedia(ctx, user, productID)
+}
+
+// HGCanReview 用只读 RBAC 判断当前 JWT 是否可进入审核页，普通商家得到 false 而非探测审核列表的 403。
+func (s *HGService) HGCanReview(ctx context.Context, user string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
+	defer cancel()
+	err := s.hgApprove(ctx, user)
+	if errors.Is(err, ErrHGForbidden) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (s *HGService) HGReviewMedia(ctx context.Context, user, url string, approve bool) error {
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()
@@ -219,6 +268,38 @@ func (h *HGHandler) HGPendingMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.SuccessResult(w, r, page)
+}
+
+func (h *HGHandler) HGOwnPendingMedia(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	productID := r.URL.Query().Get("productId")
+	urls, err := h.service.HGOwnPendingMedia(r.Context(), user, productID)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		ProductID string   `json:"productId"` // 本人已上架的商品业务 ID。
+		ImageURLs []string `json:"imageURLs"` // 当前待审补图，最多5张，未公开。
+	}{productID, urls})
+}
+
+func (h *HGHandler) HGReviewAccess(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.service.HGCanReview(r.Context(), user)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		CanReview bool `json:"canReview"` // 只有当前用户具备商城审核 RBAC 权限才为 true。
+	}{allowed})
 }
 
 func (h *HGHandler) HGReviewMedia(w http.ResponseWriter, r *http.Request) {

@@ -97,3 +97,41 @@ func TestHGReviewMediaRequiresReviewerPermission(t *testing.T) {
 		t.Fatalf("普通用户不得审核补图: %v", err)
 	}
 }
+
+func TestHGOwnPendingMediaShowsOnlyOwnersQueuedImages(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	query := regexp.QuoteMeta(q.HGMallMediaOwnPendingSQL)
+	mock.ExpectQuery(query).WithArgs("PRD_1", "seller").WillReturnRows(sqlmock.NewRows([]string{"image_url"}).AddRow("/uploads/a.png").AddRow("/uploads/b.png"))
+	mock.ExpectQuery(query).WithArgs("PRD_1", "seller").WillReturnRows(sqlmock.NewRows([]string{"image_url"}).AddRow(nil))
+	mock.ExpectQuery(query).WithArgs("PRD_1", "other").WillReturnRows(sqlmock.NewRows([]string{"image_url"}))
+	repo := HGNewRepository(db)
+	urls, err := repo.OwnPendingMedia(context.Background(), "seller", "PRD_1")
+	if err != nil || len(urls) != 2 || urls[0] != "/uploads/a.png" {
+		t.Fatalf("店主应看到待审图片: %v, %v", urls, err)
+	}
+	urls, err = repo.OwnPendingMedia(context.Background(), "seller", "PRD_1")
+	if err != nil || len(urls) != 0 {
+		t.Fatalf("无待审图片应返回空数组: %v, %v", urls, err)
+	}
+	if _, err = repo.OwnPendingMedia(context.Background(), "other", "PRD_1"); !errors.Is(err, ErrHGForbidden) {
+		t.Fatalf("他人不得读取本店待审图片: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGReviewAccessHidesReviewFromOrdinaryMerchant(t *testing.T) {
+	allowed, err := HGNewService(nil, hgReviewAuthorizer{allowed: false}).HGCanReview(context.Background(), "seller")
+	if err != nil || allowed {
+		t.Fatalf("普通商家审核入口应隐藏但不触发403: allowed=%t err=%v", allowed, err)
+	}
+	allowed, err = HGNewService(nil, hgReviewAuthorizer{allowed: true}).HGCanReview(context.Background(), "reviewer")
+	if err != nil || !allowed {
+		t.Fatalf("授权审核员应可见入口: allowed=%t err=%v", allowed, err)
+	}
+}

@@ -257,13 +257,18 @@ func (g *APIGuard) checkoutHeader(r *http.Request, needAuth bool) (context.Conte
 	return ctx, nil
 }
 
-// hgIsBinarySignedBody preserves existing binary exemptions and limits raw comment image exemption to its route.
+// hgIsBinarySignedBody 对已登记的原始图片上传路由使用空 body 签名；其他 image/* 请求继续验签实际请求体。
 func hgIsBinarySignedBody(r *http.Request) bool {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	if strings.HasPrefix(contentType, "multipart/form-data") || strings.HasPrefix(contentType, "application/octet-stream") {
 		return true
 	}
-	return r.URL.Path == "/image" || r.URL.Path == "/api/v1/video_comments/image"
+	switch r.URL.Path {
+	case "/image", "/api/v1/video_comments/image", "/products/image", "/api/v1/mall/products/image":
+		return true
+	default:
+		return false
+	}
 }
 
 // endregion
