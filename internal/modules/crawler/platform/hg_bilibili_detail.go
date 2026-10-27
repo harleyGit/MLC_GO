@@ -53,6 +53,26 @@ type hgDetailResponse struct {
 	} `json:"data"` // 视频详情。
 }
 
+// HGCompactBilibiliDetail 丢弃 view 接口中流水线不使用的字段，避免原始响应超过 Kafka 单消息预算。
+// 输出仍保留 HGCleanBilibiliDetail 所需的协议字段和完整校验入口，不改变后续 raw 阶段语义。
+func HGCompactBilibiliDetail(body []byte) ([]byte, error) {
+	if len(body) > hgBilibiliMaxResponseBytes || !utf8.Valid(body) {
+		return nil, errors.New("详情响应大小或编码无效")
+	}
+	var hgResponse hgDetailResponse
+	if hgErr := json.Unmarshal(body, &hgResponse); hgErr != nil {
+		return nil, fmt.Errorf("解析视频详情: %w", hgErr)
+	}
+	hgCompacted, hgErr := json.Marshal(hgResponse)
+	if hgErr != nil {
+		return nil, fmt.Errorf("压缩视频详情: %w", hgErr)
+	}
+	if len(hgCompacted) > 1<<20 {
+		return nil, errors.New("详情必要字段超过1MiB消息预算")
+	}
+	return hgCompacted, nil
+}
+
 // HGCleanBilibiliDetail 将 B 站返回的复杂 JSON 转换成自己系统统一的数据结构，同时校验数据的完整性和正确性。
 /*整体流程：
 B站视频详情 API

@@ -211,11 +211,8 @@ func (c *HGStageConsumer) Handle(ctx context.Context, e events.EventEnvelope) er
 		if response.StatusCode != 200 {
 			return c.hgFail(ctx, item, expected, "详情上游拒绝请求")
 		}
-		// 第四步：检查响应数据
-		// 限制原始响应最大为 1 MiB。
-		if len(response.Body) > 1<<20 {
-			return c.hgFail(ctx, item, expected, "详情原始响应超过1MiB消息预算")
-		}
+		// 第四步：检查响应数据。B 站响应可能携带体积很大的合集等无关字段，
+		// 先保留清洗阶段所需的协议字段，再按 Kafka 1 MiB 单消息预算校验。
 		var code struct {
 			Code int `json:"code"`
 		} // 上游业务状态；完整字段清洗由下阶段负责。
@@ -226,8 +223,12 @@ func (c *HGStageConsumer) Handle(ctx context.Context, e events.EventEnvelope) er
 		if code.Code != 0 {
 			return c.hgFail(ctx, item, expected, fmt.Sprintf("详情上游业务码%d", code.Code))
 		}
+		hgCompacted, hgCompactErr := CrawlerPlatformPackage.HGCompactBilibiliDetail(response.Body)
+		if hgCompactErr != nil {
+			return c.hgFail(ctx, item, expected, "详情响应裁剪失败")
+		}
 		// 第五步：保存原始数据并设置下一阶段; 表示抓取完成，准备进入 raw 阶段
-		item.Data = response.Body
+		item.Data = hgCompacted
 		item.CollectedAt = time.Now().UTC().Truncate(time.Microsecond)
 		next = "raw"
 		stage = CrawlerEventPackage.HGRaw

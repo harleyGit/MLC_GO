@@ -43,3 +43,21 @@ func TestHGCleanDetailAllowsUpstreamStatMetadata(t *testing.T) {
 		t.Fatalf("上游额外统计元数据不应导致清洗失败: %v", hgErr)
 	}
 }
+
+func TestHGCompactDetailDropsUnusedLargeFields(t *testing.T) {
+	hgLargeMetadata := `"ugc_season":"` + strings.Repeat("x", 1<<20) + `",`
+	hgBody := strings.Replace(hgDetailFixture, `"data":{`, `"data":{`+hgLargeMetadata, 1)
+	if len(hgBody) <= 1<<20 {
+		t.Fatal("测试数据必须超过 Kafka 单消息预算")
+	}
+	hgCompacted, hgErr := HGCompactBilibiliDetail([]byte(hgBody))
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	if len(hgCompacted) >= len(hgBody) || len(hgCompacted) > 1<<20 {
+		t.Fatalf("裁剪后详情大小无效: before=%d after=%d", len(hgBody), len(hgCompacted))
+	}
+	if _, hgErr = HGCleanBilibiliDetail(hgCompacted, "BV1GJ411x7h7", time.Now().UTC()); hgErr != nil {
+		t.Fatalf("裁剪后详情应能继续清洗: %v", hgErr)
+	}
+}

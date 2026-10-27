@@ -23,6 +23,12 @@ KAFKA_PARTITIONS="${KAFKA_PARTITIONS:-12}"
 # 弹幕历史使用独立 Topic，按 video_id 作为 key 保证同视频进入同一分区。
 KAFKA_DANMAKU_TOPIC="${KAFKA_DANMAKU_TOPIC:-mlc.video.danmaku.created.v1}"
 KAFKA_DANMAKU_PARTITIONS="${KAFKA_DANMAKU_PARTITIONS:-96}"
+# 视频详情采集流水线按阶段拆分 Topic；本地 Kafka 禁止自动创建，初始化时必须显式准备。
+KAFKA_CRAWLER_PARTITIONS="${KAFKA_CRAWLER_PARTITIONS:-12}"
+KAFKA_CRAWLER_DISCOVERED_TOPIC="${KAFKA_CRAWLER_DISCOVERED_TOPIC:-mlc.crawler.video.discovered.v1}"
+KAFKA_CRAWLER_RAW_TOPIC="${KAFKA_CRAWLER_RAW_TOPIC:-mlc.crawler.video.raw.v1}"
+KAFKA_CRAWLER_CLEANED_TOPIC="${KAFKA_CRAWLER_CLEANED_TOPIC:-mlc.crawler.video.cleaned.v1}"
+KAFKA_CRAWLER_STORED_TOPIC="${KAFKA_CRAWLER_STORED_TOPIC:-mlc.crawler.video.stored.v1}"
 # 每个分区保存 3 份副本，对应本地三个 broker。
 KAFKA_REPLICATION_FACTOR="${KAFKA_REPLICATION_FACTOR:-3}"
 # apache/kafka 镜像中 Kafka Topic 管理命令的固定路径。
@@ -131,3 +137,7 @@ echo "[INFO] Kafka Topic 拓扑检查通过: topic=$topic partitions=$partitions
 
 ensure_topic "$KAFKA_TOPIC" "$KAFKA_PARTITIONS"
 ensure_topic "$KAFKA_DANMAKU_TOPIC" "$KAFKA_DANMAKU_PARTITIONS"
+ensure_topic "$KAFKA_CRAWLER_DISCOVERED_TOPIC" "$KAFKA_CRAWLER_PARTITIONS"
+ensure_topic "$KAFKA_CRAWLER_RAW_TOPIC" "$KAFKA_CRAWLER_PARTITIONS"
+ensure_topic "$KAFKA_CRAWLER_CLEANED_TOPIC" "$KAFKA_CRAWLER_PARTITIONS"
+ensure_topic "$KAFKA_CRAWLER_STORED_TOPIC" "$KAFKA_CRAWLER_PARTITIONS"
