@@ -337,9 +337,9 @@ INSERT INTO video_submissions (
     submission_id, user_id, title, video_count, total_size, status
 ) VALUES (?, ?, ?, 1, ?, 'draft')
 ON DUPLICATE KEY UPDATE
-    video_count = video_count + 1,
-    total_size = total_size + VALUES(total_size),
-    updated_at = CURRENT_TIMESTAMP`
+    video_count = IF(user_id=VALUES(user_id) AND status='draft',video_count + 1,video_count),
+    total_size = IF(user_id=VALUES(user_id) AND status='draft',total_size + VALUES(total_size),total_size),
+    updated_at = IF(user_id=VALUES(user_id) AND status='draft',CURRENT_TIMESTAMP,updated_at)`
 
 	// InsertOrUpdateVideoFileSQL 创建或更新视频文件记录。
 	// 上传完成后写入文件信息，包括路径、大小、MD5 等。
@@ -349,15 +349,22 @@ INSERT INTO video_files (
     file_size, mime_type, md5, upload_status, upload_progress, transcode_status
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 100.00, 'pending')
 ON DUPLICATE KEY UPDATE
-    title = VALUES(title),
-    file_name = VALUES(file_name),
-    file_path = VALUES(file_path),
-    file_size = VALUES(file_size),
-    mime_type = VALUES(mime_type),
-    md5 = VALUES(md5),
-    upload_status = 'completed',
-    upload_progress = 100.00,
-    updated_at = CURRENT_TIMESTAMP`
+    title = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(title),title),
+    file_name = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(file_name),file_name),
+    file_path = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(file_path),file_path),
+    file_size = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(file_size),file_size),
+    mime_type = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(mime_type),mime_type),
+    md5 = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),VALUES(md5),md5),
+    upload_status = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),'completed',upload_status),
+    upload_progress = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),100.00,upload_progress),
+    updated_at = IF(user_id=VALUES(user_id) AND submission_id=VALUES(submission_id),CURRENT_TIMESTAMP,updated_at)`
+
+	// 上传及投稿事务在 submission_id 唯一键上锁定可信 owner/status；禁止跨用户复用 ID 和已提交稿件重写。
+	HGSelectVideoSubmissionAuthForUpdate = `SELECT user_id,status FROM video_submissions WHERE submission_id=? LIMIT 1 FOR UPDATE`
+	// 分 P 配置和标签必须先在 video_id 唯一键上验证同一投稿和本人归属。
+	HGSelectVideoFileAuthForUpdate = `SELECT 1 FROM video_files WHERE video_id=? AND submission_id=? AND user_id=? LIMIT 1 FOR UPDATE`
+	// 分 P 唯一键冲突会保留旧 video_id；上传前拒绝重复分 P，避免返回未落库的新 ID。
+	HGSelectVideoPartForUpdate = `SELECT 1 FROM video_files WHERE submission_id=? AND part_number=? LIMIT 1 FOR UPDATE`
 
 	// SaveSubmissionSQL 保存完整稿件配置。
 	// 因为本模块不使用外键，所有写入都带 userID/submissionID 限定，避免误更新其他用户数据。

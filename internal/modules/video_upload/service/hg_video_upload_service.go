@@ -3,6 +3,7 @@ package VideoUploadServicePackage
 import (
 	"MLC_GO/internal/events"
 	VideoEventsPackage "MLC_GO/internal/events/video"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
@@ -35,13 +36,14 @@ const (
 
 var (
 	// 以下错误用于 handler 精准映射 400/500，避免把用户参数问题都包装成内部错误。
-	ErrVideoFileEmpty     = errors.New("视频文件为空")
-	ErrVideoFileTooLarge  = errors.New("视频大小不能超过4GB")
-	ErrVideoTypeInvalid   = errors.New("仅支持上传视频文件")
-	ErrSubmissionInvalid  = errors.New("稿件信息不完整")
-	ErrVideoConfigInvalid = errors.New("视频配置不完整")
-	ErrUploadRateLimited  = errors.New("上传请求过于频繁")
-	ErrSubmitDuplicated   = errors.New("稿件正在提交，请勿重复操作")
+	ErrVideoFileEmpty      = errors.New("视频文件为空")
+	ErrVideoFileTooLarge   = errors.New("视频大小不能超过4GB")
+	ErrVideoTypeInvalid    = errors.New("仅支持上传视频文件")
+	ErrSubmissionInvalid   = errors.New("稿件信息不完整")
+	ErrVideoConfigInvalid  = errors.New("视频配置不完整")
+	ErrUploadRateLimited   = errors.New("上传请求过于频繁")
+	ErrSubmitDuplicated    = errors.New("稿件正在提交，请勿重复操作")
+	ErrSubmissionForbidden = errors.New("无权修改此稿件")
 )
 
 // Service 承载视频投稿业务编排。
@@ -54,7 +56,11 @@ type Service struct {
 	baseURL   string // 服务基础 URL，用于拼接文件绝对访问地址
 	uploader  *HGUploadPackage.Uploader
 	syncer    *VideoUploadTaskPackage.StatusCounterSyncer
+	iam       *IAMPackage.HGService // 可信业务身份与角色授权，生产装配注入。
 }
+
+// WithIAM 注入 IAM 授权服务，先校验角色和可信状态，再进入文件及数据库写入。
+func (s *Service) WithIAM(iam *IAMPackage.HGService) *Service { s.iam = iam; return s }
 
 type eventPublisher interface {
 	Publish(ctx context.Context, event events.DomainEvent) error
@@ -162,6 +168,29 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 	if partNumber == 0 {
 		partNumber = 1
 	}
+	if s.iam != nil {
+		if err := s.iam.EnsureCreator(ctx, userID); err != nil {
+			return nil, err
+		}
+		oldStatus, found, err := s.repo.GetSubmissionStatus(ctx, submissionID, userID)
+		if err != nil {
+			return nil, err
+		}
+		permission := "video:submission:create"
+		resource := IAMPackage.HGResource{ScopeType: "global", OwnerID: userID, RequireOwner: true}
+		if found {
+			permission = "video:submission:update"
+			resource.Status = oldStatus
+			resource.AllowedStatuses = []string{"draft"}
+		}
+		decision, err := s.iam.Authorize(ctx, userID, permission, resource)
+		if err != nil {
+			return nil, err
+		}
+		if !decision.Allowed {
+			return nil, ErrSubmissionForbidden
+		}
+	}
 
 	videoID := newBusinessID("video")
 	ext := strings.ToLower(filepath.Ext(fileName))
@@ -213,6 +242,7 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 		MimeType:     mimeType,
 		MD5:          fileMD5,
 	}); err != nil {
+		_ = os.Remove(storagePath)
 		return nil, err
 	}
 	if s.cache != nil {
@@ -270,14 +300,32 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 	defer s.releaseSubmitLock(context.WithoutCancel(ctx), userID, req.SubmissionID, lockValue)
 
 	// 保存前读取旧状态，用于 Redis 计数器按 delta 更新，而不是每次 COUNT(*) 回源。
-	oldStatus, _, err := s.repo.GetSubmissionStatus(ctx, req.SubmissionID, userID)
+	oldStatus, found, err := s.repo.GetSubmissionStatus(ctx, req.SubmissionID, userID)
 	if err != nil {
 		return nil, err
+	}
+	if s.iam != nil {
+		if !found {
+			return nil, ErrSubmissionForbidden
+		}
+		if err = s.iam.EnsureCreator(ctx, userID); err != nil {
+			return nil, err
+		}
+		decision, authErr := s.iam.Authorize(ctx, userID, "video:submission:update", IAMPackage.HGResource{ScopeType: "global", OwnerID: userID, RequireOwner: true, Status: oldStatus, AllowedStatuses: []string{"draft", "rejected"}})
+		if authErr != nil {
+			return nil, authErr
+		}
+		if !decision.Allowed {
+			return nil, ErrSubmissionForbidden
+		}
 	}
 
 	// 领域事件随业务数据写入同一个 MySQL 事务的 Outbox，避免 DB 成功但 Kafka 失败导致读模型漏更新。
 	domainEvents := s.submissionEvents(ctx, userID, req)
 	if err := s.repo.SaveSubmissionWithEvents(ctx, userID, req, domainEvents...); err != nil {
+		if errors.Is(err, VideoUploadRepositoryPackage.ErrHGVideoForbidden) {
+			return nil, ErrSubmissionForbidden
+		}
 		return nil, err
 	}
 	if s.cache != nil {

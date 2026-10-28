@@ -2,6 +2,7 @@ package VideoUploadHandlerPackage
 
 import (
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
+	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadServicePackage "MLC_GO/internal/modules/video_upload/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
@@ -208,6 +209,10 @@ func mapUploadError(err error) (int, HGResponsePakcage.HGErrorCode) {
 		return http.StatusBadRequest, HGResponsePakcage.InvalidParam.Code
 	case errors.Is(err, VideoUploadServicePackage.ErrUploadRateLimited):
 		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParam.Code
+	case errors.Is(err, VideoUploadServicePackage.ErrSubmissionForbidden), errors.Is(err, VideoUploadRepositoryPackage.ErrHGVideoForbidden):
+		return http.StatusForbidden, HGResponsePakcage.Forbidden.Code
+	case errors.Is(err, VideoUploadRepositoryPackage.ErrHGVideoConflict):
+		return http.StatusConflict, HGResponsePakcage.Conflict.Code
 	default:
 		return http.StatusInternalServerError, HGResponsePakcage.InternalError.Code
 	}
@@ -221,6 +226,8 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 		return http.StatusBadRequest, HGResponsePakcage.InvalidParam.Code
 	case errors.Is(err, VideoUploadServicePackage.ErrSubmitDuplicated):
 		return http.StatusTooManyRequests, HGResponsePakcage.InvalidParam.Code
+	case errors.Is(err, VideoUploadServicePackage.ErrSubmissionForbidden), errors.Is(err, VideoUploadRepositoryPackage.ErrHGVideoForbidden):
+		return http.StatusForbidden, HGResponsePakcage.Forbidden.Code
 	default:
 		return http.StatusInternalServerError, HGResponsePakcage.InternalError.Code
 	}

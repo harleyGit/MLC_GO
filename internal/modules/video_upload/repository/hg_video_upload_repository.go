@@ -53,15 +53,57 @@ func NewRepository(db *sql.DB) *Repository {
 // CreateUploadedVideo 创建或更新稿件的上传记录。
 // 第一个分 P 会创建 video_submissions；后续分 P 复用 submission_id 并累加数量和大小。
 func (r *Repository) CreateUploadedVideo(ctx context.Context, video UploadedVideo) error {
-	_, err := r.db.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateVideoSubmissionSQL, video.SubmissionID, video.UserID, video.Title, video.FileSize)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-
-	_, err = r.db.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateVideoFileSQL, video.VideoID, video.SubmissionID, video.UserID, video.PartNumber, video.Title, video.FileName, video.FilePath, video.FileSize, video.MimeType, video.MD5)
-
-	return err
+	defer tx.Rollback()
+	var owner, status string
+	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectVideoSubmissionAuthForUpdate, video.SubmissionID).Scan(&owner, &status)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil && (owner != video.UserID || status != "draft") {
+		return ErrHGVideoForbidden
+	}
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateVideoSubmissionSQL, video.SubmissionID, video.UserID, video.Title, video.FileSize)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHGVideoForbidden
+	}
+	var existingPart int
+	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectVideoPartForUpdate, video.SubmissionID, video.PartNumber).Scan(&existingPart)
+	if err == nil {
+		return ErrHGVideoConflict
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertOrUpdateVideoFileSQL, video.VideoID, video.SubmissionID, video.UserID, video.PartNumber, video.Title, video.FileName, video.FilePath, video.FileSize, video.MimeType, video.MD5)
+	if err != nil {
+		return err
+	}
+	n, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrHGVideoForbidden
+	}
+	return tx.Commit()
 }
+
+// ErrHGVideoForbidden 表示视频资源与当前登录人或可写状态不匹配。
+var ErrHGVideoForbidden = errors.New("视频资源不可写")
+
+// ErrHGVideoConflict 表示同一稿件分 P 已存在，不能返回新的未落库视频 ID。
+var ErrHGVideoConflict = errors.New("分 P 已存在")
 
 // SaveSubmission 保存完整稿件配置。
 // 因为本模块不使用外键，所有写入都带 userID/submissionID 限定，避免误更新其他用户数据。
@@ -99,6 +141,17 @@ func (r *Repository) SaveSubmissionWithEvents(ctx context.Context, userID string
 }
 
 func (r *Repository) saveSubmissionTx(ctx context.Context, tx *sql.Tx, userID string, req VideoUploadDtoPackage.SaveSubmissionRequest) error {
+	var owner, status string
+	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectVideoSubmissionAuthForUpdate, req.SubmissionID).Scan(&owner, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrHGVideoForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if owner != userID || (status != "draft" && status != "rejected") {
+		return ErrHGVideoForbidden
+	}
 	// CardConfig 是动态卡片配置，使用 JSON 存储；空配置转 NULL，避免无意义空对象占用字段。
 	cardConfig, err := json.Marshal(req.CardConfig)
 	if err != nil {
@@ -164,6 +217,16 @@ func (r *Repository) updateVideoConfig(ctx context.Context, userID string, submi
 }
 
 func (r *Repository) updateVideoConfigTx(ctx context.Context, execer sqlExecer, userID string, submissionID string, video VideoUploadDtoPackage.VideoConfigRequest) error {
+	if tx, ok := execer.(*sql.Tx); ok {
+		var one int
+		err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectVideoFileAuthForUpdate, video.VideoID, submissionID, userID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrHGVideoForbidden
+		}
+		if err != nil {
+			return err
+		}
+	}
 	// 分 P 配置和标签在同一个事务内更新，保证列表展示不会看到半更新状态。
 	// excer 是sql.Tx 也就是就是数据库事务对象。
 	_, err := execer.ExecContext(ctx, SQLQueriesPackage.UpdateVideoFileConfigSQL, video.PartNumber, video.Title, video.CoverURL, video.VideoType, video.SourceURL, video.Category, video.Description, video.VideoID, submissionID, userID)

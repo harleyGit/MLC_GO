@@ -2,6 +2,7 @@ package VideoUploadModulePackage
 
 import (
 	EventBusPackage "MLC_GO/internal/infrastructure/eventbus"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	VideoUploadCachePackage "MLC_GO/internal/modules/video_upload/cache"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
@@ -47,7 +48,8 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	taskPub := VideoUploadTaskPackage.NewMemoryPublisher()
 	baseURL := fmt.Sprintf("http://localhost:%s", ConfigPackage.GetServerPort())
 	service := VideoUploadServicePackage.NewService(repo, cache, taskPub, baseURL).
-		WithEventBus(EventBusPackage.NewKafkaEventBus(videoUploadDomainEventTopic))
+		WithEventBus(EventBusPackage.NewKafkaEventBus(videoUploadDomainEventTopic)).
+		WithIAM(IAMPackage.NewHGService(IAMPackage.NewHGRepository(deps.SQLManager.GetSQLDB()).WithHGPermissionCache(deps.RedisService)))
 	handler := VideoUploadHandlerPackage.NewHandler(service)
 
 	return &ModuleComponents{
