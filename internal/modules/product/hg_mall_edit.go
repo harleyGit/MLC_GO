@@ -128,6 +128,9 @@ func (s *HGService) HGStageEdit(ctx context.Context, user string, req HGEditRequ
 	}
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()
+	if err := s.hgAuthorizeOwnProduct(ctx, user, req.ProductID); err != nil {
+		return err
+	}
 	return s.store.StageEdit(ctx, user, req)
 }
 

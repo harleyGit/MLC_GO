@@ -1,8 +1,10 @@
 package product
 
 import (
+	IAMPackage "MLC_GO/internal/modules/iam"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -101,6 +103,30 @@ func hgOrderPage(items []HGOrder) HGOrderPage {
 	return page
 }
 
+func (s *HGService) hgAuthorizeMerchantOrder(ctx context.Context, user, permission string) (HGMerchantApplication, error) {
+	if s.iam == nil {
+		return HGMerchantApplication{}, nil
+	}
+	m, err := s.store.Merchant(ctx, user)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && m.Status != 1) {
+		return HGMerchantApplication{}, ErrHGForbidden
+	}
+	if err != nil {
+		return HGMerchantApplication{}, err
+	}
+	if err = s.iam.EnsureMerchant(ctx, user, m.MerchantID); err != nil {
+		return HGMerchantApplication{}, err
+	}
+	decision, err := s.iam.Authorize(ctx, user, permission, IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: "approved", AllowedStatuses: []string{"approved"}})
+	if err != nil {
+		return HGMerchantApplication{}, err
+	}
+	if !decision.Allowed {
+		return HGMerchantApplication{}, ErrHGForbidden
+	}
+	return m, nil
+}
+
 // HGBuy 只接受单 SKU 实物商品，限额由服务端定价和 coin lot 锁上界共同约束。
 func (s *HGService) HGBuy(ctx context.Context, user string, req HGBuyRequest) (HGOrder, error) {
 	if user == "" || !hgBusinessID(req.ProductID) || !hgBusinessID(req.RequestID) || req.Quantity < 1 || req.Quantity > 10 ||
@@ -161,6 +187,11 @@ func (s *HGService) HGOrders(ctx context.Context, user, cursor string, merchant 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if merchant {
+		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:read"); err != nil {
+			return HGOrderPage{}, err
+		}
+	}
 	items, err := s.orders.Orders(ctx, user, merchant, id)
 	if err != nil {
 		return HGOrderPage{}, err
@@ -175,6 +206,11 @@ func (s *HGService) HGOrder(ctx context.Context, user, id string, merchant bool)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if merchant {
+		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:read"); err != nil {
+			return HGOrder{}, err
+		}
+	}
 	return s.orders.Order(ctx, user, id, merchant)
 }
 
@@ -189,6 +225,32 @@ func (s *HGService) HGShip(ctx context.Context, user string, req HGShipRequest) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	m, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:ship")
+	if err != nil {
+		return err
+	}
+	if s.iam != nil {
+		order, readErr := s.orders.Order(ctx, user, req.OrderID, true)
+		if errors.Is(readErr, sql.ErrNoRows) {
+			return ErrHGForbidden
+		}
+		if readErr != nil {
+			return readErr
+		}
+		status := "unavailable"
+		if order.MerchantID == m.MerchantID && order.TradeStatus == 2 && order.ShippingStatus == 0 {
+			status = "paid_unshipped"
+		} else if order.MerchantID == m.MerchantID && order.TradeStatus == 3 && order.ShippingStatus == 1 && order.Carrier == req.Carrier && order.TrackingNumber == req.TrackingNumber {
+			status = "same_shipment"
+		}
+		decision, authErr := s.iam.Authorize(ctx, user, "mall:order:ship", IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: status, AllowedStatuses: []string{"paid_unshipped", "same_shipment"}})
+		if authErr != nil {
+			return authErr
+		}
+		if !decision.Allowed {
+			return ErrHGForbidden
+		}
+	}
 	return s.orders.Ship(ctx, user, req)
 }
 

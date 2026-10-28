@@ -30,6 +30,9 @@ JOIN product_sku s ON s.product_id=p.product_id AND s.status=1 AND s.id=(SELECT 
 LEFT JOIN mall_inventory i ON i.sku_id=s.sku_id
 WHERE p.product_id=? AND p.status=1 AND p.review_status=1 AND p.category<>'' LIMIT 1`
 const HGMallMerchantByOwnerSQL = `SELECT merchant_id,shop_name,status FROM mall_merchant WHERE user_id=?`
+
+// 商品授权只按 product_id 唯一索引点查；后续写事务仍复核 owner、merchant 状态和 review 状态。
+const HGMallProductAuthStateSQL = `SELECT m.user_id,m.merchant_id,m.status,p.status,p.review_status FROM product p JOIN mall_merchant m ON m.merchant_id=p.merchant_id WHERE p.product_id=? LIMIT 1`
 const HGMallMerchantApplySQL = `INSERT INTO mall_merchant(merchant_id,user_id,shop_name,status) VALUES(?,?,?,0)`
 
 // 唯一 user_id 和 status=2 保证重提申请只作用于自己的已拒绝记录，不允许已通过商家重入。

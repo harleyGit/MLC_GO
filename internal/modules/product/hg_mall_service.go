@@ -2,6 +2,7 @@ package product
 
 import (
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"database/sql"
@@ -37,13 +38,57 @@ func (s *HGService) HGAdminStatus(ctx context.Context, user string) (bool, error
 
 // HGService 将目录、商家准入和审核规则置于 HTTP 与数据库之间。
 type HGService struct {
-	store    HGStore      // 商家准入和商品目录的 MySQL 读写接口。
-	reviewer HGReviewer   // 服务端 Ops RBAC 审核鉴权，不能使用前端角色声明。
-	orders   HGOrderStore // 同库实物订单/coin/库存短事务接口；由模块构造时注入。
+	store    HGStore               // 商家准入和商品目录的 MySQL 读写接口。
+	reviewer HGReviewer            // 服务端 Ops RBAC 审核鉴权，不能使用前端角色声明。
+	orders   HGOrderStore          // 同库实物订单/coin/库存短事务接口；由模块构造时注入。
+	iam      *IAMPackage.HGService // 业务角色与资源授权，生产装配注入。
 }
 
 func HGNewService(store HGStore, reviewer HGReviewer) *HGService {
 	return &HGService{store: store, reviewer: reviewer}
+}
+
+// HGWithAuthorizer 在生产装配时注入 IAM，资源读取后逐项判断角色与归属。
+func (s *HGService) HGWithAuthorizer(iam *IAMPackage.HGService) *HGService { s.iam = iam; return s }
+
+func (s *HGService) hgAuthorizeOwnProduct(ctx context.Context, user, productID string) error {
+	return s.hgAuthorizeOwnProductAction(ctx, user, productID, []string{"published"})
+}
+
+func (s *HGService) hgAuthorizeOwnProductAction(ctx context.Context, user, productID string, allowedStatuses []string) error {
+	if s.iam == nil {
+		return nil
+	}
+	reader, ok := s.store.(interface {
+		HGProductAuthState(context.Context, string) (HGProductAuthState, error)
+	})
+	if !ok {
+		return ErrHGForbidden
+	}
+	state, err := reader.HGProductAuthState(ctx, productID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrHGForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if err = s.iam.EnsureMerchant(ctx, user, state.MerchantID); err != nil {
+		return err
+	}
+	status := "unavailable"
+	if state.MerchantStatus == 1 && state.ProductStatus == 0 {
+		status = "draft"
+	} else if state.MerchantStatus == 1 && state.ProductStatus == 1 && state.ReviewStatus == 1 {
+		status = "published"
+	}
+	decision, err := s.iam.Authorize(ctx, user, "mall:product:update", IAMPackage.HGResource{ScopeType: "global", OwnerID: state.OwnerID, RequireOwner: true, Status: status, AllowedStatuses: allowedStatuses})
+	if err != nil {
+		return err
+	}
+	if !decision.Allowed {
+		return ErrHGForbidden
+	}
+	return nil
 }
 
 // HGWithOrders 在模块装配时注入与商品目录共用 MySQL 池的订单仓储。
@@ -188,6 +233,18 @@ func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDra
 	if err != nil {
 		return HGCatalogItem{}, err
 	}
+	if s.iam != nil {
+		if err = s.iam.EnsureMerchant(ctx, user, m.MerchantID); err != nil {
+			return HGCatalogItem{}, err
+		}
+		decision, authErr := s.iam.Authorize(ctx, user, "mall:product:create", IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: "approved", AllowedStatuses: []string{"approved"}})
+		if authErr != nil {
+			return HGCatalogItem{}, authErr
+		}
+		if !decision.Allowed {
+			return HGCatalogItem{}, ErrHGForbidden
+		}
+	}
 	item := HGCatalogItem{ProductID: UtilsPackage.GenerateBusinessID("PRD"), SKUID: UtilsPackage.GenerateBusinessID("PSKU"), MerchantID: m.MerchantID, ShopName: m.ShopName, Title: draft.Title, Type: draft.Type, Category: draft.Category, Summary: draft.Summary, Description: draft.Description, ImageURLs: draft.ImageURLs, SKUTitle: draft.SKUTitle, Amount: draft.Amount, Available: draft.Stock}
 	if err := s.store.Publish(ctx, user, item); err != nil {
 		return HGCatalogItem{}, err
@@ -271,6 +328,9 @@ func (s *HGService) Archive(ctx context.Context, user, productID string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()
+	if err := s.hgAuthorizeOwnProductAction(ctx, user, productID, []string{"draft", "published"}); err != nil {
+		return err
+	}
 	return s.store.Archive(ctx, user, productID)
 }
 

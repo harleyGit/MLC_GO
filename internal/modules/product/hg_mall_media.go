@@ -171,6 +171,9 @@ func (s *HGService) HGStageMedia(ctx context.Context, user, productID string, ur
 	}
 	ctx, cancel := context.WithTimeout(ctx, HGTimeLimit)
 	defer cancel()
+	if err := s.hgAuthorizeOwnProduct(ctx, user, productID); err != nil {
+		return err
+	}
 	return s.store.StageMedia(ctx, user, productID, urls)
 }
 

@@ -2,11 +2,12 @@ package module
 
 import (
 	HGHandlerPackage "MLC_GO/internal/handler"
-	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	"MLC_GO/internal/modules/product"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGUploadPackage "MLC_GO/internal/pkg/upload"
 	"net/http"
 )
@@ -19,7 +20,7 @@ func (m *HGModule) BasePath() string      { return HGRouterPackage.HGMallModuleB
 func (m *HGModule) Handler() http.Handler { return HGRouterPackage.HGNewMallRouteGroup(m.hgHandler) }
 
 // HGRegisterModules 只装配依赖和路由，不执行 DDL 或写入任何演示商品。
-func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager) {
+func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager, caches ...*PersistenceRedisPackage.RedisService) {
 	if manager == nil {
 		panic("商城模块需要数据库管理器")
 	}
@@ -41,6 +42,11 @@ func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager) {
 	if err != nil {
 		panic(err)
 	}
-	service := product.HGNewService(product.HGNewRepository(db), OpsRepositoryPackage.NewRepository(db)).HGWithOrders(product.HGNewOrderRepository(db))
+	iamRepo := IAMPackage.NewHGRepository(db)
+	if len(caches) > 0 {
+		iamRepo.WithHGPermissionCache(caches[0])
+	}
+	iam := IAMPackage.NewHGService(iamRepo)
+	service := product.HGNewService(product.HGNewRepository(db), IAMPackage.NewHGAssetAuthorizer(iam)).HGWithAuthorizer(iam).HGWithOrders(product.HGNewOrderRepository(db))
 	HGHandlerPackage.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service).HGWithImages(product.HGNewImageStore(db, uploader))})
 }

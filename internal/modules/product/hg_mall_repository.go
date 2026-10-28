@@ -38,6 +38,22 @@ type HGStore interface {
 // HGRepository 使用共享 MySQL 池；商品和 SKU 在同一短事务创建，读取只走有界游标。
 type HGRepository struct{ db *sql.DB }
 
+// HGProductAuthState 是可信商品归属与状态快照，只用于服务端授权预检。
+type HGProductAuthState struct {
+	OwnerID        string // 商家用户业务 ID。
+	MerchantID     string // 商家业务 ID。
+	MerchantStatus int8   // 商家审核状态。
+	ProductStatus  int8   // 商品上架状态。
+	ReviewStatus   int8   // 商品审核状态。
+}
+
+// HGProductAuthState 按商品唯一业务 ID 读取资源归属及状态。
+func (r *HGRepository) HGProductAuthState(ctx context.Context, productID string) (HGProductAuthState, error) {
+	var state HGProductAuthState
+	err := r.db.QueryRowContext(ctx, q.HGMallProductAuthStateSQL, productID).Scan(&state.OwnerID, &state.MerchantID, &state.MerchantStatus, &state.ProductStatus, &state.ReviewStatus)
+	return state, err
+}
+
 func HGNewRepository(db *sql.DB) *HGRepository { return &HGRepository{db: db} }
 
 func (r *HGRepository) Merchant(ctx context.Context, owner string) (HGMerchantApplication, error) {

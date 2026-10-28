@@ -372,7 +372,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 新增模块只需在此处调用 RegisterModules 即可，可以理解成：把用户模块安装到这个应用里面
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
-	HGMallModulePackage.HGRegisterModules(sqlManager)
+	HGMallModulePackage.HGRegisterModules(sqlManager, redisService)
 	hgrecharge.HGRegisterModules(sqlManager)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
@@ -454,7 +454,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
 	// 注册 IAM 管理模块，复用应用的 JWT 与 MySQL 连接。
-	IAMModulePackage.RegisterHGModule(sqlManager)
+	IAMModulePackage.RegisterHGModule(sqlManager, redisService)
 	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
 	if err != nil {
