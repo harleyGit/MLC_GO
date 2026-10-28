@@ -13,6 +13,12 @@ import (
 	"net/http"
 )
 
+// hgIAMCutoverGone 阻止旧 ops 角色表继续写入或展示过期快照，提示客户端迁移到 IAM。
+func hgIAMCutoverGone(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "角色管理已迁移至 /api/v1/iam", http.StatusGone)
+}
+
 // opsRoutes 返回 ops 模块完整路由定义。
 // 运维模块接口增长较快，单独放在本文件，避免主路由组文件堆积过多 NewRouteSpec 配置。
 // /asset-permissions/current 由 JWT 确定当前人，只读数据库活动管理员及启用角色、权限的关联，
@@ -68,20 +74,20 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/payment/recharge/skus/list", true, "查询充值档位列表", opsHandler.HGListRechargeSKUs),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/update", true, "更新充值档位", opsHandler.HGUpdateRechargeSKU),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/payment/recharge/skus/delete", true, "删除充值档位", opsHandler.HGDeleteRechargeSKU),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", opsHandler.CreateRole),
-		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", opsHandler.GetRoleList),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", opsHandler.UpdateRole),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/delete", true, "删除角色", opsHandler.DeleteRole),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles", true, "创建角色", hgIAMCutoverGone),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/list", true, "获取角色列表", hgIAMCutoverGone),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/update", true, "更新角色", hgIAMCutoverGone),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/delete", true, "删除角色", hgIAMCutoverGone),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/list", true, "获取管理员列表", opsHandler.GetAdminUserList),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/admins/candidates", true, "搜索添加管理员候选用户", opsHandler.SearchAdminCandidates),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/admins", true, "添加管理员", opsHandler.AddAdmin),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/search", true, "搜索管理员用户", opsHandler.SearchAdminUsers),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", opsHandler.AssignUserRoles),
-		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles/list", true, "获取用户角色", opsHandler.GetUserRoles),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/users/roles", true, "分配用户角色", hgIAMCutoverGone),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/users/roles/list", true, "获取用户角色", hgIAMCutoverGone),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/menus", true, "创建菜单", opsHandler.CreateMenu),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/menus/list", true, "获取菜单列表", opsHandler.GetMenuList),
-		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/permissions", true, "分配角色权限", opsHandler.AssignRolePermissions),
-		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/permissions/list", true, "获取角色权限", opsHandler.GetRolePermissions),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/roles/permissions", true, "分配角色权限", hgIAMCutoverGone),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/roles/permissions/list", true, "获取角色权限", hgIAMCutoverGone),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/files/upload", true, "上传文件", opsHandler.UploadFile),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/files/list", true, "获取文件列表", opsHandler.GetFileList),
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/bilibili/tags", true, "创建Bilibili动画标签", opsHandler.CreateBilibiliTag),

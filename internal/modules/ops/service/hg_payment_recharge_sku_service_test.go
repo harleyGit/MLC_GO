@@ -73,12 +73,7 @@ func TestHGRechargeSKUAuthorization(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		rows := sqlmock.NewRows([]string{"allowed"})
-		if allowed {
-			rows.AddRow(1)
-		}
-		mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsAssetPermissionSQL)).WithArgs("admin", "payment.recharge_sku.write").WillReturnRows(rows)
-		s := NewService(OpsRepositoryPackage.NewRepository(db), nil, nil)
+		s := NewService(OpsRepositoryPackage.NewRepository(db), nil, nil, NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{"payment.recharge_sku.write": allowed}}}))
 		err = s.hgAuthorizeRechargeSKU(context.Background(), "admin", "payment.recharge_sku.write")
 		if allowed && err != nil || !allowed && !errors.Is(err, ErrHGOperationsForbidden) {
 			t.Fatalf("allowed=%v err=%v", allowed, err)
@@ -95,18 +90,16 @@ func TestHGRechargeSKUCreateAndEmptyList(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	s := NewService(OpsRepositoryPackage.NewRepository(db), nil, nil)
+	s := NewService(OpsRepositoryPackage.NewRepository(db), nil, nil, NewHGOperationalService(HGOperationalDeps{Authorizer: hgFakeOpsAuthorizer{permissions: map[string]bool{"payment.recharge_sku.write": true, "payment.recharge_sku.read": true}}}))
 	var req OpsDtoPackage.HGPaymentRechargeSKUCreateRequest
 	if err := json.Unmarshal([]byte(`{"skuCode":"six","title":"six","payAmount":600,"coinAmount":600,"bonusCoin":20,"status":1,"sortOrder":0}`), &req); err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsAssetPermissionSQL)).WithArgs("admin", "payment.recharge_sku.write").WillReturnRows(sqlmock.NewRows([]string{"allowed"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOpsPaymentRechargeSKUSQL)).WithArgs(sqlmock.AnyArg(), "six", "six", "CNY", 600, 600, 20, 620, 1, 0, sqlmock.AnyArg(), nil, "admin", "admin").WillReturnResult(sqlmock.NewResult(1, 1))
 	id, err := s.HGCreateRechargeSKU(context.Background(), "admin", req)
 	if err != nil || !strings.HasPrefix(id, "RSKU_") {
 		t.Fatalf("id=%s err=%v", id, err)
 	}
-	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsAssetPermissionSQL)).WithArgs("admin", "payment.recharge_sku.read").WillReturnRows(sqlmock.NewRows([]string{"allowed"}).AddRow(1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsPaymentRechargeSKUListFirstSQL)).WithArgs(21).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	page, err := s.HGListRechargeSKUs(context.Background(), "admin", "", "")
 	if err != nil {

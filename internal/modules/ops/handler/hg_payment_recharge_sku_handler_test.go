@@ -25,9 +25,8 @@ func TestHGRechargeSKUListUsesResultEnvelope(t *testing.T) {
 		t.Fatal(hgErr)
 	}
 	defer hgDB.Close()
-	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsAssetPermissionSQL)).WithArgs("admin", "payment.recharge_sku.read").WillReturnRows(sqlmock.NewRows([]string{"allowed"}).AddRow(1))
 	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.SelectOpsPaymentRechargeSKUListFirstSQL)).WithArgs(21).WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	hgHandler := NewHandler(OpsServicePackage.NewService(OpsRepositoryPackage.NewRepository(hgDB), nil, nil))
+	hgHandler := NewHandler(OpsServicePackage.NewService(OpsRepositoryPackage.NewRepository(hgDB), nil, nil, OpsServicePackage.NewHGOperationalService(OpsServicePackage.HGOperationalDeps{Authorizer: hgRechargeAuthorizer{}})))
 	hgRequest := httptest.NewRequest(http.MethodGet, "/api/v1/ops/payment/recharge/skus/list", nil)
 	hgRequest = hgRequest.WithContext(context.WithValue(hgRequest.Context(), UserJWTMiddlewarePackage.UserIDKey, &UserServicePackage.HGClaims{UserID: "admin"}))
 	hgRecorder := httptest.NewRecorder()
@@ -49,6 +48,16 @@ func TestHGRechargeSKUListUsesResultEnvelope(t *testing.T) {
 	if hgErr := hgMock.ExpectationsWereMet(); hgErr != nil {
 		t.Fatal(hgErr)
 	}
+}
+
+type hgRechargeAuthorizer struct{}
+
+func (hgRechargeAuthorizer) HasAssetPermission(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
+func (hgRechargeAuthorizer) ListAssetPermissions(context.Context, string) ([]string, error) {
+	return []string{"payment.recharge_sku.read"}, nil
 }
 
 func TestHGRechargeSKUStrictBody(t *testing.T) {

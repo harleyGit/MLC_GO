@@ -6,6 +6,7 @@ import (
 	CrawlerLeasePackage "MLC_GO/internal/modules/crawler/lease"
 	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	OpsCachePackage "MLC_GO/internal/modules/ops/cache"
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
@@ -49,11 +50,13 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	}
 
 	repo := OpsRepositoryPackage.NewRepository(deps.SQLManager.GetSQLDB())
+	iam := IAMPackage.NewHGService(IAMPackage.NewHGRepository(deps.SQLManager.GetSQLDB()).WithHGPermissionCache(deps.RedisService))
+	iamAuthorizer := IAMPackage.NewHGAssetAuthorizer(iam)
 	cache := OpsCachePackage.NewCache(deps.RedisService)
 	taskPub := OpsTaskPackage.NewMemoryPublisher()
 	coinRepository := CoinRepositoryPackage.NewHGRepository(deps.SQLManager.GetSQLDB(), "mlc.domain.events")
 	operational := OpsServicePackage.NewHGOperationalService(OpsServicePackage.HGOperationalDeps{
-		Authorizer: repo, CoinAssets: CoinServicePackage.NewHGService(coinRepository), CoinQueries: coinRepository,
+		Authorizer: iamAuthorizer, CoinAssets: CoinServicePackage.NewHGService(coinRepository), CoinQueries: coinRepository,
 		ProjectionCheckpoints: VideoInteractionCachePackage.NewCache(deps.RedisService),
 		Audit:                 repo, RateLimiter: cache, Corrections: repo, UserLookup: repo,
 	})
@@ -77,7 +80,7 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	if err != nil {
 		panic(err)
 	}
-	handler := OpsHandlerPackage.NewHandler(service, CrawlerServicePackage.NewHGDebugService(httpService)).WithCrawlerTasks(crawlerTasks, repo)
+	handler := OpsHandlerPackage.NewHandler(service, CrawlerServicePackage.NewHGDebugService(httpService)).WithCrawlerTasks(crawlerTasks, iamAuthorizer)
 
 	return &ModuleComponents{
 		Repo:         repo,

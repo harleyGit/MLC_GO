@@ -21,10 +21,10 @@ var hgRechargeSKUCode = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 const hgRechargeSKUMaxSafe = uint64(9007199254740991)
 
 func (s *Service) hgAuthorizeRechargeSKU(ctx context.Context, operator, permission string) error {
-	if s == nil || s.repo == nil || strings.TrimSpace(operator) == "" {
+	if s == nil || s.repo == nil || s.operational == nil || s.operational.deps.Authorizer == nil || strings.TrimSpace(operator) == "" {
 		return ErrHGOperationsForbidden
 	}
-	allowed, err := s.repo.HasAssetPermission(ctx, operator, permission)
+	allowed, err := s.operational.deps.Authorizer.HasAssetPermission(ctx, operator, permission)
 	if err != nil {
 		return err
 	}
