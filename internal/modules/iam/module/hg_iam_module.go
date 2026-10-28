@@ -6,6 +6,7 @@ import (
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 )
@@ -18,8 +19,11 @@ type HGModule struct {
 }
 
 // RegisterHGModule 注入共享 SQL 连接并注册 IAM 模块。
-func RegisterHGModule(sqlManager *PersistenceSQLPackage.HGSQLManager) {
+func RegisterHGModule(sqlManager *PersistenceSQLPackage.HGSQLManager, caches ...*PersistenceRedisPackage.RedisService) {
 	repo := IAMPackage.NewHGRepository(sqlManager.GetSQLDB())
+	if len(caches) > 0 {
+		repo.WithHGPermissionCache(caches[0])
+	}
 	HGHandlerPackage.RegisterModule(&HGModule{handler: IAMPackage.NewHGHandler(IAMPackage.NewHGService(repo))})
 }
 
@@ -40,11 +44,13 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
-	var list, create, update, disable, bindings, grant, revoke, permissions, setPermissions http.HandlerFunc
+	var list, create, update, disable, bindings, grant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	if handler != nil {
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
 		bindings, grant, revoke = handler.HGListBindings, handler.HGGrant, handler.HGRevoke
 		permissions, setPermissions = handler.HGListPermissions, handler.HGSetRolePermissions
+		mfaEnroll, mfaConfirm = handler.HGEnrollMFA, handler.HGConfirmMFA
+		approvals, approve, reject = handler.HGListApprovals, handler.HGApproveApproval, handler.HGRejectApproval
 	}
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/roles/list", true, "查询角色", list),
@@ -56,5 +62,10 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/revoke", true, "撤销员工角色", revoke),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/permissions/list", true, "查询权限目录", permissions),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/permissions", true, "设置角色权限", setPermissions),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/mfa/enroll", true, "绑定 TOTP 因子", mfaEnroll),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/mfa/confirm", true, "启用 TOTP 因子", mfaConfirm),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/approvals/list", true, "查询待审批授权", approvals),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/approvals/approve", true, "批准授权", approve),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/approvals/reject", true, "拒绝授权", reject),
 	}
 }

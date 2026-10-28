@@ -1,6 +1,7 @@
 package iam
 
 import (
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"errors"
 	"regexp"
@@ -19,6 +20,22 @@ type HGService struct {
 
 // NewHGService 注入 IAM Repository。
 func NewHGService(repo *HGRepository) *HGService { return &HGService{repo: repo} }
+
+// EnsureCreator 从当前注册用户身份按唯一 ID 幂等建立创作者角色，用于首次上传或历史稿件回访。
+func (s *HGService) EnsureCreator(ctx context.Context, userID string) error {
+	if s == nil || s.repo == nil || !hgValidText(userID, 64) {
+		return ErrHGInvalid
+	}
+	return s.repo.hgEnsureBusinessRole(ctx, userID, SQLQueriesPackage.HGInsertIAMCreatorBinding, userID)
+}
+
+// EnsureMerchant 只为 MySQL 中本人已通过审核的商家建立业务角色。
+func (s *HGService) EnsureMerchant(ctx context.Context, userID, merchantID string) error {
+	if s == nil || s.repo == nil || !hgValidText(userID, 64) || !hgValidText(merchantID, 64) {
+		return ErrHGInvalid
+	}
+	return s.repo.hgEnsureBusinessRole(ctx, userID, SQLQueriesPackage.HGInsertIAMMerchantBinding, merchantID, userID)
+}
 
 func hgValidText(value string, max int) bool {
 	value = strings.TrimSpace(value)

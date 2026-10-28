@@ -429,6 +429,9 @@ func IAMMethodRules() []HGMiddlewarePackage.HGAPIRule {
 		"/bindings/list": http.MethodGet, "/bindings/grant": http.MethodPost,
 		"/bindings/revoke": http.MethodPost, "/permissions/list": http.MethodGet,
 		"/roles/permissions": http.MethodPost,
+		"/mfa/enroll":        http.MethodPost, "/mfa/confirm": http.MethodPost,
+		"/approvals/list": http.MethodGet, "/approvals/approve": http.MethodPost,
+		"/approvals/reject": http.MethodPost,
 	}
 	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
 	for path, method := range paths {

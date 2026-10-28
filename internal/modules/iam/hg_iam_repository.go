@@ -2,12 +2,14 @@ package iam
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -15,7 +17,8 @@ import (
 
 // HGRepository 在 MySQL 上执行 IAM 点查、游标读取和短事务写入。
 type HGRepository struct {
-	db *sql.DB // 应用共享数据库连接池；不由本模块关闭。
+	db    *sql.DB                               // 应用共享数据库连接池；不由本模块关闭。
+	cache *PersistenceRedisPackage.RedisService // 可选权限缓存；故障时回源 MySQL。
 }
 
 // hgRoleRow 仅承载 iam_roles 的 SQL 扫描结果，不作为 API 协议。
@@ -43,6 +46,12 @@ type hgBindingRow struct {
 // NewHGRepository 创建 IAM 存储适配器。
 func NewHGRepository(db *sql.DB) *HGRepository { return &HGRepository{db: db} }
 
+// WithHGPermissionCache 注入 Redis；每次命中前读取 MySQL 版本，确保撤权立即使旧缓存失效。
+func (r *HGRepository) WithHGPermissionCache(cache *PersistenceRedisPackage.RedisService) *HGRepository {
+	r.cache = cache
+	return r
+}
+
 func (r *HGRepository) hgActiveAdmin(ctx context.Context, userID string) (bool, error) {
 	var one int
 	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMManager, userID).Scan(&one)
@@ -53,12 +62,124 @@ func (r *HGRepository) hgActiveAdmin(ctx context.Context, userID string) (bool, 
 }
 
 func (r *HGRepository) hgHasPermission(ctx context.Context, userID, permission, scopeType, scopeID string) (bool, error) {
+	// 业务身份和敏感写操作直查权威库；前者避免开户写热点，后者避免使用短时缓存作审批依据。
+	if strings.HasPrefix(permission, "video:submission:") || strings.HasPrefix(permission, "mall:product:") || strings.HasPrefix(permission, "mall:order:") ||
+		strings.HasPrefix(permission, "iam:") || strings.HasPrefix(permission, "asset:coin:") || strings.HasPrefix(permission, "asset:coin_correction:") ||
+		permission == "payment:recharge_sku:write" || permission == "crawler:task:run" || permission == "crawler:task:execute" || permission == "crawler:task:write" {
+		return r.hgPermissionFromDB(ctx, userID, permission, scopeType, scopeID)
+	}
+	if r.cache != nil && r.cache.Client() != nil {
+		var revision uint64
+		if err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPolicyRevision).Scan(&revision); err != nil {
+			return false, err
+		}
+		key := PersistenceRedisPackage.GetIAMPermissionKey(revision, userID, permission, scopeType, scopeID)
+		cached, err := r.cache.Client().Get(ctx, key).Result()
+		if err == nil && (cached == "1" || cached == "0") {
+			return cached == "1", nil
+		}
+		// Redis 未命中或不可用时回源；绝不把缓存故障当成授权。
+		allowed, queryErr := r.hgPermissionFromDB(ctx, userID, permission, scopeType, scopeID)
+		if queryErr != nil {
+			return false, queryErr
+		}
+		value := "0"
+		if allowed {
+			var stable int
+			stableErr := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMStablePermission, userID, scopeType, scopeID, permission).Scan(&stable)
+			if stableErr != nil && !errors.Is(stableErr, sql.ErrNoRows) {
+				return false, stableErr
+			}
+			if stable != 1 {
+				return true, nil
+			}
+			value = "1"
+		}
+		// 有界 TTL；版本号变化后旧 key 自然失效，不执行前缀扫描。
+		_ = r.cache.Client().Set(ctx, key, value, 20*time.Second).Err()
+		return allowed, nil
+	}
+	return r.hgPermissionFromDB(ctx, userID, permission, scopeType, scopeID)
+}
+
+func (r *HGRepository) hgPermissionFromDB(ctx context.Context, userID, permission, scopeType, scopeID string) (bool, error) {
 	var one int
 	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPermission, userID, scopeType, scopeID, permission).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	return one == 1, err
+}
+
+func hgBumpRevision(ctx context.Context, tx *sql.Tx) error {
+	res, err := tx.ExecContext(ctx, SQLQueriesPackage.HGBumpIAMPolicyRevision)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrHGConflict
+	}
+	return nil
+}
+
+func (r *HGRepository) hgAssetPermissions(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, SQLQueriesPackage.HGSelectIAMAssetPermissions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]string, 0, 16)
+	for rows.Next() {
+		var code string
+		if err = rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		items = append(items, hgOldAssetPermission(code))
+	}
+	return items, rows.Err()
+}
+
+func hgOldAssetPermission(code string) string {
+	switch code {
+	case "asset:coin_balance:read":
+		return "asset.coin.balance.read"
+	case "asset:coin_transaction:read":
+		return "asset.coin.transaction.read"
+	case "asset:coin_correction:request":
+		return "asset.coin.correction.request"
+	case "asset:coin_correction:approve":
+		return "asset.coin.correction.approve"
+	case "asset:coin_correction:apply":
+		return "asset.coin.correction.apply"
+	default:
+		return strings.ReplaceAll(code, ":", ".")
+	}
+}
+
+func (r *HGRepository) hgEnsureBusinessRole(ctx context.Context, userID, query string, args ...any) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 1 {
+		if err = hgAudit(ctx, tx, userID, "iam.business_role.onboard", "user", userID, "onboard", map[string]any{}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func hgScanRole(row interface{ Scan(...any) error }) (HGRole, error) {
@@ -203,6 +324,9 @@ func (r *HGRepository) hgDisableRole(ctx context.Context, actor, requestID strin
 	if n == 0 {
 		return ErrHGConflict
 	}
+	if err = hgBumpRevision(ctx, tx); err != nil {
+		return err
+	}
 	if err = hgAudit(ctx, tx, actor, "iam.role.disable", "role", strconv.FormatUint(id, 10), requestID, map[string]any{}); err != nil {
 		return err
 	}
@@ -248,6 +372,32 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 		return err
 	}
 	defer tx.Rollback()
+	if err = r.hgGrantTx(ctx, tx, actor, actor, requestID, userID, roleID, scopeType, scopeID, expires); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// hgGrantTx 在调用方事务内复核角色权限并写绑定、版本和审计。
+func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor, auditActor, requestID, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time) error {
+	var active int
+	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMManager, userID).Scan(&active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrHGNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if scopeType != "global" {
+		var orgActive int
+		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMOrganization, scopeID, scopeType).Scan(&orgActive)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrHGNotFound
+		}
+		if err != nil {
+			return err
+		}
+	}
 	var roleCode string
 	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMActiveRoleCode, roleID).Scan(&roleCode)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -280,7 +430,7 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 	}
 	for _, code := range permissionCodes {
 		var one int
-		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPermission, actor, "global", "", code).Scan(&one)
+		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPermission, delegateActor, "global", "", code).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrHGForbidden
 		}
@@ -289,6 +439,15 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 		}
 		if one != 1 {
 			return ErrHGForbidden
+		}
+		if auditActor != delegateActor {
+			err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPermission, auditActor, "global", "", code).Scan(&one)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrHGForbidden
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	var existingID uint64
@@ -301,9 +460,9 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 		if status == 1 {
 			return ErrHGConflict
 		}
-		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGReactivateIAMBinding, expires, actor, existingID)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGReactivateIAMBinding, expires, auditActor, existingID)
 	} else {
-		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMBinding, userID, roleID, scopeType, scopeID, expires, actor)
+		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMBinding, userID, roleID, scopeType, scopeID, expires, auditActor)
 	}
 	if hgDuplicate(err) {
 		return ErrHGConflict
@@ -311,10 +470,13 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 	if err != nil {
 		return err
 	}
-	if err = hgAudit(ctx, tx, actor, "iam.binding.grant", "user", userID, requestID, map[string]any{"roleCode": roleCode, "scopeType": scopeType, "scopeId": scopeID}); err != nil {
+	if err = hgBumpRevision(ctx, tx); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = hgAudit(ctx, tx, auditActor, "iam.binding.grant", "user", userID, requestID, map[string]any{"roleCode": roleCode, "scopeType": scopeType, "scopeId": scopeID, "applicant": delegateActor}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *HGRepository) hgRevoke(ctx context.Context, actor, requestID, userID string, bindingID uint64) error {
@@ -336,6 +498,9 @@ func (r *HGRepository) hgRevoke(ctx context.Context, actor, requestID, userID st
 	}
 	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGRevokeIAMBinding, bindingID, userID)
 	if err != nil {
+		return err
+	}
+	if err = hgBumpRevision(ctx, tx); err != nil {
 		return err
 	}
 	if err = hgAudit(ctx, tx, actor, "iam.binding.revoke", "user", userID, requestID, map[string]any{"bindingId": bindingID, "roleCode": roleCode}); err != nil {
@@ -405,8 +570,17 @@ func (r *HGRepository) hgSetRolePermissions(ctx context.Context, actor, requestI
 		return err
 	}
 	defer tx.Rollback()
+	if err = r.hgSetRolePermissionsTx(ctx, tx, actor, requestID, roleID, codes, 0); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// hgSetRolePermissionsTx 锁定角色并执行整组替换；expectedVersion 非零时拒绝过期审批。
+func (r *HGRepository) hgSetRolePermissionsTx(ctx context.Context, tx *sql.Tx, actor, requestID string, roleID uint64, codes []string, expectedVersion uint64) error {
 	var builtIn bool
-	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleForPermissionWrite, roleID).Scan(&builtIn)
+	var version uint64
+	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleForPermissionWrite, roleID).Scan(&builtIn, &version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrHGNotFound
 	}
@@ -415,6 +589,9 @@ func (r *HGRepository) hgSetRolePermissions(ctx context.Context, actor, requestI
 	}
 	if builtIn {
 		return ErrHGForbidden
+	}
+	if expectedVersion > 0 && version != expectedVersion {
+		return ErrHGConflict
 	}
 	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGDeleteIAMRolePermissions, roleID); err != nil {
 		return err
@@ -435,8 +612,11 @@ func (r *HGRepository) hgSetRolePermissions(ctx context.Context, actor, requestI
 	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGBumpIAMRoleVersion, roleID); err != nil {
 		return err
 	}
+	if err = hgBumpRevision(ctx, tx); err != nil {
+		return err
+	}
 	if err = hgAudit(ctx, tx, actor, "iam.role.permissions", "role", strconv.FormatUint(roleID, 10), requestID, map[string]any{"permissions": codes}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }

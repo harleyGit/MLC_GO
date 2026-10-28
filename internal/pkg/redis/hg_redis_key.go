@@ -33,7 +33,19 @@ const (
 	BilibiliAuthorStatsKeyPrefix            = "bilibili:author:stats:"
 	BilibiliAuthorVideosKeyPrefix           = "bilibili:author:videos:"
 	VideoRecommendCardKeyPrefix             = "video:recommend:card:"
+	IAMPermissionKeyPrefix                  = "iam:permission:v1:"
+	IAMMFAAttemptKeyPrefix                  = "iam:mfa:attempt:"
 )
+
+// GetIAMPermissionKey 使用 MySQL 同事务策略版本隔离旧授权，摘要隐藏用户和作用域标识。
+func GetIAMPermissionKey(revision uint64, userID, permission, scopeType, scopeID string) string {
+	return fmt.Sprintf("%s%d:%s", IAMPermissionKeyPrefix, revision, hgRedisKeyDigest(userID+"\x00"+permission+"\x00"+scopeType+"\x00"+scopeID))
+}
+
+// GetIAMMFAAttemptKey 以摘要隔离管理员验证码失败计数。
+func GetIAMMFAAttemptKey(userID string) string {
+	return IAMMFAAttemptKeyPrefix + hgRedisKeyDigest(userID)
+}
 
 // GetAPIGatewayIPRateKey 返回不暴露原始来源 IP 的模块级限流 key。
 func GetAPIGatewayIPRateKey(module, sourceIP string) string {
@@ -116,10 +128,10 @@ func hgRedisKeyDigest(value string) string {
 
 // GetFeedShard 把海量 Feed 打散到多个 redis zset，避免单个 zset 体积过大
 // 把一个 submissionID 稳定地映射到 0 ~ shardCount-1 中的某一个分片（shard）。只要 submissionID 不变、shardCount 不变，它每次计算出来的 shard 都一样
-// 
-//	@param submissionID 
-//	@param shardCount 
-//	@return int 
+//
+//	@param submissionID
+//	@param shardCount
+//	@return int
 func GetFeedShard(submissionID string, shardCount int) int {
 	// 同一个 submissionID 永远落到同一个 shard；shardCount=1 直接返回 0，不分片。
 	if shardCount <= 1 {
@@ -146,10 +158,10 @@ func GetFeedOffsetWatermarkKey(generation string, shard int) string {
 // GetStatisticShard 将 Kafka partition 稳定分散到统计 counter shards。
 // 目的：同一个 kafka partition 的所有消息，落到同一个 Redis 分片。
 // ：打散大流量，避免单 Redis key 成为热 key，对应 yaml 注释里「64 分片 ZSET，避免全局热 key」。
-// 
+//
 //	@param partition kafka 消息所在分区编号
 //	@param shardCount 统计模块 Redis 分片总数（比如 64 分片）
-//	@return int 
+//	@return int
 func GetStatisticShard(partition int32, shardCount int) int {
 	if shardCount <= 1 {
 		return 0

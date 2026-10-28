@@ -39,12 +39,63 @@ type HGBindingRequest struct {
 	ScopeType string     `json:"scopeType"` // global、shop 或 org。
 	ScopeID   string     `json:"scopeId"`   // global 为空，其余为组织标识。
 	ExpiresAt *time.Time `json:"expiresAt"` // 可空的 RFC3339 失效时间。
+	MFACode   string     `json:"mfaCode"`   // 申请敏感授权时的一次性 TOTP 验证码。
 }
 
 // HGPermissionsRequest 是自定义角色权限全量替换 JSON 协议。
 type HGPermissionsRequest struct {
 	RoleID      string   `json:"roleId"`      // 自定义角色主键，十进制字符串。
 	Permissions []string `json:"permissions"` // 最多 50 个已登记权限编码。
+	MFACode     string   `json:"mfaCode"`     // 全量权限替换申请所需的一次性验证码。
+}
+
+// HGApprovalDecisionRequest 是双人裁决协议。
+type HGApprovalDecisionRequest struct {
+	ID      string `json:"id"`      // 审批主键，十进制字符串。
+	MFACode string `json:"mfaCode"` // 审批人的一次性验证码。
+}
+
+// HGMFARequest 是管理员 MFA 绑定与验证协议；密码仅用于首次绑定，验证码每次消费一次。
+type HGMFARequest struct {
+	Password string `json:"password"` // 首次绑定时复核的当前登录密码。
+	Code     string `json:"code"`     // 6 位 TOTP 动态验证码。
+}
+
+// HGEnrollMFA 生成一次性 TOTP 绑定信息，响应禁止缓存。
+func (h *HGHandler) HGEnrollMFA(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGMFARequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	secret, uri, err := h.service.EnrollMFA(r.Context(), actor, req.Password)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePackage.SuccessResult(w, r, map[string]string{"secret": secret, "otpauthUri": uri})
+}
+
+// HGConfirmMFA 消费一次验证码完成绑定。
+func (h *HGHandler) HGConfirmMFA(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGMFARequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.ConfirmMFA(r.Context(), actor, req.Code); err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"enabled": true})
 }
 
 func hgActor(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -166,6 +217,10 @@ func (h *HGHandler) HGCreateRole(w http.ResponseWriter, r *http.Request) {
 	if !hgDecode(w, r, &req) {
 		return
 	}
+	if len(req.Permissions) > 0 {
+		hgHTTPError(w, r, ErrHGInvalid)
+		return
+	}
 	role, err := h.service.CreateRole(r.Context(), actor, hgRequestID(r), req.Code, req.Name, req.Description, req.Permissions)
 	if err != nil {
 		hgHTTPError(w, r, err)
@@ -262,11 +317,12 @@ func (h *HGHandler) HGGrant(w http.ResponseWriter, r *http.Request) {
 		hgHTTPError(w, r, err)
 		return
 	}
-	if err = h.service.Grant(r.Context(), actor, hgRequestID(r), req.UserID, id, req.ScopeType, req.ScopeID, req.ExpiresAt); err != nil {
+	approvalID, err := h.service.RequestGrant(r.Context(), actor, hgRequestID(r), req.MFACode, hgGrantApprovalPayload{UserID: req.UserID, RoleID: id, ScopeType: req.ScopeType, ScopeID: req.ScopeID, ExpiresAt: req.ExpiresAt})
+	if err != nil {
 		hgHTTPError(w, r, err)
 		return
 	}
-	HGResponsePackage.SuccessResult(w, r, map[string]bool{"granted": true})
+	HGResponsePackage.SuccessResult(w, r, map[string]string{"approvalId": approvalID, "status": "pending"})
 }
 
 // HGRevoke 撤销一条精确绑定。
@@ -329,9 +385,65 @@ func (h *HGHandler) HGSetRolePermissions(w http.ResponseWriter, r *http.Request)
 		hgHTTPError(w, r, err)
 		return
 	}
-	if err = h.service.SetRolePermissions(r.Context(), actor, hgRequestID(r), id, req.Permissions); err != nil {
+	approvalID, err := h.service.RequestRolePermissions(r.Context(), actor, hgRequestID(r), req.MFACode, id, req.Permissions)
+	if err != nil {
 		hgHTTPError(w, r, err)
 		return
 	}
-	HGResponsePackage.SuccessResult(w, r, map[string]bool{"updated": true})
+	HGResponsePackage.SuccessResult(w, r, map[string]string{"approvalId": approvalID, "status": "pending"})
+}
+
+// HGListApprovals 读取待审批队列，最多每页 50 条。
+func (h *HGHandler) HGListApprovals(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var cursor uint64
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		parsed, err := hgID(raw)
+		if err != nil {
+			hgHTTPError(w, r, err)
+			return
+		}
+		cursor = parsed
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	items, next, more, err := h.service.ListApprovals(r.Context(), actor, cursor, limit)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next, "hasMore": more})
+}
+
+func (h *HGHandler) hgDecideApproval(w http.ResponseWriter, r *http.Request, approve bool) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGApprovalDecisionRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	id, err := hgID(req.ID)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	if err = h.service.DecideApproval(r.Context(), actor, hgRequestID(r), req.MFACode, id, approve); err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"approved": approve})
+}
+
+// HGApproveApproval 在同一事务完成双人批准和权限变更。
+func (h *HGHandler) HGApproveApproval(w http.ResponseWriter, r *http.Request) {
+	h.hgDecideApproval(w, r, true)
+}
+
+// HGRejectApproval 记录拒绝且不产生权限变更。
+func (h *HGHandler) HGRejectApproval(w http.ResponseWriter, r *http.Request) {
+	h.hgDecideApproval(w, r, false)
 }
