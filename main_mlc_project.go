@@ -10,6 +10,7 @@ import (
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
+	IAMModulePackage "MLC_GO/internal/modules/iam/module"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
@@ -452,6 +453,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
+	// 注册 IAM 管理模块，复用应用的 JWT 与 MySQL 连接。
+	IAMModulePackage.RegisterHGModule(sqlManager)
 	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
 	if err != nil {
@@ -914,6 +917,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.VideoDanmakuRouteCatalog()...)
 	// 收集 ops 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
+	items = append(items, IAMModulePackage.RouteCatalog()...)
 	// 收集 test 模块路由清单
 	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
 

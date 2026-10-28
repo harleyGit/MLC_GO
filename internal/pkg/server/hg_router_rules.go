@@ -421,6 +421,22 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
+// IAMMethodRules 与 IAM 路由清单保持一一对应；全部需要 JWT，细粒度授权在 Service 执行。
+func IAMMethodRules() []HGMiddlewarePackage.HGAPIRule {
+	paths := map[string]string{
+		"/roles/list": http.MethodGet, "/roles": http.MethodPost,
+		"/roles/update": http.MethodPost, "/roles/disable": http.MethodPost,
+		"/bindings/list": http.MethodGet, "/bindings/grant": http.MethodPost,
+		"/bindings/revoke": http.MethodPost, "/permissions/list": http.MethodGet,
+		"/roles/permissions": http.MethodPost,
+	}
+	rules := make([]HGMiddlewarePackage.HGAPIRule, 0, len(paths))
+	for path, method := range paths {
+		rules = append(rules, HGMiddlewarePackage.HGAPIRule{Path: path, Version: "v1", Methods: map[string]bool{method: true}, NeedAuth: true})
+	}
+	return rules
+}
+
 func MethdRules() []HGMiddlewarePackage.HGAPIRule {
 
 	return []HGMiddlewarePackage.HGAPIRule{
