@@ -30,10 +30,11 @@ const (
 
 // endregion
 
-// region 路由组构建器（高性能，支持百万级并发），RouteGroupConfig 路由组配置。
+// region 路由组构建器，RouteGroupConfig 路由组配置。
 type RouteGroupConfig struct {
-	BasePath       string
-	Rules          []HGMiddlewarePackage.APIRule
+	BasePath       string                         // 模块完整路径前缀。
+	Rules          []HGMiddlewarePackage.APIRule  // 方法、版本与公共请求头规则。
+	Authorizer     HGRouteAuthorizer              // JWT 后置全局权限查询器；未注入时受限接口拒绝。
 	AuthMiddleware HGMiddlewarePackage.Middleware // 可选，nil 表示不需要认证
 }
 
@@ -43,10 +44,11 @@ var baseMiddlewares = []HGMiddlewarePackage.Middleware{
 }
 
 // NewRouteGroup 通用路由组构建器，消除重复代码。
-// 性能优化：中间件链在启动时构建一次，请求期零分配。
+// 中间件链与权限声明在启动时装配；授权查询继承请求取消并设置独立总预算。
 func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 	mux := http.NewServeMux()
-	BindRouteSpecs(mux, specs)
+	hgRules := hgRouteGuardRules(config.Rules, specs)
+	BindRouteSpecs(mux, specs, config.Authorizer)
 
 	// 1. 业务中间件（可选）
 	var handler http.Handler = mux
@@ -56,7 +58,7 @@ func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 
 	// 2. API Guard
 	if config.Rules != nil {
-		handler = HGMiddlewarePackage.APIGuardMiddleware(config.Rules)(handler)
+		handler = HGMiddlewarePackage.APIGuardMiddleware(hgRules)(handler)
 	}
 
 	// 3. 基础中间件链（预编译，零分配）
@@ -116,10 +118,11 @@ func AuthRouteCatalog() []RouteCatalogItem {
 // region User 路由组
 
 // NewUserRouteGroup 注册用户模块路由（需要认证）。
-func NewUserRouteGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handler {
+func NewUserRouteGroup(userHandler *UserHandlerPackage.HGUserHandler, hgAuthorizers ...HGRouteAuthorizer) http.Handler {
 	return NewRouteGroup(
 		RouteGroupConfig{
 			BasePath:       UserProfileModuleBasePath,
+			Authorizer:     hgFirstAuthorizer(hgAuthorizers),
 			Rules:          HGServerPackage.UserMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
@@ -208,10 +211,11 @@ func VideoDanmakuRouteCatalog() []RouteCatalogItem {
 // region Ops 路由组
 
 // NewOpsRouteGroup 注册运维管理模块路由（需要认证）。
-func NewOpsRouteGroup(opsHandler *OpsHandlerPackage.Handler) http.Handler {
+func NewOpsRouteGroup(opsHandler *OpsHandlerPackage.Handler, hgAuthorizers ...HGRouteAuthorizer) http.Handler {
 	return NewRouteGroup(
 		RouteGroupConfig{
 			BasePath:       OpsModuleBasePath,
+			Authorizer:     hgFirstAuthorizer(hgAuthorizers),
 			Rules:          HGServerPackage.OpsMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},

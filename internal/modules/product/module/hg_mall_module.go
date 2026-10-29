@@ -13,11 +13,16 @@ import (
 )
 
 // HGModule 挂载独立商城业务前缀，授权与商品目录使用同一个 MySQL 连接池。
-type HGModule struct{ hgHandler *product.HGHandler }
+type HGModule struct {
+	hgHandler    *product.HGHandler                // 商城业务 HTTP 入口。
+	hgAuthorizer HGRouterPackage.HGRouteAuthorizer // 审核路由的 IAM 权限检查器。
+}
 
-func (m *HGModule) Name() string          { return "mall" }
-func (m *HGModule) BasePath() string      { return HGRouterPackage.HGMallModuleBasePath }
-func (m *HGModule) Handler() http.Handler { return HGRouterPackage.HGNewMallRouteGroup(m.hgHandler) }
+func (m *HGModule) Name() string     { return "mall" }
+func (m *HGModule) BasePath() string { return HGRouterPackage.HGMallModuleBasePath }
+func (m *HGModule) Handler() http.Handler {
+	return HGRouterPackage.HGNewMallRouteGroup(m.hgHandler, m.hgAuthorizer)
+}
 
 // HGRegisterModules 只装配依赖和路由，不执行 DDL 或写入任何演示商品。
 func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager, caches ...*PersistenceRedisPackage.RedisService) {
@@ -48,5 +53,5 @@ func HGRegisterModules(manager *PersistenceSQLPackage.HGSQLManager, caches ...*P
 	}
 	iam := IAMPackage.NewHGService(iamRepo)
 	service := product.HGNewService(product.HGNewRepository(db), IAMPackage.NewHGAssetAuthorizer(iam)).HGWithAuthorizer(iam).HGWithOrders(product.HGNewOrderRepository(db))
-	HGHandlerPackage.RegisterModule(&HGModule{hgHandler: product.HGNewHandler(service).HGWithImages(product.HGNewImageStore(db, uploader))})
+	HGHandlerPackage.RegisterModule(&HGModule{hgAuthorizer: IAMPackage.NewHGAssetAuthorizer(iam), hgHandler: product.HGNewHandler(service).HGWithImages(product.HGNewImageStore(db, uploader))})
 }

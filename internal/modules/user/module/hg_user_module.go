@@ -9,9 +9,10 @@
 package HGUserModulePackage
 
 import (
-	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
+	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	"net/http"
 
 	HGHandlerPackage "MLC_GO/internal/handler"
@@ -21,12 +22,17 @@ import (
 
 // HGUserModule 实现 HGModule 接口，需要登录的用户路由。
 type HGUserModule struct {
-	handler *UserHandlerPackage.HGUserHandler
+	handler      *UserHandlerPackage.HGUserHandler          // 用户 HTTP 入口。
+	hgAuthorizer HGMiddlewareGroupPackage.HGRouteAuthorizer // 用户目录的 IAM 权限检查器。
 }
 
 // NewUserModule 创建用户模块实例。
-func NewUserModule(handler *UserHandlerPackage.HGUserHandler) *HGUserModule {
-	return &HGUserModule{handler: handler}
+func NewUserModule(handler *UserHandlerPackage.HGUserHandler, hgAuthorizers ...HGMiddlewareGroupPackage.HGRouteAuthorizer) *HGUserModule {
+	hgModule := &HGUserModule{handler: handler}
+	if len(hgAuthorizers) > 0 {
+		hgModule.hgAuthorizer = hgAuthorizers[0]
+	}
+	return hgModule
 }
 
 // Name 返回模块名称，用于日志和路由清单。
@@ -41,7 +47,7 @@ func (m *HGUserModule) BasePath() string {
 
 // Handler 返回模块的 HTTP Handler，包含 JWT 鉴权中间件。
 func (m *HGUserModule) Handler() http.Handler {
-	return HGMiddlewareGroupPackage.NewUserRouteInterceptorGroup(m.handler)
+	return HGMiddlewareGroupPackage.NewUserRouteGroup(m.handler, m.hgAuthorizer)
 }
 
 // HGAuthModule 实现 Module 接口，公开的认证路由。
@@ -63,6 +69,7 @@ func (m *HGAuthModule) Name() string {
 func (m *HGAuthModule) BasePath() string {
 	return HGMiddlewareGroupPackage.AuthModuleBasePath
 }
+
 /* 模块的 HTTP Handler，包含 JWT 鉴权中间件。- HGModule接口 */
 func (m *HGAuthModule) Handler() http.Handler {
 	return HGMiddlewareGroupPackage.NewAuthRouteInterceptorGroup(m.handler)
@@ -78,6 +85,6 @@ func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlMana
 
 	HGHandlerPackage.RegisterModule(
 		NewAuthModule(components.Handler), // HGAuthModule实现了hg_module.go中的接口
-		NewUserModule(components.Handler),
+		NewUserModule(components.Handler, IAMPackage.NewHGAssetAuthorizer(IAMPackage.NewHGService(IAMPackage.NewHGRepository(sqlManager.GetSQLDB()).WithHGPermissionCache(redisService)))),
 	)
 }

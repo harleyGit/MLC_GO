@@ -22,9 +22,6 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodGet: true,
 			},
 			NeedAuth: true,
-			Permissions: []string{
-				"user:view",
-			},
 		},
 		{
 			Path:    "/list",
@@ -32,7 +29,7 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 			Methods: map[string]bool{
 				http.MethodGet: true,
 			},
-			NeedAuth: false,
+			NeedAuth: true,
 		},
 		{
 			Path:    "/update",
@@ -74,9 +71,6 @@ func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 				http.MethodGet:  true, // 获取头像
 			},
 			NeedAuth: true,
-			Permissions: []string{
-				"user:view",
-			},
 		},
 	}
 }
@@ -421,7 +415,7 @@ func OpsMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	}
 }
 
-// IAMMethodRules 与 IAM 路由清单保持一一对应；全部需要 JWT，细粒度授权在 Service 执行。
+// IAMMethodRules 定义协议守卫；RouteSpec.Permissions 在 JWT 后执行，Service 保留资源及审批校验。
 func IAMMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	paths := map[string]string{
 		"/roles/list": http.MethodGet, "/roles": http.MethodPost,

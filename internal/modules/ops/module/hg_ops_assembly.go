@@ -29,14 +29,15 @@ type ModuleDeps struct {
 // ModuleComponents 保存模块内部组装出的 repo/service/handler。
 // 统一放在 assembly 中创建，避免 handler 或 service 自己 new 下层依赖。
 type ModuleComponents struct {
-	Repo         *OpsRepositoryPackage.Repository
-	Cache        *OpsCachePackage.Cache
-	TaskPub      OpsTaskPackage.Publisher
-	Operational  *OpsServicePackage.HGOperationalService
-	Service      *OpsServicePackage.Service
-	Handler      *OpsHandlerPackage.Handler
-	CrawlerRepo  *CrawlerRepositoryPackage.Repository
-	CrawlerTasks *CrawlerServicePackage.HGTaskService
+	Repo         *OpsRepositoryPackage.Repository        // 运维权威存储。
+	Cache        *OpsCachePackage.Cache                  // 缓存与限流。
+	TaskPub      OpsTaskPackage.Publisher                // 后台任务发布器。
+	Operational  *OpsServicePackage.HGOperationalService // 资产操作服务。
+	Service      *OpsServicePackage.Service              // 运维业务服务。
+	Handler      *OpsHandlerPackage.Handler              // HTTP 边界。
+	CrawlerRepo  *CrawlerRepositoryPackage.Repository    // 采集任务仓储。
+	CrawlerTasks *CrawlerServicePackage.HGTaskService    // 采集任务服务。
+	Authorizer   *IAMPackage.HGAssetAuthorizer           // 复用业务 IAM 实例执行路由授权。
 }
 
 // NewModuleComponents 负责组装 ops 模块依赖链。
@@ -91,5 +92,6 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 		Handler:      handler,
 		CrawlerRepo:  crawlerRepo,
 		CrawlerTasks: crawlerTasks,
+		Authorizer:   iamAuthorizer,
 	}
 }

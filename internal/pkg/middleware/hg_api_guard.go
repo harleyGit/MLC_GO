@@ -74,20 +74,6 @@ type hgAPIGuardFailure struct {
 
 // endregion
 
-// region 权限配置
-
-var rolePermissions = map[string]map[string]bool{
-	"admin": {
-		"user:update": true,
-		"user:view":   true,
-	},
-	"user": {
-		"user:view": true,
-	},
-}
-
-// endregion
-
 // region 构造函数
 
 // NewAPIGuard 创建 API 规则守卫。
@@ -166,15 +152,11 @@ func (g *APIGuard) Middleware() Middleware {
 			}
 
 			if len(rule.Permissions) > 0 {
-				role := r.Header.Get("X-Role")
-				if role == "" {
-					role = "user"
-				}
-				if !HasPermission(role, rule.Permissions) {
-					w.WriteHeader(http.StatusForbidden)
-					HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "权限校验失败"})
-					return
-				}
+				// 独立 Guard 无可信身份和 IAM 依赖，禁止按客户端角色放行。
+				// NewRouteGroup 接管权限并在 JWT 后执行；未完成装配时默认拒绝。
+				w.WriteHeader(http.StatusForbidden)
+				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "权限校验未配置"})
+				return
 			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -392,24 +374,6 @@ func absInt64(v int64) int64 {
 		return -v
 	}
 	return v
-}
-
-// endregion
-
-// region 权限判断
-
-// HasPermission 判断角色是否拥有所需权限。
-func HasPermission(role string, perms []string) bool {
-	rolePerms := rolePermissions[role]
-	if rolePerms == nil {
-		return false
-	}
-	for _, p := range perms {
-		if rolePerms[p] {
-			return true
-		}
-	}
-	return false
 }
 
 // endregion

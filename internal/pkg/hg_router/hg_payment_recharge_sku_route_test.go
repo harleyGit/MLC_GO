@@ -57,7 +57,7 @@ func TestHGRechargeSKUGuardChain(t *testing.T) {
 		}
 		t.Run(hgRoute.SubPath, func(t *testing.T) {
 			_, hgPattern := hgMux.Handler(httptest.NewRequest(hgRoute.Method, hgRoute.SubPath, nil))
-			if hgPattern != hgRoute.SubPath {
+			if hgPattern != hgRoute.Method+" "+hgRoute.SubPath {
 				t.Fatalf("business mux binding = %q", hgPattern)
 			}
 			for _, hgCase := range []struct {
