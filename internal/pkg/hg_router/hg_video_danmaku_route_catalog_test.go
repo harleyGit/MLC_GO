@@ -2,6 +2,7 @@ package HGRouterPackage
 
 import (
 	VideoDanmakuHandlerPackage "MLC_GO/internal/modules/video_danmaku/handler"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -59,7 +60,7 @@ func TestHGExternalRouteRejectsHTTPHandlerAndPermissions(t *testing.T) {
 			case "handler":
 				hgSpec.Handler = func(http.ResponseWriter, *http.Request) {}
 			case "permissions":
-				hgSpec.Permissions = []string{"iam:role:read"}
+				hgSpec.Permissions = []HGPermissionPackage.HGPermission{"iam:role:read"}
 			case "unknown_binding":
 				hgSpec.Binding = "unknown"
 			}

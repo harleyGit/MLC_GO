@@ -3,6 +3,7 @@ package product
 import (
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	IAMPackage "MLC_GO/internal/modules/iam"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"database/sql"
@@ -81,7 +82,7 @@ func (s *HGService) hgAuthorizeOwnProductAction(ctx context.Context, user, produ
 	} else if state.MerchantStatus == 1 && state.ProductStatus == 1 && state.ReviewStatus == 1 {
 		status = "published"
 	}
-	decision, err := s.iam.Authorize(ctx, user, "mall:product:update", IAMPackage.HGResource{ScopeType: "global", OwnerID: state.OwnerID, RequireOwner: true, Status: status, AllowedStatuses: allowedStatuses})
+	decision, err := s.iam.Authorize(ctx, user, string(HGPermissionPackage.HGMallProductUpdate), IAMPackage.HGResource{ScopeType: "global", OwnerID: state.OwnerID, RequireOwner: true, Status: status, AllowedStatuses: allowedStatuses})
 	if err != nil {
 		return err
 	}
@@ -237,7 +238,7 @@ func (s *HGService) Publish(ctx context.Context, user string, draft HGProductDra
 		if err = s.iam.EnsureMerchant(ctx, user, m.MerchantID); err != nil {
 			return HGCatalogItem{}, err
 		}
-		decision, authErr := s.iam.Authorize(ctx, user, "mall:product:create", IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: "approved", AllowedStatuses: []string{"approved"}})
+		decision, authErr := s.iam.Authorize(ctx, user, string(HGPermissionPackage.HGMallProductCreate), IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: "approved", AllowedStatuses: []string{"approved"}})
 		if authErr != nil {
 			return HGCatalogItem{}, authErr
 		}

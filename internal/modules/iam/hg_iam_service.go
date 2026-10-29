@@ -2,6 +2,7 @@ package iam
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
 	"errors"
 	"regexp"
@@ -53,9 +54,9 @@ func (s *HGService) hgCanManage(ctx context.Context, actor string, write bool) e
 	if !admin {
 		return ErrHGForbidden
 	}
-	permission := "iam:role:read"
+	permission := string(HGPermissionPackage.HGIAMRoleRead)
 	if write {
-		permission = "iam:role:grant"
+		permission = string(HGPermissionPackage.HGIAMRoleGrant)
 	}
 	allowed, err := s.repo.hgHasPermission(ctx, actor, permission, "global", "")
 	if err != nil {

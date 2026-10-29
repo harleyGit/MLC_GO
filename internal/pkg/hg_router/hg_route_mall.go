@@ -3,6 +3,7 @@ package HGRouterPackage
 import (
 	"MLC_GO/internal/modules/product"
 	hguser "MLC_GO/internal/modules/user/middleware"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	hgserver "MLC_GO/internal/pkg/server"
 	"net/http"
 )
@@ -56,15 +57,15 @@ func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/products/images/pending", true, "本人商品待审补图", ownPendingMedia),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/merchant", true, "本人商家入驻状态", merchant),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/merchant/apply", true, "申请商家入驻", apply),
-		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/merchants", true, "待审核商家", pendingMerchants, "mall:merchant:review"),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/merchants", true, "待审核商家", pendingMerchants, HGPermissionPackage.HGMallMerchantReview),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/access", true, "当前商城审核权限", reviewAccess),
-		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/merchants/decision", true, "审核商家", reviewMerchant, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/products", true, "待审核商品", pendingProducts, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/products/decision", true, "审核商品", reviewProduct, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/images", true, "待审商品补图", pendingMedia, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/images/decision", true, "审核商品补图", reviewMedia, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/edits", true, "待审商品编辑", pendingEdits, "mall:merchant:review"),
-		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/edits/decision", true, "审核商品编辑", reviewEdit, "mall:merchant:review"),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/merchants/decision", true, "审核商家", reviewMerchant, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/products", true, "待审核商品", pendingProducts, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/products/decision", true, "审核商品", reviewProduct, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/images", true, "待审商品补图", pendingMedia, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/images/decision", true, "审核商品补图", reviewMedia, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/review/edits", true, "待审商品编辑", pendingEdits, HGPermissionPackage.HGMallMerchantReview),
+		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/review/edits/decision", true, "审核商品编辑", reviewEdit, HGPermissionPackage.HGMallMerchantReview),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/buy", true, "实物商品预留库存并创建待支付订单", buy),
 		NewRouteSpec("mall", http.MethodPost, HGMallModuleBasePath, "/orders/pay", true, "本人待支付订单M币原子支付", pay),
 		NewRouteSpec("mall", http.MethodGet, HGMallModuleBasePath, "/orders/pending", true, "本人待支付与超时取消订单", pendingOrders),

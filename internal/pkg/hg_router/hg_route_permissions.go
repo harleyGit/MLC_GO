@@ -3,10 +3,10 @@ package HGRouterPackage
 import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	HGResponsePackage "MLC_GO/internal/response"
 	"context"
 	"net/http"
-	"regexp"
 	"slices"
 	"time"
 )
@@ -16,8 +16,6 @@ import (
 type HGRouteAuthorizer interface {
 	HasAssetPermission(context.Context, string, string) (bool, error)
 }
-
-var hgRoutePermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$`)
 
 func hgFirstAuthorizer(hgItems []HGRouteAuthorizer) HGRouteAuthorizer {
 	if len(hgItems) > 0 {
@@ -37,11 +35,13 @@ func hgRouteGuardRules(hgRules []HGMiddlewarePackage.APIRule, hgSpecs []RouteSpe
 		}
 		hgValidateRoutePermissions(hgSpec)
 		hgFound := false
-		for hgIndex, hgRule := range hgResult {
+		for hgIndex, hgRule := range hgRules {
 			if hgRule.Path != hgSpec.SubPath || !hgRule.Methods[hgSpec.Method] {
 				continue
 			}
-			if hgRule.NeedAuth != hgSpec.NeedAuth || (len(hgRule.Permissions) > 0 && !slices.Equal(hgRule.Permissions, hgSpec.Permissions)) {
+			if hgRule.NeedAuth != hgSpec.NeedAuth || (len(hgRule.Permissions) > 0 && !slices.EqualFunc(hgRule.Permissions, hgSpec.Permissions, func(hgCode string, hgPermission HGPermissionPackage.HGPermission) bool {
+				return hgCode == string(hgPermission)
+			})) {
 				panic("路由与 API Guard 的鉴权声明不一致: " + hgSpec.FullPath)
 			}
 			// 复制后的规则只用于协议守卫，权限已有独立的 JWT 后置检查。
@@ -57,16 +57,16 @@ func hgRouteGuardRules(hgRules []HGMiddlewarePackage.APIRule, hgSpecs []RouteSpe
 
 func hgValidateRoutePermissions(hgSpec RouteSpec) {
 	if len(hgSpec.Permissions) == 0 {
-		if hgSpec.PermissionMatch != "" {
+		if hgSpec.PermissionMatch != HGPermissionMatchNone {
 			panic("空权限列表不能声明匹配模式: " + hgSpec.FullPath)
 		}
 		return
 	}
-	if !hgSpec.NeedAuth || len(hgSpec.Permissions) > 16 || (hgSpec.PermissionMatch != "all" && hgSpec.PermissionMatch != "any") {
+	if !hgSpec.NeedAuth || len(hgSpec.Permissions) > 16 || (hgSpec.PermissionMatch != HGPermissionMatchAll && hgSpec.PermissionMatch != HGPermissionMatchAny) {
 		panic("路由权限必须认证且使用有界 all/any 声明: " + hgSpec.FullPath)
 	}
 	for hgIndex, hgPermission := range hgSpec.Permissions {
-		if !hgRoutePermissionPattern.MatchString(hgPermission) || slices.Contains(hgSpec.Permissions[:hgIndex], hgPermission) {
+		if !hgPermission.HGKnown() || slices.Contains(hgSpec.Permissions[:hgIndex], hgPermission) {
 			panic("路由权限编码无效或重复: " + hgSpec.FullPath)
 		}
 	}
@@ -98,21 +98,21 @@ func hgPermissionHandler(hgSpec RouteSpec, hgAuthorizer HGRouteAuthorizer) http.
 		hgCtx, hgCancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer hgCancel()
 		for _, hgPermission := range hgPermissions {
-			hgAllowed, hgErr := hgAuthorizer.HasAssetPermission(hgCtx, hgUserID, hgPermission)
+			hgAllowed, hgErr := hgAuthorizer.HasAssetPermission(hgCtx, hgUserID, string(hgPermission))
 			if hgErr != nil || hgCtx.Err() != nil {
 				hgPermissionError(w, r, http.StatusServiceUnavailable)
 				return
 			}
-			if hgSpec.PermissionMatch == "any" && hgAllowed {
+			if hgSpec.PermissionMatch == HGPermissionMatchAny && hgAllowed {
 				hgSpec.Handler(w, r)
 				return
 			}
-			if hgSpec.PermissionMatch == "all" && !hgAllowed {
+			if hgSpec.PermissionMatch == HGPermissionMatchAll && !hgAllowed {
 				hgPermissionError(w, r, http.StatusForbidden)
 				return
 			}
 		}
-		if hgSpec.PermissionMatch == "any" {
+		if hgSpec.PermissionMatch == HGPermissionMatchAny {
 			hgPermissionError(w, r, http.StatusForbidden)
 			return
 		}

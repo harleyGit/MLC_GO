@@ -8,6 +8,7 @@ import (
 	VideoUploadDtoPackage "MLC_GO/internal/modules/video_upload/dto"
 	VideoUploadRepositoryPackage "MLC_GO/internal/modules/video_upload/repository"
 	VideoUploadTaskPackage "MLC_GO/internal/modules/video_upload/task"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	HGUploadPackage "MLC_GO/internal/pkg/upload"
 	"bytes"
 	"context"
@@ -176,10 +177,10 @@ func (s *Service) UploadVideo(ctx context.Context, userID string, file io.Reader
 		if err != nil {
 			return nil, err
 		}
-		permission := "video:submission:create"
+		permission := string(HGPermissionPackage.HGVideoSubmissionCreate)
 		resource := IAMPackage.HGResource{ScopeType: "global", OwnerID: userID, RequireOwner: true}
 		if found {
-			permission = "video:submission:update"
+			permission = string(HGPermissionPackage.HGVideoSubmissionUpdate)
 			resource.Status = oldStatus
 			resource.AllowedStatuses = []string{"draft"}
 		}
@@ -311,7 +312,7 @@ func (s *Service) SaveSubmission(ctx context.Context, userID string, req VideoUp
 		if err = s.iam.EnsureCreator(ctx, userID); err != nil {
 			return nil, err
 		}
-		decision, authErr := s.iam.Authorize(ctx, userID, "video:submission:update", IAMPackage.HGResource{ScopeType: "global", OwnerID: userID, RequireOwner: true, Status: oldStatus, AllowedStatuses: []string{"draft", "rejected"}})
+		decision, authErr := s.iam.Authorize(ctx, userID, string(HGPermissionPackage.HGVideoSubmissionUpdate), IAMPackage.HGResource{ScopeType: "global", OwnerID: userID, RequireOwner: true, Status: oldStatus, AllowedStatuses: []string{"draft", "rejected"}})
 		if authErr != nil {
 			return nil, authErr
 		}

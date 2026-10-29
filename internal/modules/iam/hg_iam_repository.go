@@ -2,6 +2,7 @@ package iam
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"database/sql"
@@ -65,7 +66,7 @@ func (r *HGRepository) hgHasPermission(ctx context.Context, userID, permission, 
 	// 业务身份和敏感写操作直查权威库；前者避免开户写热点，后者避免使用短时缓存作审批依据。
 	if strings.HasPrefix(permission, "video:submission:") || strings.HasPrefix(permission, "mall:product:") || strings.HasPrefix(permission, "mall:order:") ||
 		strings.HasPrefix(permission, "iam:") || strings.HasPrefix(permission, "asset:coin:") || strings.HasPrefix(permission, "asset:coin_correction:") ||
-		permission == "payment:recharge_sku:write" || permission == "crawler:task:run" || permission == "crawler:task:execute" || permission == "crawler:task:write" {
+		permission == string(HGPermissionPackage.HGPaymentRechargeSKUWrite) || permission == string(HGPermissionPackage.HGCrawlerTaskRun) || permission == string(HGPermissionPackage.HGCrawlerTaskExecute) || permission == string(HGPermissionPackage.HGCrawlerTaskWrite) {
 		return r.hgPermissionFromDB(ctx, userID, permission, scopeType, scopeID)
 	}
 	if r.cache != nil && r.cache.Client() != nil {
@@ -145,15 +146,15 @@ func (r *HGRepository) hgAssetPermissions(ctx context.Context, userID string) ([
 
 func hgOldAssetPermission(code string) string {
 	switch code {
-	case "asset:coin_balance:read":
+	case string(HGPermissionPackage.HGAssetCoinBalanceRead):
 		return "asset.coin.balance.read"
-	case "asset:coin_transaction:read":
+	case string(HGPermissionPackage.HGAssetCoinTransactionRead):
 		return "asset.coin.transaction.read"
-	case "asset:coin_correction:request":
+	case string(HGPermissionPackage.HGAssetCoinCorrectionRequest):
 		return "asset.coin.correction.request"
-	case "asset:coin_correction:approve":
+	case string(HGPermissionPackage.HGAssetCoinCorrectionApprove):
 		return "asset.coin.correction.approve"
-	case "asset:coin_correction:apply":
+	case string(HGPermissionPackage.HGAssetCoinCorrectionApply):
 		return "asset.coin.correction.apply"
 	default:
 		return strings.ReplaceAll(code, ":", ".")

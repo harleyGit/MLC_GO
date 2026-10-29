@@ -1,6 +1,7 @@
 package iam
 
 import (
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
 	"strings"
 )
@@ -55,15 +56,15 @@ func (a *HGAssetAuthorizer) ListAssetPermissions(ctx context.Context, userID str
 func hgLegacyPermission(code string) string {
 	switch code {
 	case "asset.coin.balance.read":
-		return "asset:coin_balance:read"
+		return string(HGPermissionPackage.HGAssetCoinBalanceRead)
 	case "asset.coin.transaction.read":
-		return "asset:coin_transaction:read"
+		return string(HGPermissionPackage.HGAssetCoinTransactionRead)
 	case "asset.coin.correction.request":
-		return "asset:coin_correction:request"
+		return string(HGPermissionPackage.HGAssetCoinCorrectionRequest)
 	case "asset.coin.correction.approve":
-		return "asset:coin_correction:approve"
+		return string(HGPermissionPackage.HGAssetCoinCorrectionApprove)
 	case "asset.coin.correction.apply":
-		return "asset:coin_correction:apply"
+		return string(HGPermissionPackage.HGAssetCoinCorrectionApply)
 	default:
 		return strings.ReplaceAll(code, ".", ":")
 	}

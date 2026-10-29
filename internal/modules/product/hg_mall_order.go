@@ -2,6 +2,7 @@ package product
 
 import (
 	IAMPackage "MLC_GO/internal/modules/iam"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -188,7 +189,7 @@ func (s *HGService) HGOrders(ctx context.Context, user, cursor string, merchant 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if merchant {
-		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:read"); err != nil {
+		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, string(HGPermissionPackage.HGMallOrderRead)); err != nil {
 			return HGOrderPage{}, err
 		}
 	}
@@ -207,7 +208,7 @@ func (s *HGService) HGOrder(ctx context.Context, user, id string, merchant bool)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if merchant {
-		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:read"); err != nil {
+		if _, err := s.hgAuthorizeMerchantOrder(ctx, user, string(HGPermissionPackage.HGMallOrderRead)); err != nil {
 			return HGOrder{}, err
 		}
 	}
@@ -225,7 +226,7 @@ func (s *HGService) HGShip(ctx context.Context, user string, req HGShipRequest) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	m, err := s.hgAuthorizeMerchantOrder(ctx, user, "mall:order:ship")
+	m, err := s.hgAuthorizeMerchantOrder(ctx, user, string(HGPermissionPackage.HGMallOrderShip))
 	if err != nil {
 		return err
 	}
@@ -243,7 +244,7 @@ func (s *HGService) HGShip(ctx context.Context, user string, req HGShipRequest) 
 		} else if order.MerchantID == m.MerchantID && order.TradeStatus == 3 && order.ShippingStatus == 1 && order.Carrier == req.Carrier && order.TrackingNumber == req.TrackingNumber {
 			status = "same_shipment"
 		}
-		decision, authErr := s.iam.Authorize(ctx, user, "mall:order:ship", IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: status, AllowedStatuses: []string{"paid_unshipped", "same_shipment"}})
+		decision, authErr := s.iam.Authorize(ctx, user, string(HGPermissionPackage.HGMallOrderShip), IAMPackage.HGResource{ScopeType: "global", OwnerID: user, RequireOwner: true, Status: status, AllowedStatuses: []string{"paid_unshipped", "same_shipment"}})
 		if authErr != nil {
 			return authErr
 		}

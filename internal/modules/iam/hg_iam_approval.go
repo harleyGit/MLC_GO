@@ -2,6 +2,7 @@ package iam
 
 import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -189,7 +190,7 @@ func (s *HGService) DecideApproval(ctx context.Context, approver, requestID, otp
 	if err := s.hgCanManage(ctx, approver, true); err != nil {
 		return err
 	}
-	decision, err := s.Authorize(ctx, approver, "iam:approval:approve", HGResource{ScopeType: "global"})
+	decision, err := s.Authorize(ctx, approver, string(HGPermissionPackage.HGIAMApprovalApprove), HGResource{ScopeType: "global"})
 	if err != nil {
 		return err
 	}
@@ -214,14 +215,14 @@ func (s *HGService) DecideApproval(ctx context.Context, approver, requestID, otp
 	if applicant == approver || status != "pending" || !expires.After(time.Now()) {
 		return ErrHGConflict
 	}
-	if err = hgApprovalActorTx(ctx, tx, approver, "iam:approval:approve"); err != nil {
+	if err = hgApprovalActorTx(ctx, tx, approver, string(HGPermissionPackage.HGIAMApprovalApprove)); err != nil {
 		return err
 	}
 	if err = s.hgConsumeMFA(ctx, tx, approver, otp); err != nil {
 		return err
 	}
 	if approve {
-		if err = hgApprovalActorTx(ctx, tx, applicant, "iam:role:grant"); err != nil {
+		if err = hgApprovalActorTx(ctx, tx, applicant, string(HGPermissionPackage.HGIAMRoleGrant)); err != nil {
 			return err
 		}
 		switch action {

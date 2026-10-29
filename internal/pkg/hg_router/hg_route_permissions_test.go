@@ -5,12 +5,18 @@ import (
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	HGServerPackage "MLC_GO/internal/pkg/server"
 	"context"
+	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -134,7 +140,7 @@ func TestHGRoutePermissionsCatalogAndBinding(t *testing.T) {
 			t.Errorf("运维接口未声明权限: %s", hgItem.Path)
 		}
 		for _, hgPermission := range hgItem.Permissions {
-			if !strings.Contains(hgSeeds, "'"+hgPermission+"'") {
+			if !strings.Contains(hgSeeds, "'"+string(hgPermission)+"'") {
 				t.Errorf("权限未登记迁移: %s", hgPermission)
 			}
 		}
@@ -179,7 +185,7 @@ func TestHGAllRouteGroupPermissionContracts(t *testing.T) {
 
 func TestHGRoutePermissionConfigurationRejectsInvalidDeclarations(t *testing.T) {
 	hgBase := NewRouteSpec("test", http.MethodGet, "/test", "/list", true, "查询", nil, "iam:role:read")
-	for _, hgCase := range []string{"匿名权限", "非法编码", "重复权限", "未知匹配", "空列表匹配", "超量权限", "Guard认证漂移", "Guard权限漂移", "Guard遗漏"} {
+	for _, hgCase := range []string{"匿名权限", "非法编码", "未登记编码", "重复权限", "未知匹配", "空列表匹配", "超量权限", "Guard认证漂移", "Guard权限漂移", "Guard遗漏"} {
 		t.Run(hgCase, func(t *testing.T) {
 			hgSpec := hgBase
 			hgRules := []HGMiddlewarePackage.APIRule{{Path: "/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true}}
@@ -187,15 +193,17 @@ func TestHGRoutePermissionConfigurationRejectsInvalidDeclarations(t *testing.T) 
 			case "匿名权限":
 				hgSpec.NeedAuth = false
 			case "非法编码":
-				hgSpec.Permissions = []string{"iam.role.read"}
+				hgSpec.Permissions = []HGPermissionPackage.HGPermission{"iam.role.read"}
+			case "未登记编码":
+				hgSpec.Permissions = []HGPermissionPackage.HGPermission{"unknown:resource:read"}
 			case "重复权限":
-				hgSpec.Permissions = []string{"iam:role:read", "iam:role:read"}
+				hgSpec.Permissions = []HGPermissionPackage.HGPermission{"iam:role:read", "iam:role:read"}
 			case "未知匹配":
 				hgSpec.PermissionMatch = "unknown"
 			case "空列表匹配":
 				hgSpec.Permissions = nil
 			case "超量权限":
-				hgSpec.Permissions = make([]string, 17)
+				hgSpec.Permissions = make([]HGPermissionPackage.HGPermission, 17)
 			case "Guard认证漂移":
 				hgRules[0].NeedAuth = false
 			case "Guard权限漂移":
@@ -250,4 +258,75 @@ func TestHGOpsLegacyRoleRouteStillGoneAfterAuthorization(t *testing.T) {
 	if hgResponse.Code != 410 {
 		t.Fatalf("旧角色入口应继续提示迁移: %d %s", hgResponse.Code, hgResponse.Body.String())
 	}
+}
+
+// 权限枚举为 Go 类型约束，前端仍收到原来的字符串编码与 all/any 协议。
+func TestHGRoutePermissionEnumJSONContract(t *testing.T) {
+	hgSpec := NewRouteSpec("test", http.MethodGet, "/test", "/roles", true, "查询角色", nil, HGPermissionPackage.HGIAMRoleRead)
+	hgData, hgErr := json.Marshal(BuildRouteCatalogItems([]RouteSpec{hgSpec})[0])
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	var hgValue map[string]json.RawMessage
+	if hgErr = json.Unmarshal(hgData, &hgValue); hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	if string(hgValue["permissions"]) != `["iam:role:read"]` || string(hgValue["permissionMatch"]) != `"all"` {
+		t.Fatalf("权限枚举改变了 JSON 协议: %s", hgData)
+	}
+}
+
+// 普通路由和 IAM 模块的生产声明不得重新引入权限字面量；测试夹具保留原协议值用于独立核对。
+func TestHGRoutePermissionsUseEnumDeclarations(t *testing.T) {
+	hgFiles, hgErr := filepath.Glob("hg_route_*.go")
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	hgFiles = append(hgFiles, "../../modules/iam/module/hg_iam_module.go")
+	for _, hgPath := range hgFiles {
+		if strings.HasSuffix(hgPath, "_test.go") {
+			continue
+		}
+		hgAST, hgErr := parser.ParseFile(token.NewFileSet(), hgPath, nil, 0)
+		if hgErr != nil {
+			t.Fatal(hgErr)
+		}
+		ast.Inspect(hgAST, func(hgNode ast.Node) bool {
+			hgCall, hgOK := hgNode.(*ast.CallExpr)
+			if !hgOK {
+				return true
+			}
+			hgName := ""
+			switch hgFunction := hgCall.Fun.(type) {
+			case *ast.Ident:
+				hgName = hgFunction.Name
+			case *ast.SelectorExpr:
+				hgName = hgFunction.Sel.Name
+			}
+			if hgName != "NewRouteSpec" {
+				return true
+			}
+			for hgIndex := 7; hgIndex < len(hgCall.Args); hgIndex++ {
+				if _, hgLiteral := hgCall.Args[hgIndex].(*ast.BasicLit); hgLiteral {
+					t.Errorf("%s 路由权限必须引用枚举", hgPath)
+				}
+			}
+			return true
+		})
+	}
+}
+
+// 同一路径的多个方法必须逐项比较原始 Guard 权限，不能让先处理的方法清空后续检查依据。
+func TestHGGuardPermissionsCheckedForEveryMethod(t *testing.T) {
+	hgRules := []HGMiddlewarePackage.APIRule{{Path: "/files", Version: "v1", Methods: map[string]bool{http.MethodGet: true, http.MethodPost: true}, NeedAuth: true, Permissions: []string{"ops:file:read"}}}
+	hgSpecs := []RouteSpec{
+		NewRouteSpec("test", http.MethodGet, "/test", "/files", true, "读", nil, HGPermissionPackage.HGOpsFileRead),
+		NewRouteSpec("test", http.MethodPost, "/test", "/files", true, "写", nil, HGPermissionPackage.HGOpsFileWrite),
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("同一路径第二个方法的权限漂移未被发现")
+		}
+	}()
+	NewRouteGroup(RouteGroupConfig{Rules: hgRules}, hgSpecs)
 }

@@ -1,6 +1,7 @@
 package HGRouterPackage
 
 import (
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"net/http"
 	"slices"
 )
@@ -15,16 +16,25 @@ const (
 	HGRouteBindingExternal HGRouteBinding = "external" // 仅提供目录信息；认证与注册由独立服务或专用入口负责。
 )
 
+// HGPermissionMatch 描述路由中多个权限的组合方式，不改变单项权限的 IAM 查询语义。
+type HGPermissionMatch string
+
+const (
+	HGPermissionMatchNone HGPermissionMatch = ""    // 未声明全局权限，仍执行接口原有认证和业务归属校验。
+	HGPermissionMatchAll  HGPermissionMatch = "all" // 必须同时拥有全部权限，适用于复合写操作。
+	HGPermissionMatchAny  HGPermissionMatch = "any" // 至少拥有一项权限，仅用于明确共享的查询入口。
+)
+
 // RouteCatalogItem 描述对外可调用的 API 路由，供 App/Web 联调查看。
 type RouteCatalogItem struct {
-	Group           string         `json:"group"`                     // 业务模块名。
-	Method          string         `json:"method"`                    // HTTP 方法。
-	Path            string         `json:"path"`                      // 包含模块前缀的路径。
-	NeedAuth        bool           `json:"needAuth"`                  // 是否需要可信登录身份。
-	Summary         string         `json:"summary"`                   // 接口用途。
-	Permissions     []string       `json:"permissions,omitempty"`     // IAM 权限编码，默认全部满足；空表示不额外要求全局 RBAC。
-	PermissionMatch string         `json:"permissionMatch,omitempty"` // all 或 any；仅非空权限列表有效。
-	Binding         HGRouteBinding `json:"binding,omitempty"`         // external 表示独立服务/专用入口；省略表示标准 HTTP 路由。
+	Group           string                             `json:"group"`                     // 业务模块名。
+	Method          string                             `json:"method"`                    // HTTP 方法。
+	Path            string                             `json:"path"`                      // 包含模块前缀的路径。
+	NeedAuth        bool                               `json:"needAuth"`                  // 是否需要可信登录身份。
+	Summary         string                             `json:"summary"`                   // 接口用途。
+	Permissions     []HGPermissionPackage.HGPermission `json:"permissions,omitempty"`     // IAM 权限枚举；JSON 保持原字符串数组协议。
+	PermissionMatch HGPermissionMatch                  `json:"permissionMatch,omitempty"` // all 或 any；仅非空权限列表有效。
+	Binding         HGRouteBinding                     `json:"binding,omitempty"`         // external 表示独立服务/专用入口；省略表示标准 HTTP 路由。
 }
 
 // HGRouteCatalogItem 兼容旧类型名。
@@ -32,16 +42,16 @@ type HGRouteCatalogItem = RouteCatalogItem
 
 // RouteSpec 描述模块内子路由注册元信息。
 type RouteSpec struct {
-	Group           string           // 业务模块名。
-	Method          string           // HTTP 方法。
-	SubPath         string           // StripPrefix 后的模块内路径。
-	FullPath        string           // 对外完整路径。
-	NeedAuth        bool             // 是否需要登录；声明权限时必须为 true。
-	Summary         string           // 接口用途。
-	Handler         http.HandlerFunc // 业务入口；目录构建时可为 nil。
-	Permissions     []string         // JWT 验证后检查的 IAM 权限，不能代替业务资源归属校验。
-	PermissionMatch string           // 默认 all；any 只用于明确允许任一权限的共享入口。
-	Binding         HGRouteBinding   // 默认标准 HTTP；external 只展示目录，不参与 HTTP 绑定或 Guard 校验。
+	Group           string                             // 业务模块名。
+	Method          string                             // HTTP 方法。
+	SubPath         string                             // StripPrefix 后的模块内路径。
+	FullPath        string                             // 对外完整路径。
+	NeedAuth        bool                               // 是否需要登录；声明权限时必须为 true。
+	Summary         string                             // 接口用途。
+	Handler         http.HandlerFunc                   // 业务入口；目录构建时可为 nil。
+	Permissions     []HGPermissionPackage.HGPermission // JWT 验证后检查的 IAM 权限枚举，不能代替业务资源归属校验。
+	PermissionMatch HGPermissionMatch                  // 默认 all；any 只用于明确允许任一权限的共享入口。
+	Binding         HGRouteBinding                     // 默认标准 HTTP；external 只展示目录，不参与 HTTP 绑定或 Guard 校验。
 }
 
 // hgRouteSpec 兼容旧类型名。
@@ -91,7 +101,8 @@ func buildRouteCatalogItems(specs []RouteSpec) []RouteCatalogItem {
 	return BuildRouteCatalogItems(specs)
 }
 
-// NewRouteSpec 统一构建路由元信息，确保子路径和完整路径同时可用。
+// NewRouteSpec 统一构建 HTTP 路由元信息；权限参数引用 permission 包枚举，默认要求全部满足。
+// 省略权限只表示没有额外全局 RBAC，认证及业务归属校验仍由 NeedAuth 和业务服务负责。
 func NewRouteSpec(
 	group string,
 	method string,
@@ -100,11 +111,11 @@ func NewRouteSpec(
 	needAuth bool,
 	summary string,
 	handler http.HandlerFunc,
-	hgPermissions ...string,
+	hgPermissions ...HGPermissionPackage.HGPermission,
 ) RouteSpec {
-	hgMatch := ""
+	hgMatch := HGPermissionMatchNone
 	if len(hgPermissions) > 0 {
-		hgMatch = "all"
+		hgMatch = HGPermissionMatchAll
 	}
 	return RouteSpec{
 		Group:           group,
@@ -131,7 +142,7 @@ func hgValidateRouteBinding(hgSpec RouteSpec) {
 	switch hgSpec.Binding {
 	case HGRouteBindingHTTP:
 	case HGRouteBindingExternal:
-		if hgSpec.Handler != nil || len(hgSpec.Permissions) > 0 || hgSpec.PermissionMatch != "" {
+		if hgSpec.Handler != nil || len(hgSpec.Permissions) > 0 || hgSpec.PermissionMatch != HGPermissionMatchNone {
 			panic("独立入口目录项不能绑定 HTTP handler 或路由权限: " + hgSpec.FullPath)
 		}
 	default:
@@ -141,7 +152,7 @@ func hgValidateRouteBinding(hgSpec RouteSpec) {
 
 // HGWithAnyPermission 将共享查询入口声明为任一权限可访问；写操作应使用默认 all。
 func (hgSpec RouteSpec) HGWithAnyPermission() RouteSpec {
-	hgSpec.PermissionMatch = "any"
+	hgSpec.PermissionMatch = HGPermissionMatchAny
 	return hgSpec
 }
 
