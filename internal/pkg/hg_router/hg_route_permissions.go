@@ -31,6 +31,10 @@ func hgFirstAuthorizer(hgItems []HGRouteAuthorizer) HGRouteAuthorizer {
 func hgRouteGuardRules(hgRules []HGMiddlewarePackage.APIRule, hgSpecs []RouteSpec) []HGMiddlewarePackage.APIRule {
 	hgResult := slices.Clone(hgRules)
 	for _, hgSpec := range hgSpecs {
+		hgValidateRouteBinding(hgSpec)
+		if hgSpec.Binding == HGRouteBindingExternal {
+			continue
+		}
 		hgValidateRoutePermissions(hgSpec)
 		hgFound := false
 		for hgIndex, hgRule := range hgResult {

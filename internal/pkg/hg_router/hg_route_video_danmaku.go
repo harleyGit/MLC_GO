@@ -15,7 +15,7 @@ func videoDanmakuRoutes(handler *VideoDanmakuHandlerPackage.Handler) []RouteSpec
 		NewRouteSpec("video_danmaku", http.MethodPost, VideoDanmakuModuleBasePath, "/create", true, "创建视频弹幕", create),
 		NewRouteSpec("video_danmaku", http.MethodGet, VideoDanmakuModuleBasePath, "/list", true, "按播放时间窗获取视频弹幕", list),
 		NewRouteSpec("video_danmaku", http.MethodPost, VideoDanmakuModuleBasePath, "/ticket", true, "获取单次 WebSocket 票据", ticket),
-		// Handler=nil 使标准 HTTP mux 不注册该路径，但路由清单仍对前端声明公开协议。
-		NewRouteSpec("video_danmaku", http.MethodGet, VideoDanmakuModuleBasePath, "/ws", true, "视频弹幕 WebSocket", nil),
+		// 独立 gnet 入口校验一次性票据，不属于普通 HTTP/JWT 路由组。
+		NewHGExternalRouteSpec("video_danmaku", http.MethodGet, VideoDanmakuModuleBasePath, "/ws", true, "视频弹幕 WebSocket"),
 	}
 }

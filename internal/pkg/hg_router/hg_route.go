@@ -7,15 +7,24 @@ import (
 
 // region 数据结构定义
 
+// HGRouteBinding 表示接口由标准 HTTP 路由组绑定，还是由独立服务/专用入口承载。
+type HGRouteBinding string
+
+const (
+	HGRouteBindingHTTP     HGRouteBinding = ""         // 默认值：注册标准 HTTP mux，并校验对应 API Guard 规则。
+	HGRouteBindingExternal HGRouteBinding = "external" // 仅提供目录信息；认证与注册由独立服务或专用入口负责。
+)
+
 // RouteCatalogItem 描述对外可调用的 API 路由，供 App/Web 联调查看。
 type RouteCatalogItem struct {
-	Group           string   `json:"group"`                     // 业务模块名。
-	Method          string   `json:"method"`                    // HTTP 方法。
-	Path            string   `json:"path"`                      // 包含模块前缀的路径。
-	NeedAuth        bool     `json:"needAuth"`                  // 是否需要可信登录身份。
-	Summary         string   `json:"summary"`                   // 接口用途。
-	Permissions     []string `json:"permissions,omitempty"`     // IAM 权限编码，默认全部满足；空表示不额外要求全局 RBAC。
-	PermissionMatch string   `json:"permissionMatch,omitempty"` // all 或 any；仅非空权限列表有效。
+	Group           string         `json:"group"`                     // 业务模块名。
+	Method          string         `json:"method"`                    // HTTP 方法。
+	Path            string         `json:"path"`                      // 包含模块前缀的路径。
+	NeedAuth        bool           `json:"needAuth"`                  // 是否需要可信登录身份。
+	Summary         string         `json:"summary"`                   // 接口用途。
+	Permissions     []string       `json:"permissions,omitempty"`     // IAM 权限编码，默认全部满足；空表示不额外要求全局 RBAC。
+	PermissionMatch string         `json:"permissionMatch,omitempty"` // all 或 any；仅非空权限列表有效。
+	Binding         HGRouteBinding `json:"binding,omitempty"`         // external 表示独立服务/专用入口；省略表示标准 HTTP 路由。
 }
 
 // HGRouteCatalogItem 兼容旧类型名。
@@ -32,6 +41,7 @@ type RouteSpec struct {
 	Handler         http.HandlerFunc // 业务入口；目录构建时可为 nil。
 	Permissions     []string         // JWT 验证后检查的 IAM 权限，不能代替业务资源归属校验。
 	PermissionMatch string           // 默认 all；any 只用于明确允许任一权限的共享入口。
+	Binding         HGRouteBinding   // 默认标准 HTTP；external 只展示目录，不参与 HTTP 绑定或 Guard 校验。
 }
 
 // hgRouteSpec 兼容旧类型名。
@@ -44,7 +54,8 @@ type hgRouteSpec = RouteSpec
 // BindRouteSpecs 负责把模块内子路由批量注册到 mux。
 func BindRouteSpecs(mux *http.ServeMux, specs []RouteSpec, hgAuthorizers ...HGRouteAuthorizer) {
 	for _, route := range specs {
-		if route.Handler == nil {
+		hgValidateRouteBinding(route)
+		if route.Binding == HGRouteBindingExternal || route.Handler == nil {
 			continue
 		}
 		mux.Handle(route.Method+" "+route.SubPath, hgPermissionHandler(route, hgFirstAuthorizer(hgAuthorizers)))
@@ -68,6 +79,7 @@ func BuildRouteCatalogItems(specs []RouteSpec) []RouteCatalogItem {
 			Summary:         spec.Summary,
 			Permissions:     slices.Clone(spec.Permissions),
 			PermissionMatch: spec.PermissionMatch,
+			Binding:         spec.Binding,
 		})
 	}
 
@@ -104,6 +116,26 @@ func NewRouteSpec(
 		Handler:         handler,
 		Permissions:     slices.Clone(hgPermissions),
 		PermissionMatch: hgMatch,
+	}
+}
+
+// NewHGExternalRouteSpec 声明独立服务或专用入口的目录项，不挂载 HTTP handler 或全局 IAM 权限。
+// needAuth 描述该入口自身的认证要求，例如弹幕 WebSocket 的单次票据。
+func NewHGExternalRouteSpec(group, method, basePath, subPath string, needAuth bool, summary string) RouteSpec {
+	hgSpec := NewRouteSpec(group, method, basePath, subPath, needAuth, summary, nil)
+	hgSpec.Binding = HGRouteBindingExternal
+	return hgSpec
+}
+
+func hgValidateRouteBinding(hgSpec RouteSpec) {
+	switch hgSpec.Binding {
+	case HGRouteBindingHTTP:
+	case HGRouteBindingExternal:
+		if hgSpec.Handler != nil || len(hgSpec.Permissions) > 0 || hgSpec.PermissionMatch != "" {
+			panic("独立入口目录项不能绑定 HTTP handler 或路由权限: " + hgSpec.FullPath)
+		}
+	default:
+		panic("未知路由绑定类型: " + hgSpec.FullPath)
 	}
 }
 

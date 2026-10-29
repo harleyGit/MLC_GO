@@ -171,7 +171,10 @@ func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Hand
 func VideoUploadRouteCatalog() []RouteCatalogItem {
 	hgItems := BuildRouteCatalogItems(videoUploadRoutes(nil))
 	// 流媒体在路由组入口校验短期HttpOnly凭证，不走JSON签名Guard。
-	return append(hgItems, RouteCatalogItem{Group: "video_upload", Method: http.MethodGet, Path: VideoUploadModuleBasePath + "/external-stream", NeedAuth: true, Summary: "短期播放凭证鉴权的Range媒体流"}, RouteCatalogItem{Group: "video_upload", Method: http.MethodHead, Path: VideoUploadModuleBasePath + "/external-stream", NeedAuth: true, Summary: "短期播放凭证鉴权的媒体元信息"})
+	return append(hgItems, BuildRouteCatalogItems([]RouteSpec{
+		NewHGExternalRouteSpec("video_upload", http.MethodGet, VideoUploadModuleBasePath, "/external-stream", true, "短期播放凭证鉴权的Range媒体流"),
+		NewHGExternalRouteSpec("video_upload", http.MethodHead, VideoUploadModuleBasePath, "/external-stream", true, "短期播放凭证鉴权的媒体元信息"),
+	})...)
 }
 
 func NewVideoInteractionRouteGroup(handler *VideoInteractionHandlerPackage.Handler) http.Handler {
