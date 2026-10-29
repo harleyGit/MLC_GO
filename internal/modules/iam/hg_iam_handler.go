@@ -400,7 +400,7 @@ func (h *HGHandler) HGListApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cursor uint64
-	if raw := r.URL.Query().Get("cursor"); raw != "" {
+	if raw := r.URL.Query().Get("cursor"); raw != "" && raw != "0" {
 		parsed, err := hgID(raw)
 		if err != nil {
 			hgHTTPError(w, r, err)
