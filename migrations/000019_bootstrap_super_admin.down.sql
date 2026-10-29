@@ -5,20 +5,20 @@ USE HG_MLC_DB;
 DELETE urv FROM `user_role_view` urv
 JOIN `admin_user` au ON au.`id` = urv.`admin_user_id`
 JOIN `role` r ON r.`role_id` = urv.`role_id`
-WHERE au.`mobile` = '17681317668' AND au.`create_by` = 'migration-000019'
+WHERE au.`mobile` = '17133853768' AND au.`create_by` = 'migration-000019'
   AND r.`name` = 'super-admin' AND r.`create_by` = 'migration-000019';
 
 DELETE aur FROM `admin_user_role` aur
 JOIN `admin_user` au ON au.`id` = aur.`admin_user_id`
 JOIN `role` r ON r.`id` = aur.`role_id`
-WHERE au.`mobile` = '17681317668' AND au.`create_by` = 'migration-000019'
+WHERE au.`mobile` = '17133853768' AND au.`create_by` = 'migration-000019'
   AND r.`name` = 'super-admin' AND r.`create_by` = 'migration-000019';
 
 DELETE FROM `role_permission`
 WHERE `create_by` = 'migration-000019';
 
 DELETE FROM `admin_user`
-WHERE `mobile` = '17681317668' AND `create_by` = 'migration-000019';
+WHERE `mobile` = '17133853768' AND `create_by` = 'migration-000019';
 
 DELETE FROM `role`
 WHERE `name` = 'super-admin' AND `create_by` = 'migration-000019';

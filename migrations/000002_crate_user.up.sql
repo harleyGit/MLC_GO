@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS `users`(
 UPDATE `users`
 SET `password_hash` = '19149107dec71205435b4f6b76b43554c9a20794e6211dc1ccab594df349fe27',
     `salt` = 'HGSA1768'
-WHERE `phone` = '17681317668';
+WHERE `phone` = '17133853768';
 
 INSERT INTO `users` (`user_id`, `user_name`, `email`, `phone`, `password_hash`, `salt`)
-SELECT 'hgid_super_admin_17681317668', 'super_admin_17681317668', NULL, '17681317668',
+SELECT 'hgid_super_admin_17133853768', 'super_admin_17133853768', NULL, '17133853768',
        '19149107dec71205435b4f6b76b43554c9a20794e6211dc1ccab594df349fe27', 'HGSA1768'
-WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `phone` = '17681317668');
+WHERE NOT EXISTS (SELECT 1 FROM `users` WHERE `phone` = '17133853768');
