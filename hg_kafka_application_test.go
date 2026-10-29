@@ -105,6 +105,8 @@ func setValidKafkaConfig() {
 	viper.Set("kafka.business.consumers.statistic.group_id", "mlc-go-test-statistic")
 	viper.Set("kafka.business.consumers.audit.group_id", "mlc-go-test-audit")
 	viper.Set("kafka.business.consumers.interaction.group_id", "mlc-go-test-interaction")
+	// 弹幕消费组即使未启用也必须有独立 group_id，确保用例进入模拟的 broker 故障分支。
+	viper.Set("kafka.business.consumers.danmaku.group_id", "mlc-go-test-danmaku")
 	viper.Set("kafka.log.brokers", []string{"127.0.0.1:19092"})
 	viper.Set("kafka.log.acks", "1")
 	viper.Set("kafka.log.client_id", "mlc-go-test-log")
