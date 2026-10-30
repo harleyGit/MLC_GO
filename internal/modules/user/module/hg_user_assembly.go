@@ -1,13 +1,13 @@
 package HGUserModulePackage
 
 import (
-	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	usercache "MLC_GO/internal/modules/user/cache"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
 	userrepository "MLC_GO/internal/modules/user/repository"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
+	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 )
 
 // UserModuleDeps 是 user 模块对外部基础设施的依赖声明。
@@ -27,10 +27,12 @@ type UserModuleDeps struct {
 // 2. handler 不再知道 repository/cache 的存在，避免 HTTP 层污染业务和数据层。
 // 3. 后续增加依赖时，只改 assembly，不需要到多个 handler 构造函数里散改。
 type UserModuleComponents struct {
-	UserRepo        *userrepository.UserRepo
+	UserRepo         *userrepository.UserRepo
+	HGAddressRepo    *userrepository.HGAddressRepository // 收货地址权威仓储。
 	UserCache        *usercache.HGUserCache
 	CodeCache        *usercache.HGCodeCache
 	UserService      *UserServicePackage.UserService
+	HGAddressService *UserServicePackage.HGAddressService // 收货地址业务服务。
 	TokenService     *UserServicePackage.HGAuthService
 	AvatarSvc        *UserServicePackage.AvatarService
 	ClickCaptchaSvc  *UserServicePackage.ClickCaptchaService
@@ -54,6 +56,8 @@ func NewUserModuleComponents(deps UserModuleDeps) *UserModuleComponents {
 
 	db := deps.SQLManager.GetSQLDB()
 	userRepo := userrepository.NewUserRepo(db)
+	hgAddressRepo := userrepository.HGNewAddressRepository(db)
+	hgAddressService := UserServicePackage.HGNewAddressService(hgAddressRepo)
 	userCache := usercache.NewUserCache(deps.RedisService)
 	codeCache := usercache.NewCodeCache(deps.RedisService)
 
@@ -63,18 +67,21 @@ func NewUserModuleComponents(deps UserModuleDeps) *UserModuleComponents {
 	clickCaptchaSvc := UserServicePackage.NewClickCaptchaService(deps.RedisService)
 
 	handler := UserHandlerPackage.NewUserHandler(UserHandlerPackage.HGUserHandlerDeps{
-		UserService:     userService,
-		TokenService:    tokenService,
-		AvatarSvc:       avatarSvc,
-		SMSSender:       deps.SMSSender,
-		ClickCaptchaSvc: clickCaptchaSvc,
+		UserService:      userService,
+		HGAddressService: hgAddressService,
+		TokenService:     tokenService,
+		AvatarSvc:        avatarSvc,
+		SMSSender:        deps.SMSSender,
+		ClickCaptchaSvc:  clickCaptchaSvc,
 	})
 
 	return &UserModuleComponents{
-		UserRepo:        userRepo,
+		UserRepo:         userRepo,
+		HGAddressRepo:    hgAddressRepo,
 		UserCache:        userCache,
 		CodeCache:        codeCache,
 		UserService:      userService,
+		HGAddressService: hgAddressService,
 		TokenService:     tokenService,
 		AvatarSvc:        avatarSvc,
 		ClickCaptchaSvc:  clickCaptchaSvc,

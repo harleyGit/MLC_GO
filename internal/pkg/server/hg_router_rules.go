@@ -15,6 +15,9 @@ import (
 
 func UserMethodRules() []HGMiddlewarePackage.HGAPIRule {
 	return []HGMiddlewarePackage.HGAPIRule{
+		{Path: "/addresses", Version: "v1", Methods: map[string]bool{http.MethodGet: true, http.MethodPost: true}, NeedAuth: true},
+		{Path: "/addresses/detail", Version: "v1", Methods: map[string]bool{http.MethodGet: true, http.MethodPut: true, http.MethodDelete: true}, NeedAuth: true},
+		{Path: "/addresses/default", Version: "v1", Methods: map[string]bool{http.MethodPut: true}, NeedAuth: true},
 		{
 			Path:    "/info",
 			Version: "v1",
