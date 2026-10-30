@@ -4,7 +4,6 @@ import (
 	"MLC_GO/internal/modules/product"
 	hguser "MLC_GO/internal/modules/user/middleware"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
-	hgserver "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 
@@ -12,7 +11,7 @@ const HGMallModuleBasePath = "/api/v1/mall"
 
 // HGNewMallRouteGroup 复用现有签名、Guard 和 JWT 链；审核权限由 product.Service 再次查库。
 func HGNewMallRouteGroup(h *product.HGHandler, hgAuthorizers ...HGRouteAuthorizer) http.Handler {
-	group := NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Rules: hgserver.HGMallMethodRules(), Authorizer: hgFirstAuthorizer(hgAuthorizers), AuthMiddleware: hguser.AuthMiddleware}, hgMallRoutes(h))
+	group := NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Authorizer: hgFirstAuthorizer(hgAuthorizers), AuthMiddleware: hguser.AuthMiddleware}, hgMallRoutes(h))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 订单地址、手机号与商家申请均属于登录态数据，不允许代理或浏览器缓存。
 		w.Header().Set("Cache-Control", "no-store")

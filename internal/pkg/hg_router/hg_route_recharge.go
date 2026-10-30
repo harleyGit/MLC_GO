@@ -3,7 +3,6 @@ package HGRouterPackage
 import (
 	"MLC_GO/internal/modules/recharge/handler"
 	hguser "MLC_GO/internal/modules/user/middleware"
-	hgserver "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 
@@ -11,7 +10,7 @@ const HGRechargeModuleBasePath = "/api/v1/recharge"
 
 // HGNewRechargeRouteGroup 沿用 wallet 的签名守卫和 JWT 链。
 func HGNewRechargeRouteGroup(hgHandler *handler.HGHandler) http.Handler {
-	return NewRouteGroup(RouteGroupConfig{BasePath: HGRechargeModuleBasePath, Rules: hgserver.HGRechargeMethodRules(), AuthMiddleware: hguser.AuthMiddleware}, hgRechargeRoutes(hgHandler))
+	return NewRouteGroup(RouteGroupConfig{BasePath: HGRechargeModuleBasePath, AuthMiddleware: hguser.AuthMiddleware}, hgRechargeRoutes(hgHandler))
 }
 
 // HGRechargeRouteCatalog 返回独立充值模块完整接口目录。

@@ -2,7 +2,6 @@ package HGRouterPackage
 
 import (
 	"MLC_GO/internal/modules/recharge/handler"
-	hgserver "MLC_GO/internal/pkg/server"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,9 +18,10 @@ func TestHGRechargeCatalogGuardAndMount(t *testing.T) {
 	hgRoot := http.NewServeMux()
 	hgRoot.Handle(HGRechargeModuleBasePath+"/", http.StripPrefix(HGRechargeModuleBasePath, HGNewRechargeRouteGroup(handler.HGNewHandler(nil))))
 	hgRoutes := hgRechargeRoutes(handler.HGNewHandler(nil))
+	hgRules := hgRouteGuardRules(hgRoutes)
 	for _, hgRoute := range hgRoutes {
 		var hgFound bool
-		for _, hgRule := range hgserver.HGRechargeMethodRules() {
+		for _, hgRule := range hgRules {
 			if hgRule.Path == hgRoute.SubPath && hgRule.Methods[hgRoute.Method] && hgRule.NeedAuth {
 				hgFound = true
 			}

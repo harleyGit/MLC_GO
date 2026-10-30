@@ -2,7 +2,6 @@ package HGRouterPackage
 
 import (
 	hgHandler "MLC_GO/internal/modules/video_upload/handler"
-	hgServer "MLC_GO/internal/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +11,7 @@ import (
 func TestHGExternalMediaGuardChain(t *testing.T) {
 	t.Setenv("SERVER_ENV", "debug")
 	found := false
-	for _, rule := range hgServer.VideoUploadMethodRules() {
+	for _, rule := range hgRouteGuardRules(videoUploadRoutes(nil)) {
 		if rule.Path == "/external-playback" && rule.Methods[http.MethodPost] && rule.NeedAuth {
 			found = true
 		}

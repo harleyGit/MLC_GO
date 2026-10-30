@@ -2,29 +2,25 @@ package module
 
 import (
 	IAMPackage "MLC_GO/internal/modules/iam"
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-// 路由和 API Guard 一一对应，避免新增页面接口在 Guard 层变成 404。
+// IAM 路由必须由路由声明生成 Guard，缺少公共请求头时应先被 Guard 拦截。
 func TestHGIAMRoutesMatchGuard(t *testing.T) {
-	specs := hgRoutes(nil)
-	rules := HGServerPackage.IAMMethodRules()
-	if len(specs) != len(rules) {
-		t.Fatalf("IAM 路由数 %d 与 Guard 规则数 %d 不一致", len(specs), len(rules))
-	}
-	for _, spec := range specs {
-		found := false
-		for _, rule := range rules {
-			if rule.Path == spec.SubPath && rule.Methods[spec.Method] && rule.NeedAuth && spec.NeedAuth {
-				found = true
-				break
-			}
+	module := &HGModule{handler: IAMPackage.NewHGHandler(nil)}
+	group := module.Handler()
+	for _, spec := range hgRoutes(nil) {
+		if !spec.NeedAuth {
+			t.Fatalf("IAM 路由必须认证: %s %s", spec.Method, spec.SubPath)
 		}
-		if !found {
-			t.Fatalf("缺少接口 Guard 规则: %s %s", spec.Method, spec.SubPath)
+		request := httptest.NewRequest(spec.Method, spec.SubPath, nil)
+		request.Header.Set("X-API-Version", "v1")
+		response := httptest.NewRecorder()
+		group.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("接口 Guard 未拦截: %s %s: %d", spec.Method, spec.SubPath, response.Code)
 		}
 	}
 }

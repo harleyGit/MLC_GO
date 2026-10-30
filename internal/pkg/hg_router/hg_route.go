@@ -46,6 +46,7 @@ type RouteSpec struct {
 	Method          string                             // HTTP 方法。
 	SubPath         string                             // StripPrefix 后的模块内路径。
 	FullPath        string                             // 对外完整路径。
+	Version         string                             // API Guard 版本；标准 HTTP 路由默认 v1。
 	NeedAuth        bool                               // 是否需要登录；声明权限时必须为 true。
 	Summary         string                             // 接口用途。
 	Handler         http.HandlerFunc                   // 业务入口；目录构建时可为 nil。
@@ -122,6 +123,7 @@ func NewRouteSpec(
 		Method:          method,
 		SubPath:         subPath,
 		FullPath:        JoinRoutePath(basePath, subPath),
+		Version:         "v1",
 		NeedAuth:        needAuth,
 		Summary:         summary,
 		Handler:         handler,

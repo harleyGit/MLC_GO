@@ -3,7 +3,6 @@ package HGRouterPackage
 import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	HGResponsePackage "MLC_GO/internal/response"
 	"context"
 	"net/http"
@@ -24,35 +23,36 @@ func hgFirstAuthorizer(hgItems []HGRouteAuthorizer) HGRouteAuthorizer {
 	return nil
 }
 
-// hgRouteGuardRules 启动期合并路由权限到 Guard 契约，拒绝路径、方法、认证或权限配置漂移。
+// hgRouteGuardRules 从标准 HTTP 路由生成版本、方法和认证白名单；独立入口自行认证。
 // Guard 位于 JWT 之前，只执行协议检查；权限由绑定到具体方法的 handler 包装器检查。
-func hgRouteGuardRules(hgRules []HGMiddlewarePackage.APIRule, hgSpecs []RouteSpec) []HGMiddlewarePackage.APIRule {
-	hgResult := slices.Clone(hgRules)
+func hgRouteGuardRules(hgSpecs []RouteSpec) []HGMiddlewarePackage.APIRule {
+	hgRules := make([]HGMiddlewarePackage.APIRule, 0, len(hgSpecs))
+	hgIndexes := make(map[string]int, len(hgSpecs))
 	for _, hgSpec := range hgSpecs {
 		hgValidateRouteBinding(hgSpec)
 		if hgSpec.Binding == HGRouteBindingExternal {
 			continue
 		}
 		hgValidateRoutePermissions(hgSpec)
-		hgFound := false
-		for hgIndex, hgRule := range hgRules {
-			if hgRule.Path != hgSpec.SubPath || !hgRule.Methods[hgSpec.Method] {
-				continue
-			}
-			if hgRule.NeedAuth != hgSpec.NeedAuth || (len(hgRule.Permissions) > 0 && !slices.EqualFunc(hgRule.Permissions, hgSpec.Permissions, func(hgCode string, hgPermission HGPermissionPackage.HGPermission) bool {
-				return hgCode == string(hgPermission)
-			})) {
-				panic("路由与 API Guard 的鉴权声明不一致: " + hgSpec.FullPath)
-			}
-			// 复制后的规则只用于协议守卫，权限已有独立的 JWT 后置检查。
-			hgResult[hgIndex].Permissions = nil
-			hgFound = true
+		if hgSpec.Version == "" || hgSpec.SubPath == "" || hgSpec.Method == "" {
+			panic("HTTP 路由缺少版本、路径或方法: " + hgSpec.FullPath)
 		}
-		if hgRules != nil && !hgFound {
-			panic("路由缺少 API Guard 规则: " + hgSpec.FullPath)
+		hgKey := hgSpec.Version + " " + hgSpec.SubPath
+		if hgIndex, hgFound := hgIndexes[hgKey]; hgFound {
+			hgRule := &hgRules[hgIndex]
+			if hgRule.NeedAuth != hgSpec.NeedAuth || hgRule.Methods[hgSpec.Method] {
+				panic("同路径路由的认证声明冲突或方法重复: " + hgSpec.FullPath)
+			}
+			hgRule.Methods[hgSpec.Method] = true
+			continue
 		}
+		hgIndexes[hgKey] = len(hgRules)
+		hgRules = append(hgRules, HGMiddlewarePackage.APIRule{
+			Path: hgSpec.SubPath, Version: hgSpec.Version,
+			Methods: map[string]bool{hgSpec.Method: true}, NeedAuth: hgSpec.NeedAuth,
+		})
 	}
-	return hgResult
+	return hgRules
 }
 
 func hgValidateRoutePermissions(hgSpec RouteSpec) {

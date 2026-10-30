@@ -3,7 +3,6 @@ package HGRouterPackage
 import (
 	hguser "MLC_GO/internal/modules/user/service"
 	"MLC_GO/internal/modules/wallet/handler"
-	hgserver "MLC_GO/internal/pkg/server"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,9 +22,10 @@ func TestHGWalletCatalogAndGuard(t *testing.T) {
 	if len(HGWalletRouteCatalog()) != 5 {
 		t.Fatal("钱包目录必须完整")
 	}
+	hgRules := hgRouteGuardRules(hgWalletRoutes(hgHandler))
 	for _, hgRoute := range hgWalletRoutes(hgHandler) {
 		hgFound := false
-		for _, hgRule := range hgserver.HGWalletMethodRules() {
+		for _, hgRule := range hgRules {
 			if hgRule.Path == hgRoute.SubPath && hgRule.Version == "v1" && hgRule.Methods[hgRoute.Method] && hgRule.NeedAuth {
 				hgFound = true
 			}

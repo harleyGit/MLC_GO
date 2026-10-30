@@ -1,7 +1,6 @@
 package HGRouterPackage
 
 import (
-	hgserver "MLC_GO/internal/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +9,7 @@ import (
 
 func TestHGMallCatalogAndGuardAgree(t *testing.T) {
 	items := HGMallRouteCatalog()
-	rules := hgserver.HGMallMethodRules()
+	rules := hgRouteGuardRules(hgMallRoutes(nil))
 	if len(items) != len(rules) || len(items) != 34 {
 		t.Fatalf("商城路由数=%d 规则数=%d", len(items), len(rules))
 	}

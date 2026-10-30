@@ -1,7 +1,6 @@
 package HGRouterPackage
 
 import (
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 	"testing"
 )
@@ -31,7 +30,7 @@ func TestVideoInteractionRouteCatalogContainsPageActions(t *testing.T) {
 func TestVideoInteractionFollowRuleMatchesRegisteredRoute(t *testing.T) {
 	const followPath = "/follow"
 	foundRule := false
-	for _, rule := range HGServerPackage.VideoInteractionMethodRules() {
+	for _, rule := range hgRouteGuardRules(videoInteractionRoutes(nil)) {
 		if rule.Path != followPath {
 			continue
 		}

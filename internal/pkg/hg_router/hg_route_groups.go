@@ -11,7 +11,6 @@ import (
 	VideoRecommendHandlerPackage "MLC_GO/internal/modules/video_recommend/handler"
 	VideoUploadHandlerPackage "MLC_GO/internal/modules/video_upload/handler"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 
@@ -33,7 +32,6 @@ const (
 // region 路由组构建器，RouteGroupConfig 路由组配置。
 type RouteGroupConfig struct {
 	BasePath       string                         // 模块完整路径前缀。
-	Rules          []HGMiddlewarePackage.APIRule  // 方法、版本与公共请求头规则。
 	Authorizer     HGRouteAuthorizer              // JWT 后置全局权限查询器；未注入时受限接口拒绝。
 	AuthMiddleware HGMiddlewarePackage.Middleware // 可选，nil 表示不需要认证
 }
@@ -47,7 +45,7 @@ var baseMiddlewares = []HGMiddlewarePackage.Middleware{
 // 中间件链与权限声明在启动时装配；授权查询继承请求取消并设置独立总预算。
 func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 	mux := http.NewServeMux()
-	hgRules := hgRouteGuardRules(config.Rules, specs)
+	hgRules := hgRouteGuardRules(specs)
 	BindRouteSpecs(mux, specs, config.Authorizer)
 
 	// 1. 业务中间件（可选）
@@ -57,9 +55,7 @@ func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 	}
 
 	// 2. API Guard
-	if config.Rules != nil {
-		handler = HGMiddlewarePackage.APIGuardMiddleware(hgRules)(handler)
-	}
+	handler = HGMiddlewarePackage.APIGuardMiddleware(hgRules)(handler)
 
 	// 3. 基础中间件链（预编译，零分配）
 	return HGMiddlewarePackage.Chain(handler, baseMiddlewares...)
@@ -69,7 +65,7 @@ func NewRouteGroup(config RouteGroupConfig, specs []RouteSpec) http.Handler {
 
 // NewBilibiliRouteGroup 注册 Bilibili 作者空间公开读路由。
 func NewBilibiliRouteGroup(handler *BilibiliHandlerPackage.Handler) http.Handler {
-	return NewRouteGroup(RouteGroupConfig{BasePath: BilibiliModuleBasePath, Rules: HGServerPackage.BilibiliMethodRules()}, bilibiliRoutes(handler))
+	return NewRouteGroup(RouteGroupConfig{BasePath: BilibiliModuleBasePath}, bilibiliRoutes(handler))
 }
 
 // BilibiliRouteCatalog 返回 Bilibili 作者空间完整路由清单。
@@ -77,7 +73,7 @@ func BilibiliRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(b
 
 // NewVideoRecommendRouteGroup 注册认证视频推荐流路由。
 func NewVideoRecommendRouteGroup(handler *VideoRecommendHandlerPackage.Handler) http.Handler {
-	return NewRouteGroup(RouteGroupConfig{BasePath: VideoRecommendModuleBasePath, Rules: HGServerPackage.VideoRecommendMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoRecommendRoutes(handler))
+	return NewRouteGroup(RouteGroupConfig{BasePath: VideoRecommendModuleBasePath, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoRecommendRoutes(handler))
 }
 
 // VideoRecommendRouteCatalog 返回视频推荐模块完整路由清单。
@@ -92,7 +88,6 @@ func NewAuthRouteGroup(userHandler *UserHandlerPackage.HGUserHandler) http.Handl
 	return NewRouteGroup(
 		RouteGroupConfig{
 			BasePath: AuthModuleBasePath,
-			Rules:    HGServerPackage.PublicAPIRules(),
 		},
 		authRoutes(userHandler),
 	)
@@ -123,7 +118,6 @@ func NewUserRouteGroup(userHandler *UserHandlerPackage.HGUserHandler, hgAuthoriz
 		RouteGroupConfig{
 			BasePath:       UserProfileModuleBasePath,
 			Authorizer:     hgFirstAuthorizer(hgAuthorizers),
-			Rules:          HGServerPackage.UserMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
 		userRoutes(userHandler),
@@ -153,7 +147,6 @@ func NewVideoUploadRouteGroup(videoUploadHandler *VideoUploadHandlerPackage.Hand
 	hgGroup := NewRouteGroup(
 		RouteGroupConfig{
 			BasePath:       VideoUploadModuleBasePath,
-			Rules:          HGServerPackage.VideoUploadMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
 		videoUploadRoutes(videoUploadHandler),
@@ -179,7 +172,7 @@ func VideoUploadRouteCatalog() []RouteCatalogItem {
 
 func NewVideoInteractionRouteGroup(handler *VideoInteractionHandlerPackage.Handler) http.Handler {
 	return NewRouteGroup(RouteGroupConfig{
-		BasePath: VideoInteractionModuleBasePath, Rules: HGServerPackage.VideoInteractionMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		BasePath: VideoInteractionModuleBasePath, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 	}, videoInteractionRoutes(handler))
 }
 
@@ -190,7 +183,7 @@ func VideoInteractionRouteCatalog() []RouteCatalogItem {
 // NewVideoCommentRouteGroup 为评论路由统一应用方法白名单和 JWT 认证。
 func NewVideoCommentRouteGroup(handler *VideoCommentHandlerPackage.Handler) http.Handler {
 	return NewRouteGroup(RouteGroupConfig{
-		BasePath: VideoCommentModuleBasePath, Rules: HGServerPackage.VideoCommentMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
+		BasePath: VideoCommentModuleBasePath, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 	}, videoCommentRoutes(handler))
 }
 
@@ -201,7 +194,7 @@ func VideoCommentRouteCatalog() []RouteCatalogItem {
 
 // NewVideoDanmakuRouteGroup 为弹幕历史、创建和票据接口统一应用 API Guard 与 JWT。
 func NewVideoDanmakuRouteGroup(handler *VideoDanmakuHandlerPackage.Handler) http.Handler {
-	return NewRouteGroup(RouteGroupConfig{BasePath: VideoDanmakuModuleBasePath, Rules: HGServerPackage.VideoDanmakuMethodRules(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoDanmakuRoutes(handler))
+	return NewRouteGroup(RouteGroupConfig{BasePath: VideoDanmakuModuleBasePath, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, videoDanmakuRoutes(handler))
 }
 
 // VideoDanmakuRouteCatalog 返回 HTTP 与 WebSocket 的完整公开路径清单。
@@ -219,7 +212,6 @@ func NewOpsRouteGroup(opsHandler *OpsHandlerPackage.Handler, hgAuthorizers ...HG
 		RouteGroupConfig{
 			BasePath:       OpsModuleBasePath,
 			Authorizer:     hgFirstAuthorizer(hgAuthorizers),
-			Rules:          HGServerPackage.OpsMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
 		opsRoutes(opsHandler),
@@ -242,7 +234,6 @@ func NewOrderRouteGroup(orderHandler *OrderHandler) http.Handler {
 	return NewRouteGroup(
 		RouteGroupConfig{
 			BasePath:       OrderModuleBasePath,
-			Rules:          HGServerPackage.OrderMethodRules(),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
 		[]RouteSpec{

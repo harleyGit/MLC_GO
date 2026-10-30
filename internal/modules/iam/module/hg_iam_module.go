@@ -8,7 +8,6 @@ import (
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 )
 
@@ -38,7 +37,7 @@ func (m *HGModule) BasePath() string { return hgBasePath }
 
 // Handler 返回带 JWT 和 API Guard 的路由组。
 func (m *HGModule) Handler() http.Handler {
-	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: hgBasePath, Rules: HGServerPackage.IAMMethodRules(), Authorizer: m.hgAuthorizer, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, hgRoutes(m.handler))
+	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: hgBasePath, Authorizer: m.hgAuthorizer, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, hgRoutes(m.handler))
 }
 
 // RouteCatalog 返回 IAM 路由清单。

@@ -2,7 +2,6 @@ package HGRouterPackage
 
 import (
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,9 +30,11 @@ func TestHGRechargeSKURoutes(t *testing.T) {
 
 // TestHGOpsCatalogGuardParity 防止展示目录已有接口而独立 Guard 目录漏登记。
 func TestHGOpsCatalogGuardParity(t *testing.T) {
-	for _, hgRoute := range opsRoutes(OpsHandlerPackage.NewHandler(nil)) {
+	hgSpecs := opsRoutes(OpsHandlerPackage.NewHandler(nil))
+	hgRules := hgRouteGuardRules(hgSpecs)
+	for _, hgRoute := range hgSpecs {
 		hgFound := false
-		for _, hgRule := range HGServerPackage.OpsMethodRules() {
+		for _, hgRule := range hgRules {
 			if hgRule.Path == hgRoute.SubPath && hgRule.Version == "v1" && hgRule.Methods[hgRoute.Method] && hgRule.NeedAuth == hgRoute.NeedAuth {
 				hgFound = true
 			}

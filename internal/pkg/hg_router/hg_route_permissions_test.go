@@ -6,7 +6,6 @@ import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
-	HGServerPackage "MLC_GO/internal/pkg/server"
 	"context"
 	"encoding/json"
 	"errors"
@@ -97,7 +96,7 @@ func TestHGRoutePermissionChain(t *testing.T) {
 				hgSpec = hgSpec.HGWithAnyPermission()
 			}
 			hgStub := &hgRouteAuthorizerStub{hgAllowed: hgCase.hgAllowed, hgErr: hgCase.hgErr}
-			hgConfig := RouteGroupConfig{Rules: []HGMiddlewarePackage.APIRule{{Path: "/run", Version: "v1", Methods: map[string]bool{http.MethodPost: true}, NeedAuth: true}}, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: hgStub}
+			hgConfig := RouteGroupConfig{AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: hgStub}
 			if hgCase.hgMissing {
 				hgConfig.Authorizer = nil
 			}
@@ -151,7 +150,7 @@ func TestHGRoutePermissionsCatalogAndBinding(t *testing.T) {
 	if hgSpecs[0].Permissions[0] == "changed" {
 		t.Fatal("权限目录共享可变切片")
 	}
-	_ = hgRouteGuardRules(HGServerPackage.OpsMethodRules(), hgSpecs)
+	_ = hgRouteGuardRules(hgSpecs)
 }
 
 func TestHGStandaloneGuardDoesNotTrustRoleHeader(t *testing.T) {
@@ -185,10 +184,9 @@ func TestHGAllRouteGroupPermissionContracts(t *testing.T) {
 
 func TestHGRoutePermissionConfigurationRejectsInvalidDeclarations(t *testing.T) {
 	hgBase := NewRouteSpec("test", http.MethodGet, "/test", "/list", true, "查询", nil, "iam:role:read")
-	for _, hgCase := range []string{"匿名权限", "非法编码", "未登记编码", "重复权限", "未知匹配", "空列表匹配", "超量权限", "Guard认证漂移", "Guard权限漂移", "Guard遗漏"} {
+	for _, hgCase := range []string{"匿名权限", "非法编码", "未登记编码", "重复权限", "未知匹配", "空列表匹配", "超量权限", "缺少版本", "缺少路径", "缺少方法"} {
 		t.Run(hgCase, func(t *testing.T) {
 			hgSpec := hgBase
-			hgRules := []HGMiddlewarePackage.APIRule{{Path: "/list", Version: "v1", Methods: map[string]bool{http.MethodGet: true}, NeedAuth: true}}
 			switch hgCase {
 			case "匿名权限":
 				hgSpec.NeedAuth = false
@@ -204,19 +202,19 @@ func TestHGRoutePermissionConfigurationRejectsInvalidDeclarations(t *testing.T) 
 				hgSpec.Permissions = nil
 			case "超量权限":
 				hgSpec.Permissions = make([]HGPermissionPackage.HGPermission, 17)
-			case "Guard认证漂移":
-				hgRules[0].NeedAuth = false
-			case "Guard权限漂移":
-				hgRules[0].Permissions = []string{"iam:role:grant"}
-			case "Guard遗漏":
-				hgRules[0].Path = "/other"
+			case "缺少版本":
+				hgSpec.Version = ""
+			case "缺少路径":
+				hgSpec.SubPath = ""
+			case "缺少方法":
+				hgSpec.Method = ""
 			}
 			defer func() {
 				if recover() == nil {
 					t.Fatal("无效权限配置未阻止启动")
 				}
 			}()
-			NewRouteGroup(RouteGroupConfig{Rules: hgRules}, []RouteSpec{hgSpec})
+			NewRouteGroup(RouteGroupConfig{}, []RouteSpec{hgSpec})
 		})
 	}
 }
@@ -316,17 +314,71 @@ func TestHGRoutePermissionsUseEnumDeclarations(t *testing.T) {
 	}
 }
 
-// 同一路径的多个方法必须逐项比较原始 Guard 权限，不能让先处理的方法清空后续检查依据。
-func TestHGGuardPermissionsCheckedForEveryMethod(t *testing.T) {
-	hgRules := []HGMiddlewarePackage.APIRule{{Path: "/files", Version: "v1", Methods: map[string]bool{http.MethodGet: true, http.MethodPost: true}, NeedAuth: true, Permissions: []string{"ops:file:read"}}}
+// 同一路径合并不同方法，但 IAM 权限不能交给 JWT 前的 Guard。
+func TestHGGuardRulesMergeMethodsWithoutPermissions(t *testing.T) {
 	hgSpecs := []RouteSpec{
 		NewRouteSpec("test", http.MethodGet, "/test", "/files", true, "读", nil, HGPermissionPackage.HGOpsFileRead),
 		NewRouteSpec("test", http.MethodPost, "/test", "/files", true, "写", nil, HGPermissionPackage.HGOpsFileWrite),
+		NewHGExternalRouteSpec("test", http.MethodGet, "/test", "/ws", true, "独立入口"),
 	}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("同一路径第二个方法的权限漂移未被发现")
+	hgRules := hgRouteGuardRules(hgSpecs)
+	if len(hgRules) != 1 || hgRules[0].Path != "/files" || hgRules[0].Version != "v1" || !hgRules[0].NeedAuth || !hgRules[0].Methods[http.MethodGet] || !hgRules[0].Methods[http.MethodPost] || len(hgRules[0].Permissions) != 0 {
+		t.Fatalf("Guard 规则合并错误: %+v", hgRules)
+	}
+}
+
+func TestHGRouteGroupDerivesVersionAndAlwaysGuards(t *testing.T) {
+	hgCalled := false
+	hgSpec := NewRouteSpec("test", http.MethodGet, "/test", "/status", false, "公开状态", func(http.ResponseWriter, *http.Request) { hgCalled = true })
+	hgSpec.Version = "v2"
+	hgGroup := NewRouteGroup(RouteGroupConfig{}, []RouteSpec{hgSpec})
+	for _, hgCase := range []struct {
+		hgVersion string // 请求的 API 版本。
+		hgMethod  string // 请求方法。
+		hgStatus  int    // 预期 Guard 响应码。
+	}{
+		{"v1", http.MethodGet, http.StatusNotFound},
+		{"v2", http.MethodPost, http.StatusMethodNotAllowed},
+		{"v2", http.MethodGet, http.StatusBadRequest},
+	} {
+		hgRequest := httptest.NewRequest(hgCase.hgMethod, "/status", nil)
+		hgRequest.Header.Set("X-API-Version", hgCase.hgVersion)
+		hgResponse := httptest.NewRecorder()
+		hgGroup.ServeHTTP(hgResponse, hgRequest)
+		if hgResponse.Code != hgCase.hgStatus || hgCalled {
+			t.Fatalf("版本=%s 方法=%s 响应=%d 业务执行=%v", hgCase.hgVersion, hgCase.hgMethod, hgResponse.Code, hgCalled)
 		}
-	}()
-	NewRouteGroup(RouteGroupConfig{Rules: hgRules}, hgSpecs)
+	}
+}
+
+func TestHGGuardRulesRejectConflictingMethods(t *testing.T) {
+	hgBase := NewRouteSpec("test", http.MethodGet, "/test", "/files", true, "读", nil)
+	for _, hgCase := range []struct {
+		hgName string    // 冲突类型。
+		hgSpec RouteSpec // 另一个相同路径版本的路由。
+	}{
+		{"重复方法", hgBase},
+		{"认证不一致", NewRouteSpec("test", http.MethodPost, "/test", "/files", false, "写", nil)},
+	} {
+		t.Run(hgCase.hgName, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("同路径冲突未阻止启动")
+				}
+			}()
+			NewRouteGroup(RouteGroupConfig{}, []RouteSpec{hgBase, hgCase.hgSpec})
+		})
+	}
+}
+
+func TestHGVideoCommentGuardContainsAuthenticatedEndpoints(t *testing.T) {
+	hgWant := map[string]string{"/replies": http.MethodGet, "/reaction": http.MethodPost, "/image": http.MethodPost}
+	for _, hgRule := range hgRouteGuardRules(videoCommentRoutes(nil)) {
+		if hgMethod, hgOK := hgWant[hgRule.Path]; hgOK && hgRule.NeedAuth && hgRule.Methods[hgMethod] {
+			delete(hgWant, hgRule.Path)
+		}
+	}
+	if len(hgWant) != 0 {
+		t.Fatalf("评论接口缺少认证 Guard: %v", hgWant)
+	}
 }
