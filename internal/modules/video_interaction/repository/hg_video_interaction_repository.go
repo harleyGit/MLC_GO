@@ -2,9 +2,11 @@ package VideoInteractionRepositoryPackage
 
 import (
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
+	"MLC_GO/internal/events"
 	InteractionEventsPackage "MLC_GO/internal/events/interaction"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinServicePackage "MLC_GO/internal/modules/coin/service"
+	"MLC_GO/internal/outbox"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"database/sql"
@@ -149,7 +151,13 @@ func (r *Repository) hgApplyBatch(ctx context.Context, batch []InteractionConsum
 		case "video.interaction.changed": // 点赞事件
 			applyErr = hgApplyVideoInteraction(ctx, tx, event)
 		case "user.follow.changed": // 关注事件
-			applyErr = hgApplyFollow(ctx, tx, event)
+			var newlyFollowed bool
+			newlyFollowed, applyErr = hgApplyFollow(ctx, tx, event)
+			if applyErr == nil && newlyFollowed {
+				applyErr = outbox.NewRepository(r.db, r.topic).SaveTx(ctx, tx, InteractionEventsPackage.HGUserFollowCommittedEvent{
+					EventMeta: events.NewEventMeta(ctx), FollowerID: event.FollowerID, FolloweeID: event.FolloweeID, FollowID: event.FollowID,
+				})
+			}
 		}
 		// 函数立即返回错误，触发事务回滚。
 		if applyErr != nil {
@@ -379,12 +387,12 @@ func hgIncrementVideoStat(ctx context.Context, tx *sql.Tx, submissionID string, 
 	return nil
 }
 
-func hgApplyFollow(ctx context.Context, tx *sql.Tx, event InteractionConsumerPackage.PersistedEvent) error {
+func hgApplyFollow(ctx context.Context, tx *sql.Tx, event InteractionConsumerPackage.PersistedEvent) (bool, error) {
 	var oldFollowID sql.NullString
 	var oldActive bool
 	err := tx.QueryRowContext(ctx, SQLQueriesPackage.SelectFollowForUpdateSQL, event.FollowerID, event.FolloweeID).Scan(&oldFollowID, &oldActive)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("select follow relation: %w", err)
+		return false, fmt.Errorf("select follow relation: %w", err)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		_, err = tx.ExecContext(ctx, SQLQueriesPackage.InsertFollowSQL, event.FollowID, event.FollowerID, event.FolloweeID, event.Active)
@@ -392,10 +400,10 @@ func hgApplyFollow(ctx context.Context, tx *sql.Tx, event InteractionConsumerPac
 		_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpdateFollowSQL, event.FollowID, event.Active, event.FollowerID, event.FolloweeID)
 	}
 	if err != nil {
-		return fmt.Errorf("save follow relation: %w", err)
+		return false, fmt.Errorf("save follow relation: %w", err)
 	}
 	if oldActive == event.Active {
-		return nil
+		return false, nil
 	}
 	delta := -1
 	if event.Active {
@@ -403,9 +411,9 @@ func hgApplyFollow(ctx context.Context, tx *sql.Tx, event InteractionConsumerPac
 	}
 	_, err = tx.ExecContext(ctx, SQLQueriesPackage.UpsertFollowStatShardSQL, event.FolloweeID, hgShard(event.FollowerID), delta)
 	if err != nil {
-		return fmt.Errorf("update follow stat shard: %w", err)
+		return false, fmt.Errorf("update follow stat shard: %w", err)
 	}
-	return nil
+	return event.Active, nil
 }
 
 func hgShard(value string) int {

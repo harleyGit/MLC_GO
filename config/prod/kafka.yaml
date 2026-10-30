@@ -34,6 +34,11 @@ kafka:
         enabled: true
         group_id: mlc-go-prod-interaction
         client_id: mlc-go-prod-interaction
+      notification:
+        # 先迁移、隔离联调，再单独灰度启用。
+        enabled: false
+        group_id: mlc-go-prod-notification
+        client_id: mlc-go-prod-notification
       danmaku:
         # 执行 deployments/clickhouse/002_video_danmaku_history.sql 后灰度启用。
         enabled: false

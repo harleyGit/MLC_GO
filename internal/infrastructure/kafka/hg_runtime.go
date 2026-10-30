@@ -7,10 +7,12 @@ import (
 	DanmakuConsumerPackage "MLC_GO/internal/consumer/danmaku"
 	FeedConsumerPackage "MLC_GO/internal/consumer/feed"
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
+	NotificationConsumerPackage "MLC_GO/internal/consumer/notification"
 	SearchConsumerPackage "MLC_GO/internal/consumer/search"
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	CrawlerEventPackage "MLC_GO/internal/events/crawler"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
+	NotificationPackage "MLC_GO/internal/modules/notification"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"fmt"
@@ -51,6 +53,7 @@ type RuntimeDependencies struct {
 	StatisticReconcileConfig   StatisticConsumerPackage.HGReconcileConfig
 	StatisticReconcileInterval time.Duration
 	InteractionStore           InteractionConsumerPackage.EventStore
+	NotificationService        *NotificationPackage.HGService // 通知存储必须先迁移后启用。
 	DanmakuStore               DanmakuConsumerPackage.HistoryStore
 	DanmakuRecent              DanmakuConsumerPackage.RecentProjector
 	CrawlerStore               CrawlerConsumerPackage.HGStore           // 采集阶段权威存储与Outbox。
@@ -157,6 +160,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		runtime.Close()
 		return nil, fmt.Errorf("interaction mysql store dependency cannot be nil")
 	}
+	if cfg.Consumers.Notification.Enabled && deps.NotificationService == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("通知消费者缺少 MySQL 服务")
+	}
 	if cfg.Consumers.Danmaku.Enabled && (deps.DanmakuStore == nil || deps.DanmakuRecent == nil) {
 		runtime.Close()
 		return nil, fmt.Errorf("danmaku history store and recent projector cannot be nil")
@@ -198,6 +205,7 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		{name: "audit", config: cfg.Consumers.Audit, handler: AuditConsumerPackage.NewConsumer()},
 		// InteractionConsumerPackage.NewConsumer 它是创建一个 Interaction 业务处理器，负责处理点赞、关注等事件。
 		{name: "interaction", config: cfg.Consumers.Interaction, handler: InteractionConsumerPackage.NewConsumer(deps.InteractionStore), implemented: true},
+		{name: "notification", config: cfg.Consumers.Notification, handler: NotificationConsumerPackage.HGNewConsumer(deps.NotificationService), implemented: true},
 		{name: "danmaku", config: cfg.Consumers.Danmaku, handler: DanmakuConsumerPackage.NewConsumer(deps.DanmakuStore, deps.DanmakuRecent), implemented: true},
 		{name: "crawler_fetch", config: cfg.Consumers.CrawlerFetch, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGDiscovered, deps.CrawlerStore, deps.CrawlerHTTP, nil), implemented: true},
 		{name: "crawler_clean", config: cfg.Consumers.CrawlerClean, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGRaw, deps.CrawlerStore, nil, nil), implemented: true},

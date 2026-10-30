@@ -48,6 +48,7 @@ type HGConsumerGroupConfigs struct {
 	Statistic      HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
 	Audit          HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
 	Interaction    HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
+	Notification   HGConsumerConfig `yaml:"notification" mapstructure:"notification"` // 已提交业务事件的站内信消费组。
 	Danmaku        HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
 	CrawlerFetch   HGConsumerConfig `yaml:"crawler_fetch" mapstructure:"crawler_fetch"`     // 详情抓取独立消费组。
 	CrawlerClean   HGConsumerConfig `yaml:"crawler_clean" mapstructure:"crawler_clean"`     // 原始详情清洗消费组。
@@ -125,6 +126,7 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 		Statistic:      normalize(groups.Statistic),
 		Audit:          normalize(groups.Audit),
 		Interaction:    normalize(groups.Interaction),
+		Notification:   normalize(groups.Notification),
 		Danmaku:        normalize(groups.Danmaku),
 		CrawlerFetch:   normalize(groups.CrawlerFetch),
 		CrawlerClean:   normalize(groups.CrawlerClean),

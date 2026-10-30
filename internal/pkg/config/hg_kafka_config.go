@@ -81,6 +81,7 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		{name: "statistic", cfg: groups.Statistic},
 		{name: "audit", cfg: groups.Audit},
 		{name: "interaction", cfg: groups.Interaction},
+		{name: "notification", cfg: groups.Notification},
 		{name: "danmaku", cfg: groups.Danmaku},
 		{name: "crawler_fetch", cfg: groups.CrawlerFetch},
 		{name: "crawler_clean", cfg: groups.CrawlerClean},
@@ -89,7 +90,8 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 	}
 	seen := make(map[string]string, len(configs))
 	for _, item := range configs {
-		if strings.HasPrefix(item.name, "crawler_") && !item.cfg.Enabled && item.cfg.GroupID == "" {
+		// 新消费组可在旧配置中缺席；仅启用时强制提供独立 group_id，兼容已有启动配置。
+		if (strings.HasPrefix(item.name, "crawler_") || item.name == "notification") && !item.cfg.Enabled && item.cfg.GroupID == "" {
 			continue
 		}
 		item.cfg.GroupID = strings.TrimSpace(item.cfg.GroupID)

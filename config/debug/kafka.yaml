@@ -34,6 +34,11 @@ kafka:
         enabled: true
         group_id: mlc-go-debug-interaction
         client_id: mlc-go-debug-interaction
+      notification:
+        # 先执行站内信迁移并完成隔离环境联调，再单独启用。
+        enabled: false
+        group_id: mlc-go-debug-notification
+        client_id: mlc-go-debug-notification
       danmaku:
         enabled: false
         group_id: mlc-go-debug-danmaku-history

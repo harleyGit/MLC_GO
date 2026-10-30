@@ -19,7 +19,9 @@ const (
 	VideoInteractionChangedEventName = "video.interaction.changed"
 
 	// UserFollowChangedEventName  用户关注变化事件，例如关注、取消关注
-	UserFollowChangedEventName       = "user.follow.changed"
+	UserFollowChangedEventName = "user.follow.changed"
+	// HGUserFollowCommittedEventName 仅在关注关系和统计已提交到同一 MySQL 事务后发布。
+	HGUserFollowCommittedEventName = "user.follow.committed"
 )
 
 // VideoInteractionChangedEvent 表示点赞、投币、收藏或分享命令已被 Kafka 接收。
@@ -31,6 +33,17 @@ type VideoInteractionChangedEvent struct {
 	Active       bool   `json:"active,omitempty"`
 	Quantity     int    `json:"quantity,omitempty"`
 }
+
+// HGUserFollowCommittedEvent 是通知消费者的权威事件，不可将上游 changed 命令当作成功关注。
+type HGUserFollowCommittedEvent struct {
+	events.EventMeta
+	FollowerID string `json:"followerId"` // 已成功关注的用户 ID。
+	FolloweeID string `json:"followeeId"` // 站内通知接收人 ID。
+	FollowID   string `json:"followId"`   // 本次关系变更 ID，用于定位权威记录。
+}
+
+func (e HGUserFollowCommittedEvent) EventName() string { return HGUserFollowCommittedEventName }
+func (e HGUserFollowCommittedEvent) EventKey() string  { return e.FolloweeID }
 
 func (e VideoInteractionChangedEvent) EventName() string { return VideoInteractionChangedEventName }
 func (e VideoInteractionChangedEvent) EventKey() string {

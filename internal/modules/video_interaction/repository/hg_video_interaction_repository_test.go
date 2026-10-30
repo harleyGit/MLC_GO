@@ -101,6 +101,9 @@ func TestApplyFollowPersistsBusinessIDAndUpdatesCount(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.UpsertFollowStatShardSQL)).
 		WithArgs("user-2", hgShard("user-1"), 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOutboxEventSQL)).
+		WithArgs(sqlmock.AnyArg(), "user.follow.committed", "user-2", "mlc.domain.events", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	event := InteractionConsumerPackage.PersistedEvent{
