@@ -74,6 +74,9 @@ func TestOpsRouteCatalogContainsCrawlerDebug(t *testing.T) {
 		"/api/v1/ops/crawler/tasks/save-and-run": http.MethodPost,
 		"/api/v1/ops/crawler/tasks/list":         http.MethodGet,
 		"/api/v1/ops/crawler/tasks/contents":     http.MethodGet,
+		"/api/v1/ops/crawler/spider/status":      http.MethodGet,
+		"/api/v1/ops/crawler/spider/start":       http.MethodPost,
+		"/api/v1/ops/crawler/spider/stop":        http.MethodPost,
 	}
 	for _, item := range OpsRouteCatalog() {
 		if method, ok := want[item.Path]; ok && item.Method == method && item.NeedAuth {

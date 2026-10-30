@@ -84,8 +84,11 @@ func hgRun() error {
 		return runErr
 	}
 
-	if err := manager.Start(); err != nil {
-		return fmt.Errorf("starting crawler worker: %w", err)
+	// 常驻模式的运行意图只来自数据库；重启恢复上次开关状态，不再默认启动。
+	switchCtx, cancelSwitch := context.WithCancel(context.Background())
+	defer cancelSwitch()
+	if err := CrawlerRuntimePackage.HGRunSpiderSwitch(switchCtx, CrawlerRepositoryPackage.NewHGSpiderSwitchRepository(sqlManager.GetSQLDB()), manager); err != nil {
+		return fmt.Errorf("starting crawler switch controller: %w", err)
 	}
 	server := &http.Server{Addr: *addr, Handler: CrawlerSpiderPackage.NewHGHTTPHandler(manager), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
 	serverErr := make(chan error, 1)

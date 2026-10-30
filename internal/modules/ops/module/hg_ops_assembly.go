@@ -81,7 +81,8 @@ func NewModuleComponents(deps ModuleDeps) *ModuleComponents {
 	if err != nil {
 		panic(err)
 	}
-	handler := OpsHandlerPackage.NewHandler(service, CrawlerServicePackage.NewHGDebugService(httpService)).WithCrawlerTasks(crawlerTasks, iamAuthorizer)
+	handler := OpsHandlerPackage.NewHandler(service, CrawlerServicePackage.NewHGDebugService(httpService)).WithCrawlerTasks(crawlerTasks, iamAuthorizer).
+		WithCrawlerSpiderSwitch(CrawlerRepositoryPackage.NewHGSpiderSwitchRepository(deps.SQLManager.GetSQLDB()))
 
 	return &ModuleComponents{
 		Repo:         repo,

@@ -67,6 +67,9 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", nil, HGPermissionPackage.HGCrawlerTaskWrite, HGPermissionPackage.HGCrawlerTaskRun),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", nil, HGPermissionPackage.HGCrawlerTaskRead),
 			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/contents", true, "获取采集任务关联内容", nil, HGPermissionPackage.HGCrawlerTaskRead),
+			NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/spider/status", true, "获取推荐爬虫期望状态", nil, HGPermissionPackage.HGCrawlerTaskRead),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/spider/start", true, "启动推荐爬虫", nil, HGPermissionPackage.HGCrawlerTaskRun),
+			NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/spider/stop", true, "停止推荐爬虫", nil, HGPermissionPackage.HGCrawlerTaskRun),
 		}
 	}
 
@@ -110,5 +113,8 @@ func opsRoutes(opsHandler *OpsHandlerPackage.Handler) []RouteSpec {
 		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/tasks/save-and-run", true, "保存并运行采集任务", opsHandler.SaveAndRunCrawlerTask, HGPermissionPackage.HGCrawlerTaskWrite, HGPermissionPackage.HGCrawlerTaskRun),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/list", true, "获取持久化采集任务", opsHandler.ListCrawlerTasks, HGPermissionPackage.HGCrawlerTaskRead),
 		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/tasks/contents", true, "获取采集任务关联内容", opsHandler.ListCrawlerTaskContents, HGPermissionPackage.HGCrawlerTaskRead),
+		NewRouteSpec("ops", http.MethodGet, OpsModuleBasePath, "/crawler/spider/status", true, "获取推荐爬虫期望状态", opsHandler.HGCrawlerSpiderStatus, HGPermissionPackage.HGCrawlerTaskRead),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/spider/start", true, "启动推荐爬虫", opsHandler.HGCrawlerSpiderStart, HGPermissionPackage.HGCrawlerTaskRun),
+		NewRouteSpec("ops", http.MethodPost, OpsModuleBasePath, "/crawler/spider/stop", true, "停止推荐爬虫", opsHandler.HGCrawlerSpiderStop, HGPermissionPackage.HGCrawlerTaskRun),
 	}
 }

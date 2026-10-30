@@ -77,19 +77,14 @@ func (h *hgHTTPHandler) spiders(w http.ResponseWriter, _ *http.Request) {
 	hgWriteJSON(w, http.StatusOK, "Success", map[string]interface{}{"list": h.manager.Spiders()})
 }
 
-// start 幂等边界由 manager 管理；重复启动使用 HTTP 409 明确表达状态冲突。
+// start 已迁往需要登录和权限校验的 Ops API；拒绝独立服务无鉴权写入。
 func (h *hgHTTPHandler) start(w http.ResponseWriter, _ *http.Request) {
-	if err := h.manager.Start(); err != nil {
-		hgWriteJSON(w, http.StatusConflict, err.Error(), nil)
-		return
-	}
-	hgWriteJSON(w, http.StatusOK, "Spider started", h.manager.Spiders()[0])
+	hgWriteJSON(w, http.StatusForbidden, "请使用已鉴权的 Ops 爬虫开关接口", nil)
 }
 
-// stop 会等待正在执行的抓取观察到取消信号后退出，再返回停止后的状态快照。
+// stop 与 start 一样禁止绕过数据库权威开关。
 func (h *hgHTTPHandler) stop(w http.ResponseWriter, _ *http.Request) {
-	h.manager.Stop()
-	hgWriteJSON(w, http.StatusOK, "Spider stopped", h.manager.Spiders()[0])
+	hgWriteJSON(w, http.StatusForbidden, "请使用已鉴权的 Ops 爬虫开关接口", nil)
 }
 
 // tasks 使用内存下标作为短生命周期 cursor，并限制 pageSize，避免管理端一次拉取全部任务历史。

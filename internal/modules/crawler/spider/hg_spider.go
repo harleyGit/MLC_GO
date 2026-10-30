@@ -142,6 +142,13 @@ func (m *HGManager) Stop() {
 	}
 }
 
+// HGRunning 返回本进程的实际运行状态；STOPPING 仍属于未停止，用于数据库开关协调。
+func (m *HGManager) HGRunning() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.running
+}
+
 // RunOnce 同步执行一次推荐抓取，适用于手动任务和 --once 命令。
 // 状态流程：校验请求 -> 锁内登记 RUNNING -> 锁外抓取 -> 锁内更新 SUCCESS/FAILED 与最新快照。
 func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (task HGTaskSnapshot, runErr error) {

@@ -17,10 +17,14 @@ import (
 // Handler 是 ops 模块的 HTTP 入口。
 // 只负责鉴权上下文读取、HTTP 参数解析、错误码映射和统一响应，不直接写 SQL 或处理业务细节。
 type Handler struct {
-	service      *OpsServicePackage.Service
-	crawlerDebug *CrawlerServicePackage.HGDebugService
-	crawlerTasks *CrawlerServicePackage.HGTaskService
-	crawlerAuth  interface {
+	service             *OpsServicePackage.Service
+	crawlerDebug        *CrawlerServicePackage.HGDebugService
+	crawlerTasks        *CrawlerServicePackage.HGTaskService
+	crawlerSpiderSwitch interface {
+		HGDesiredRunning(context.Context) (bool, error)
+		HGSetDesiredRunning(context.Context, bool, string) (bool, error)
+	}
+	crawlerAuth interface {
 		HasAssetPermission(context.Context, string, string) (bool, error)
 	}
 }
@@ -40,6 +44,15 @@ func (h *Handler) WithCrawlerTasks(tasks *CrawlerServicePackage.HGTaskService, a
 }) *Handler {
 	h.crawlerTasks = tasks
 	h.crawlerAuth = authorizer
+	return h
+}
+
+// WithCrawlerSpiderSwitch 注入数据库权威开关；路由鉴权沿用已有 crawler.task 权限。
+func (h *Handler) WithCrawlerSpiderSwitch(store interface {
+	HGDesiredRunning(context.Context) (bool, error)
+	HGSetDesiredRunning(context.Context, bool, string) (bool, error)
+}) *Handler {
+	h.crawlerSpiderSwitch = store
 	return h
 }
 

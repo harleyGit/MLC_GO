@@ -3,6 +3,7 @@ package spider
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,17 @@ type hgBlockingPlatform struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+func TestHGLegacySpiderSwitchCannotBypassOps(t *testing.T) {
+	handler := NewHGHTTPHandler(nil)
+	for _, path := range []string{"/api/v1/crawler/spiders/bilibili/start", "/api/v1/crawler/spiders/bilibili/stop"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
+		if recorder.Code != http.StatusForbidden {
+			t.Fatalf("%s 未授权启停必须拒绝: status=%d", path, recorder.Code)
+		}
+	}
 }
 
 type hgPanicPlatform struct{}
