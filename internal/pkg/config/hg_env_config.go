@@ -770,9 +770,12 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 	allowedModules := map[string]struct{}{
 		"auth": {}, "profile": {}, "video_upload": {}, "bilibili": {},
 		"video_recommend": {}, "video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
+		"notifications": {}, "notification_preferences": {}, "notification_admin": {},
 	}
-	if len(raw.Modules) != len(allowedModules) {
-		return cfg, fmt.Errorf("api_gateway.modules 必须完整配置 %d 个业务模块", len(allowedModules))
+	for _, required := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops"} {
+		if _, ok := raw.Modules[required]; !ok {
+			return cfg, fmt.Errorf("api_gateway.modules 缺少必需模块 %s", required)
+		}
 	}
 	cfg.Modules = make(map[string]HGAPIGatewayModulePolicy, len(raw.Modules))
 	for module, policy := range raw.Modules {
@@ -858,7 +861,7 @@ func GetIDGeneratorConfig() (HGIDGeneratorConfig, error) {
 
 // GetStatisticInfrastructureConfig 读取并校验 ClickHouse 和 Statistic 投影配置。
 // 这段代码是一个 "配置读取 + 强校验 + 规范化" 的 Go 函数，从 viper 配置里读出 ClickHouse 数据库配置和统计基础设施（Statistic）配置，做层层校验后转成运行时结构体返回
-// 
+//
 //	@return HGClickHouseConfig ClickHouse 配置
 //	@return HGStatisticInfrastructureConfig Statistic 运行时配置
 //	@return error 错误
@@ -889,7 +892,7 @@ func GetStatisticInfrastructureConfig() (HGClickHouseConfig, HGStatisticInfrastr
 	clickHouse.DanmakuHistoryTable = strings.TrimSpace(clickHouse.DanmakuHistoryTable)
 
 	// 密码不写进配置文件，用环境变量注入，且环境变量优先覆盖配置值。这是密码管理的最佳实践：配置文件常进版本库 / CI，密码放里面等于泄露；环境变量属于运行时注入，还能按环境（dev/prod）分别设置。注意空值不覆盖 —— 避免空环境变量把已有配置清掉
-	// Getenv 敏感信息走环境变量 
+	// Getenv 敏感信息走环境变量
 	if password := os.Getenv("CLICKHOUSE_PASSWORD"); password != "" {
 		clickHouse.Password = password
 	}

@@ -257,7 +257,7 @@ func appendMetaRoutes(catalog []HGMiddlewareGroupPackage.HGRouteCatalogItem) []H
 	POST /api/v1/user
 	GET  /api/v2/video
 	GET  /api/v1/user
-	
+
 
 	排序之后输出：
 	GET  /api/v1/user
@@ -282,6 +282,14 @@ func registerRootPrefixRoutes(rootMux *http.ServeMux, mounts []HGRouteMount) {
 			continue
 		}
 		rootMux.Handle(mount.Prefix, http.StripPrefix(mount.StripPrefix, mount.Handler))
+		if mount.StripPrefix == "/api/v1/notifications" {
+			// 站内通知列表使用无尾斜杠的公共 URL；转成模块内 /，不引发签名重定向。
+			rootMux.Handle(mount.StripPrefix, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				copy := r.Clone(r.Context())
+				copy.URL.Path = "/"
+				mount.Handler.ServeHTTP(w, copy)
+			}))
+		}
 	}
 }
 

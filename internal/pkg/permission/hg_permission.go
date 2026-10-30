@@ -44,6 +44,9 @@ const (
 	HGAssetPipelineRead          HGPermission = "asset:pipeline:read"           // 查询资产投影链路及检查点状态。
 	HGPaymentRechargeSKURead     HGPermission = "payment:recharge_sku:read"     // 读取管理端充值档位，包括管理所需状态信息。
 	HGPaymentRechargeSKUWrite    HGPermission = "payment:recharge_sku:write"    // 创建、更新或删除充值档位；不授予支付或余额修改能力。
+	HGNotificationChannelRead    HGPermission = "notification:channel:read"     // 查看站内信与未接供应商渠道的真实可用状态。
+	HGNotificationDeliveryRead   HGPermission = "notification:delivery:read"    // 查看站内通知投递记录，不包括私信内容。
+	HGNotificationChannelSend    HGPermission = "notification:channel:send"     // 仅向本人发送有界站内试通知，不是运营群发。
 )
 
 // hgPermissions 是编译期权限字典；新增权限须同步受控迁移，不在路由注册时写库。
@@ -84,6 +87,9 @@ var hgPermissions = [...]HGPermission{
 	HGAssetPipelineRead,
 	HGPaymentRechargeSKURead,
 	HGPaymentRechargeSKUWrite,
+	HGNotificationChannelRead,
+	HGNotificationDeliveryRead,
+	HGNotificationChannelSend,
 }
 
 // HGKnown 判断是否为已登记的路由权限；仅用于启动配置校验，不代替 IAM 授权查询。

@@ -47,6 +47,9 @@ api_gateway:
     video_interaction: {capacity: 120, refill_per_second: 30, max_body_bytes: 1048576, max_in_flight: 6000, upstream_url: ""}
     video_comment: {capacity: 120, refill_per_second: 30, max_body_bytes: 6291456, max_in_flight: 4000, upstream_url: ""}
     video_danmaku: {capacity: 180, refill_per_second: 60, max_body_bytes: 1048576, max_in_flight: 8000, upstream_url: ""}
+    notifications: {capacity: 80, refill_per_second: 15, max_body_bytes: 4096, max_in_flight: 500, upstream_url: ""}
+    notification_preferences: {capacity: 30, refill_per_second: 5, max_body_bytes: 4096, max_in_flight: 200, upstream_url: ""}
+    notification_admin: {capacity: 10, refill_per_second: 2, max_body_bytes: 4096, max_in_flight: 100, upstream_url: ""}
     ops: {capacity: 30, refill_per_second: 5, max_body_bytes: 34603008, max_in_flight: 500, upstream_url: ""}
 
 video_recommend:
