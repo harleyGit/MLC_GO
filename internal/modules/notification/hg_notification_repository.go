@@ -62,7 +62,15 @@ func (repo *HGRepository) HGPage(ctx context.Context, user, category string, cur
 
 // HGUnread 按分类从 MySQL 权威未读索引汇总，不依赖不可恢复的缓存。
 func (repo *HGRepository) HGUnread(ctx context.Context, user string) (map[string]int64, error) {
-	rows, err := repo.db.QueryContext(ctx, SQLQueriesPackage.HGNotificationUnreadSQL, user)
+	var ready bool
+	if err := repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGNotificationCounterReadySQL).Scan(&ready); err != nil {
+		return nil, err
+	}
+	query := SQLQueriesPackage.HGNotificationUnreadSQL
+	if ready {
+		query = SQLQueriesPackage.HGNotificationShardUnreadSQL
+	}
+	rows, err := repo.db.QueryContext(ctx, query, user)
 	if err != nil {
 		return nil, err
 	}
@@ -83,38 +91,15 @@ func (repo *HGRepository) HGUnread(ctx context.Context, user string) (map[string
 
 // HGReadIDs 一次带绑定参数更新最多 50 条，避免逐条发送 SQL 请求。
 func (repo *HGRepository) HGReadIDs(ctx context.Context, user string, ids []uint64) error {
-	query := SQLQueriesPackage.HGNotificationReadIDsSQL(len(ids))
-	if query == "" {
-		return HGErrInvalid
-	}
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, user)
-	for _, id := range ids {
-		args = append(args, id)
-	}
-	_, err := repo.db.ExecContext(ctx, query, args...)
-	return err
+	return repo.hgReadIDsCount(ctx, user, ids)
 }
 func (repo *HGRepository) HGDelete(ctx context.Context, user string, id uint64) error {
-	_, err := repo.db.ExecContext(ctx, SQLQueriesPackage.HGNotificationDeleteSQL, user, id)
-	return err
+	return repo.hgDeleteCount(ctx, user, id)
 }
 
 // HGReadBatch 每次最多更新 500 条；返回 true 表示仍可能有剩余，需要由调用方再次提交。
 func (repo *HGRepository) HGReadBatch(ctx context.Context, user, category string) (bool, error) {
-	var high uint64
-	if err := repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGNotificationHighWaterSQL, user, category).Scan(&high); err != nil {
-		return false, err
-	}
-	if high == 0 {
-		return false, nil
-	}
-	result, err := repo.db.ExecContext(ctx, SQLQueriesPackage.HGNotificationReadBatchSQL, user, category, high)
-	if err != nil {
-		return false, err
-	}
-	count, err := result.RowsAffected()
-	return count == 500, err
+	return repo.hgReadBatchCount(ctx, user, category)
 }
 
 // HGPreferences 获取用户偏好；无记录时使用服务端默认值。
@@ -146,8 +131,7 @@ func (repo *HGRepository) HGSavePreferences(ctx context.Context, user string, pr
 
 // HGDeliver 由可信业务调用，eventID 必须稳定；唯一键实现同一事件同用户同分类的幂等。
 func (repo *HGRepository) HGDeliver(ctx context.Context, eventID, user string, notice HGNotice) error {
-	_, err := repo.db.ExecContext(ctx, SQLQueriesPackage.HGNotificationInsertSQL, eventID, user, notice.Category, notice.Title, notice.Content, notice.TargetType, notice.TargetID)
-	return err
+	return repo.hgDeliverCount(ctx, eventID, user, notice)
 }
 
 // HGDeliveries 运维按主键游标读取最近的站内成功记录，不宣称外部渠道已投递。

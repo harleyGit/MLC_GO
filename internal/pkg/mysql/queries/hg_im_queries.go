@@ -11,7 +11,7 @@ const (
 	HGIMAdvanceSeqSQL         = `UPDATE im_conversation SET last_seq=? WHERE id=? AND last_seq=?`
 	HGIMInsertMessageSQL      = `INSERT INTO im_message(conversation_id,seq,sender_id,client_msg_id,message_type,content,content_hash) VALUES (?,?,?,?,?,?,?)`
 	HGIMHistorySQL            = `SELECT id,seq,sender_id,message_type,content,created_at FROM im_message WHERE conversation_id=? AND seq>? ORDER BY seq ASC LIMIT ?`
-	HGIMConversationPageSQL   = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? ORDER BY c.id DESC LIMIT ?`
+	HGIMConversationPageSQL   = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? ORDER BY c.id DESC LIMIT ?`
 	HGIMReadSQL               = `UPDATE im_conversation_member SET last_read_seq=GREATEST(last_read_seq,?) WHERE conversation_id=? AND user_id=?`
 	HGIMActiveDevicesSQL      = `SELECT id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 6`
 	HGIMInsertDeliverySQL     = `INSERT INTO im_device_delivery(device_id,message_id,user_id) VALUES (?,?,?)`

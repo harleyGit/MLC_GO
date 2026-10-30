@@ -88,6 +88,20 @@ func main() {
 			exitWithError(hgErr)
 		}
 		fmt.Printf("migration_version=%d dirty=%t\n", hgVersion, hgDirty)
+	case "notification-counter-ready":
+		// 只读验证新投影是否具备完整基线；不查询用户数据，不输出数据库凭据。
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(hgErr)
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		var hgReady bool
+		if hgErr = hgDB.QueryRowContext(hgCtx, SQLQueriesPackage.HGNotificationCounterReadySQL).Scan(&hgReady); hgErr != nil {
+			exitWithError(hgErr)
+		}
+		fmt.Printf("notification_counter_ready=%t\n", hgReady)
 	case "redis":
 		checkRedis(redisConfig)
 	default:

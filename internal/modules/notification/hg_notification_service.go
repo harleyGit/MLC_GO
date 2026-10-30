@@ -50,7 +50,8 @@ func (service *HGService) HGDeliver(ctx context.Context, eventID, receiver strin
 			return err
 		}
 		if !pref.Categories[notice.Category] || !pref.Channels["in_app"] {
-			return nil
+			// 偏好关闭也是已处理事件；登记永久墓碑，避免将来重放因偏好变化补发历史通知。
+			return service.repo.HGIgnore(ctx, eventID, receiver, notice.Category)
 		}
 	}
 	return service.repo.HGDeliver(ctx, eventID, receiver, notice)

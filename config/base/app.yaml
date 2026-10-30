@@ -50,6 +50,7 @@ api_gateway:
     notifications: {capacity: 80, refill_per_second: 15, max_body_bytes: 4096, max_in_flight: 500, upstream_url: ""}
     notification_preferences: {capacity: 30, refill_per_second: 5, max_body_bytes: 4096, max_in_flight: 200, upstream_url: ""}
     notification_admin: {capacity: 10, refill_per_second: 2, max_body_bytes: 4096, max_in_flight: 100, upstream_url: ""}
+    im: {capacity: 30, refill_per_second: 8, max_body_bytes: 8192, max_in_flight: 300, upstream_url: ""}
     ops: {capacity: 30, refill_per_second: 5, max_body_bytes: 34603008, max_in_flight: 500, upstream_url: ""}
 
 video_recommend:

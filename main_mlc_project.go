@@ -11,6 +11,7 @@ import (
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
 	IAMModulePackage "MLC_GO/internal/modules/iam/module"
+	IMModulePackage "MLC_GO/internal/modules/im/module"
 	NotificationModulePackage "MLC_GO/internal/modules/notification/module"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
@@ -458,6 +459,18 @@ func buildMLCApplication() (*MLCApplication, error) {
 	IAMModulePackage.RegisterHGModule(sqlManager, redisService)
 	// 通知是独立收件箱业务，绝不复用视频弹幕的实时广播与存储。
 	NotificationModulePackage.HGRegisterModules(sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager))
+	// 私信 HTTP 提供经 JWT 鉴权的持久化与补拉；单聊实时网关/媒体未启用。
+	imKafkaConfig, _, imKafkaErr := ConfigPackage.GetKafkaConfig()
+	if imKafkaErr != nil {
+		return nil, fmt.Errorf("IM 业务事件 topic 未配置: %w", imKafkaErr)
+	}
+	if len(imKafkaConfig.Business.Topics) == 0 {
+		return nil, fmt.Errorf("IM 业务事件 topic 不能为空")
+	}
+	// 尚未具备 WebSocket/媒体授权/多节点投递的生产验收条件；只在已迁移的本机 debug 暴露 HTTP 试运行入口。
+	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug {
+		IMModulePackage.HGRegisterModules(sqlManager, imKafkaConfig.Business.Topics[0])
+	}
 	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
 	if err != nil {
@@ -922,6 +935,9 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.OpsRouteCatalog()...)
 	items = append(items, IAMModulePackage.RouteCatalog()...)
 	items = append(items, NotificationModulePackage.HGRouteCatalog()...)
+	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug {
+		items = append(items, IMModulePackage.HGRouteCatalog()...)
+	}
 	// 收集 test 模块路由清单
 	items = append(items, HGTestHandlerPackage.TestRouteCatalog()...)
 

@@ -18,6 +18,7 @@ type HGHistoryMessage struct {
 	Type      HGMessageType   `json:"messageType"` // 受支持的内容类型。
 	Content   json.RawMessage `json:"content"`     // 文本或经审核的私有媒体引用。
 	CreatedAt time.Time       `json:"createdAt"`   // MySQL 消息创建时间。
+	IsSelf    bool            `json:"isSelf"`      // 发送者是否为本次已认证用户。
 }
 
 // HGConversation 是本人单聊列表的有界快照；未读数不能用 last_seq-last_read_seq 推断（自己发送不计未读）。
@@ -26,6 +27,13 @@ type HGConversation struct {
 	LastSeq        uint64    `json:"lastSeq"`        // 服务器会话最新消息序号。
 	LastReadSeq    uint64    `json:"lastReadSeq"`    // 本人已读位置。
 	UpdatedAt      time.Time `json:"updatedAt"`      // 会话最后活动时间。
+	Peer           HGPeer    `json:"peer"`           // 另一名用户的标识，不包含在线状态。
+}
+
+// HGPeer 是经成员鉴权的另一名会话成员；昵称由独立公开资料服务获取。
+type HGPeer struct {
+	UserID string `json:"userId"` // 会话对方用户 ID。
+	Name   string `json:"name"`   // 当前以用户 ID 展示，不伪造昵称。
 }
 
 // HGHistory 每次最多读取 100 条，以 seq 递增补洞；会话成员校验在服务端进行。
@@ -53,6 +61,7 @@ func (s *HGService) HGHistory(ctx context.Context, user string, conversationID, 
 			return nil, err
 		}
 		item.MessageID = strconv.FormatUint(id, 10)
+		item.IsSelf = item.SenderID == user
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -72,10 +81,16 @@ func (s *HGService) HGConversations(ctx context.Context, user string, before uin
 	for rows.Next() {
 		var item HGConversation
 		var id uint64
-		if err := rows.Scan(&id, &item.LastSeq, &item.LastReadSeq, &item.UpdatedAt); err != nil {
+		var low, high string
+		if err := rows.Scan(&id, &item.LastSeq, &item.LastReadSeq, &item.UpdatedAt, &low, &high); err != nil {
 			return nil, err
 		}
 		item.ConversationID = strconv.FormatUint(id, 10)
+		if user == low {
+			item.Peer = HGPeer{UserID: high, Name: high}
+		} else {
+			item.Peer = HGPeer{UserID: low, Name: low}
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()

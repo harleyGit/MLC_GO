@@ -29,7 +29,7 @@ const HGNotificationPreferencesSQL = `SELECT preferences FROM notification_prefe
 const HGNotificationPreferencesUpsertSQL = `INSERT INTO notification_preferences(receiver_id,preferences) VALUES (?,?) ON DUPLICATE KEY UPDATE preferences=VALUES(preferences)`
 
 // 事件/用户/分类唯一键保证调用方重试时站内信只落一份；必须提供稳定的上游 event_id。
-const HGNotificationInsertSQL = `INSERT INTO notification_inbox(event_id,receiver_id,category,title,content,target_type,target_id) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`
+const HGNotificationInsertSQL = `INSERT INTO notification_inbox(event_id,receiver_id,category,title,content,target_type,target_id) VALUES (?,?,?,?,?,?,?)`
 
 // 运维投递列表仅按主键最近 20 条检查，不跨全表做全局计数；生产大表需按时间/接收人分片观测。
 const HGNotificationDeliveryPageSQL = `SELECT id,event_id,receiver_id,category,created_at FROM notification_inbox WHERE id<? ORDER BY id DESC LIMIT ?`
