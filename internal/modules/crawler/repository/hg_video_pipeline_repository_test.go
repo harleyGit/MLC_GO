@@ -69,3 +69,53 @@ func TestHGBackfillRollbackKeepsCursor(t *testing.T) {
 		t.Fatal(hgErr)
 	}
 }
+
+// TestHGBackfillTaskSkipsStoredAndInFlight 确认只扫描指定任务，已入库/在途不会再建采集事件。
+func TestHGBackfillTaskSkipsStoredAndInFlight(t *testing.T) {
+	hgDB, hgMock, hgErr := sqlmock.New()
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	defer hgDB.Close()
+	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGBackfillTaskVideoPageSQL)).
+		WithArgs(uint64(1), uint64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "content_id", "skip"}).
+			AddRow(11, "bilibili", "BV1GJ411x7h7", true).
+			AddRow(12, "bilibili", "BV1ow8p6NEDP", true).
+			AddRow(13, "other", "unrelated", false))
+	hgNext, hgCount, hgErr := NewRepository(hgDB).WithHGVideoPipeline(true).HGBackfillTaskVideoPage(context.Background(), 1, 10)
+	if hgErr != nil || hgNext != 13 || hgCount != 0 {
+		t.Fatalf("已采集/在途或非B站应跳过: next=%d count=%d err=%v", hgNext, hgCount, hgErr)
+	}
+	if hgErr = hgMock.ExpectationsWereMet(); hgErr != nil {
+		t.Fatal(hgErr)
+	}
+}
+
+// TestHGBackfillTaskCreatesOnlyMissingEvent 确认缺失视频只提交一次发现事件并推进关联游标。
+func TestHGBackfillTaskCreatesOnlyMissingEvent(t *testing.T) {
+	hgDB, hgMock, hgErr := sqlmock.New()
+	if hgErr != nil {
+		t.Fatal(hgErr)
+	}
+	defer hgDB.Close()
+	hgMock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGBackfillTaskVideoPageSQL)).
+		WithArgs(uint64(1), uint64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "content_id", "skip"}).
+			AddRow(5, "bilibili", "BV1GJ411x7h7", false).
+			AddRow(6, "bilibili", "BV1ow8p6NEDP", true))
+	hgMock.ExpectBegin()
+	hgMock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertVideoCollectionSQL)).
+		WithArgs(sqlmock.AnyArg(), "BV1GJ411x7h7", uint64(0), uint64(0), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	hgMock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.InsertOutboxEventSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	hgMock.ExpectCommit()
+	hgNext, hgCount, hgErr := NewRepository(hgDB).WithHGVideoPipeline(true).HGBackfillTaskVideoPage(context.Background(), 1, 0)
+	if hgErr != nil || hgNext != 6 || hgCount != 1 {
+		t.Fatalf("只应补发缺失视频: next=%d count=%d err=%v", hgNext, hgCount, hgErr)
+	}
+	if hgErr = hgMock.ExpectationsWereMet(); hgErr != nil {
+		t.Fatal(hgErr)
+	}
+}

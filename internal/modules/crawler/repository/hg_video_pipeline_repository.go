@@ -91,12 +91,24 @@ func (r *Repository) hgDiscoverVideos(ctx context.Context, tx *sql.Tx, taskID, r
 //	@return int 本页提交的发现事件数量
 //	@return error 执行错误
 func (r *Repository) HGBackfillVideoPage(ctx context.Context, hgAfter uint64) (uint64, int, error) {
+	return r.hgBackfillVideoPage(ctx, hgAfter, SQLQueriesPackage.HGBackfillVideoPageSQL, hgAfter)
+}
+
+// HGBackfillTaskVideoPage 只补采指定任务关联的视频；游标使用关联表主键，避免影响其他任务。
+func (r *Repository) HGBackfillTaskVideoPage(ctx context.Context, hgTaskID, hgAfter uint64) (uint64, int, error) {
+	if hgTaskID == 0 {
+		return hgAfter, 0, errors.New("任务ID必须大于0")
+	}
+	return r.hgBackfillVideoPage(ctx, hgAfter, SQLQueriesPackage.HGBackfillTaskVideoPageSQL, hgTaskID, hgAfter)
+}
+
+func (r *Repository) hgBackfillVideoPage(ctx context.Context, hgAfter uint64, hgQuery string, hgArgs ...any) (uint64, int, error) {
 	if !r.hgVideoPipeline {
 		return hgAfter, 0, errors.New("详情流水线未启用")
 	}
 
 	// 查询一页历史数据
-	hgRows, hgErr := r.db.QueryContext(ctx, SQLQueriesPackage.HGBackfillVideoPageSQL, hgAfter)
+	hgRows, hgErr := r.db.QueryContext(ctx, hgQuery, hgArgs...)
 	if hgErr != nil {
 		return hgAfter, 0, hgErr
 	}

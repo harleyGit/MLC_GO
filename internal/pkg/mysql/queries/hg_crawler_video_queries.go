@@ -7,6 +7,14 @@ const HGBackfillVideoPageSQL = `SELECT e.id, e.platform, e.content_id,
  COALESCE((SELECT c.status IN ('pending','raw','cleaned') FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),0))
  FROM crawler_external_contents e WHERE e.id > ? ORDER BY e.id ASC LIMIT 100`
 
+// HGBackfillTaskVideoPageSQL 与任务内容接口使用同一关联表；按(task_definition_id,id)游标扫100条，
+// 通过内容主键与详情主键点查，已入库或在途的视频不再次触发抓取。
+const HGBackfillTaskVideoPageSQL = `SELECT a.id, e.platform, e.content_id,
+ (EXISTS(SELECT 1 FROM crawler_video_details d WHERE d.bvid=e.content_id) OR
+ COALESCE((SELECT c.status IN ('pending','raw','cleaned') FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),0))
+ FROM crawler_task_external_contents a JOIN crawler_external_contents e ON e.id=a.external_content_id
+ WHERE a.task_definition_id=? AND a.id>? ORDER BY a.id ASC LIMIT 100`
+
 // HGBackfillVideoVerifySQL 按列表主键每页最多100条检查入库；详情/统计主键连接，状态使用idx_video_recent限1。
 const HGBackfillVideoVerifySQL = `SELECT e.id, e.content_id, d.bvid IS NOT NULL AND s.bvid IS NOT NULL,
  COALESCE((SELECT CONCAT(c.status,IF(c.error_message='', '', CONCAT(':',c.error_message))) FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),'missing')
@@ -14,6 +22,14 @@ const HGBackfillVideoVerifySQL = `SELECT e.id, e.content_id, d.bvid IS NOT NULL 
  LEFT JOIN crawler_video_details d ON d.bvid=e.content_id AND e.platform='bilibili'
  LEFT JOIN crawler_video_stats_latest s ON s.bvid=d.bvid
  WHERE e.id > ? ORDER BY e.id ASC LIMIT 100`
+
+// HGBackfillTaskVideoVerifySQL 按任务关联索引逐页核对详情与统计，只读；游标是关联ID，不是内容ID。
+const HGBackfillTaskVideoVerifySQL = `SELECT a.id, e.content_id, d.bvid IS NOT NULL AND s.bvid IS NOT NULL,
+ COALESCE((SELECT CONCAT(c.status,IF(c.error_message='', '', CONCAT(':',c.error_message))) FROM crawler_video_collections c WHERE c.bvid=e.content_id ORDER BY c.discovered_at DESC,c.collection_id DESC LIMIT 1),'missing')
+ FROM crawler_task_external_contents a JOIN crawler_external_contents e ON e.id=a.external_content_id
+ LEFT JOIN crawler_video_details d ON d.bvid=e.content_id AND e.platform='bilibili'
+ LEFT JOIN crawler_video_stats_latest s ON s.bvid=d.bvid
+ WHERE a.task_definition_id=? AND a.id>? ORDER BY a.id ASC LIMIT 100`
 
 const (
 	// HGGetCrawlerMigrationVersionSQL 供debug验收前检查迁移版本，仅读取单行元数据。

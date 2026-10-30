@@ -57,6 +57,8 @@ func main() {
 	hgVerify := flag.Bool("verify", false, "只读核对已有列表详情及统计入库状态")
 	hgAfter := flag.Uint64("after", 0, "上次已提交页的主键游标")
 	hgPages := flag.Int("pages", 10, "最多处理页数，每页100条，上限100")
+	hgTaskID := flag.Uint64("task-id", 0, "仅处理指定采集任务的关联视频；0为原有全局模式")
+	hgFocus := flag.String("focus", "", "核对模式下显示指定 BV 号的详情状态")
 	flag.Parse()
 	if (!*hgApply && !*hgVerify) || *hgPages < 1 || *hgPages > 100 {
 		fmt.Println("需指定 -apply，pages 范围1至100")
@@ -67,13 +69,13 @@ func main() {
 		os.Exit(1)
 	}
 	os.Setenv("SERVER_ENV", "debug")
-	if hgErr := hgRun(*hgAfter, *hgPages, *hgVerify); hgErr != nil {
+	if hgErr := hgRun(*hgAfter, *hgPages, *hgVerify, *hgTaskID, *hgFocus); hgErr != nil {
 		fmt.Println("补采失败:", hgErr)
 		os.Exit(1)
 	}
 }
 
-func hgRun(hgAfter uint64, hgPages int, hgVerify bool) error {
+func hgRun(hgAfter uint64, hgPages int, hgVerify bool, hgTaskID uint64, hgFocus string) error {
 	// 初始化运行环境
 	if hgErr := hgConfig.InitRuntimeEnv(); hgErr != nil {
 		return hgErr
@@ -92,9 +94,18 @@ func hgRun(hgAfter uint64, hgPages int, hgVerify bool) error {
 		defer hgCancel()
 		// 使用 Map 统计各种采集状态。
 		hgCounts := map[string]int{}
+		hgFoundFocus := false
+		hgQuery := hgQueries.HGBackfillVideoVerifySQL
+		if hgTaskID != 0 {
+			hgQuery = hgQueries.HGBackfillTaskVideoVerifySQL
+		}
 		for hgPage := 0; hgPage < hgPages; hgPage++ {
 			// hgAfter 是游标，表示查询上次处理的主键之后的数据。
-			hgRows, hgErr := hgDB.GetSQLDB().QueryContext(hgCtx, hgQueries.HGBackfillVideoVerifySQL, hgAfter)
+			hgArgs := []any{hgAfter}
+			if hgTaskID != 0 {
+				hgArgs = []any{hgTaskID, hgAfter}
+			}
+			hgRows, hgErr := hgDB.GetSQLDB().QueryContext(hgCtx, hgQuery, hgArgs...)
 			if hgErr != nil {
 				return hgErr
 			}
@@ -109,6 +120,10 @@ func hgRun(hgAfter uint64, hgPages int, hgVerify bool) error {
 				if hgErr = hgRows.Scan(&hgAfter, &hgBVID, &hgStored, &hgStatus); hgErr != nil {
 					hgRows.Close()
 					return hgErr
+				}
+				if hgFocus != "" && hgBVID == hgFocus {
+					hgFoundFocus = true
+					fmt.Printf("目标视频 %s 详情及统计已入库=%t 采集状态=%s\n", hgBVID, hgStored, hgStatus)
 				}
 				// 已经入库的记录累计到 stored，其他记录按照状态分别计数。
 				if hgStored {
@@ -128,6 +143,9 @@ func hgRun(hgAfter uint64, hgPages int, hgVerify bool) error {
 			}
 			// 如果查询结束后游标没有变化，说明本页没有读到新记录，核对完成。
 			if hgAfter == hgPrevious {
+				if hgFocus != "" && !hgFoundFocus {
+					fmt.Printf("目标视频 %s 不在当前扫描范围内\n", hgFocus)
+				}
 				fmt.Printf("完整核对结果 %v\n", hgCounts)
 				return nil
 			}
@@ -143,7 +161,14 @@ func hgRun(hgAfter uint64, hgPages int, hgVerify bool) error {
 	for hgPage := 0; hgPage < hgPages; hgPage++ {
 		hgCtx, hgCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		// 结合之前的 hgDiscoverVideos()，这些发现事件通常会写入事务中的事件表，再由后续事件投递机制交给 Kafka。因此，hgCount 不代表视频详情已经成功抓取或存储。
-		hgNext, hgCount, hgErr := hgRepo.HGBackfillVideoPage(hgCtx, hgAfter)
+		var hgNext uint64
+		var hgCount int
+		var hgErr error
+		if hgTaskID != 0 {
+			hgNext, hgCount, hgErr = hgRepo.HGBackfillTaskVideoPage(hgCtx, hgTaskID, hgAfter)
+		} else {
+			hgNext, hgCount, hgErr = hgRepo.HGBackfillVideoPage(hgCtx, hgAfter)
+		}
 		hgCancel()
 		if hgErr != nil {
 			return hgErr
