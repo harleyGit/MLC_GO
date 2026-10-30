@@ -17,3 +17,16 @@ type HGMessageCommittedEvent struct {
 
 func (e HGMessageCommittedEvent) EventName() string { return HGMessageCommittedEventName }
 func (e HGMessageCommittedEvent) EventKey() string  { return fmt.Sprint(e.ConversationID) }
+
+const HGCallChangedEventName = "im.call.changed"
+
+// HGCallChangedEvent 只传播通话状态指针，不携带房间加入 Token；同会话按 Kafka key 分区。
+type HGCallChangedEvent struct {
+	events.EventMeta
+	CallID         string `json:"callId"`         // 随机通话业务 ID。
+	ConversationID uint64 `json:"conversationId"` // 所属单聊会话。
+	VersionID      uint64 `json:"versionId"`      // 状态版本，处理乱序和重复事件。
+}
+
+func (e HGCallChangedEvent) EventName() string { return HGCallChangedEventName }
+func (e HGCallChangedEvent) EventKey() string  { return fmt.Sprint(e.ConversationID) }

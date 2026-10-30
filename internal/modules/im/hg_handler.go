@@ -1,6 +1,7 @@
 package im
 
 import (
+	"MLC_GO/internal/modules/im/transport"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePackage "MLC_GO/internal/response"
 	"encoding/json"
@@ -13,10 +14,19 @@ import (
 
 // HGHandler 是经过现有 JWT 中间件校验的单聊 HTTP 接口；不接受客户端声明的 senderId。
 type HGHandler struct {
-	service *HGService // 独立 IM 权威服务，不复用通知或弹幕。
+	service      *HGService              // 独立 IM 权威服务，不复用通知或弹幕。
+	gateway      *transport.HGCentrifugo // nil 时实时能力关闭。
+	media        *HGPrivateMedia         // nil 时媒体能力关闭。
+	calls        *HGCalls                // nil 时音视频能力关闭。
+	websocketURL string                  // 受配置控制的公开网关地址。
 }
 
 func HGNewHandler(service *HGService) *HGHandler { return &HGHandler{service: service} }
+
+// HGNewFeatureHandler 装配显式启用的 IM 外部能力，不在构造期间访问网络。
+func HGNewFeatureHandler(service *HGService, gateway *transport.HGCentrifugo, media *HGPrivateMedia, calls *HGCalls, websocketURL string) *HGHandler {
+	return &HGHandler{service: service, gateway: gateway, media: media, calls: calls, websocketURL: websocketURL}
+}
 
 func hgIMUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	user, ok := HGContextPackage.CurrentUserID(r)

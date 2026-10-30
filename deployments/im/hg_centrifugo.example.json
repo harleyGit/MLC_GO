@@ -1,0 +1,29 @@
+{
+  "client": {
+    "allowed_origins": ["http://localhost:5173"],
+    "token": {
+      "issuer": "mlc-im",
+      "audience": "centrifugo"
+    }
+  },
+  "engine": {
+    "type": "redis",
+    "redis": {
+      "address": "redis://127.0.0.1:6379"
+    }
+  },
+  "channel": {
+    "namespaces": [
+      {
+        "name": "im",
+        "allow_subscribe_for_client": false,
+        "allow_subscribe_for_anonymous": false,
+        "allow_publish_for_client": false,
+        "allow_publish_for_subscriber": false,
+        "history_size": 100,
+        "history_ttl": "300s",
+        "force_recovery": true
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-// Package im 为后续私信服务定义独立协议边界；不注册 HTTP/WS 路由，也不复用弹幕广播。
+// Package im 提供独立消息权威存储、设备投递、私有附件与通话业务；不复用弹幕广播。
 package im
 
 import (
@@ -13,6 +13,8 @@ const (
 	HGText  HGMessageType = "text"  // 纯文本私信。
 	HGImage HGMessageType = "image" // 已审核的私有图片引用。
 	HGVideo HGMessageType = "video" // 已审核的私有视频引用。
+	HGAudio HGMessageType = "audio" // 已审核的私有音频引用。
+	HGFile  HGMessageType = "file"  // 已审核的私有文件引用。
 )
 
 // HGSendCommand 是未来 IM 发送协议；sender 必须由可信 JWT 身份注入，不在请求体中声明。

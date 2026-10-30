@@ -152,6 +152,17 @@ func (s *HGService) HGSend(ctx context.Context, sender string, cmd HGSendCommand
 	if err != nil || messageID < 1 {
 		return HGSendReceipt{}, fmt.Errorf("获取消息 ID 失败: %w", err)
 	}
+	if mediaID != "" {
+		binder, ok := s.media.(interface {
+			HGAttachTx(context.Context, *sql.Tx, string, uint64, uint64, HGMessageType, []byte) error
+		})
+		if !ok {
+			return HGSendReceipt{}, HGErrForbidden
+		}
+		if err := binder.HGAttachTx(ctx, tx, sender, id, uint64(messageID), cmd.MessageType, content); err != nil {
+			return HGSendReceipt{}, err
+		}
+	}
 	for _, user := range []string{low, high} {
 		rows, err := tx.QueryContext(ctx, SQLQueriesPackage.HGIMActiveDevicesSQL, user)
 		if err != nil {
@@ -213,9 +224,21 @@ func hgIMContent(cmd HGSendCommand) ([]byte, string, error) {
 		if err := decoder.Decode(&value); err != nil || utf8.RuneCountInString(value.Text) < 1 || utf8.RuneCountInString(value.Text) > 1000 {
 			return nil, "", HGErrInvalid
 		}
-	case HGImage, HGVideo:
+	case HGImage, HGVideo, HGAudio, HGFile:
 		var value HGMediaContent
-		if err := decoder.Decode(&value); err != nil || len(value.MediaID) < 1 || len(value.MediaID) > 64 || value.Width <= 0 || value.Height <= 0 || value.Width > 16384 || value.Height > 16384 || value.DurationMS < 0 || (cmd.MessageType == HGImage && value.DurationMS != 0) {
+		if err := decoder.Decode(&value); err != nil || len(value.MediaID) != 32 || value.Width < 0 || value.Height < 0 || value.Width > 16384 || value.Height > 16384 || value.DurationMS < 0 || value.DurationMS > 3600000 {
+			return nil, "", HGErrInvalid
+		}
+		if (cmd.MessageType == HGImage || cmd.MessageType == HGVideo) && (value.Width == 0 || value.Height == 0) {
+			return nil, "", HGErrInvalid
+		}
+		if (cmd.MessageType == HGAudio || cmd.MessageType == HGFile) && (value.Width != 0 || value.Height != 0) {
+			return nil, "", HGErrInvalid
+		}
+		if (cmd.MessageType == HGImage || cmd.MessageType == HGFile) && value.DurationMS != 0 {
+			return nil, "", HGErrInvalid
+		}
+		if (cmd.MessageType == HGVideo || cmd.MessageType == HGAudio) && value.DurationMS == 0 {
 			return nil, "", HGErrInvalid
 		}
 		mediaID = value.MediaID

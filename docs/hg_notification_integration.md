@@ -1,5 +1,7 @@
 # 站内通知接口与部署边界
 
+> IM 后续增量见 [hg_im_integration.md](hg_im_integration.md)：已新增默认关闭的 Centrifugo 独立消费/设备重试、私有媒体审核编排与 LiveKit 单聊呼叫代码。下文“仍缺失”描述的是原 HTTP 试运行基线；新代码的迁移、设施部署和端到端验收仍未完成，不能称作完整 IM 上线。
+
 独立站内通知不复用弹幕广播或私信 IM。通知通过 `notification.HGNewService(repo).HGDeliver(ctx,eventID,receiver,notice)` 写入 MySQL；调用方须提供稳定事件 ID，重放由 `(event_id,receiver_id,category)` 唯一键去重。新增 **关注成功** 事件闭环：关系状态变更和 `user.follow.committed` Outbox 同一事务，dispatcher 发往业务 topic；独立 `notification` 消费组根据接收人偏好入箱，落库成功后才允许提交 offset。原 `user.follow.changed` 是命令，不用于通知。订单支付、审核通过、点赞/评论等尚未接入，不能宣称所有业务事件已自动通知。
 
 部署顺序：**先评审并执行 `migrations/000051`～`000053`，再发布 Go 与 Web；隔离环境联调后才单独启用 `kafka.business.consumers.notification`**。本机独享 debug MySQL 已按顺序执行 `000051`～`000053`，只读检查结果 `migration_version=53 dirty=false`、`notification_counter_ready=true`；pre/prod 未迁移。管理员仅在有 `notification:channel:read` / `notification:delivery:read` / `notification:channel:send` 的 IAM 授权后可访问管理端。普通角色不自动扩权。Kafka 消费至少一次，唯一索引保护同事件入箱；死信、偏好变更后的历史事件重放应单独评估。

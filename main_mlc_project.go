@@ -212,6 +212,10 @@ return &MLCApplication{……} 这部分代码结构图意思：
      各种业务组件
 */
 func buildMLCApplication() (*MLCApplication, error) {
+	imFeatureConfig, err := IMModulePackage.HGLoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("IM 配置失败: %w", err)
+	}
 	// ① 初始化日志系统，保证后续的依赖初始化和模块注册都能有日志输出。
 	HGLoggerPackage.Init()
 
@@ -459,7 +463,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	IAMModulePackage.RegisterHGModule(sqlManager, redisService)
 	// 通知是独立收件箱业务，绝不复用视频弹幕的实时广播与存储。
 	NotificationModulePackage.HGRegisterModules(sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager))
-	// 私信 HTTP 提供经 JWT 鉴权的持久化与补拉；单聊实时网关/媒体未启用。
+	// IM 扩展默认关闭；启用时使用独立 topic、设备网关、私有媒体和呼叫状态机。
 	imKafkaConfig, _, imKafkaErr := ConfigPackage.GetKafkaConfig()
 	if imKafkaErr != nil {
 		return nil, fmt.Errorf("IM 业务事件 topic 未配置: %w", imKafkaErr)
@@ -467,9 +471,39 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if len(imKafkaConfig.Business.Topics) == 0 {
 		return nil, fmt.Errorf("IM 业务事件 topic 不能为空")
 	}
-	// 尚未具备 WebSocket/媒体授权/多节点投递的生产验收条件；只在已迁移的本机 debug 暴露 HTTP 试运行入口。
+	var imRuntime *IMModulePackage.HGRuntime
+	imRuntimeOwned := false
+	defer func() {
+		if !imRuntimeOwned {
+			imRuntime.Close()
+		}
+	}()
+	// 没有隔离设施联调证据，保持 pre/prod 不注册。
 	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug {
-		IMModulePackage.HGRegisterModules(sqlManager, imKafkaConfig.Business.Topics[0])
+		imRuntime, err = IMModulePackage.HGRegisterConfigured(sqlManager.GetSQLDB(), imKafkaConfig.Business.Topics[0], imFeatureConfig, imKafkaConfig.Business)
+		if err != nil {
+			if videoDanmakuComponents.Realtime != nil {
+				imCleanupContext, imCleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = videoDanmakuComponents.Realtime.Close(imCleanupContext)
+				imCleanupCancel()
+			}
+			if videoCommentComponents.Maintenance != nil {
+				videoCommentComponents.Maintenance.Close()
+			}
+			if coinJobs != nil {
+				coinJobs.Close()
+			}
+			if interactionReprojector != nil {
+				interactionReprojector.Close()
+			}
+			if kafkaCloser != nil {
+				kafkaCloser()
+			}
+			_ = sqlManager.Close()
+			_ = redisService.Close()
+			HGLoggerPackage.CloseLogger()
+			return nil, fmt.Errorf("IM 扩展初始化失败: %w", err)
+		}
 	}
 	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()
@@ -653,9 +687,10 @@ func buildMLCApplication() (*MLCApplication, error) {
 	)
 	// ⑨ 注册管理端口
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics),
+		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime, imRuntime),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics, imRuntime.HGWritePrometheusMetrics),
 	})
+	imRuntime.HGMountManagement(managementMux)
 	// ⑨ 创建 HTTP Server ，srv 业务服务器
 	srv := &http.Server{
 		Addr:    buildListenAddr(ConfigPackage.GetServerPort()),
@@ -680,6 +715,17 @@ func buildMLCApplication() (*MLCApplication, error) {
 		MaxHeaderBytes:    mlcServerMaxHeaderBytes,
 	}
 
+	imRuntime.Start()
+	if imRuntime != nil {
+		previousKafkaCloser := kafkaCloser
+		kafkaCloser = func() {
+			imRuntime.Close()
+			if previousKafkaCloser != nil {
+				previousKafkaCloser()
+			}
+		}
+	}
+	imRuntimeOwned = true
 	return &MLCApplication{
 		server:                  srv,
 		managementServer:        managementServer,
