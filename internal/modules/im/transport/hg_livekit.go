@@ -54,7 +54,14 @@ func (l *HGLiveKit) hgRoom(ctx context.Context, method, room string) error {
 	if method == "CreateRoom" {
 		request = map[string]any{"name": room, "empty_timeout": 60, "departure_timeout": 15, "max_participants": 2}
 	}
-	return hgPost(ctx, l.client, l.endpoint+"/twirp/livekit.RoomService/"+method, "Bearer "+token, request, nil)
+	var hgResult map[string]json.RawMessage
+	if err := hgPost(ctx, l.client, l.endpoint+"/twirp/livekit.RoomService/"+method, "Bearer "+token, request, &hgResult); err != nil {
+		return err
+	}
+	if hgResult == nil {
+		return fmt.Errorf("LiveKit 未确认房间操作")
+	}
+	return nil
 }
 func (l *HGLiveKit) HGCreateRoom(ctx context.Context, room string) (string, error) {
 	token, err := l.hgToken("", map[string]any{"roomCreate": true})
@@ -76,7 +83,7 @@ func (l *HGLiveKit) HGCreateRoom(ctx context.Context, room string) (string, erro
 func (l *HGLiveKit) HGDeleteRoom(ctx context.Context, room string) error {
 	err := l.hgRoom(ctx, "DeleteRoom", room)
 	var status hgStatusError
-	if errors.As(err, &status) && status.status == http.StatusNotFound {
+	if errors.As(err, &status) && status.status == http.StatusNotFound && status.hgCode == "not_found" {
 		return nil
 	}
 	return err

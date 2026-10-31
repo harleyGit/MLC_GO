@@ -16,6 +16,7 @@ import (
 
 var hgObjectKey = regexp.MustCompile(`^(quarantine|sealed)/[a-f0-9]{32}$`)
 var hgByteRange = regexp.MustCompile(`^bytes=([0-9]{1,12})-([0-9]{0,12})$`)
+var hgContentRange = regexp.MustCompile(`^bytes ([0-9]{1,12})-([0-9]{1,12})/([0-9]{1,12})$`)
 
 // HGSeaweedFS 仅通过 S3 SigV4 访问私有桶；上传身份只能写 quarantine，审核器独占 sealed 写权限。
 type HGSeaweedFS struct {
@@ -90,11 +91,20 @@ func (s *HGSeaweedFS) HGOpen(ctx context.Context, key, byteRange string) (*http.
 	if !strings.HasPrefix(key, "sealed/") {
 		return nil, fmt.Errorf("对象尚未审核封存")
 	}
+	var hgStart int64
+	hgEnd := int64(-1)
 	if byteRange != "" {
 		parts := hgByteRange.FindStringSubmatch(byteRange)
-		if len(parts) != 3 { return nil, fmt.Errorf("只支持单段字节范围") }
-		start, _ := strconv.ParseInt(parts[1], 10, 64)
-		if parts[2]!="" {end,_:=strconv.ParseInt(parts[2],10,64);if end<start{return nil,fmt.Errorf("字节范围结束位置不得小于起点")}}
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("只支持单段字节范围")
+		}
+		hgStart, _ = strconv.ParseInt(parts[1], 10, 64)
+		if parts[2] != "" {
+			hgEnd, _ = strconv.ParseInt(parts[2], 10, 64)
+			if hgEnd < hgStart {
+				return nil, fmt.Errorf("字节范围结束位置不得小于起点")
+			}
+		}
 	}
 	link, err := s.hgSign(http.MethodGet, key, "", 0, time.Minute)
 	if err != nil {
@@ -107,13 +117,38 @@ func (s *HGSeaweedFS) HGOpen(ctx context.Context, key, byteRange string) (*http.
 	if byteRange != "" {
 		req.Header.Set("Range", byteRange)
 	}
+	// 字节范围必须对应封存原始内容，禁止传输层自动解压改变大小和偏移。
+	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("读取私有对象失败")
 	}
-	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || resp.ContentLength < 0 || resp.ContentLength > 128<<20 {
+	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || resp.ContentLength < 1 || resp.ContentLength > 128<<20 || (resp.Header.Get("Content-Encoding") != "" && resp.Header.Get("Content-Encoding") != "identity") {
 		resp.Body.Close()
 		return nil, fmt.Errorf("私有对象响应不合法")
+	}
+	if resp.StatusCode == http.StatusPartialContent {
+		hgParts := hgContentRange.FindStringSubmatch(resp.Header.Get("Content-Range"))
+		if byteRange == "" || len(hgParts) != 4 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("私有对象缺少有效范围响应")
+		}
+		hgActualStart, _ := strconv.ParseInt(hgParts[1], 10, 64)
+		hgActualEnd, _ := strconv.ParseInt(hgParts[2], 10, 64)
+		hgTotal, _ := strconv.ParseInt(hgParts[3], 10, 64)
+		hgExpectedEnd := hgTotal - 1
+		if hgEnd >= 0 {
+			hgExpectedEnd = min(hgEnd, hgExpectedEnd)
+		}
+		if hgTotal < 1 || hgTotal > 128<<20 || hgActualStart != hgStart || hgActualEnd != hgExpectedEnd || hgActualEnd < hgActualStart || resp.ContentLength != hgActualEnd-hgActualStart+1 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("私有对象范围与请求或长度不一致")
+		}
+		// 规范化已验证的总大小，handler 再与审核元数据核对。
+		resp.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", hgActualStart, hgActualEnd, hgTotal))
+	} else if resp.Header.Get("Content-Range") != "" {
+		resp.Body.Close()
+		return nil, fmt.Errorf("私有对象完整响应不应包含字节范围")
 	}
 	return resp, nil
 }

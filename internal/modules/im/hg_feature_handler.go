@@ -148,7 +148,8 @@ func (h *HGHandler) HGMediaRead(w http.ResponseWriter, r *http.Request) {
 		hgIMFail(w, r, HGErrConflict)
 		return
 	}
-	if response.StatusCode == http.StatusPartialContent && !strings.HasPrefix(response.Header.Get("Content-Range"), "bytes ") {
+	// transport 已校验起止位置和分段长度；总大小还必须匹配数据库中的审核结果。
+	if response.StatusCode == http.StatusPartialContent && !strings.HasSuffix(response.Header.Get("Content-Range"), "/"+strconv.FormatInt(a.size, 10)) {
 		hgIMFail(w, r, HGErrConflict)
 		return
 	}
@@ -166,6 +167,8 @@ func (h *HGHandler) HGMediaRead(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Range", response.Header.Get("Content-Range"))
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
+	// 仅暴露媒体响应元数据，供已获 Origin 许可的 Web 客户端核对分段；不放宽 CORS 来源。
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Disposition")
 	w.WriteHeader(response.StatusCode)
 	if _, err = io.CopyN(w, response.Body, response.ContentLength); err != nil {
 		panic(http.ErrAbortHandler)

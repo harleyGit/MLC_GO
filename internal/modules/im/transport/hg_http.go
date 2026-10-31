@@ -32,7 +32,8 @@ func hgClient() *http.Client {
 }
 
 type hgStatusError struct {
-	status int /* 外部 HTTP 状态，不包含响应正文。 */
+	status int    /* 外部 HTTP 状态，不包含响应正文。 */
+	hgCode string // 可解析的外部协议错误码，仅内部判断，不回显到日志。
 }
 
 func (e hgStatusError) Error() string {
@@ -59,12 +60,18 @@ func hgPost(ctx context.Context, client *http.Client, endpoint, auth string, req
 		return fmt.Errorf("IM 外部服务请求失败")
 	} // 不回显包含签名、对象 Key 的 URL。
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return hgStatusError{status: resp.StatusCode}
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
 	if err != nil || len(data) > 65536 {
 		return fmt.Errorf("IM 外部响应超限或读取失败")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var hgFailure struct {
+			HGCode string `json:"code"` // Twirp 错误码，普通代理 404 没有此字段。
+		}
+		if json.Unmarshal(data, &hgFailure) != nil {
+			hgFailure.HGCode = ""
+		}
+		return hgStatusError{status: resp.StatusCode, hgCode: hgFailure.HGCode}
 	}
 	if response == nil {
 		return nil

@@ -14,12 +14,15 @@ const (
 	HGIMCallTokenWindowSQL = `UPDATE im_call_session SET cleanup_until=GREATEST(COALESCE(cleanup_until,NOW(3)),NOW(3)+INTERVAL 120 SECOND) WHERE id=? AND state='accepted' AND expires_at>NOW(3)`
 	HGIMCallEventSQL       = `SELECT conversation_id,caller_id,callee_id,version FROM im_call_session WHERE id=?`
 	// idx_im_call_expiry 每轮按状态仅取一条；终态不参与扫描，不全表统计。
-	HGIMCallExpiredSQL       = `SELECT id FROM im_call_session WHERE state=? AND expires_at<=NOW(3) ORDER BY expires_at,id LIMIT 1`
-	HGIMCallCleanupSQL       = `SELECT id FROM im_call_session WHERE cleanup_at<=NOW(3) ORDER BY cleanup_at,id LIMIT 4`
-	HGIMCallCleanedSQL       = `UPDATE im_call_session SET cleanup_at=IF(cleanup_until>NOW(3),NOW(3)+INTERVAL 5 SECOND,NULL) WHERE id=? AND state NOT IN ('ringing','accepted')`
-	HGIMCallCleanupRetrySQL  = `UPDATE im_call_session SET cleanup_at=NOW(3)+INTERVAL 10 SECOND WHERE id=? AND cleanup_at IS NOT NULL`
-	HGIMCallRoomSIDSQL       = `SELECT room_sid FROM im_call_session WHERE id=?`
+	HGIMCallExpiredSQL      = `SELECT id FROM im_call_session WHERE state=? AND expires_at<=NOW(3) ORDER BY expires_at,id LIMIT 1`
+	HGIMCallCleanupSQL      = `SELECT id FROM im_call_session WHERE cleanup_at<=NOW(3) ORDER BY cleanup_at,id LIMIT 4`
+	HGIMCallCleanedSQL      = `UPDATE im_call_session SET cleanup_at=IF(cleanup_until>NOW(3),NOW(3)+INTERVAL 5 SECOND,NULL) WHERE id=? AND state NOT IN ('ringing','accepted')`
+	HGIMCallCleanupRetrySQL = `UPDATE im_call_session SET cleanup_at=NOW(3)+INTERVAL 10 SECOND WHERE id=? AND cleanup_at IS NOT NULL`
+	HGIMCallRoomSIDSQL      = `SELECT room_sid FROM im_call_session WHERE id=?`
 	HGIMCallExpiredFlagSQL  = `SELECT expires_at<=NOW(3) FROM im_call_session WHERE id=?`
+	// 主键点查加共享锁，在签发短事务中与设备撤销、成员删除串行；外部 CreateRoom 已在事务外完成。
+	HGIMCallDeviceActiveSQL  = HGIMJobDeviceActiveSQL + ` FOR SHARE`
+	HGIMCallMemberSQL        = HGIMConversationMemberSQL + ` FOR SHARE`
 	HGIMCallSetRoomSIDSQL    = `UPDATE im_call_session SET room_sid=? WHERE id=? AND state='accepted'`
 	HGIMCallWebhookInsertSQL = `INSERT INTO im_call_webhook(event_id,payload_hash) VALUES(?,?) ON DUPLICATE KEY UPDATE event_id=event_id`
 	HGIMCallWebhookHashSQL   = `SELECT payload_hash FROM im_call_webhook WHERE event_id=? FOR UPDATE`

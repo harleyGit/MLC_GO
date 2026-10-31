@@ -58,7 +58,9 @@ func hgScanCall(row *sql.Row) (HGCallView, error) {
 	err := row.Scan(&id, &conversation, &call.CallerID, &call.CalleeID, &call.callerDevice, &call.calleeDevice, &call.MediaType, &call.State, &call.Version, &expiryMS)
 	call.CallID = hex.EncodeToString(id)
 	call.ConversationID = strconv.FormatUint(conversation, 10)
-	if err==nil {call.ExpiresAt=time.UnixMilli(int64(expiryMS)).UTC()}
+	if err == nil {
+		call.ExpiresAt = time.UnixMilli(int64(expiryMS)).UTC()
+	}
 	return call, err
 }
 func (s *HGCalls) hgEvent(ctx context.Context, tx *sql.Tx, call HGCallView) error {
@@ -235,7 +237,9 @@ func (s *HGCalls) hgChange(ctx context.Context, user, raw, action string, device
 			return call, HGErrForbidden
 		}
 		var expired bool
-		if err=tx.QueryRowContext(ctx,SQL.HGIMCallExpiredFlagSQL,id).Scan(&expired);err!=nil{return call,err}
+		if err = tx.QueryRowContext(ctx, SQL.HGIMCallExpiredFlagSQL, id).Scan(&expired); err != nil {
+			return call, err
+		}
 		if terminal || !expired {
 			return call, nil
 		}
@@ -321,11 +325,30 @@ func (s *HGCalls) HGToken(ctx context.Context, user, raw string, credential HGDe
 	if call.State != "accepted" || !bytes.Equal(bound, device) {
 		return nil, HGErrConflict
 	}
-	result,err:=tx.ExecContext(ctx, SQL.HGIMCallTokenWindowSQL, id)
-	if err != nil {
+	var hgMember, hgActive int
+	if err = tx.QueryRowContext(ctx, SQL.HGIMCallMemberSQL, call.ConversationID, user).Scan(&hgMember); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, HGErrForbidden
+		}
 		return nil, err
 	}
-	updated,err:=result.RowsAffected();if err!=nil{return nil,err};if updated!=1{return nil,HGErrConflict}
+	if err = tx.QueryRowContext(ctx, SQL.HGIMCallDeviceActiveSQL, device, user).Scan(&hgActive); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, HGErrForbidden
+		}
+		return nil, err
+	}
+	var hgExpired bool
+	if err = tx.QueryRowContext(ctx, SQL.HGIMCallExpiredFlagSQL, id).Scan(&hgExpired); err != nil {
+		return nil, err
+	}
+	if hgExpired {
+		return nil, HGErrConflict
+	}
+	// 已持有呼叫行锁并按数据库时钟校验；重复取令牌可能未改变 cleanup_until，零行变更也是成功。
+	if _, err = tx.ExecContext(ctx, SQL.HGIMCallTokenWindowSQL, id); err != nil {
+		return nil, err
+	}
 	if _, err = tx.ExecContext(ctx, SQL.HGIMCallSetRoomSIDSQL, roomSID, id); err != nil {
 		return nil, err
 	}
@@ -339,8 +362,8 @@ func (s *HGCalls) HGToken(ctx context.Context, user, raw string, credential HGDe
 	return map[string]any{"token": token, "serverUrl": s.publicURL, "expiresIn": 60, "room": "im_" + raw}, nil
 }
 
-// HGMaintainOnce 超时状态写 Outbox；终态反复清理房间直到所有已签发 Token 过期。
-// 自建 LiveKit 的旧 Token 不能立即吊销，故仍存在至多约一分钟重入窗口；不能宣称即时撤权。
+// HGMaintainOnce 超时状态写 Outbox；终态在 cleanup_until 前重复清理房间。
+// 该窗口仅覆盖 Go 初始令牌；LiveKit 自主续签可超过此窗口，尚不构成可靠撤权，必须保持上线门禁。
 func (s *HGCalls) HGMaintainOnce(ctx context.Context) error {
 	for _, state := range []string{"ringing", "accepted"} {
 		var id []byte

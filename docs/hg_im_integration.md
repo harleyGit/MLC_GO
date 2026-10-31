@@ -9,7 +9,7 @@
 - `internal/modules/im/module/`：默认关闭的环境配置、路由目录/Guard 共用 RouteSpec、独立 Kafka 消费及固定数量后台任务。应用关闭时取消并等待任务，再关闭连接池。
 - `internal/consumer/im/`：独立消费组，Inbox 与投递任务同事务；不把 Kafka offset 提交当作设备送达。
 - `internal/pkg/mysql/queries/hg_im_*_queries.go`：集中参数化 SQL。
-- `migrations/000054_im_realtime_media_call.*.sql`：新增 8 张扩展表，并给旧 `im_device_delivery` 增加 `(message_id,device_id)` 索引。**未执行**；必须单独授权迁移。`LOCK=NONE` 仍会产生元数据锁、索引构建 I/O 和复制压力，需实际表规模评审。down 会丢失扩展业务数据，不是生产回滚方案。
+- `migrations/000054_im_realtime_media_call.*.sql`：新增 7 张扩展表，并给旧 `im_device_delivery` 增加 `(message_id,device_id)` 索引。**未执行**；必须单独授权迁移。`LOCK=NONE` 仍会产生元数据锁、索引构建 I/O 和复制压力，需实际表规模评审。down 会丢失扩展业务数据，不是生产回滚方案。DDL 各语句分别提交，部分失败可能留下已建索引/表，不能直接 force 版本或盲目重跑；须核对已执行语句后制定恢复步骤。
 
 沿用 000052 的单聊会话、消息 ID、seq 和 `clientMsgId`，不替换已应用迁移；原 `im_media` 表保持兼容，新上传使用 `im_private_attachment`。没有实现群聊、好友/屏蔽策略、消息撤回、离线 APNs/FCM/Web Push、录制或 React SDK 对接。
 
@@ -52,6 +52,8 @@
 
 新增 `/device/revoke` 接受本人设备凭据。重连后应先处理当前设备 pending（以 `messageId` 游标翻页）再核对每个会话 seq。新注册设备不回填所有旧设备任务，必须同步会话历史。
 
+任务完成要求更新命中当前租约；零行命中返回错误且不增加耗尽计数。发布确认与数据库提交之间仍可能重放，客户端去重不可省略。消费协议错误目前会阻塞该分区重试，需监控和人工处置，不能当作已实现自动毒消息隔离。
+
 ## 私有媒体 API 与审核契约
 
 所有业务路径前缀为 `/api/v1/im`，保留项目 JWT、请求签名和响应外壳。
@@ -79,6 +81,8 @@
 
 发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每次重新授权后由 Go 流式代理，客户端拿不到对象下载签名 URL。下载每进程最多十六条并发，满载 429，单请求预算 25 秒；大视频需 Range 分段。撤销只阻止后续请求，不追溯中断已授权在途流。不提供公开 CDN。
 
+Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配请求起止、实际分段长度及审核总大小，拒绝未知总大小、编码变换和畸形范围。对象存储返回合法完整 200 时允许完整转发。图片/视频/音频使用 `inline`，file 使用 `attachment`；浏览器仍须携带项目鉴权，不能直接把无认证的 URL 填到媒体标签。
+
 未完成：隔离区/未关联对象自动清理、保留期、配额释放的可恢复流程、缩略图/转码和真实审核策略验收。不得按此临时配额直接扩到生产海量用户。
 
 ## LiveKit 单聊呼叫
@@ -86,12 +90,12 @@
 - `POST /calls`：`{conversationId,requestId,mediaType:"audio"|"video",deviceId,secret}`。幂等创建，双方固定顺序忙线占位，45 秒振铃，呼叫与状态信令 Outbox 同事务。
 - `GET /calls?callId=...`：只允许当前会话参与者读取权威状态。
 - `POST /calls/action`：`{callId,action:"accept"|"reject"|"cancel"|"end",deviceId,secret}`。接听行锁竞争，只有一个被叫设备胜出；主叫取消与接听互斥。
-- `POST /calls/token`：`{callId,deviceId,secret}`。仅 accepted 且绑定设备可获取；外部 CreateRoom 后再次锁定验证业务状态；JWT 仅指定房间、设备身份、音频/摄像头源，禁止管理/录制/数据发布，60 秒有效。
-- 房间限制两名参与者，通话最多一小时。accepted 仅代表业务接听，不冒充实际 WebRTC 连接状态。
+- `POST /calls/token`：`{callId,deviceId,secret}`。仅 accepted 且绑定设备可获取；外部 CreateRoom 后在短事务中重新检查成员、设备撤销状态及数据库时钟下的有效期，授权记录持共享锁直到签发提交。重复更新清理窗口的零行变更不表示过期。JWT 仅指定房间、设备身份、音频/摄像头源，禁止管理/录制/数据发布，Go 初始令牌 60 秒有效。
+- 显式 CreateRoom 请求限制两名参与者，业务状态一小时后进入超时清理。accepted 仅代表业务接听，不冒充实际 WebRTC 连接状态；媒体连接的最终时限仍依赖外部清理与重入控制。
 - 管理面 `POST /internal/im/livekit/webhook`：使用 LiveKit HS256、issuer、exp、原始正文 Base64 SHA256 校验，正文最多 64KiB，事件 ID 与载荷摘要去重。仅 `room_finished` 更新终态、释放忙线并写 Outbox；房间 SID 防止同名重建的旧回调关闭新实例。其他已验签事件不改变状态。
-- 结束/拒绝/取消/超时后，后台重复 DeleteRoom，覆盖已签发 Token 的有效期。**自建 LiveKit 已发 Token 不能立即吊销，终止后仍有约一分钟重入窗口，清理失败时连接可能延长；这不是即时撤权保证。** 必须经隔离环境故障演练与业务接受后才能解除生产门禁。
+- 结束/拒绝/取消/超时后，后台在 `cleanup_until` 前重复 DeleteRoom；仅正常 JSON 成功响应或 Twirp `404 + code=not_found` 确认清理，普通代理 404 不算成功。**当前 120 秒窗口只覆盖 Go 初始令牌，无法保证覆盖 LiveKit 自主刷新的令牌。** 官方当前 `RoomManager.refreshToken` 会签发至少十分钟有效的令牌；重连还可能继续刷新，因此不能把重入风险描述为“一分钟内”，也不能仅将清理窗口延长到十分钟就称为可靠撤权。必须锁定实际版本，确定结束后拒绝重新入房/续签的方案并实测后才能解除生产门禁。
 
-尚需验证 TURN、TLS、UDP、公网地址、带宽、浏览器权限及多设备断网重连。回调无可靠到达保证，漏回调时一小时硬截止兜底；没有完整参与者状态对账、录制或多人会议。
+尚需验证 TURN、TLS、UDP、公网地址、带宽、浏览器权限及多设备断网重连。回调无可靠到达保证，漏回调时一小时业务超时兜底；没有完整参与者状态对账、录制或多人会议。同名房间跨节点创建/重建与迟到回调的竞态也需真实故障验收，当前 SID 比较不能替代版本绑定的入房控制。
 
 ## 检查、容量与上线阻断
 
@@ -99,9 +103,23 @@
 
 单聊消息仍是单库自增 ID 与会话行锁；没有分片路由、归档切换或亿级数据实测。任务与 Inbox 保留期/清理没有自动调度；按固定索引和有界批次处理，不宣称当前 worker 的吞吐可以支撑千万在线。媒体代理带宽是独立容量瓶颈。扩容前必须提供连接数、发送/扇出 QPS、消息大小、媒体码率、SLO、隔离数据生成与清理边界。
 
-上线前仍阻断：000054 未执行、组件版本/digest 未锁定及配置未实机验证、真实审核/封存服务未提供、Centrifugo 多节点重试/ACK/恢复未实测、LiveKit 与私有媒体端到端未实测、React 实时/媒体/通话未接入、通知全量在线重建/切换与归档调度未完成、千万连接和亿级数据未压测。
+上线前仍阻断：000054 未执行、组件版本/digest 未锁定及配置未实机验证、真实审核/封存服务未提供、Centrifugo 多节点重试/ACK/恢复未实测、LiveKit 自主续签与终态重入控制未完成、LiveKit 与私有媒体/React 页面端到端未实测、通知全量在线重建/切换与归档调度未完成、千万连接和亿级数据未压测。
+
+### 聊天首页 Web 接入（代码，不是上线验收）
+
+`MLC_React/src/manager_antd/page_modules/home/hg_home_page.jsx` 已替换本地演示消息并接入 Go 权威会话、设备补拉、Centrifugo 指针、审核媒体与 LiveKit 单聊呼叫；`MLC_React/docs/hg_im_web_integration.md` 记录页面功能、准确性边界和隔离环境验收清单。Web 锁定 `centrifuge@5.8.0`、`livekit-client@2.22.0`，SeaweedFS 浏览器上传直接使用 Go 预签名 PUT，不将 S3 签名密钥或 Go JWT 交给对象存储。Go CORS 允许白名单 Origin 的 `Range` 预检、206 暴露 `Content-Range`，没有放宽 Origin 白名单。
+
+上述 Web 接入已完成代码装配，但**000054 尚未执行，扩展默认关闭且没有隔离 debug 外部实例**，不能据此解除媒体/通话撤权、数据清理、真实验收和容量上线阻断项。浏览器仅 ACK 上屏并经服务端补拉的消息；未展示的离线会话保留 pending，离线漏来电也没有权威列表接口，需要另行设计和验收。不要把 Web 构建或 SWC 替身测试当作端到端 IM 通过。
 
 本轮未启动服务、未创建 topic/桶、未执行迁移或真实外部验收；没有新增测试文件，安全协议负向用例追加到现有 `main_mlc_project_shutdown_test.go`。编译/本地替身用例不能代替上述上线条件。
+
+### 2026-10-31 收尾验证记录
+
+- 已格式化本轮修改的 Go 文件，检查暂存及工作区差异；验证范围排除 `TestNotes`。
+- `go test -tags production . ./internal/modules/im/... ./internal/consumer/im ./internal/events/im ./internal/outbox ./internal/infrastructure/kafka ./internal/pkg/hg_router -count=1`：通过。IM 子包当前没有独立测试文件；Range、Twirp 删除确认、取令牌期间设备撤销/成员移除/过期、零行窗口更新及投递租约失效用例在既有根测试文件运行。仅用 `httptest` 与 `sqlmock`，不连接真实设施。首轮新增 SQL 替身将 JSON 列返回成 string 而非 MySQL 驱动的字节切片，修正夹具后通过。
+- `go build -tags production -o /private/var/folders/2z/dxhnl1vd6jzdg_70q_2h00bh0000gn/T/opencode/mlc-go-im .`：通过，产物留在工程外，未启动。
+- 迁移静态核对：up/down 的 7 张表及投递索引对应；检查发现 4 处枚举 COMMENT 仅含英文，已在未执行的 000054 草案中补齐中文，字段类型/默认值/索引保持原定义。队列领取/审核/通话过期/清理查询分别匹配 `idx_im_job_due`、`idx_im_attachment_review`、`idx_im_call_expiry`、`idx_im_call_cleanup`。没有实际执行 DDL、EXPLAIN 或验证生产索引。
+- 网关模板可被 JSON 解析，关闭客户端自行订阅与发布；未使用 Centrifugo 二进制验证配置。路由与 API Guard 从同一 `RouteSpec` 构建；Start/Close 及初始化失败清理路径完成静态复核，尚无真实进程故障演练证据。
 
 官方协议核对：
 - https://centrifugal.dev/docs/server/authentication
@@ -109,3 +127,4 @@
 - https://centrifugal.dev/docs/server/engines
 - https://docs.livekit.io/reference/other/roomservice-api.md
 - https://docs.livekit.io/intro/basics/rooms-participants-tracks/webhooks-events.md
+- https://github.com/livekit/livekit/blob/master/pkg/service/roommanager.go （`refreshToken`，当前源码协议核对，不代表已锁定部署版本）

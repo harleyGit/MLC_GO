@@ -271,11 +271,17 @@ func (s *HGRealtime) HGDispatchOnce(ctx context.Context) error {
 			}
 		}
 		delay := 1 << min(job.attempts+1, 8)
-		result,finishErr := s.db.ExecContext(ctx, SQL.HGIMJobFinishSQL, state, delay, job.id, lease[:])
-		if finishErr != nil { return finishErr }
-		updated,finishErr:=result.RowsAffected()
-		if finishErr!=nil {return finishErr}
-		if updated!=1 { return fmt.Errorf("IM 投递任务租约已变化，等待新持有者处理") }
+		result, finishErr := s.db.ExecContext(ctx, SQL.HGIMJobFinishSQL, state, delay, job.id, lease[:])
+		if finishErr != nil {
+			return finishErr
+		}
+		updated, finishErr := result.RowsAffected()
+		if finishErr != nil {
+			return finishErr
+		}
+		if updated != 1 {
+			return fmt.Errorf("IM 投递任务租约已变化，等待新持有者处理")
+		}
 		if state == 3 {
 			s.exhausted.Add(1)
 		}
