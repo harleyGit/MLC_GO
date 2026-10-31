@@ -1,6 +1,6 @@
 # IM 后端接入与当前验收边界
 
-依据 `/Users/ganghuang/Desktop/IM-消息.md`，在现有 `internal/modules/im` 增量实现单聊实时指针投递、私有媒体和 LiveKit 单聊呼叫。**代码接入不等于完整单聊 IM 已上线，也没有千万连接/亿级容量证据。** 本轮没有可用的隔离外部实例，三个扩展开关默认关闭，pre/prod 仍不注册 IM。
+依据 `/Users/ganghuang/Desktop/IM-消息.md`，在现有 `internal/modules/im` 增量实现单聊实时指针投递、私有媒体和 LiveKit 单聊呼叫。**代码接入不等于完整单聊 IM 已上线，也没有千万连接/亿级容量证据。** 基础文件安全审核进程已加入代码，但尚无可用的隔离外部实例和内容合规审核；三个扩展开关默认关闭，pre/prod 仍不注册 IM。
 
 ## 代码与数据边界
 
@@ -56,6 +56,14 @@
 
 ## 私有媒体 API 与审核契约
 
+### 独立审核进程（基础安全审核，尚未完成真实环境验收）
+
+`cmd/hg_im_review` 是可单独构建/运行的 HTTP 服务，`internal/modules/im/review/` 实现请求认证、固定桶与随机对象键校验、128MiB 上限、并发舱壁、实际 SHA256、ffprobe 格式/尺寸/时长探测及 ClamAV INSTREAM 恶意文件扫描。只有所有检查通过才以审核器专属 S3 身份对 `sealed/<mediaId>` 做 `If-None-Match: *` 条件写入；对已存在对象同样重新读取核对长度和 SHA256。必须由实际 SeaweedFS 验证条件写入/签名与封存区不可覆盖的桶策略；若服务忽略条件写入，不能启用媒体。审核过程不会把签名 URL、凭据或文件正文写日志。当前不包括涉黄、暴恐、版权或其他业务内容合规审核，**pre/prod 媒体仍保持关闭，不能把 ClamAV 等同于内容审核**。
+
+本机需要先有受控 SeaweedFS 私有桶、Centrifugo、带病毒库的 clamd、ffprobe、独立 Kafka topic 及已授权的 `000054` 迁移；进程启动时 clamd PING 不通过即失败。clamd 必须配置足够的 `StreamMaxLength`（大于 128MiB）、`MaxFileSize`/`MaxScanSize`，开启 `AlertExceedsMax`，并监控病毒库更新；不得让超限归档被视作干净。容器镜像必须锁定版本及 digest、限定网络与资源，审核进程只能绑定 loopback，跨主机连接需要受控 TLS 代理。该仓库当前不提供已经实测的镜像 digest 或审核供应商，不自动拉取容器。
+
+按 `config/hg_im_debug.env.example` 把变量填入未提交的 `config/MLC.local.env` 或进程环境；`MLC_IM_REVIEW_TOKEN` 需同时提供给 Go 与审核进程，审核专用 `MLC_IM_REVIEW_S3_ACCESS_KEY` / `MLC_IM_REVIEW_S3_SECRET_KEY` 应有隔离区只读、封存区只读与条件写入权限，不能和浏览器预签名身份共用。先单独启动 `go run ./cmd/hg_im_review`，再仅在隔离 debug 数据和真实组件就绪时启用 `MLC_IM_REALTIME_ENABLED=true`、`MLC_IM_MEDIA_ENABLED=true` 并通过 VS Code 入口启动 Go。审核调用预算 23 秒，后台单次 25 秒，超时返回失败并依既有租约重试，不默认通过。没有实际存储/ClamAV/浏览器联调、迁移检查和故障演练时，不得声称已可一键发送附件。
+
 所有业务路径前缀为 `/api/v1/im`，保留项目 JWT、请求签名和响应外壳。
 
 | 路径 | 协议 |
@@ -77,7 +85,7 @@
 
 返回 `status=pending|rejected|ready`。只有 ready 同时携带以下**服务端实际检测值**才可用：`sha256,size,mime,sealedKey,width,height,durationMs`。
 
-审核服务必须实现：有界获取对象、真实格式与尺寸/时长探测、实际 SHA256、恶意文件与内容审核、复制/写入不可变 `sealed/<id>` 后核对封存字节，并对 mediaId 幂等；不得先审核隔离区再无保护复制已被替换的内容。已封存对象不得覆盖。**本仓库提供审核调用和状态编排，不包含实际扫描/内容审核供应商或转码服务。未部署上述审核器是上线阻断项。** 每次审核调用五秒超时，pending/错误三十秒后重试，最多十二次，之后 rejected。
+审核服务必须实现：有界获取对象、真实格式与尺寸/时长探测、实际 SHA256、恶意文件与内容审核、复制/写入不可变 `sealed/<id>` 后核对封存字节，并对 mediaId 幂等；不得先审核隔离区再无保护复制已被替换的内容。已封存对象不得覆盖。**本仓库新增基础扫描进程，但未包含内容审核供应商、真实条件写入验收或转码服务；不能据此解除生产门禁。** 审核 HTTP 调用最多 23 秒，pending/错误三十秒后重试，最多十二次，之后 rejected。
 
 发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每次重新授权后由 Go 流式代理，客户端拿不到对象下载签名 URL。下载每进程最多十六条并发，满载 429，单请求预算 25 秒；大视频需 Range 分段。撤销只阻止后续请求，不追溯中断已授权在途流。不提供公开 CDN。
 
@@ -103,7 +111,7 @@ Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配
 
 单聊消息仍是单库自增 ID 与会话行锁；没有分片路由、归档切换或亿级数据实测。任务与 Inbox 保留期/清理没有自动调度；按固定索引和有界批次处理，不宣称当前 worker 的吞吐可以支撑千万在线。媒体代理带宽是独立容量瓶颈。扩容前必须提供连接数、发送/扇出 QPS、消息大小、媒体码率、SLO、隔离数据生成与清理边界。
 
-上线前仍阻断：000054 未执行、组件版本/digest 未锁定及配置未实机验证、真实审核/封存服务未提供、Centrifugo 多节点重试/ACK/恢复未实测、LiveKit 自主续签与终态重入控制未完成、LiveKit 与私有媒体/React 页面端到端未实测、通知全量在线重建/切换与归档调度未完成、千万连接和亿级数据未压测。
+上线前仍阻断：000054 未执行、组件版本/digest 未锁定及配置未实机验证、基础审核进程未部署/实测且内容合规审核未接入、Centrifugo 多节点重试/ACK/恢复未实测、LiveKit 自主续签与终态重入控制未完成、LiveKit 与私有媒体/React 页面端到端未实测、通知全量在线重建/切换与归档调度未完成、千万连接和亿级数据未压测。
 
 ### 聊天首页 Web 接入（代码，不是上线验收）
 

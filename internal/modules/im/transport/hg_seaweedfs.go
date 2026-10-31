@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -53,8 +54,16 @@ func hgHash(value string) string {
 
 // hgSign 实现 AWS SigV4 query 签名，路径限定为服务端随机对象键，上传必须匹配类型与字节数。
 func (s *HGSeaweedFS) hgSign(method, key, mime string, size int64, ttl time.Duration) (string, error) {
+	return s.hgSignObject(method, key, mime, size, ttl, false)
+}
+
+// hgSignObject 在封存写入时额外签名 If-None-Match；部署前须实测存储是否真正执行条件写入。
+func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl time.Duration, createOnly bool) (string, error) {
 	if !hgObjectKey.MatchString(key) || ttl <= 0 || ttl > 10*time.Minute {
 		return "", fmt.Errorf("私有对象签名参数错误")
+	}
+	if createOnly && (method != http.MethodPut || !strings.HasPrefix(key, "sealed/")) {
+		return "", fmt.Errorf("条件写入只允许封存对象")
 	}
 	u, _ := url.Parse(s.endpoint + "/" + s.bucket + "/" + key)
 	now := time.Now().UTC()
@@ -66,6 +75,10 @@ func (s *HGSeaweedFS) hgSign(method, key, mime string, size int64, ttl time.Dura
 	if method == http.MethodPut {
 		headers = "content-length;content-type;host;x-amz-acl"
 		canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\nx-amz-acl:private\n"
+		if createOnly {
+			headers = "content-length;content-type;host;if-none-match;x-amz-acl"
+			canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\nif-none-match:*\nx-amz-acl:private\n"
+		}
 	}
 	q := url.Values{"X-Amz-Algorithm": {"AWS4-HMAC-SHA256"}, "X-Amz-Credential": {s.key + "/" + scope}, "X-Amz-Date": {stamp}, "X-Amz-Expires": {strconv.FormatInt(int64(ttl/time.Second), 10)}, "X-Amz-SignedHeaders": {headers}}
 	query := strings.ReplaceAll(q.Encode(), "+", "%20")
@@ -84,6 +97,62 @@ func (s *HGSeaweedFS) HGUploadURL(key, mime string, size int64) (string, error) 
 		return "", fmt.Errorf("上传参数错误")
 	}
 	return s.hgSign(http.MethodPut, key, mime, size, 10*time.Minute)
+}
+
+// HGReviewOpenQuarantine 使用审核器专属只读身份获取待审字节，不向浏览器下发下载签名。
+func (s *HGSeaweedFS) HGReviewOpenQuarantine(ctx context.Context, key string, size int64) (io.ReadCloser, error) {
+	if !strings.HasPrefix(key, "quarantine/") || size < 1 || size > 128<<20 {
+		return nil, fmt.Errorf("待审对象参数错误")
+	}
+	link, err := s.hgSign(http.MethodGet, key, "", 0, time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建待审请求失败")
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("读取待审对象失败")
+	}
+	if resp.StatusCode != http.StatusOK || resp.ContentLength != size || resp.Header.Get("Content-Encoding") != "" && resp.Header.Get("Content-Encoding") != "identity" {
+		resp.Body.Close()
+		return nil, fmt.Errorf("待审对象响应不合法")
+	}
+	return resp.Body, nil
+}
+
+// HGReviewSeal 仅允许首次创建 sealed 对象，412 表示已有对象且须由调用方重新读回核验。
+func (s *HGSeaweedFS) HGReviewSeal(ctx context.Context, key, mime string, size int64, body io.Reader) (bool, error) {
+	if !strings.HasPrefix(key, "sealed/") || size < 1 || size > 128<<20 {
+		return false, fmt.Errorf("封存参数错误")
+	}
+	link, err := s.hgSignObject(http.MethodPut, key, mime, size, time.Minute, true)
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, link, body)
+	if err != nil {
+		return false, fmt.Errorf("创建封存请求失败")
+	}
+	req.ContentLength = size
+	req.Header.Set("Content-Type", mime)
+	req.Header.Set("If-None-Match", "*")
+	req.Header.Set("x-amz-acl", "private")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("封存请求失败")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		return false, fmt.Errorf("封存对象未确认")
+	}
+	return true, nil
 }
 
 // HGOpen 私有下载仅供已授权 Go handler 代理，签名 URL 不下发；单次最多 128 MiB，超时 30 秒。
@@ -185,7 +254,11 @@ func HGNewReviewer(endpoint, token string) (*HGReviewer, error) {
 	if len(token) < 32 {
 		return nil, fmt.Errorf("媒体审核凭据缺失")
 	}
-	return &HGReviewer{endpoint: endpoint, token: token, client: hgClient()}, nil
+	client := hgClient()
+	// 审核单件最多 128MiB，包含有界 S3 读写、恶意文件扫描和封存复核。
+	// 留出后台 25 秒工作预算中的收尾时间，超时必须重试而非默认通过。
+	client.Timeout = 23 * time.Second
+	return &HGReviewer{endpoint: endpoint, token: token, client: client}, nil
 }
 
 // HGReview 重试使用相同 mediaId；审核服务须幂等封存且拒绝覆盖已封存对象。
