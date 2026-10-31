@@ -9,7 +9,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -67,7 +66,7 @@ func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDevice
 	}
 	rows.Close()
 	if count >= 5 {
-		return HGDeviceCredential{}, fmt.Errorf("最多保留五台活跃设备")
+		return HGDeviceCredential{}, HGErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGIMCreateDeviceSQL, id[:], user, digest[:]); err != nil {
 		return HGDeviceCredential{}, err
