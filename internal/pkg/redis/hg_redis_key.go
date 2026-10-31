@@ -210,6 +210,7 @@ const (
 	AuthCodeIPLimitKey       = "auth:code:limit:phone:"
 	AuthTokenKey             = "auth:token:"
 	AuthRefreshKey           = "auth:refresh:"
+	HGAuthSessionKey         = "auth:session:" // 用户 ID + 会话 ID；不存在表示整会话已撤销。
 
 	UserListKey        = "user:list:cursor:%d:size:%d" // user:list:{cursor}:{size} 获取注册用户列表的Key
 	UserListPatternKey = "user:list:cursor:*:size:*"   // 删除用户列表分页缓存时使用

@@ -12,6 +12,7 @@ import (
 	IAMPackage "MLC_GO/internal/modules/iam"
 	HGSMSPackage "MLC_GO/internal/modules/sms"
 	UserHandlerPackage "MLC_GO/internal/modules/user/handler"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGMiddlewareGroupPackage "MLC_GO/internal/pkg/hg_router"
 	"net/http"
 
@@ -77,6 +78,7 @@ func (m *HGAuthModule) Handler() http.Handler {
 
 // RegisterModules 注册用户相关模块，内部创建所有依赖。
 func RegisterModules(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, smsSender HGSMSPackage.HGSender) {
+	UserServicePackage.HGConfigureSessionDB(sqlManager.GetSQLDB())
 	components := NewUserModuleComponents(UserModuleDeps{
 		RedisService: redisService,
 		SQLManager:   sqlManager,

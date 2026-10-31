@@ -11,6 +11,7 @@ package UserJWTMiddlewarePackage
 import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
 	"errors"
@@ -85,6 +86,14 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
+			}
+			if claims.SessionID != "" {
+				active, sessionErr := UserServicePackage.HGSessionActive(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
+				if sessionErr != nil || !active {
+					w.WriteHeader(http.StatusUnauthorized)
+					HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
+					return
+				}
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, claims)

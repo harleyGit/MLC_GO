@@ -1,6 +1,7 @@
 package im
 
 import (
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"crypto/rand"
@@ -28,6 +29,23 @@ type HGDeviceDelivery struct {
 
 // HGRegisterDevice 串行检查用户活跃设备上限；30 天未活动设备不参与投递，历史由会话补拉。
 func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDeviceCredential, error) {
+	return s.hgRegisterDevice(ctx, user, "")
+}
+
+// HGRegisterSessionDevice 将设备绑定已验证的登录会话；达到上限时仅撤销最早设备及其会话。
+func (s *HGService) HGRegisterSessionDevice(ctx context.Context, user, sessionID string) (HGDeviceCredential, error) {
+	decoded, decodeErr := hex.DecodeString(sessionID)
+	if decodeErr != nil || len(decoded) != 16 || s == nil || s.sessions == nil {
+		return HGDeviceCredential{}, HGErrInvalid
+	}
+	active, err := UserServicePackage.HGSessionActive(ctx, s.sessions, user, sessionID)
+	if err != nil || !active {
+		return HGDeviceCredential{}, HGErrForbidden
+	}
+	return s.hgRegisterDevice(ctx, user, sessionID)
+}
+
+func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string) (HGDeviceCredential, error) {
 	if s == nil || s.db == nil || user == "" || len(user) > 128 {
 		return HGDeviceCredential{}, HGErrInvalid
 	}
@@ -52,6 +70,17 @@ func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDevice
 		}
 		return HGDeviceCredential{}, err
 	}
+	if sessionID != "" {
+		decoded, _ := hex.DecodeString(sessionID) // 入口已验证为 16 字节十六进制。
+		var forced int
+		checkErr := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMForcedLogoutSQL, user, decoded).Scan(&forced)
+		if checkErr == nil {
+			return HGDeviceCredential{}, HGErrForbidden
+		}
+		if !errors.Is(checkErr, sql.ErrNoRows) {
+			return HGDeviceCredential{}, checkErr
+		}
+	}
 	rows, err := tx.QueryContext(ctx, SQLQueriesPackage.HGIMActiveDevicesSQL, user)
 	if err != nil {
 		return HGDeviceCredential{}, err
@@ -65,10 +94,51 @@ func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDevice
 		return HGDeviceCredential{}, err
 	}
 	rows.Close()
-	if count >= 5 {
-		return HGDeviceCredential{}, HGErrConflict
+	if count > 5 {
+		return HGDeviceCredential{}, HGErrConflict // 异常存量不得在替换一台后继续扩容。
 	}
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGIMCreateDeviceSQL, id[:], user, digest[:]); err != nil {
+	if count >= 5 {
+		if sessionID == "" || s.sessions == nil {
+			return HGDeviceCredential{}, HGErrConflict
+		}
+		decoded, _ := hex.DecodeString(sessionID)
+		var existing int
+		checkErr := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMSessionActiveDeviceSQL, user, decoded).Scan(&existing)
+		if checkErr == nil {
+			return HGDeviceCredential{}, HGErrConflict
+		} // 同会话重复注册不可连续踢其他会话。
+		if !errors.Is(checkErr, sql.ErrNoRows) {
+			return HGDeviceCredential{}, checkErr
+		}
+		var oldestID, oldestSession []byte
+		if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMOldestDeviceSQL, user).Scan(&oldestID, &oldestSession); err != nil {
+			return HGDeviceCredential{}, err
+		}
+		// 旧记录或同一会话的多个标签页不能安全地注销另一登录会话。
+		if len(oldestSession) != 16 || hex.EncodeToString(oldestSession) == sessionID {
+			return HGDeviceCredential{}, HGErrConflict
+		}
+		// MySQL 是强制下线权威：设备撤销与会话失效同事务提交，不在事务中调用 Redis。
+		result, revokeErr := tx.ExecContext(ctx, SQLQueriesPackage.HGIMForceLogoutDeviceSQL, user, oldestSession)
+		if revokeErr != nil {
+			return HGDeviceCredential{}, revokeErr
+		}
+		changed, rowsErr := result.RowsAffected()
+		if rowsErr != nil || changed < 1 || changed > 5 {
+			return HGDeviceCredential{}, HGErrConflict
+		}
+	}
+	query := SQLQueriesPackage.HGIMCreateDeviceSQL
+	args := []any{id[:], user, digest[:]}
+	if sessionID != "" {
+		decoded, decodeErr := hex.DecodeString(sessionID)
+		if decodeErr != nil || len(decoded) != 16 {
+			return HGDeviceCredential{}, HGErrInvalid
+		}
+		query = SQLQueriesPackage.HGIMCreateSessionDeviceSQL
+		args = append(args, decoded)
+	}
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 		return HGDeviceCredential{}, err
 	}
 	if err := tx.Commit(); err != nil {

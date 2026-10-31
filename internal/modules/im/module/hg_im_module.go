@@ -6,6 +6,7 @@ import (
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"net/http"
 )
 
@@ -22,7 +23,7 @@ func (m *HGModule) Handler() http.Handler {
 
 // HGRegisterModules 通过现有领域事件 topic 持久化已提交 IM 事件；不得把 HTTP ACK 解释为实时送达。
 func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, topic string) {
-	service := IMPackage.HGNewService(sqlManager.GetSQLDB(), topic, nil)
+	service := IMPackage.HGNewService(sqlManager.GetSQLDB(), topic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)
 	HGHandlerPackage.RegisterModule(&HGModule{handler: IMPackage.HGNewHandler(service)})
 }
 

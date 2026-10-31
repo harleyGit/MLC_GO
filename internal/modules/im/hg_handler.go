@@ -2,14 +2,18 @@ package im
 
 import (
 	"MLC_GO/internal/modules/im/transport"
+	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePackage "MLC_GO/internal/response"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // HGHandler 是经过现有 JWT 中间件校验的单聊 HTTP 接口；不接受客户端声明的 senderId。
@@ -194,7 +198,16 @@ func (h *HGHandler) HGRegisterDevice(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	credential, err := h.service.HGRegisterDevice(r.Context(), user)
+	claims, _ := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
+	var credential HGDeviceCredential
+	var err error
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if claims != nil && claims.SessionID != "" {
+		credential, err = h.service.HGRegisterSessionDevice(ctx, user, claims.SessionID)
+	} else {
+		credential, err = h.service.HGRegisterDevice(ctx, user) // 发布前的旧 token 兼容注册，但不能自动踢旧会话。
+	}
 	if err != nil {
 		hgIMFail(w, r, err)
 		return

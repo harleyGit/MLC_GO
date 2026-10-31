@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"io"
 	"strconv"
 	"unicode/utf8"
@@ -25,14 +26,21 @@ var (
 
 // HGService 是单聊权威存储，不复用站内信或弹幕。调用方必须从已验证 JWT 注入 user ID。
 type HGService struct {
-	db    *sql.DB           // 由应用管理生命周期的 MySQL 连接池。
-	topic string            // 独立 IM Kafka topic；未配置时不可发送。
-	media HGMediaAuthorizer // 私有媒体归属和审核状态校验器，nil 时媒体发送失败关闭。
+	db       *sql.DB           // 由应用管理生命周期的 MySQL 连接池。
+	topic    string            // 独立 IM Kafka topic；未配置时不可发送。
+	media    HGMediaAuthorizer // 私有媒体归属和审核状态校验器，nil 时媒体发送失败关闭。
+	sessions *redis.Client     // 登录会话撤销所用的 Redis；nil 时不自动踢人。
 }
 
 // HGNewService 创建独立私信业务服务；发送前必须部署 im_message_events_v1 topic 与表迁移。
 func HGNewService(db *sql.DB, topic string, media HGMediaAuthorizer) *HGService {
 	return &HGService{db: db, topic: topic, media: media}
+}
+
+// HGWithSessionRedis 配置登录会话撤销依赖；仅 IM 设备注册需要。
+func (s *HGService) HGWithSessionRedis(client *redis.Client) *HGService {
+	s.sessions = client
+	return s
 }
 
 // HGCreateConversation 根据两名用户的稳定排序唯一创建单聊；先检查对方存在，再在短事务中写会话与成员。

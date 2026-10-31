@@ -6,6 +6,7 @@ import (
 	IM "MLC_GO/internal/modules/im"
 	"MLC_GO/internal/modules/im/transport"
 	Kafka "MLC_GO/internal/pkg/kafka"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"database/sql"
 	"fmt"
@@ -42,7 +43,7 @@ type HGRuntime struct {
 // HGRegisterConfigured 创建默认关闭或显式配置的 IM 模块，不启动任务、不执行迁移。
 func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster Kafka.HGClusterConfig) (*HGRuntime, error) {
 	if !cfg.Realtime {
-		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil)))
+		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)))
 		return nil, nil
 	}
 	for _, topic := range cluster.Topics {
@@ -82,7 +83,7 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 	if r.media != nil {
 		mediaAuthorizer = r.media
 	}
-	service := IM.HGNewService(db, cfg.Topic, mediaAuthorizer)
+	service := IM.HGNewService(db, cfg.Topic, mediaAuthorizer).HGWithSessionRedis(PersistenceRedisPackage.RDB)
 	if cfg.Calls {
 		r.livekit, err = transport.HGNewLiveKit(cfg.livekitURL, cfg.livekitKey, cfg.livekitSecret)
 		if err != nil {
