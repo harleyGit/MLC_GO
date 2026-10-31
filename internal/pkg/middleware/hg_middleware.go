@@ -197,6 +197,7 @@ var corsAllowedHeaders = []string{
 	"Accept",
 	"Authorization",
 	"Content-Type",
+	"Range", // 私有 IM 媒体采用逐次鉴权的单段字节读取；Origin 仍由既有白名单校验。
 	"X-API-Version",
 	"X-Client-Type",
 	"X-Client-Version",

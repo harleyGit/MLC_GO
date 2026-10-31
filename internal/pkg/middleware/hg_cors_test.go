@@ -18,7 +18,7 @@ func TestCORSMiddlewareAllowsConfiguredOriginAndSignedHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/ops/bilibili/tags", nil)
 	req.Header.Set("Origin", "https://ops.example.com")
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
-	req.Header.Set("Access-Control-Request-Headers", "content-type, authorization, x-device-id, x-client-type, x-client-version, x-api-version, x-language, x-request-id, x-timestamp, x-signature")
+	req.Header.Set("Access-Control-Request-Headers", "content-type, authorization, x-device-id, x-client-type, x-client-version, x-api-version, x-language, x-request-id, x-timestamp, x-signature, range")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -35,7 +35,7 @@ func TestCORSMiddlewareAllowsConfiguredOriginAndSignedHeaders(t *testing.T) {
 	if !headerContainsToken(rec.Header().Values("Vary"), "Origin") {
 		t.Fatalf("Vary = %q, want Origin", rec.Header().Values("Vary"))
 	}
-	for _, header := range []string{"X-Device-ID", "X-Client-Type", "X-Client-Version", "X-API-Version", "X-Language", "X-Request-ID", "X-Timestamp", "X-Signature"} {
+	for _, header := range []string{"X-Device-ID", "X-Client-Type", "X-Client-Version", "X-API-Version", "X-Language", "X-Request-ID", "X-Timestamp", "X-Signature", "Range"} {
 		if !headerContainsToken(rec.Header().Values("Access-Control-Allow-Headers"), header) {
 			t.Fatalf("Access-Control-Allow-Headers = %q, missing %s", rec.Header().Values("Access-Control-Allow-Headers"), header)
 		}
@@ -55,6 +55,31 @@ func TestCORSMiddlewareAllowsLocal5174ByDefault(t *testing.T) {
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5174" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want local 5174 origin", got)
+	}
+}
+
+func TestCORSMiddlewareExposesIMRangeOnlyToAllowedOrigin(t *testing.T) {
+	t.Setenv("HG_CORS_ALLOWED_ORIGINS", "https://ops.example.com")
+	handler := CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-2/10")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Disposition")
+		w.WriteHeader(http.StatusPartialContent)
+	}))
+	for _, origin := range []string{"https://ops.example.com", "https://other.example.com"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/im/media/read?mediaId=fixture", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Range", "bytes=0-2")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusPartialContent || !headerContainsToken(rec.Header().Values("Access-Control-Expose-Headers"), "Content-Range") {
+			t.Fatalf("origin=%q: IM 分段响应缺少浏览器可读的范围元数据", origin)
+		}
+		if origin == "https://ops.example.com" && rec.Header().Get("Access-Control-Allow-Origin") != origin {
+			t.Fatal("白名单来源无法读取受保护媒体响应")
+		}
+		if origin != "https://ops.example.com" && rec.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatal("非白名单来源不应通过 CORS")
+		}
 	}
 }
 
