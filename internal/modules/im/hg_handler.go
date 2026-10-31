@@ -213,6 +213,10 @@ func (h *HGHandler) HGRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	if credential.LegacyReplaced {
+		HGResponsePackage.SuccessResult(w, r, map[string]any{"deviceId": credential.DeviceID, "secret": credential.Secret, "legacyReplaced": true})
+		return
+	}
 	HGResponsePackage.SuccessResult(w, r, credential)
 }
 

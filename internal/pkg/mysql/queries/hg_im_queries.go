@@ -19,6 +19,8 @@ const (
 	// 所有新会话鉴权均按 (user_id,session_id,forced_logout_at) 点查；不能用只在客户端清理 token 替代服务端撤销。
 	HGIMForcedLogoutSQL        = `SELECT 1 FROM im_device WHERE user_id=? AND session_id=? AND forced_logout_at IS NOT NULL LIMIT 1`
 	HGIMSessionActiveDeviceSQL = `SELECT 1 FROM im_device WHERE user_id=? AND session_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY LIMIT 1`
+	// 同登录会话凭据遗失时只选一台本人的活跃设备；索引 idx_im_device_session_logout 定位，同用户活跃设备上限五台。
+	HGIMOwnOldestDeviceSQL     = `SELECT id FROM im_device WHERE user_id=? AND session_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY created_at,id LIMIT 1`
 	HGIMInsertDeliverySQL      = `INSERT INTO im_device_delivery(device_id,message_id,user_id) VALUES (?,?,?)`
 	HGIMLockDeviceOwnerSQL     = `SELECT 1 FROM users WHERE user_id=? FOR UPDATE`
 	HGIMCreateDeviceSQL        = `INSERT INTO im_device(id,user_id,credential_hash) VALUES (?,?,?)`
@@ -26,6 +28,10 @@ const (
 	HGIMDeviceCredentialSQL    = `SELECT credential_hash FROM im_device WHERE id=? AND user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
 	HGIMTouchDeviceSQL         = `UPDATE im_device SET last_active_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
 	HGIMRevokeDeviceSQL        = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
+	// 旧版设备无可关联的登录会话，仅撤销最早那台 IM 设备；主键点写且再次核实旧记录，不误删其他用户设备。
+	HGIMRevokeLegacyDeviceSQL = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND session_id IS NULL AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
+	// 同会话设备替换仅点写所选设备；不设置 forced_logout_at，避免把当前登录会话踢下线。
+	HGIMRevokeOwnDeviceSQL = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND session_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
 	// 同会话最多替换五台活跃设备；按 idx_im_device_session_logout 定位，ORDER BY/LIMIT 防止异常存量大范围更新。
 	HGIMForceLogoutDeviceSQL = `UPDATE im_device SET revoked_at=NOW(3),forced_logout_at=NOW(3) WHERE user_id=? AND session_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 5`
 	HGIMPendingDeviceSQL     = `SELECT d.message_id,m.conversation_id,m.seq FROM im_device_delivery d JOIN im_message m ON m.id=d.message_id WHERE d.device_id=? AND d.user_id=? AND d.delivered_at IS NULL AND d.message_id>? ORDER BY d.message_id ASC LIMIT ?`

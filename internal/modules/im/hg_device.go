@@ -16,8 +16,9 @@ import (
 
 // HGDeviceCredential 只在注册响应中返回一次；secret 是设备凭据，不得出现在 URL、日志或 Kafka 中。
 type HGDeviceCredential struct {
-	DeviceID string `json:"deviceId"` // 服务端生成的 128 位随机设备 ID，绑定当前 JWT 用户。
-	Secret   string `json:"secret"`   // 256 位随机凭据，数据库仅保留摘要。
+	DeviceID       string `json:"deviceId"` // 服务端生成的 128 位随机设备 ID，绑定当前 JWT 用户。
+	Secret         string `json:"secret"`   // 256 位随机凭据，数据库仅保留摘要。
+	LegacyReplaced bool   `json:"-"`        // 仅设备注册响应使用；true 表示旧版 IM 设备被替换，旧登录会话仍有效，不进入设备凭据请求协议。
 }
 
 // HGDeviceDelivery 是单台设备尚未 ACK 的消息指针，消息正文仍需按会话成员授权读取。
@@ -32,7 +33,7 @@ func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDevice
 	return s.hgRegisterDevice(ctx, user, "")
 }
 
-// HGRegisterSessionDevice 将设备绑定已验证的登录会话；达到上限时仅撤销最早设备及其会话。
+// HGRegisterSessionDevice 将设备绑定已验证的登录会话；达到上限时优先替换本会话设备，旧版设备仅撤销 IM 凭据。
 func (s *HGService) HGRegisterSessionDevice(ctx context.Context, user, sessionID string) (HGDeviceCredential, error) {
 	decoded, decodeErr := hex.DecodeString(sessionID)
 	if decodeErr != nil || len(decoded) != 16 || s == nil || s.sessions == nil {
@@ -58,6 +59,7 @@ func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string
 		return HGDeviceCredential{}, err
 	}
 	digest := sha256.Sum256(secret[:])
+	legacyReplaced := false // 仅在旧版无会话 ID 的设备被撤销且事务提交后报告。
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return HGDeviceCredential{}, err
@@ -105,27 +107,50 @@ func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string
 		var existing int
 		checkErr := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMSessionActiveDeviceSQL, user, decoded).Scan(&existing)
 		if checkErr == nil {
-			return HGDeviceCredential{}, HGErrConflict
-		} // 同会话重复注册不可连续踢其他会话。
-		if !errors.Is(checkErr, sql.ErrNoRows) {
+			var ownID []byte
+			if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMOwnOldestDeviceSQL, user, decoded).Scan(&ownID); err != nil {
+				return HGDeviceCredential{}, err
+			}
+			result, revokeErr := tx.ExecContext(ctx, SQLQueriesPackage.HGIMRevokeOwnDeviceSQL, ownID, user, decoded)
+			if revokeErr != nil {
+				return HGDeviceCredential{}, revokeErr
+			}
+			changed, rowsErr := result.RowsAffected()
+			if rowsErr != nil || changed != 1 {
+				return HGDeviceCredential{}, HGErrConflict
+			}
+		} else if !errors.Is(checkErr, sql.ErrNoRows) {
 			return HGDeviceCredential{}, checkErr
-		}
-		var oldestID, oldestSession []byte
-		if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMOldestDeviceSQL, user).Scan(&oldestID, &oldestSession); err != nil {
-			return HGDeviceCredential{}, err
-		}
-		// 旧记录或同一会话的多个标签页不能安全地注销另一登录会话。
-		if len(oldestSession) != 16 || hex.EncodeToString(oldestSession) == sessionID {
-			return HGDeviceCredential{}, HGErrConflict
-		}
-		// MySQL 是强制下线权威：设备撤销与会话失效同事务提交，不在事务中调用 Redis。
-		result, revokeErr := tx.ExecContext(ctx, SQLQueriesPackage.HGIMForceLogoutDeviceSQL, user, oldestSession)
-		if revokeErr != nil {
-			return HGDeviceCredential{}, revokeErr
-		}
-		changed, rowsErr := result.RowsAffected()
-		if rowsErr != nil || changed < 1 || changed > 5 {
-			return HGDeviceCredential{}, HGErrConflict
+		} else {
+			var oldestID, oldestSession []byte
+			if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMOldestDeviceSQL, user).Scan(&oldestID, &oldestSession); err != nil {
+				return HGDeviceCredential{}, err
+			}
+			if len(oldestSession) == 0 {
+				// 旧版记录无法注销对应 JWT，只撤销其 IM 设备；结果须明确告知调用方。
+				result, revokeErr := tx.ExecContext(ctx, SQLQueriesPackage.HGIMRevokeLegacyDeviceSQL, oldestID, user)
+				if revokeErr != nil {
+					return HGDeviceCredential{}, revokeErr
+				}
+				changed, rowsErr := result.RowsAffected()
+				if rowsErr != nil || changed != 1 {
+					return HGDeviceCredential{}, HGErrConflict
+				}
+				legacyReplaced = true
+			} else {
+				if len(oldestSession) != 16 || hex.EncodeToString(oldestSession) == sessionID {
+					return HGDeviceCredential{}, HGErrConflict
+				}
+				// MySQL 是强制下线权威：设备撤销与会话失效同事务提交，不在事务中调用 Redis。
+				result, revokeErr := tx.ExecContext(ctx, SQLQueriesPackage.HGIMForceLogoutDeviceSQL, user, oldestSession)
+				if revokeErr != nil {
+					return HGDeviceCredential{}, revokeErr
+				}
+				changed, rowsErr := result.RowsAffected()
+				if rowsErr != nil || changed < 1 || changed > 5 {
+					return HGDeviceCredential{}, HGErrConflict
+				}
+			}
 		}
 	}
 	query := SQLQueriesPackage.HGIMCreateDeviceSQL
@@ -144,7 +169,7 @@ func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string
 	if err := tx.Commit(); err != nil {
 		return HGDeviceCredential{}, err
 	}
-	return HGDeviceCredential{DeviceID: hex.EncodeToString(id[:]), Secret: hex.EncodeToString(secret[:])}, nil
+	return HGDeviceCredential{DeviceID: hex.EncodeToString(id[:]), Secret: hex.EncodeToString(secret[:]), LegacyReplaced: legacyReplaced}, nil
 }
 
 func (s *HGService) hgDevice(ctx context.Context, user string, credential HGDeviceCredential) ([]byte, error) {
