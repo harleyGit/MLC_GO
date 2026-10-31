@@ -87,6 +87,7 @@ var hgGatewayModulePaths = []struct {
 	{"notifications", "/api/v1/notifications"},
 	{"notification_preferences", "/api/v1/notification"},
 	{"notification_admin", "/admin/v1/notification"},
+	{"im", "/api/v1/im"},
 	{"ops", OpsModuleBasePath},
 }
 

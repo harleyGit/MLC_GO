@@ -771,8 +771,9 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 		"auth": {}, "profile": {}, "video_upload": {}, "bilibili": {},
 		"video_recommend": {}, "video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
 		"notifications": {}, "notification_preferences": {}, "notification_admin": {},
+		"im": {},
 	}
-	for _, required := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops"} {
+	for _, required := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im"} {
 		if _, ok := raw.Modules[required]; !ok {
 			return cfg, fmt.Errorf("api_gateway.modules 缺少必需模块 %s", required)
 		}

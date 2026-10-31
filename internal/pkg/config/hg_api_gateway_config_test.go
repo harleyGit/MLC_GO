@@ -15,7 +15,7 @@ func TestGetAPIGatewayConfig(t *testing.T) {
 	viper.Set("api_gateway.max_url_bytes", 8192)
 	viper.Set("api_gateway.supported_versions", []string{"v1"})
 	viper.Set("api_gateway.trusted_proxy_cidrs", []string{"10.20.0.0/16"})
-	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops"} {
+	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im"} {
 		viper.Set("api_gateway.modules."+module+".capacity", 10)
 		viper.Set("api_gateway.modules."+module+".refill_per_second", 2)
 		viper.Set("api_gateway.modules."+module+".max_body_bytes", 1024)
@@ -26,8 +26,44 @@ func TestGetAPIGatewayConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAPIGatewayConfig() error = %v", err)
 	}
-	if !cfg.Enabled || cfg.MaxURLBytes != 8192 || len(cfg.SupportedVersions) != 1 || len(cfg.Modules) != 9 || len(cfg.TrustedProxyCIDRs) != 1 {
+	if !cfg.Enabled || cfg.MaxURLBytes != 8192 || len(cfg.SupportedVersions) != 1 || len(cfg.Modules) != 10 || len(cfg.TrustedProxyCIDRs) != 1 {
 		t.Fatalf("unexpected config: %#v", cfg)
+	}
+}
+
+func TestGetAPIGatewayConfigAcceptsIMPolicy(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("API_GATEWAY_TRUSTED_PROXY_CIDRS", "")
+	viper.Set("api_gateway.enabled", true)
+	viper.Set("api_gateway.max_url_bytes", 8192)
+	viper.Set("api_gateway.supported_versions", []string{"v1"})
+	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im"} {
+		viper.Set("api_gateway.modules."+module+".capacity", 10)
+		viper.Set("api_gateway.modules."+module+".refill_per_second", 2)
+		viper.Set("api_gateway.modules."+module+".max_body_bytes", 8192)
+		viper.Set("api_gateway.modules."+module+".max_in_flight", 10)
+	}
+	cfg, err := GetAPIGatewayConfig()
+	if err != nil {
+		t.Fatalf("GetAPIGatewayConfig() error = %v", err)
+	}
+	if len(cfg.Modules) != 10 || cfg.Modules["im"].MaxBodyBytes != 8192 {
+		t.Fatalf("IM 模块策略未加载: %#v", cfg.Modules["im"])
+	}
+}
+
+func TestGetAPIGatewayConfigRequiresIMPolicy(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("api_gateway.enabled", true)
+	viper.Set("api_gateway.max_url_bytes", 8192)
+	viper.Set("api_gateway.supported_versions", []string{"v1"})
+	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops"} {
+		viper.Set("api_gateway.modules."+module+".capacity", 10)
+	}
+	if _, err := GetAPIGatewayConfig(); err == nil || !strings.Contains(err.Error(), "缺少必需模块 im") {
+		t.Fatalf("缺少 IM 限流策略时应拒绝启动: %v", err)
 	}
 }
 
@@ -38,7 +74,7 @@ func TestGetAPIGatewayConfigRejectsUnsafeUpstreamURL(t *testing.T) {
 	viper.Set("api_gateway.enabled", true)
 	viper.Set("api_gateway.max_url_bytes", 8192)
 	viper.Set("api_gateway.supported_versions", []string{"v1"})
-	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops"} {
+	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im"} {
 		viper.Set("api_gateway.modules."+module+".capacity", 10)
 		viper.Set("api_gateway.modules."+module+".refill_per_second", 2)
 		viper.Set("api_gateway.modules."+module+".max_body_bytes", 1024)

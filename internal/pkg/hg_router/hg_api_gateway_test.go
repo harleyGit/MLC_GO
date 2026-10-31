@@ -32,6 +32,35 @@ func TestHGAPIGatewayMetricsUseFixedModuleLabels(t *testing.T) {
 	}
 }
 
+func TestHGAPIGatewayLimitsIMRequests(t *testing.T) {
+	eval := &hgGatewayFakeEval{allowed: 0}
+	gateway := hgTestGateway(t, eval)
+	for _, path := range []string{"/api/v1/im", "/api/v1/im/messages"} {
+		recorder := httptest.NewRecorder()
+		gateway.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("受限 IM 请求不应到达业务处理器")
+		})).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusTooManyRequests || eval.key != PersistenceRedisPackage.GetAPIGatewayIPRateKey("im", "192.0.2.1") {
+			t.Fatalf("path=%s status=%d key=%q", path, recorder.Code, eval.key)
+		}
+	}
+}
+
+func TestHGAPIGatewayRequiresIMPolicy(t *testing.T) {
+	modules := make(map[string]ConfigPackage.HGAPIGatewayModulePolicy, len(hgGatewayModulePaths))
+	for _, module := range hgGatewayModulePaths {
+		if module.name != "im" {
+			modules[module.name] = ConfigPackage.HGAPIGatewayModulePolicy{Capacity: 10, RefillPerSecond: 2, MaxBodyBytes: 1024, MaxInFlight: 10}
+		}
+	}
+	_, err := newHGAPIGateway(&hgGatewayFakeEval{allowed: 1}, ConfigPackage.HGAPIGatewayConfig{
+		Enabled: true, MaxURLBytes: 8192, SupportedVersions: map[string]struct{}{"v1": {}}, Modules: modules,
+	})
+	if err == nil {
+		t.Fatal("缺少 IM 模块策略时不应创建可绕过限流的网关")
+	}
+}
+
 func (f *hgGatewayFakeEval) EvalInt64(_ context.Context, _ string, keys []string, _ ...any) (int64, error) {
 	if len(keys) > 0 {
 		f.key = keys[0]
