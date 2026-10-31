@@ -39,6 +39,14 @@ func hgRun() error {
 	if !strings.HasPrefix(probe, "/") {
 		return fmt.Errorf("ffprobe 必须是绝对路径")
 	}
+	ffmpeg := os.Getenv("MLC_IM_REVIEW_FFMPEG")
+	if ffmpeg == "" {
+		var err error
+		ffmpeg, err = exec.LookPath("ffmpeg")
+		if err != nil {
+			return fmt.Errorf("ffmpeg 未安装")
+		}
+	}
 	clamd := os.Getenv("MLC_IM_REVIEW_CLAMD_ADDR")
 	if clamd == "" {
 		clamd = "127.0.0.1:3310"
@@ -46,6 +54,7 @@ func hgRun() error {
 	cfg := review.HGConfig{
 		Token: os.Getenv("MLC_IM_REVIEW_TOKEN"), Bucket: os.Getenv("MLC_IM_S3_BUCKET"),
 		ClamdAddr: clamd, FFprobe: probe, TempDir: os.Getenv("MLC_IM_REVIEW_TEMP_DIR"),
+		FFmpeg: ffmpeg, Python: os.Getenv("MLC_IM_REVIEW_PYTHON"), Moderator: os.Getenv("MLC_IM_REVIEW_MODERATOR"),
 		S3Endpoint: os.Getenv("MLC_IM_S3_ENDPOINT"), S3Region: os.Getenv("MLC_IM_S3_REGION"),
 		S3Key: os.Getenv("MLC_IM_REVIEW_S3_ACCESS_KEY"), S3Secret: os.Getenv("MLC_IM_REVIEW_S3_SECRET_KEY"),
 	}

@@ -3,6 +3,7 @@ package review
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,6 +51,9 @@ func hgInspect(ctx context.Context, ffprobe, path, mime string, size int64) (int
 	}
 	if !hgMagic(mime, head[:]) {
 		return 0, 0, 0, fmt.Errorf("文件真实容器与 MIME 不一致")
+	}
+	if strings.HasPrefix(mime, "image/") && !hgImageBoundary(file, head[:], mime, size) {
+		return 0, 0, 0, fmt.Errorf("图片结构或结尾不合法")
 	}
 	if mime == "application/zip" || strings.Contains(mime, "wordprocessingml") {
 		return hgInspectArchive(path, size, mime)
@@ -107,6 +111,35 @@ func hgInspect(ctx context.Context, ffprobe, path, mime string, size int64) (int
 		return 0, 0, 0, fmt.Errorf("媒体时长不合法")
 	}
 	return width, height, duration, nil
+}
+
+// hgImageBoundary 拒绝解码器忽略的尾随数据，避免附加的恶意载荷绕过图片容器扫描。
+func hgImageBoundary(file *os.File, head []byte, mime string, size int64) bool {
+	switch mime {
+	case "image/jpeg":
+		var end [2]byte
+		_, err := file.ReadAt(end[:], size-2)
+		return err == nil && end == [2]byte{0xff, 0xd9}
+	case "image/webp":
+		return int64(binary.LittleEndian.Uint32(head[4:8]))+8 == size
+	case "image/png":
+		offset := int64(8)
+		for count := 0; count < 100000 && offset+12 <= size; count++ {
+			var chunk [8]byte
+			if _, err := file.ReadAt(chunk[:], offset); err != nil {
+				return false
+			}
+			length := int64(binary.BigEndian.Uint32(chunk[:4]))
+			if length > size-offset-12 {
+				return false
+			}
+			offset += 12 + length
+			if string(chunk[4:]) == "IEND" {
+				return length == 0 && offset == size
+			}
+		}
+	}
+	return false
 }
 
 func hgMagic(mime string, head []byte) bool {

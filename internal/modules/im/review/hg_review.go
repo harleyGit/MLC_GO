@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -30,6 +31,9 @@ type HGConfig struct {
 	Bucket     string // 绑定的私有桶名，拒绝请求体中的其他桶。
 	ClamdAddr  string // 仅内部网络可达的 ClamAV TCP 地址。
 	FFprobe    string // 本机 ffprobe 可执行文件的绝对路径。
+	FFmpeg     string // 本机 ffmpeg 绝对路径，视频审核必须实际解码取帧。
+	Python     string // 装有固定版本 NudeNet/ONNXRuntime 的隔离 Python 绝对路径。
+	Moderator  string // 本仓库提供的本地内容模型脚本绝对路径。
 	TempDir    string // 受限临时目录；空值使用系统临时目录，不得对其他用户开放。
 	S3Endpoint string // SeaweedFS S3 固定端点。
 	S3Region   string // S3 签名 region。
@@ -46,14 +50,26 @@ type HGService struct {
 
 // HGNewService 缺少真实扫描器或私有存储配置时拒绝启动，不能退化为只检查扩展名。
 func HGNewService(cfg HGConfig) (*HGService, error) {
-	if len(cfg.Token) < 32 || cfg.Bucket == "" || cfg.ClamdAddr == "" || !strings.HasPrefix(cfg.FFprobe, "/") {
+	if len(cfg.Token) < 32 || cfg.Bucket == "" || cfg.ClamdAddr == "" || !strings.HasPrefix(cfg.FFprobe, "/") || !strings.HasPrefix(cfg.FFmpeg, "/") || !strings.HasPrefix(cfg.Python, "/") || !strings.HasPrefix(cfg.Moderator, "/") {
 		return nil, fmt.Errorf("IM 审核服务配置不完整")
 	}
 	if err := hgValidateClamd(cfg.ClamdAddr); err != nil {
 		return nil, err
 	}
-	if info, err := os.Stat(cfg.FFprobe); err != nil || info.IsDir() || info.Mode()&0111 == 0 {
-		return nil, fmt.Errorf("ffprobe 不可执行")
+	for _, executable := range []string{cfg.FFprobe, cfg.FFmpeg, cfg.Python} {
+		if info, err := os.Stat(executable); err != nil || info.IsDir() || info.Mode()&0111 == 0 {
+			return nil, fmt.Errorf("媒体探测或模型依赖不可执行")
+		}
+	}
+	if info, err := os.Stat(cfg.Moderator); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("内容检测脚本不存在")
+	}
+	checkCtx, stop := context.WithTimeout(context.Background(), 8*time.Second)
+	defer stop()
+	check := exec.CommandContext(checkCtx, cfg.Python, cfg.Moderator, "--check")
+	check.Env = []string{"PATH=/usr/bin:/bin"}
+	if check.Run() != nil {
+		return nil, fmt.Errorf("本地内容检测模型未就绪")
 	}
 	storage, err := transport.HGNewSeaweedFS(cfg.S3Endpoint, cfg.S3Region, cfg.Bucket, cfg.S3Key, cfg.S3Secret)
 	if err != nil {
@@ -187,6 +203,11 @@ func (s *HGService) hgReview(ctx context.Context, cmd HGRequest) (transport.HGRe
 	}
 	if !clean {
 		return result, hgRejected
+	}
+	if strings.HasPrefix(cmd.MIME, "image/") || strings.HasPrefix(cmd.MIME, "video/") {
+		if err = s.hgModerate(ctx, file.Name(), cmd.MIME, duration); err != nil {
+			return result, err
+		}
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return result, err
