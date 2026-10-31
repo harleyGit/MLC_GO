@@ -149,3 +149,9 @@ Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配
 - `mlc-crawler-clickhouse-debug` 曾停止，`18123` 连接拒绝；恢复该已有容器后 HTTP 探活及 `cmd/hg_config_check --check clickhouse` 通过。debug 前置脚本增加主服务配置探活与本地容器恢复；未在停止容器时完整执行 VS Code 前置脚本或重启现有调试进程。
 - 视频上传／审核／读取的静态限制改为 ≤300MiB、无固定时长上限，模型最多从全片均匀抽取 16 帧。Go 定向测试、production 构建和 React pre 构建通过；这是代码/构建证据，不是 300MiB 视频审核、真实浏览器收发或容量证据。抽样间隙有漏检风险，pre/prod 门禁不变。
 - 原 ClamAV 容器的环境变量在启动时重写尾部 128MiB 限额；获授权后将旧容器保留为停止状态的 `mlc-im-debug-clamav-backup-20261031`，同镜像重建本机 `mlc-im-debug-clamav`（仅 `127.0.0.1:3310`），环境中 `StreamMaxLength=314572801`、`MaxFileSize=314572801`、`MaxScanSize=629145600`、`AlertExceedsMax=yes`，容器 health 为 healthy。实际从宿主机经 INSTREAM 传输 314572800 字节零数据并收到 `stream: OK`；**这不证明真实 300MiB 视频审核通过**，且当前审核/VS Code 进程仍加载旧代码，需由用户安排重启及真实样例验收。旧容器未删除。
+
+### 2026-10-31 本机浏览器上传 403 修复
+
+- React 的 `vite.config.js` 固定 `localhost:5174`，而此前 SeaweedFS 4.51 debug 容器启动参数 `-s3.allowedOrigins` 仅允许 `http://localhost:5173`。相同的无凭据 PUT 预检在 5174 返回 403、5173 返回 200；这是浏览器直传被拦截的根因，不是 Go 消息发送 API 拒绝。
+- 经授权将原容器保留为已停止的 `mlc-im-debug-seaweed-v4-cors-backup-20261031`，同镜像、原 `/data` 命名卷和只读 S3 身份配置重建 `mlc-im-debug-seaweed-v4`；`-s3.allowedOrigins=http://localhost:5173,http://localhost:5174`，仅绑定原本机端口。修改后 5174 与 5173 的 PUT 预检均返回 200 并回显对应 Origin，未授权的 5175 仍返回 403。
+- 用独立随机 quarantine 对象和当前 debug 上传身份执行了带 `Origin: http://localhost:5174` 的新预签名 PUT，返回 200；随后只删除该测试对象，返回 204。未使用或重放用户提供的预签名 URL；未取得真实双用户浏览器上传与审核 ready 的证据。页面若使用不同的 Origin，应先核对并按安全边界单独配置白名单，不能改成 `*`。
