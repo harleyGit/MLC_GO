@@ -131,7 +131,7 @@ func (h *HGHandler) HGMediaRead(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	a, err := h.media.hgReadable(ctx, user, r.URL.Query().Get("mediaId"))
 	if err != nil {

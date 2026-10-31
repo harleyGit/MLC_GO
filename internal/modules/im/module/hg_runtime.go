@@ -150,7 +150,11 @@ func (r *HGRuntime) hgWorker(ctx context.Context, name string, run func(context.
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				work, stop := context.WithTimeout(ctx, 25*time.Second)
+				hgBudget := 25 * time.Second // 投递/通话保持原有预算，避免拖慢其他后台任务。
+				if name == "media" {
+					hgBudget = 280 * time.Second // 大视频审核有界超时，超过则保留租约重试。
+				}
+				work, stop := context.WithTimeout(ctx, hgBudget)
 				err := run(work)
 				stop()
 				r.mu.Lock()

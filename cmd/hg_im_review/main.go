@@ -78,7 +78,7 @@ func hgRun() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", service.HGHandler)
 	mux.HandleFunc("GET /readyz", service.HGReady)
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 24 * time.Second, MaxHeaderBytes: 8 << 10}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 280 * time.Second, MaxHeaderBytes: 8 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)

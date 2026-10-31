@@ -19,6 +19,27 @@ var hgObjectKey = regexp.MustCompile(`^(quarantine|sealed)/[a-f0-9]{32}$`)
 var hgByteRange = regexp.MustCompile(`^bytes=([0-9]{1,12})-([0-9]{0,12})$`)
 var hgContentRange = regexp.MustCompile(`^bytes ([0-9]{1,12})-([0-9]{1,12})/([0-9]{1,12})$`)
 
+const (
+	HGMaxImageBytes = 10 << 20  // 图片上限，字节。
+	HGMaxMediaBytes = 128 << 20 // 音频、普通文件上限，字节。
+	HGMaxVideoBytes = 300 << 20 // 视频上限 300MiB，包含边界值。
+)
+
+// HGMediaSizeAllowed 使用 MIME 同步审核与 S3 请求边界，禁止只扩大预签名一侧。
+func HGMediaSizeAllowed(mime string, size int64) bool {
+	if size < 1 {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return size <= HGMaxImageBytes
+	case strings.HasPrefix(mime, "video/"):
+		return size <= HGMaxVideoBytes
+	default:
+		return size <= HGMaxMediaBytes
+	}
+}
+
 // HGSeaweedFS 仅通过 S3 SigV4 访问私有桶；上传身份只能写 quarantine，审核器独占 sealed 写权限。
 type HGSeaweedFS struct {
 	endpoint string       // 客户端可达 S3 根端点，不包含 bucket 或查询参数。
@@ -38,7 +59,7 @@ func HGNewSeaweedFS(endpoint, region, bucket, key, secret string) (*HGSeaweedFS,
 		return nil, fmt.Errorf("SeaweedFS S3 配置不完整")
 	}
 	client := hgClient()
-	client.Timeout = 30 * time.Second
+	client.Timeout = 270 * time.Second
 	return &HGSeaweedFS{endpoint: strings.TrimRight(endpoint, "/"), region: region, bucket: bucket, key: key, secret: secret, client: client}, nil
 }
 
@@ -93,7 +114,7 @@ func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl tim
 }
 
 func (s *HGSeaweedFS) HGUploadURL(key, mime string, size int64) (string, error) {
-	if !strings.HasPrefix(key, "quarantine/") || size < 1 || size > 128<<20 {
+	if !strings.HasPrefix(key, "quarantine/") || !HGMediaSizeAllowed(mime, size) {
 		return "", fmt.Errorf("上传参数错误")
 	}
 	return s.hgSign(http.MethodPut, key, mime, size, 10*time.Minute)
@@ -101,7 +122,7 @@ func (s *HGSeaweedFS) HGUploadURL(key, mime string, size int64) (string, error) 
 
 // HGReviewOpenQuarantine 使用审核器专属只读身份获取待审字节，不向浏览器下发下载签名。
 func (s *HGSeaweedFS) HGReviewOpenQuarantine(ctx context.Context, key string, size int64) (io.ReadCloser, error) {
-	if !strings.HasPrefix(key, "quarantine/") || size < 1 || size > 128<<20 {
+	if !strings.HasPrefix(key, "quarantine/") || size < 1 || size > HGMaxVideoBytes {
 		return nil, fmt.Errorf("待审对象参数错误")
 	}
 	link, err := s.hgSign(http.MethodGet, key, "", 0, time.Minute)
@@ -126,7 +147,7 @@ func (s *HGSeaweedFS) HGReviewOpenQuarantine(ctx context.Context, key string, si
 
 // HGReviewSeal 仅允许首次创建 sealed 对象，412 表示已有对象且须由调用方重新读回核验。
 func (s *HGSeaweedFS) HGReviewSeal(ctx context.Context, key, mime string, size int64, body io.Reader) (bool, error) {
-	if !strings.HasPrefix(key, "sealed/") || size < 1 || size > 128<<20 {
+	if !strings.HasPrefix(key, "sealed/") || !HGMediaSizeAllowed(mime, size) {
 		return false, fmt.Errorf("封存参数错误")
 	}
 	link, err := s.hgSignObject(http.MethodPut, key, mime, size, time.Minute, true)
@@ -155,7 +176,7 @@ func (s *HGSeaweedFS) HGReviewSeal(ctx context.Context, key, mime string, size i
 	return true, nil
 }
 
-// HGOpen 私有下载仅供已授权 Go handler 代理，签名 URL 不下发；单次最多 128 MiB，超时 30 秒。
+// HGOpen 私有下载仅供已授权 Go handler 代理，签名 URL 不下发；单件最多 300MiB。
 func (s *HGSeaweedFS) HGOpen(ctx context.Context, key, byteRange string) (*http.Response, error) {
 	if !strings.HasPrefix(key, "sealed/") {
 		return nil, fmt.Errorf("对象尚未审核封存")
@@ -192,7 +213,7 @@ func (s *HGSeaweedFS) HGOpen(ctx context.Context, key, byteRange string) (*http.
 	if err != nil {
 		return nil, fmt.Errorf("读取私有对象失败")
 	}
-	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || resp.ContentLength < 1 || resp.ContentLength > 128<<20 || (resp.Header.Get("Content-Encoding") != "" && resp.Header.Get("Content-Encoding") != "identity") {
+	if (resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent) || resp.ContentLength < 1 || resp.ContentLength > HGMaxVideoBytes || (resp.Header.Get("Content-Encoding") != "" && resp.Header.Get("Content-Encoding") != "identity") {
 		resp.Body.Close()
 		return nil, fmt.Errorf("私有对象响应不合法")
 	}
@@ -209,7 +230,7 @@ func (s *HGSeaweedFS) HGOpen(ctx context.Context, key, byteRange string) (*http.
 		if hgEnd >= 0 {
 			hgExpectedEnd = min(hgEnd, hgExpectedEnd)
 		}
-		if hgTotal < 1 || hgTotal > 128<<20 || hgActualStart != hgStart || hgActualEnd != hgExpectedEnd || hgActualEnd < hgActualStart || resp.ContentLength != hgActualEnd-hgActualStart+1 {
+		if hgTotal < 1 || hgTotal > HGMaxVideoBytes || hgActualStart != hgStart || hgActualEnd != hgExpectedEnd || hgActualEnd < hgActualStart || resp.ContentLength != hgActualEnd-hgActualStart+1 {
 			resp.Body.Close()
 			return nil, fmt.Errorf("私有对象范围与请求或长度不一致")
 		}
@@ -255,9 +276,8 @@ func HGNewReviewer(endpoint, token string) (*HGReviewer, error) {
 		return nil, fmt.Errorf("媒体审核凭据缺失")
 	}
 	client := hgClient()
-	// 审核单件最多 128MiB，包含有界 S3 读写、恶意文件扫描和封存复核。
-	// 留出后台 25 秒工作预算中的收尾时间，超时必须重试而非默认通过。
-	client.Timeout = 23 * time.Second
+	// 300MiB 审核包含 S3 读写、病毒扫描和封存复核，超时必须重试而非默认通过。
+	client.Timeout = 275 * time.Second
 	return &HGReviewer{endpoint: endpoint, token: token, client: client}, nil
 }
 

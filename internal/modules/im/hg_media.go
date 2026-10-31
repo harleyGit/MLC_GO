@@ -29,7 +29,7 @@ type HGUploadCommand struct {
 	ConversationID string        `json:"conversationId"` // 必须是上传者的单聊。
 	Type           HGMessageType `json:"messageType"`    // image/video/audio/file。
 	MIME           string        `json:"mime"`           // 允许列表内的 MIME。
-	Size           int64         `json:"size"`           // 申请字节数，1..128MiB，图片最多10MiB。
+	Size           int64         `json:"size"`           // 申请字节数：视频最多300MiB，图片10MiB，其余128MiB。
 	SHA256         string        `json:"sha256"`         // 小写 SHA256，用于不可变内容绑定。
 }
 
@@ -75,7 +75,7 @@ func (s *HGPrivateMedia) HGInitUpload(ctx context.Context, user string, cmd HGUp
 		return nil, err
 	}
 	hash, err := hex.DecodeString(cmd.SHA256)
-	if err != nil || len(hash) != 32 || cmd.SHA256 != hex.EncodeToString(hash) || !hgMediaMIME(cmd.Type, cmd.MIME) || cmd.Size < 1 || cmd.Size > 128<<20 || (cmd.Type == HGImage && cmd.Size > 10<<20) {
+	if err != nil || len(hash) != 32 || cmd.SHA256 != hex.EncodeToString(hash) || !hgMediaMIME(cmd.Type, cmd.MIME) || !transport.HGMediaSizeAllowed(cmd.MIME, cmd.Size) {
 		return nil, HGErrInvalid
 	}
 	var id [16]byte
@@ -240,7 +240,9 @@ func (s *HGPrivateMedia) HGReviewOnce(ctx context.Context) error {
 				} else {
 					valid = valid && result.Width == 0 && result.Height == 0
 				}
-				if kind == HGVideo || kind == HGAudio {
+				if kind == HGVideo {
+					valid = valid && result.DurationMS > 0
+				} else if kind == HGAudio {
 					valid = valid && result.DurationMS > 0 && result.DurationMS <= 3600000
 				} else {
 					valid = valid && result.DurationMS == 0

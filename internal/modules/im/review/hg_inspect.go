@@ -61,7 +61,7 @@ func hgInspect(ctx context.Context, ffprobe, path, mime string, size int64) (int
 	if mime == "application/pdf" {
 		return 0, 0, 0, nil
 	}
-	work, cancel := context.WithTimeout(ctx, 4*time.Second)
+	work, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(work, ffprobe, "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height:format=duration", "-of", "json", path)
 	var output hgBoundedOutput
@@ -103,11 +103,11 @@ func hgInspect(ctx context.Context, ffprobe, path, mime string, size int64) (int
 		return 0, 0, 0, fmt.Errorf("媒体类型与实际流不一致")
 	}
 	seconds, err := strconv.ParseFloat(probe.Format.Duration, 64)
-	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds > 3600 {
+	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds >= float64(math.MaxInt64)/1000 || strings.HasPrefix(mime, "audio/") && seconds > 3600 {
 		return 0, 0, 0, fmt.Errorf("媒体时长不合法")
 	}
 	duration := int64(math.Round(seconds * 1000))
-	if duration < 1 || duration > 3600000 {
+	if duration < 1 || strings.HasPrefix(mime, "audio/") && duration > 3600000 {
 		return 0, 0, 0, fmt.Errorf("媒体时长不合法")
 	}
 	return width, height, duration, nil

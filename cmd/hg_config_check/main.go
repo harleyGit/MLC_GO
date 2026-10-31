@@ -1,6 +1,7 @@
 package main
 
 import (
+	ClickHouse "MLC_GO/internal/pkg/clickhouse"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
@@ -22,14 +23,14 @@ import (
 // 命令复用应用真实的模块化配置加载逻辑，避免 Shell 脚本自行解析 YAML 后产生配置偏差：
 //  1. --env 选择 debug、pre 或 prod 环境。
 //  2. --config-dir 指定 config 根目录，与应用的 MLC_CONFIG_DIR 语义一致。
-//  3. --check=mysql/redis 执行真实依赖探活；不传 --check 时只输出非敏感地址。
+//  3. --check=mysql/redis/clickhouse 执行真实依赖探活；不传 --check 时只输出非敏感地址。
 //
 // 该命令只能用于启动前检查，不应在请求路径中执行。
 func main() {
 	// flag.Parse 必须在读取参数值前执行，否则始终只能得到默认值【在终端如脚本：xxx.sh --env=pre --config-dir=/xxx/config --check=mysql, 第三个参数在 -h、-help时才显示。】。
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
-	check := flag.String("check", "", "依赖检查：mysql 或 redis；为空时只输出非敏感地址")
+	check := flag.String("check", "", "依赖检查：mysql、redis 或 clickhouse；为空时只输出非敏感地址")
 	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
@@ -104,8 +105,37 @@ func main() {
 		fmt.Printf("notification_counter_ready=%t\n", hgReady)
 	case "redis":
 		checkRedis(redisConfig)
+	case "clickhouse":
+		hgCheckClickHouse()
 	default:
 		exitWithError(fmt.Errorf("不支持的检查类型 %q", *check))
+	}
+}
+
+// hgCheckClickHouse 复用主服务连接配置与 SELECT 1 探活，不输出认证信息或连接串。
+func hgCheckClickHouse() {
+	cfg, _, err := ConfigPackage.GetStatisticInfrastructureConfig()
+	if err != nil {
+		exitWithError(fmt.Errorf("读取 ClickHouse 配置失败"))
+	}
+	if !cfg.Enabled {
+		exitWithError(fmt.Errorf("ClickHouse 未启用"))
+	}
+	client, err := ClickHouse.NewHGClient(ClickHouse.HGConfig{
+		Endpoint: fmt.Sprintf("%s://%s:%s", cfg.Scheme, cfg.Host, cfg.Port),
+		Database: cfg.Database, Username: cfg.User, Password: cfg.Password,
+		StatisticEventsTable: cfg.StatisticEventsTable, StatisticTotalsTable: cfg.StatisticTotalsTable,
+		DanmakuHistoryTable: cfg.DanmakuHistoryTable,
+		WriteTimeout:        cfg.WriteTimeoutDuration, QueryTimeout: cfg.QueryTimeoutDuration,
+	})
+	if err != nil {
+		exitWithError(fmt.Errorf("ClickHouse 客户端配置失败"))
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.QueryTimeoutDuration)
+	defer cancel()
+	if err := client.PingContext(ctx); err != nil {
+		exitWithError(fmt.Errorf("ClickHouse 就绪检查失败"))
 	}
 }
 

@@ -49,7 +49,7 @@ func hgScan(ctx context.Context, addr string, file *os.File) (bool, error) {
 		return false, fmt.Errorf("连接 ClamAV 失败")
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(12 * time.Second)
+	deadline := time.Now().Add(110 * time.Second)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}

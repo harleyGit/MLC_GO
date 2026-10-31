@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const hgMaxReviewBytes = 128 << 20
+const hgMaxReviewBytes = transport.HGMaxVideoBytes
 
 var hgReviewID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var hgReviewHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -92,7 +92,7 @@ type HGRequest struct {
 	SealedKey string `json:"sealedKey"` // 只允许 sealed/<mediaId>。
 	SHA256    string `json:"sha256"`    // Go 所记录的原文件摘要，64 位十六进制。
 	MIME      string `json:"mime"`      // 原申请 MIME；必须与真实探测类型吻合。
-	Size      int64  `json:"size"`      // 原申请字节数，最多 128MiB。
+	Size      int64  `json:"size"`      // 原申请字节数，视频最多 300MiB。
 }
 
 // HGHandler 校验固定凭据和请求边界后完成有界审核，业务拒绝与依赖故障严格区分。
@@ -124,7 +124,7 @@ func (s *HGService) HGHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "审核请求不合法", http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 19*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 260*time.Second)
 	defer cancel()
 	result, err := s.hgReview(ctx, cmd)
 	if err != nil && !errors.Is(err, hgRejected) {
@@ -156,9 +156,9 @@ func (s *HGService) hgValid(cmd HGRequest) bool {
 func hgAllowedMIME(mime string, size int64) bool {
 	switch mime {
 	case "image/jpeg", "image/png", "image/webp":
-		return size <= 10<<20
+		return transport.HGMediaSizeAllowed(mime, size)
 	case "video/mp4", "video/quicktime", "audio/mpeg", "audio/ogg", "audio/mp4", "audio/aac", "application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		return true
+		return transport.HGMediaSizeAllowed(mime, size)
 	default:
 		return false
 	}

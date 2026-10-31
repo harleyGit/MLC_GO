@@ -533,6 +533,42 @@ ensure_debug_kafka_ready() {
     log_info "Kafka 业务 Topic 已就绪"
 }
 
+# debug 的 Kafka crawler-history 消费者要求 ClickHouse；优先恢复原有容器与数据卷。
+# 不碰共享环境或不匹配本机配置的实例，启动后必须用应用相同的认证和 SELECT 1 探活。
+ensure_debug_clickhouse_ready() {
+    if [ "${TARGET_ENV}" != "debug" ]; then
+        return 0
+    fi
+    if go run "${WORKSPACE_DIR}/cmd/hg_config_check" --env debug --config-dir "${CONFIG_DIR}" --check clickhouse >/dev/null 2>&1; then
+        log_info "ClickHouse 已就绪"
+        return 0
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        log_error "ClickHouse 未就绪且 Docker 不可用"
+        return 1
+    fi
+    if docker inspect mlc-crawler-clickhouse-debug >/dev/null 2>&1; then
+        log_info "恢复本机 debug ClickHouse 容器"
+        docker start mlc-crawler-clickhouse-debug >/dev/null
+    elif docker inspect mlc-clickhouse >/dev/null 2>&1; then
+        log_info "恢复本机 ClickHouse 容器"
+        docker start mlc-clickhouse >/dev/null
+    else
+        log_info "创建本机 debug ClickHouse 容器"
+        docker compose -f "${KAFKA_COMPOSE_FILE}" up -d clickhouse
+    fi
+    local attempt
+    for ((attempt = 1; attempt <= 30; attempt++)); do
+        if go run "${WORKSPACE_DIR}/cmd/hg_config_check" --env debug --config-dir "${CONFIG_DIR}" --check clickhouse >/dev/null 2>&1; then
+            log_info "ClickHouse 检查通过"
+            return 0
+        fi
+        sleep 1
+    done
+    log_error "ClickHouse 启动后仍未通过主服务配置探活，停止调试启动"
+    return 1
+}
+
 # main 是脚本主入口函数。
 # 这里依次确保 MySQL、Redis 和本地 debug Kafka 就绪。
 # 只要其中任何一步失败，整个脚本就会失败。
@@ -544,6 +580,7 @@ main() {
     ensure_mysql_ready
     ensure_debug_database_migrated
     ensure_redis_ready
+    ensure_debug_clickhouse_ready
     ensure_debug_kafka_ready
     log_info "${TARGET_ENV} 环境依赖服务已就绪"
 }

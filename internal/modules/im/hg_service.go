@@ -226,7 +226,7 @@ func hgIMContent(cmd HGSendCommand) ([]byte, string, error) {
 		}
 	case HGImage, HGVideo, HGAudio, HGFile:
 		var value HGMediaContent
-		if err := decoder.Decode(&value); err != nil || len(value.MediaID) != 32 || value.Width < 0 || value.Height < 0 || value.Width > 16384 || value.Height > 16384 || value.DurationMS < 0 || value.DurationMS > 3600000 {
+		if err := decoder.Decode(&value); err != nil || len(value.MediaID) != 32 || value.Width < 0 || value.Height < 0 || value.Width > 16384 || value.Height > 16384 || value.DurationMS < 0 || (cmd.MessageType == HGAudio && value.DurationMS > 3600000) {
 			return nil, "", HGErrInvalid
 		}
 		if (cmd.MessageType == HGImage || cmd.MessageType == HGVideo) && (value.Width == 0 || value.Height == 0) {

@@ -58,11 +58,11 @@
 
 ### 独立审核进程（仅隔离 debug 的有限类别审核）
 
-`cmd/hg_im_review` 是可单独构建/运行的 HTTP 服务，`internal/modules/im/review/` 实现请求认证、固定桶与随机对象键校验、128MiB 上限、并发舱壁、实际 SHA256、ffprobe 格式/尺寸/时长探测及 ClamAV INSTREAM 恶意文件扫描。图片和短视频另用本地固定版本 NudeNet/ONNXRuntime 检测显式裸露，视频仅接受不超过 12 秒、按每秒 2 帧抽样；模型误判/漏判与抽帧间隔不能消除风险，超长视频拒绝。依赖缺失、模型异常及超时不能返回 ready。审核器以专属 S3 身份对 `sealed/<mediaId>` 做 `If-None-Match: *` 条件写入，并读回核对长度和 SHA256。**它不覆盖暴恐、涉政、版权、未成年人安全等完整内容合规类别；pre/prod 继续关闭。**
+`cmd/hg_im_review` 是可单独构建/运行的 HTTP 服务，`internal/modules/im/review/` 实现请求认证、固定桶与随机对象键校验、按类型限制大小（视频最多 300MiB）、并发舱壁、实际 SHA256、ffprobe 格式/尺寸/时长探测及 ClamAV INSTREAM 恶意文件扫描。图片及视频另用本地固定版本 NudeNet/ONNXRuntime 检测显式裸露；视频不设时长上限，按全片时间轴最多均匀取 16 帧，每段取中点。**抽样点间画面可能漏检，超长视频尤其稀疏；这不是全片内容合规审核。**抽帧失败、模型异常或超时不能返回 ready。审核器以专属 S3 身份对 `sealed/<mediaId>` 做 `If-None-Match: *` 条件写入，并读回核对长度和 SHA256。**它不覆盖暴恐、涉政、版权、未成年人安全等完整内容合规类别；pre/prod 继续关闭。**
 
 本机使用 ClamAV `1.4.3`（amd64 仿真，digest `sha256:75fb5fd95fcbe1d7e6d240c369c1572b686ee2c95949d1042b5148de8eddebb4`）、SeaweedFS `4.51`（digest `sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8`）和 Centrifugo `v6.2.4`（digest `sha256:b4d47454c5d9303ada0327954aa06afd75e1dd7adc00ee8f066dbd5072df894a`），均仅绑定本机端口。隔离 Python 通过 `deployments/im/hg_moderator_requirements.txt` 安装，`MLC_IM_REVIEW_PYTHON` 与 `MLC_IM_REVIEW_MODERATOR` 指定其可执行文件和脚本；模型只覆盖裸露类。进程启动时验证本机模型和 clamd PING。clamd `StreamMaxLength`、`MaxFileSize`、`MaxScanSize` 与 `AlertExceedsMax` 必须实机检查。跨主机连接需要受控 TLS 代理；本地运行不是可用性、误判率或容量证明。
 
-按 `config/hg_im_debug.env.example` 把变量填入未提交的 `config/MLC.local.env` 或进程环境；`MLC_IM_REVIEW_TOKEN` 需同时提供给 Go 与审核进程，审核专用 `MLC_IM_REVIEW_S3_ACCESS_KEY` / `MLC_IM_REVIEW_S3_SECRET_KEY` 应有隔离区只读、封存区只读与条件写入权限，不能和浏览器预签名身份共用。单独运行 `go run ./cmd/hg_im_review`，然后通过 VS Code `🧪 Launch MLC_GO Debug` 重启已有进程以加载私有配置。审核调用预算 23 秒，后台单次 25 秒，超时返回失败并依既有租约重试，不默认通过。当前容器私有配置存于工程外系统临时目录，重启系统可能失效，需要恢复或重新生成；浏览器双用户验收和容量、故障演练仍未完成。
+按 `config/hg_im_debug.env.example` 把变量填入未提交的 `config/MLC.local.env` 或进程环境；`MLC_IM_REVIEW_TOKEN` 需同时提供给 Go 与审核进程，审核专用 `MLC_IM_REVIEW_S3_ACCESS_KEY` / `MLC_IM_REVIEW_S3_SECRET_KEY` 应有隔离区只读、封存区只读与条件写入权限，不能和浏览器预签名身份共用。单独运行 `go run ./cmd/hg_im_review`，然后通过 VS Code `🧪 Launch MLC_GO Debug` 重启已有进程以加载私有配置。审核请求预算 260 秒、客户端 275 秒、后台单次 280 秒、租约 330 秒；超时保留失败重试，不默认通过。当前容器私有配置存于工程外系统临时目录，重启系统可能失效，需要恢复或重新生成；浏览器双用户验收和容量、故障演练仍未完成。
 
 所有业务路径前缀为 `/api/v1/im`，保留项目 JWT、请求签名和响应外壳。
 
@@ -75,7 +75,7 @@
 | `GET /media/read?mediaId=...` | JWT + 会话成员 + ready + 消息关联验证；支持单段 `Range: bytes=start-end` |
 | `POST /media/delete` | `{mediaId}`，本人撤销后续发送/读取；不立即物理删除 |
 
-图片最多 10MiB，其他单文件最多 128MiB。每用户最多 100 个上传预留、总申请大小不超过 512MiB；失败/删除不自动返还配额。PUT 凭证十分钟，签名绑定 Content-Length、Content-Type 和 `x-amz-acl: private`。浏览器直接上传 Blob，让浏览器生成匹配的 Content-Length；禁止压缩/转换代理改写请求体。本机 SeaweedFS 4.51 已实测 Go 预签名上传、带 ACL 的分前缀身份、条件封存及 `localhost:5173` 的 PUT 预检响应；**真实浏览器跨域发送、签名过期与代理链尚未实测**。桶策略还必须禁止匿名读取、公开 ACL 和用户覆盖封存区，不能只依赖 Go 参数检查。
+图片最多 10MiB，视频最多 300MiB（314572800 字节，包含边界），音频/文件最多 128MiB。每用户最多 100 个上传预留、总申请大小不超过 512MiB；失败/删除不自动返还配额。PUT 凭证十分钟，签名绑定 Content-Length、Content-Type 和 `x-amz-acl: private`。浏览器直接上传 Blob，让浏览器生成匹配的 Content-Length；禁止压缩/转换代理改写请求体。本机 SeaweedFS 4.51 已实测小文件 Go 预签名上传、带 ACL 的分前缀身份、条件封存及 `localhost:5173` 的 PUT 预检响应；**300MiB 视频、真实浏览器跨域发送、签名过期与代理链尚未实测**。桶策略还必须禁止匿名读取、公开 ACL 和用户覆盖封存区，不能只依赖 Go 参数检查。
 
 审核器 `POST MLC_IM_REVIEW_URL`，Authorization Bearer，仅接受 Go 服务身份。请求示例（无凭据）：
 
@@ -85,9 +85,9 @@
 
 返回 `status=pending|rejected|ready`。只有 ready 同时携带以下**服务端实际检测值**才可用：`sha256,size,mime,sealedKey,width,height,durationMs`。
 
-审核服务必须实现：有界获取对象、真实格式与尺寸/时长探测、实际 SHA256、恶意文件与所需类别内容审核、写入不可变 `sealed/<id>` 后核对封存字节，并对 mediaId 幂等；不得先审核隔离区再无保护复制已被替换的内容。本机使用 SeaweedFS `3.83` 实测第二次 `If-None-Match: *` 仍返回 200，**不得使用该版本**；`4.51` 首次 200、重复 412，原字节未变。此证据不代替线上版本/桶策略验收或完整内容审核。审核 HTTP 调用最多 23 秒，pending/错误三十秒后重试，最多十二次，之后 rejected。
+审核服务必须实现：有界获取对象、真实格式与尺寸/时长探测、实际 SHA256、恶意文件与所需类别内容审核、写入不可变 `sealed/<id>` 后核对封存字节，并对 mediaId 幂等；不得先审核隔离区再无保护复制已被替换的内容。本机使用 SeaweedFS `3.83` 实测第二次 `If-None-Match: *` 仍返回 200，**不得使用该版本**；`4.51` 首次 200、重复 412，原字节未变。此证据不代替线上版本/桶策略验收或完整内容审核。审核 HTTP 调用最多 275 秒，pending/错误三十秒后重试（执行期间租约 330 秒），最多十二次，之后 rejected。
 
-发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每次重新授权后由 Go 流式代理，客户端拿不到对象下载签名 URL。下载每进程最多十六条并发，满载 429，单请求预算 25 秒；大视频需 Range 分段。撤销只阻止后续请求，不追溯中断已授权在途流。不提供公开 CDN。
+发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每次重新授权后由 Go 流式代理，客户端拿不到对象下载签名 URL。下载每进程最多十六条并发，满载 429，单请求预算 90 秒；大视频需 Range 分段。撤销只阻止后续请求，不追溯中断已授权在途流。不提供公开 CDN。浏览器当前整文件计算 SHA256、拼接完整 Blob，300MiB 会占用大量内存，低内存设备未验收。
 
 Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配请求起止、实际分段长度及审核总大小，拒绝未知总大小、编码变换和畸形范围。对象存储返回合法完整 200 时允许完整转发。图片/视频/音频使用 `inline`，file 使用 `attachment`；浏览器仍须携带项目鉴权，不能直接把无认证的 URL 填到媒体标签。
 
@@ -143,3 +143,9 @@ Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配
 - https://docs.livekit.io/reference/other/roomservice-api.md
 - https://docs.livekit.io/intro/basics/rooms-participants-tracks/webhooks-events.md
 - https://github.com/livekit/livekit/blob/master/pkg/service/roommanager.go （`refreshToken`，当前源码协议核对，不代表已锁定部署版本）
+
+### 2026-10-31 视频边界与 debug ClickHouse 跟进（尚未端到端验收）
+
+- `mlc-crawler-clickhouse-debug` 曾停止，`18123` 连接拒绝；恢复该已有容器后 HTTP 探活及 `cmd/hg_config_check --check clickhouse` 通过。debug 前置脚本增加主服务配置探活与本地容器恢复；未在停止容器时完整执行 VS Code 前置脚本或重启现有调试进程。
+- 视频上传／审核／读取的静态限制改为 ≤300MiB、无固定时长上限，模型最多从全片均匀抽取 16 帧。Go 定向测试、production 构建和 React pre 构建通过；这是代码/构建证据，不是 300MiB 视频审核、真实浏览器收发或容量证据。抽样间隙有漏检风险，pre/prod 门禁不变。
+- 原 ClamAV 容器的环境变量在启动时重写尾部 128MiB 限额；获授权后将旧容器保留为停止状态的 `mlc-im-debug-clamav-backup-20261031`，同镜像重建本机 `mlc-im-debug-clamav`（仅 `127.0.0.1:3310`），环境中 `StreamMaxLength=314572801`、`MaxFileSize=314572801`、`MaxScanSize=629145600`、`AlertExceedsMax=yes`，容器 health 为 healthy。实际从宿主机经 INSTREAM 传输 314572800 字节零数据并收到 `stream: OK`；**这不证明真实 300MiB 视频审核通过**，且当前审核/VS Code 进程仍加载旧代码，需由用户安排重启及真实样例验收。旧容器未删除。

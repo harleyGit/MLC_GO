@@ -156,7 +156,7 @@ func TestHGIMPrivateReadValidatesByteRanges(t *testing.T) {
 		{"wrong-end", "bytes=2-4", "bytes 2-5/10", 206, "", false},
 		{"wrong-length", "bytes=2-3", "bytes 2-3/10", 206, "", false},
 		{"unknown-total", "bytes=2-4", "bytes 2-4/*", 206, "", false},
-		{"oversize-total", "bytes=2-4", "bytes 2-4/134217729", 206, "", false},
+		{"oversize-total", "bytes=2-4", "bytes 2-4/314572801", 206, "", false},
 		{"end-outside-object", "bytes=8-10", "bytes 8-10/10", 206, "", false},
 		{"unexpected-partial", "", "bytes 0-2/10", 206, "", false},
 		{"range-in-full", "", "bytes 0-2/10", 200, "", false},

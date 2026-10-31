@@ -12,6 +12,6 @@ const (
 	HGIMMediaReadableSQL = `SELECT 1 FROM im_message_attachment WHERE attachment_id=? AND conversation_id=? LIMIT 1`
 	// idx_im_attachment_review 限定审核任务；外部审核在提交租约后进行。
 	HGIMMediaClaimSQL    = `SELECT id,object_key,mime_type,byte_size,sha256,media_type,attempts FROM im_private_attachment WHERE state='verifying' AND next_check_at<=NOW(3) ORDER BY next_check_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`
-	HGIMMediaLeaseSQL    = `UPDATE im_private_attachment SET lease_token=?,attempts=LEAST(attempts+1,12),next_check_at=NOW(3)+INTERVAL 30 SECOND WHERE id=? AND state='verifying'`
+	HGIMMediaLeaseSQL    = `UPDATE im_private_attachment SET lease_token=?,attempts=LEAST(attempts+1,12),next_check_at=NOW(3)+INTERVAL 330 SECOND WHERE id=? AND state='verifying'`
 	HGIMMediaReviewedSQL = `UPDATE im_private_attachment SET state=?,immutable_key=?,width=?,height=?,duration_ms=?,lease_token=NULL,next_check_at=NOW(3)+INTERVAL 30 SECOND WHERE id=? AND state='verifying' AND lease_token=?`
 )

@@ -1,6 +1,7 @@
 """本机 NudeNet 裸露检测；只覆盖显式裸露类别，不等同于全类别内容合规。"""
 
 import os
+import math
 import subprocess
 import sys
 import tempfile
@@ -33,21 +34,27 @@ def hg_main():
         return 0
     if not mime.startswith("video/"):
         return 2
-    # 本地 CPU 预算只覆盖短视频；超长视频明确拒绝，不以稀疏抽帧宣称全片合规。
-    if not 0 < int(duration) <= 12000:
-        return 3
+    # 固定上限覆盖整个时间轴；仅检测抽样点，点间内容仍可能漏检。
+    duration_ms = int(duration)
+    if duration_ms <= 0:
+        return 2
+    count = min(16, max(1, math.ceil(duration_ms / 500)))
     with tempfile.TemporaryDirectory(prefix="hg-im-frames-") as directory:
-        subprocess.run(
-            [ffmpeg, "-nostdin", "-v", "error", "-i", path, "-an", "-vf", "fps=2,scale=640:640:force_original_aspect_ratio=decrease", "-frames:v", "24", "-q:v", "3", os.path.join(directory, "%03d.jpg")],
-            check=True,
-            timeout=6,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        frames = sorted(os.path.join(directory, name) for name in os.listdir(directory))
-        if not frames:
-            return 2
-        for frame in frames:
+        for index in range(count):
+            frame = os.path.join(directory, f"{index:02d}.jpg")
+            # 输入前 seek 避免把整部视频解码到尾部；每个区间取中点，末尾留出一帧余量。
+            position_ms = min((2 * index + 1) * duration_ms // (2 * count), max(0, duration_ms - 500))
+            subprocess.run(
+                [ffmpeg, "-nostdin", "-v", "error", "-ss", f"{position_ms / 1000:.3f}", "-i", path,
+                 "-an", "-sn", "-dn", "-vf", "scale=640:640:force_original_aspect_ratio=decrease",
+                 "-frames:v", "1", "-q:v", "3", frame],
+                check=True,
+                timeout=5,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if not os.path.isfile(frame) or os.path.getsize(frame) == 0:
+                return 2
             if any(item["class"] in HG_EXPOSED and item["score"] >= 0.4 for item in detector.detect(frame)):
                 return 3
     return 0
