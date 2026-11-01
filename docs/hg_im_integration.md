@@ -41,6 +41,8 @@
 
 `deployments/im/hg_centrifugo.example.json` 是 v6 配置模板；本机生成的私有配置已通过 v6.2.4 `checkconfig`、单节点 `/health` 和授权 HTTP publish 检查，但**未实测该模板的 Redis 多节点模式**。部署时锁定具体版本和镜像 digest，注入独立 JWT/API 密钥，替换精确 Origin 和隔离 Redis 地址。多节点须连接同一 Redis broker；API 端点仅对 Go 服务开放。禁止 `client.insecure`、任意 Origin 和客户端直接发布。
 
+本地 Vite 使用 `http://localhost:5174`，Centrifugo 的 `client.allowed_origins` 必须精确放行浏览器的 Origin；模板保留旧开发端口 5173 并增加 5174。仅修改模板不会更新已运行网关的私有配置，修改实际配置后需按部署流程重启网关；可用无凭据 WebSocket 握手确认不再因 Origin 返回 403。不要把连接密钥写入仓库或浏览器日志。
+
 1. JWT 登录后注册设备，取得 `deviceId`/`secret`；最多五台活跃设备，30 天未活动失活。
 2. `POST /api/v1/im/realtime/token`，body 为设备凭据。返回 `token,url,channel,expiresIn`。连接 JWT 的 `sub=im/<deviceId>`、`iss=mlc-im`、`aud=centrifugo`，只自动订阅本设备 `im:<deviceId>`。不要再调用 `newSubscription()` 订阅此频道。
 3. 客户端通过 centrifuge-js 的连接级 `publication`/`subscribed` 事件接收服务端订阅，刷新时重新调用 token 接口。有效期 60 秒；撤销设备后拒绝刷新，已有连接仍可能存续到 token 到期加网关宽限，只收到指针，正文仍须 JWT 资源鉴权。
