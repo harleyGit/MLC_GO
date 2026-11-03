@@ -1,12 +1,13 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserMapperPackage "MLC_GO/internal/modules/user/mapper"
 	"MLC_GO/internal/pkg/logHG"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
+	"fmt"
 )
 
 // GetUserList 获取用户列表，使用 cursor 分页降低深分页对 MySQL 的扫描压力。
@@ -38,7 +39,11 @@ func (s *UserService) GetUserList(
 
 	dtoList := make([]*UserDtoPackage.HGCreateUserDTO, 0, len(users))
 	for _, user := range users {
-		dtoList = append(dtoList, UserMapperPackage.UserModelToDTO(&user))
+		dto := UserMapperPackage.UserModelToDTO(&user)
+		// 与 IM 联系人公开编号一致，使用 users.id 生成，避免分页列表逐用户查库。
+		publicID := fmt.Sprintf("U%020d", user.ID)
+		dto.PublicID = &publicID
+		dtoList = append(dtoList, dto)
 	}
 
 	page := 1

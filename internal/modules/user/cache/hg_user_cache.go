@@ -9,8 +9,8 @@
 package cache
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"context"
 	"encoding/json"
@@ -53,17 +53,17 @@ func (c *HGUserCache) GetUserListCache(
 	if err := json.Unmarshal([]byte(val), &resp); err != nil {
 		return nil, err
 	}
-	if !hgUserListCacheHasProfileFields(resp.Result) {
+	if !hgUserListCacheHasPublicIDs(resp.Result) {
 		return nil, nil
 	}
 
 	return &resp, nil
 }
 
-// hgUserListCacheHasProfileFields 通过非空 gender 识别已包含资料列的缓存；头像本身可为空。
-func hgUserListCacheHasProfileFields(users []*UserDtoPackage.HGCreateUserDTO) bool {
+// hgUserListCacheHasPublicIDs 识别尚未包含公开编号的旧缓存；头像等可选资料可为空。
+func hgUserListCacheHasPublicIDs(users []*UserDtoPackage.HGCreateUserDTO) bool {
 	for _, user := range users {
-		if user == nil || user.Gender == nil {
+		if user == nil || user.PublicID == nil || user.Gender == nil {
 			return false
 		}
 	}

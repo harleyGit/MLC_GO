@@ -28,15 +28,19 @@ func TestUserCache_NilRedisDependency(t *testing.T) {
 	}
 }
 
-func TestUserListCacheHasProfileFields(t *testing.T) {
+func TestUserListCacheHasPublicIDs(t *testing.T) {
 	gender := 0
-	if hgUserListCacheHasProfileFields([]*UserDtoPackage.HGCreateUserDTO{{}}) {
+	publicID := "U00000000000000000038"
+	if hgUserListCacheHasPublicIDs([]*UserDtoPackage.HGCreateUserDTO{{}}) {
 		t.Fatal("旧缓存缺少资料列时应回源")
 	}
-	if !hgUserListCacheHasProfileFields([]*UserDtoPackage.HGCreateUserDTO{{Gender: &gender}}) {
-		t.Fatal("新缓存允许头像为空，但需要 gender 字段")
+	if hgUserListCacheHasPublicIDs([]*UserDtoPackage.HGCreateUserDTO{{Gender: &gender}}) {
+		t.Fatal("旧缓存缺少 publicId 时应回源")
 	}
-	if !hgUserListCacheHasProfileFields(nil) {
+	if !hgUserListCacheHasPublicIDs([]*UserDtoPackage.HGCreateUserDTO{{Gender: &gender, PublicID: &publicID}}) {
+		t.Fatal("新缓存允许头像为空，但需要 publicId 和 gender 字段")
+	}
+	if !hgUserListCacheHasPublicIDs(nil) {
 		t.Fatal("空列表缓存无需回源")
 	}
 }

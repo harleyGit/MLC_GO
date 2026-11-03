@@ -13,8 +13,8 @@
 package UserDtoPackage
 
 import (
-	HGResponsePakcage "MLC_GO/internal/response"
 	hg_time "MLC_GO/internal/pkg/hg_time"
+	HGResponsePakcage "MLC_GO/internal/response"
 )
 
 // 创建用户（POST）
@@ -22,6 +22,7 @@ import (
 type HGCreateUserDTO struct { // 让 JSON 响应“只包含有意义的数据”，提升 API 的简洁性、安全性、可维护性和用户体验。
 	ID           int64   `json:"id,omitempty"` //omitempty 当字段是“空值”时，JSON 序列化时不输出该字段。
 	UserID       *string `json:"user_id,omitempty"`
+	PublicID     *string `json:"publicId,omitempty"` // 公开编号，列表响应按 users.id 生成；其他用途未设置时不输出。
 	Username     *string `json:"user_name,omitempty"`
 	Nickname     *string `json:"nickname,omitempty"`
 	Signature    *string `json:"signature,omitempty"`
@@ -50,11 +51,11 @@ func (HGCreateUserDTO) ResponseMessage() string {
 
 // HGUpdateUserProfileReqDTO 定义用户资料更新请求，字段均可选，支持单字段或多字段更新。
 type HGUpdateUserProfileReqDTO struct {
-	Nickname  *string            `json:"nickname,omitempty"`
-	Signature *string            `json:"signature,omitempty"`
-	Gender    *int               `json:"gender,omitempty"`
+	Nickname  *string             `json:"nickname,omitempty"`
+	Signature *string             `json:"signature,omitempty"`
+	Gender    *int                `json:"gender,omitempty"`
 	BirthDate *hg_time.ClientTime `json:"birth_date,omitempty"`
-	AvatarURL *string            `json:"avatar_url,omitempty"`
+	AvatarURL *string             `json:"avatar_url,omitempty"`
 }
 
 // HasAnyField 判断更新请求是否至少包含一个可更新字段。
@@ -72,12 +73,12 @@ func (d *HGUpdateUserProfileReqDTO) HasAnyField() bool {
 
 // HGUpdateUserProfileRespDTO 定义用户资料更新成功后的返回结构。
 type HGUpdateUserProfileRespDTO struct {
-	UserID    string             `json:"user_id"`
-	Nickname  *string            `json:"nickname,omitempty"`
-	Signature *string            `json:"signature,omitempty"`
-	Gender    *int               `json:"gender,omitempty"`
+	UserID    string              `json:"user_id"`
+	Nickname  *string             `json:"nickname,omitempty"`
+	Signature *string             `json:"signature,omitempty"`
+	Gender    *int                `json:"gender,omitempty"`
 	BirthDate *hg_time.ClientTime `json:"birth_date,omitempty"`
-	AvatarURL *string            `json:"avatar_url,omitempty"`
+	AvatarURL *string             `json:"avatar_url,omitempty"`
 }
 
 // HGUpdateUserSecurityReqDTO 定义账号安全信息更新请求，字段均可选，支持一次修改多个字段。
