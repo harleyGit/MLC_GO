@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -56,11 +57,11 @@ func TestHGSearchExactIdentityDoesNotReturnPrivateInput(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			mock.ExpectQuery(tc.query).WithArgs(tc.arg).WillReturnRows(sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature"}).AddRow("target-id", "U00000000000000000001", "example_user", "测试用户", ""))
+			mock.ExpectQuery(tc.query).WithArgs(tc.arg).WillReturnRows(sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature", "avatar_url"}).AddRow("target-id", "U00000000000000000001", "example_user", "测试用户", "", "/uploads/avatar.png"))
 			low, high := hgPair("viewer-id", "target-id")
 			mock.ExpectQuery(SQL.HGIMContactStatusSQL).WithArgs(low, high, "viewer-id", "target-id", "target-id", "viewer-id", "viewer-id", "target-id", "target-id", "viewer-id").WillReturnRows(sqlmock.NewRows([]string{"friend", "blocked", "outgoing", "incoming"}).AddRow(false, false, false, false))
 			profile, err := HGNewService(db).HGSearch(context.Background(), "viewer-id", tc.kind, tc.keyword)
-			if err != nil || profile.FriendStatus != "none" {
+			if err != nil || profile.FriendStatus != "none" || profile.AvatarURL != "/uploads/avatar.png" {
 				t.Fatalf("精确查找失败: %v, status=%s", err, profile.FriendStatus)
 			}
 			encoded, err := json.Marshal(profile)
@@ -70,10 +71,50 @@ func TestHGSearchExactIdentityDoesNotReturnPrivateInput(t *testing.T) {
 			if strings.Contains(string(encoded), "13800138000") || strings.Contains(string(encoded), "user@example.com") || strings.Contains(string(encoded), `"email"`) || strings.Contains(string(encoded), `"phone"`) {
 				t.Fatal("公开资料不得回传手机号或邮箱")
 			}
+			if !strings.Contains(string(encoded), `"avatarUrl":"/uploads/avatar.png"`) {
+				t.Fatal("搜索响应缺少真实头像 URL")
+			}
 			if err := mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// 好友、申请和黑名单共用公开头像字段；未上传头像的数据库 NULL 返回空串，不增加逐用户查询。
+func TestHGContactListsIncludeAvatar(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := HGNewService(db)
+	mock.ExpectQuery(SQL.HGIMContactFriendsSQL).WithArgs("viewer", "viewer", "viewer", "viewer", uint64(0), 100).WillReturnRows(
+		sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature", "avatar_url", "remark", "tags", "phone", "description"}).AddRow("friend", "U00000000000000000001", "friend_id", "好友", "", "/uploads/avatar.png", "", "[]", "", ""))
+	friends, err := service.HGList(context.Background(), "viewer", 0)
+	if err != nil || len(friends) != 1 || friends[0].AvatarURL != "/uploads/avatar.png" {
+		t.Fatalf("好友头像读取失败: %v, %+v", err, friends)
+	}
+	mock.ExpectQuery(SQL.HGIMContactRequestsSQL).WithArgs("viewer", uint64(0), 100).WillReturnRows(
+		sqlmock.NewRows([]string{"request_id", "user_id", "public_id", "username", "nickname", "avatar_url", "message", "created_at"}).AddRow("req", "sender", "U00000000000000000002", "sender_id", "申请人", "/uploads/sender.png", "你好", time.Now()))
+	requests, err := service.HGIncoming(context.Background(), "viewer", 0)
+	if err != nil || len(requests) != 1 || requests[0].AvatarURL != "/uploads/sender.png" {
+		t.Fatalf("申请人头像读取失败: %v, %+v", err, requests)
+	}
+	mock.ExpectQuery(SQL.HGIMContactBlocksSQL).WithArgs("viewer", uint64(0), 100).WillReturnRows(
+		sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "avatar_url", "block_note", "created_at"}).AddRow("blocked", "U00000000000000000003", "blocked_id", "黑名单", "", "", time.Now()))
+	blocks, err := service.HGBlocks(context.Background(), "viewer", 0)
+	if err != nil || len(blocks) != 1 || blocks[0].AvatarURL != "" {
+		t.Fatalf("空头像应保留占位: %v, %+v", err, blocks)
+	}
+	mock.ExpectQuery(SQL.HGIMContactProfileSQL).WithArgs("friend").WillReturnRows(
+		sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature", "avatar_url"}).AddRow("friend", "U00000000000000000001", "friend_id", "好友", "", "/uploads/avatar.png"))
+	profile, err := service.HGProfileFor(context.Background(), "friend")
+	if err != nil || profile.AvatarURL != "/uploads/avatar.png" {
+		t.Fatalf("资料头像读取失败: %v, %+v", err, profile)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -161,10 +202,10 @@ func TestHGAcceptCreatesFriendAndConversationAtomically(t *testing.T) {
 	for _, user := range []string{"A", "B"} {
 		mock.ExpectExec(SQL.HGIMAddMemberSQL).WithArgs(int64(42), user).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
-	mock.ExpectQuery(SQL.HGIMContactProfileSQL).WithArgs("A").WillReturnRows(sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature"}).AddRow("A", "U00000000000000000001", "a", "甲", ""))
+	mock.ExpectQuery(SQL.HGIMContactProfileSQL).WithArgs("A").WillReturnRows(sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature", "avatar_url"}).AddRow("A", "U00000000000000000001", "a", "甲", "", "/uploads/avatar.png"))
 	mock.ExpectCommit()
 	friend, err := HGNewService(db).HGDecide(context.Background(), "B", id, true)
-	if err != nil || friend.UserID != "A" {
+	if err != nil || friend.UserID != "A" || friend.AvatarURL != "/uploads/avatar.png" {
 		t.Fatalf("申请接受结果: %+v, %v", friend, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

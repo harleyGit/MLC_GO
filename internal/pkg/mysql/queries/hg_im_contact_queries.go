@@ -5,13 +5,14 @@ package SQLQueriesPackage
 // users.user_id 为 utf8mb4_general_ci；新联系人表可能继承库默认的 utf8mb4_0900_ai_ci。
 // JOIN 在被查找列的另一侧指定排序规则；备注用 utf8mb4 默认规则（与新表一致）转换用户 ID，
 // 避免 1267 且保留 users.user_id / 备注复合索引查找。
+// 头像与公开资料从同一 users 行投影；NULL 转空串，不增加列表的逐用户查询或改变索引与分页。
 const (
-	HGIMContactFriendsSQL        = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(r.remark,''),COALESCE(CAST(r.tags AS CHAR),'[]'),COALESCE(r.phone,''),COALESCE(r.description,'') FROM im_friendship f JOIN users u ON u.user_id=IF(f.user_low_id=?,f.user_high_id,f.user_low_id) COLLATE utf8mb4_general_ci LEFT JOIN im_friend_remark r ON r.owner_user_id=? AND r.friend_user_id=CAST(u.user_id AS CHAR CHARACTER SET utf8mb4) WHERE (f.user_low_id=? OR f.user_high_id=?) AND u.id>? ORDER BY u.id LIMIT ?`
-	HGIMContactBlocksSQL         = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),b.block_note,b.created_at FROM im_user_block b JOIN users u ON u.user_id=b.blocked_user_id COLLATE utf8mb4_general_ci WHERE b.blocker_user_id=? AND u.id>? ORDER BY u.id LIMIT ?`
-	HGIMContactRequestsSQL       = `SELECT q.request_id,u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),q.message,q.created_at FROM im_friend_request q JOIN users u ON u.user_id=q.requester_id COLLATE utf8mb4_general_ci WHERE q.addressee_id=? AND q.status=0 AND q.id>? ORDER BY q.id LIMIT ?`
-	HGIMContactProfileSQL        = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.user_id=? LIMIT 1`
-	HGIMContactSearchPublicSQL   = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.id=? LIMIT 1`
-	HGIMContactSearchUsernameSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.user_name=? LIMIT 1`
+	HGIMContactFriendsSQL        = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,''),COALESCE(r.remark,''),COALESCE(CAST(r.tags AS CHAR),'[]'),COALESCE(r.phone,''),COALESCE(r.description,'') FROM im_friendship f JOIN users u ON u.user_id=IF(f.user_low_id=?,f.user_high_id,f.user_low_id) COLLATE utf8mb4_general_ci LEFT JOIN im_friend_remark r ON r.owner_user_id=? AND r.friend_user_id=CAST(u.user_id AS CHAR CHARACTER SET utf8mb4) WHERE (f.user_low_id=? OR f.user_high_id=?) AND u.id>? ORDER BY u.id LIMIT ?`
+	HGIMContactBlocksSQL         = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.avatar_url,''),b.block_note,b.created_at FROM im_user_block b JOIN users u ON u.user_id=b.blocked_user_id COLLATE utf8mb4_general_ci WHERE b.blocker_user_id=? AND u.id>? ORDER BY u.id LIMIT ?`
+	HGIMContactRequestsSQL       = `SELECT q.request_id,u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.avatar_url,''),q.message,q.created_at FROM im_friend_request q JOIN users u ON u.user_id=q.requester_id COLLATE utf8mb4_general_ci WHERE q.addressee_id=? AND q.status=0 AND q.id>? ORDER BY q.id LIMIT ?`
+	HGIMContactProfileSQL        = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,'') FROM users u WHERE u.user_id=? LIMIT 1`
+	HGIMContactSearchPublicSQL   = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,'') FROM users u WHERE u.id=? LIMIT 1`
+	HGIMContactSearchUsernameSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,'') FROM users u WHERE u.user_name=? LIMIT 1`
 	HGIMContactLockUserSQL       = `SELECT 1 FROM users WHERE user_id=? FOR UPDATE`
 	HGIMContactPairSQL           = `SELECT 1 FROM im_friendship WHERE user_low_id=? AND user_high_id=? FOR UPDATE`
 	HGIMContactBlockPairSQL      = `SELECT 1 FROM im_user_block WHERE (blocker_user_id=? AND blocked_user_id=?) OR (blocker_user_id=? AND blocked_user_id=?) LIMIT 1`
@@ -31,6 +32,6 @@ const (
 
 // 手机号与邮箱均为唯一索引点查（users.uk_phone / users.uk_email）；只投影公开资料，不回传检索所用的敏感值。
 const (
-	HGIMContactSearchPhoneSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.phone=? LIMIT 1`
-	HGIMContactSearchEmailSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.email=? LIMIT 1`
+	HGIMContactSearchPhoneSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,'') FROM users u WHERE u.phone=? LIMIT 1`
+	HGIMContactSearchEmailSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,''),COALESCE(u.avatar_url,'') FROM users u WHERE u.email=? LIMIT 1`
 )

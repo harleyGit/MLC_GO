@@ -30,6 +30,7 @@ type HGProfile struct {
 	Username     string `json:"username"`               // 当前账号的自定义 ID，空表示未设置。
 	Nickname     string `json:"nickname"`               // 用户昵称，空表示未填写。
 	Signature    string `json:"signature"`              // 用户签名，空表示未填写。
+	AvatarURL    string `json:"avatarUrl"`              // 用户资料中的头像访问 URL，空表示未设置；不返回账号私密身份字段。
 	FriendStatus string `json:"friendStatus,omitempty"` // 搜索结果的本人关系：none/outgoing_pending/incoming_pending/friend/blocked；其他视图省略。
 }
 
@@ -107,7 +108,7 @@ func (s *HGService) HGList(ctx context.Context, user string, after uint64) ([]HG
 	for rows.Next() {
 		var v HGFriend
 		var tags string
-		if err = rows.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature, &v.Remark, &tags, &v.Phone, &v.Description); err != nil {
+		if err = rows.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature, &v.AvatarURL, &v.Remark, &tags, &v.Phone, &v.Description); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal([]byte(tags), &v.Tags); err != nil {
@@ -129,7 +130,7 @@ func (s *HGService) HGIncoming(ctx context.Context, user string, after uint64) (
 	items := make([]HGRequest, 0)
 	for rows.Next() {
 		var v HGRequest
-		if err = rows.Scan(&v.RequestID, &v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Message, &v.CreatedAt); err != nil {
+		if err = rows.Scan(&v.RequestID, &v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.AvatarURL, &v.Message, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		v.Username = hgPublicUsername(v.Username)
@@ -148,7 +149,7 @@ func (s *HGService) HGBlocks(ctx context.Context, user string, after uint64) ([]
 	items := make([]HGBlock, 0)
 	for rows.Next() {
 		var v HGBlock
-		if err = rows.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.BlockNote, &v.BlockedAt); err != nil {
+		if err = rows.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.AvatarURL, &v.BlockNote, &v.BlockedAt); err != nil {
 			return nil, err
 		}
 		v.Username = hgPublicUsername(v.Username)
@@ -160,7 +161,7 @@ func (s *HGService) HGBlocks(ctx context.Context, user string, after uint64) ([]
 // HGProfileFor 仅返回公开资料，不返回电话、邮箱或他人的备注。
 func (s *HGService) HGProfileFor(ctx context.Context, id string) (HGProfile, error) {
 	var v HGProfile
-	err := s.db.QueryRowContext(ctx, SQL.HGIMContactProfileSQL, id).Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature)
+	err := s.db.QueryRowContext(ctx, SQL.HGIMContactProfileSQL, id).Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature, &v.AvatarURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = HGErrAbsent
 	}
@@ -217,7 +218,7 @@ func (s *HGService) HGSearch(ctx context.Context, viewer, kind, keyword string) 
 	default:
 		return v, HGErrInvalid
 	}
-	err := row.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature)
+	err := row.Scan(&v.UserID, &v.PublicID, &v.Username, &v.Nickname, &v.Signature, &v.AvatarURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = HGErrAbsent
 	}
@@ -376,7 +377,7 @@ func (s *HGService) HGDecide(ctx context.Context, user, id string, accept bool) 
 		return empty, err
 	}
 	if accept {
-		if err = tx.QueryRowContext(ctx, SQL.HGIMContactProfileSQL, a).Scan(&empty.UserID, &empty.PublicID, &empty.Username, &empty.Nickname, &empty.Signature); err != nil {
+		if err = tx.QueryRowContext(ctx, SQL.HGIMContactProfileSQL, a).Scan(&empty.UserID, &empty.PublicID, &empty.Username, &empty.Nickname, &empty.Signature, &empty.AvatarURL); err != nil {
 			return HGProfile{}, err
 		}
 		empty.Username = hgPublicUsername(empty.Username)
