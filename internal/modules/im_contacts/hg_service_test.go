@@ -3,7 +3,9 @@ package im_contacts
 import (
 	SQL "MLC_GO/internal/pkg/mysql/queries"
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -27,9 +29,74 @@ func TestHGSendRequestRejectsSelf(t *testing.T) {
 // 遗留账号名可能含电话或邮箱，禁止当作公开 ID 返回或提供精确搜索入口。
 func TestHGPublicUsernameDoesNotExposePrivateIdentity(t *testing.T) {
 	for _, value := range []string{"13800138000", "user@example.com", "ab", "a/bc"} {
-		if got := hgPublicUsername(value); got != "" { t.Fatalf("不应公开账号名 %q: %q", value, got) }
+		if got := hgPublicUsername(value); got != "" {
+			t.Fatalf("不应公开账号名 %q: %q", value, got)
+		}
 	}
-	if got := hgPublicUsername("zhangsan888"); got != "zhangsan888" { t.Fatalf("合法 ID 不应被屏蔽: %q", got) }
+	if got := hgPublicUsername("zhangsan888"); got != "zhangsan888" {
+		t.Fatalf("合法 ID 不应被屏蔽: %q", got)
+	}
+}
+
+// 五类精确查找均只投影公开资料；手机号/邮箱即使用于点查也不得出现在返回 JSON 中。
+func TestHGSearchExactIdentityDoesNotReturnPrivateInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, keyword, query string
+		arg                        any
+	}{
+		{"系统 ID", "public_id", "U00000000000000000001", SQL.HGIMContactSearchPublicSQL, uint64(1)},
+		{"目标用户 ID", "targetUserId", "HGUSR_TW_01ABCDEFGHJKMNPQRSTVWXYZ12", SQL.HGIMContactProfileSQL, "HGUSR_TW_01ABCDEFGHJKMNPQRSTVWXYZ12"},
+		{"手机号", "phone", "13800138000", SQL.HGIMContactSearchPhoneSQL, "13800138000"},
+		{"邮箱", "email", "user@example.com", SQL.HGIMContactSearchEmailSQL, "user@example.com"},
+		{"兼容自定义 ID", "username", "example_user", SQL.HGIMContactSearchUsernameSQL, "example_user"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectQuery(tc.query).WithArgs(tc.arg).WillReturnRows(sqlmock.NewRows([]string{"user_id", "public_id", "username", "nickname", "signature"}).AddRow("target-id", "U00000000000000000001", "example_user", "测试用户", ""))
+			low, high := hgPair("viewer-id", "target-id")
+			mock.ExpectQuery(SQL.HGIMContactStatusSQL).WithArgs(low, high, "viewer-id", "target-id", "target-id", "viewer-id", "viewer-id", "target-id", "target-id", "viewer-id").WillReturnRows(sqlmock.NewRows([]string{"friend", "blocked", "outgoing", "incoming"}).AddRow(false, false, false, false))
+			profile, err := HGNewService(db).HGSearch(context.Background(), "viewer-id", tc.kind, tc.keyword)
+			if err != nil || profile.FriendStatus != "none" {
+				t.Fatalf("精确查找失败: %v, status=%s", err, profile.FriendStatus)
+			}
+			encoded, err := json.Marshal(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "13800138000") || strings.Contains(string(encoded), "user@example.com") || strings.Contains(string(encoded), `"email"`) || strings.Contains(string(encoded), `"phone"`) {
+				t.Fatal("公开资料不得回传手机号或邮箱")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// 非法或未知搜索类型必须在查询数据库前失败，避免意外枚举与宽泛扫描。
+func TestHGSearchRejectsInvalidIdentityWithoutQuery(t *testing.T) {
+	for _, tc := range []struct{ kind, keyword string }{
+		{"phone", "1380013800x"}, {"phone", "1380013800"}, {"email", "user@localhost"},
+		{"email", "user@example.com\n"}, {"targetUserId", strings.Repeat("a", 129)},
+		{"public_id", "U00000000000000000000"}, {"unknown", "test"},
+	} {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = HGNewService(db).HGSearch(context.Background(), "viewer-id", tc.kind, tc.keyword)
+		if !errors.Is(err, HGErrInvalid) {
+			t.Fatalf("%s 应拒绝非法关键词: %v", tc.kind, err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+	}
 }
 
 // 反向申请只有接收者可以决定；不触发任何写入。

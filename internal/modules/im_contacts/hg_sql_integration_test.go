@@ -3,6 +3,7 @@ package im_contacts
 import (
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	MySQLPackage "MLC_GO/internal/pkg/mysql"
+	SQL "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"errors"
 	"os"
@@ -55,6 +56,25 @@ func TestHGContactListSQLAgainstDebug(t *testing.T) {
 			} else {
 				t.Errorf("%s 列表 SQL 在 debug MySQL 执行失败: %T", check.name, err)
 			}
+		}
+	}
+	// 用不会指向真实账号的值验证新增的索引点查 SQL 可执行，不遍历或输出用户资料。
+	for _, check := range []struct{ name, query string }{
+		{"phone", SQL.HGIMContactSearchPhoneSQL},
+		{"email", SQL.HGIMContactSearchEmailSQL},
+	} {
+		rows, err := db.QueryContext(ctx, check.query, "")
+		if err != nil {
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) {
+				t.Errorf("%s 搜索 SQL 在 debug MySQL 执行失败，MySQL 错误码: %d", check.name, mysqlErr.Number)
+			} else {
+				t.Errorf("%s 搜索 SQL 在 debug MySQL 执行失败: %T", check.name, err)
+			}
+			continue
+		}
+		if err := rows.Close(); err != nil {
+			t.Errorf("%s 搜索 SQL 关闭结果失败: %T", check.name, err)
 		}
 	}
 }

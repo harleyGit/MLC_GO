@@ -142,7 +142,7 @@ func (h *HGHandler) HGProfile(w http.ResponseWriter, r *http.Request) {
 	Response.SuccessResult(w, r, item)
 }
 
-// HGSearch 仅支持精确的公开 ID 和自定义 ID；不开放隐私身份检索。
+// HGSearch 登录后按公开 ID、目标用户 ID、手机号、邮箱或兼容的自定义 ID 精确检索，不回传手机号/邮箱。
 func (h *HGHandler) HGSearch(w http.ResponseWriter, r *http.Request) {
 	viewer, ok := hgViewer(w, r)
 	if !ok {

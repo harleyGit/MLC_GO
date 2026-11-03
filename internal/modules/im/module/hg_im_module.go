@@ -61,7 +61,7 @@ func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRo
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/requests/incoming", true, "本人收到的申请游标列表", incoming),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/blocks", true, "本人有方向黑名单游标列表", blocks),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/profile", true, "用户公开资料，不返回隐私字段", profile),
-		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/search", true, "按公开 ID 或自定义 ID 精确搜索", search),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/search", true, "按公开 ID、目标用户 ID、手机号、邮箱或自定义 ID 精确搜索", search),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests", true, "发起好友申请", request),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests/accept", true, "接受本人收到的申请", accept),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests/reject", true, "拒绝本人收到的申请", reject),

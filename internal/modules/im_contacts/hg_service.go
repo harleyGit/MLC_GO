@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -78,13 +79,19 @@ func hgPair(a, b string) (string, string) {
 
 func hgValidID(id string) bool { return len(id) > 0 && len(id) <= 128 }
 
-// 遗留 users.user_name 未按公开 ID 协议约束；手机号/邮箱形态不得作为联系人搜索和资料展示字段。
+// 遗留 users.user_name 未按公开 ID 协议约束；手机号/邮箱形态不得以 username 类型检索或作为公开字段展示。
 func hgPublicUsername(value string) string {
-	if len(value) < 4 || len(value) > 32 { return "" }
+	if len(value) < 4 || len(value) > 32 {
+		return ""
+	}
 	for i := 0; i < len(value); i++ {
 		c := value[i]
-		if i == 0 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) { return "" }
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (i > 0 && ((c >= '0' && c <= '9') || c == '_'))) { return "" }
+		if i == 0 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return ""
+		}
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (i > 0 && ((c >= '0' && c <= '9') || c == '_'))) {
+			return ""
+		}
 	}
 	return value
 }
@@ -161,10 +168,13 @@ func (s *HGService) HGProfileFor(ctx context.Context, id string) (HGProfile, err
 	return v, err
 }
 
-// HGSearch 只按完整公开 ID / 自定义 ID 精确查找，禁止手机号/邮箱枚举。
+// HGSearch 只允许已登录者按完整标识点查；手机号、邮箱不进入响应，依赖 IM 网关限流防止批量枚举。
 func (s *HGService) HGSearch(ctx context.Context, viewer, kind, keyword string) (HGProfile, error) {
 	var v HGProfile
 	var row *sql.Row
+	if !hgValidID(viewer) || keyword == "" || keyword != strings.TrimSpace(keyword) {
+		return v, HGErrInvalid
+	}
 	switch kind {
 	case "public_id":
 		if len(keyword) != 21 || keyword[0] != 'U' {
@@ -180,6 +190,30 @@ func (s *HGService) HGSearch(ctx context.Context, viewer, kind, keyword string) 
 			return v, HGErrInvalid
 		}
 		row = s.db.QueryRowContext(ctx, SQL.HGIMContactSearchUsernameSQL, keyword)
+	case "targetUserId":
+		if !hgValidID(keyword) {
+			return v, HGErrInvalid
+		}
+		row = s.db.QueryRowContext(ctx, SQL.HGIMContactProfileSQL, keyword)
+	case "phone":
+		if len(keyword) != 11 || keyword[0] != '1' || keyword[1] < '3' || keyword[1] > '9' {
+			return v, HGErrInvalid
+		}
+		for _, digit := range keyword {
+			if digit < '0' || digit > '9' {
+				return v, HGErrInvalid
+			}
+		}
+		row = s.db.QueryRowContext(ctx, SQL.HGIMContactSearchPhoneSQL, keyword)
+	case "email":
+		if len(keyword) > 254 || strings.ContainsAny(keyword, "\r\n") {
+			return v, HGErrInvalid
+		}
+		address, err := mail.ParseAddress(keyword)
+		if err != nil || address.Address != keyword || !strings.Contains(keyword[strings.LastIndexByte(keyword, '@')+1:], ".") {
+			return v, HGErrInvalid
+		}
+		row = s.db.QueryRowContext(ctx, SQL.HGIMContactSearchEmailSQL, keyword)
 	default:
 		return v, HGErrInvalid
 	}

@@ -28,3 +28,9 @@ const (
 	HGIMContactUnblockSQL        = `DELETE FROM im_user_block WHERE blocker_user_id=? AND blocked_user_id=?`
 	HGIMContactStatusSQL         = `SELECT EXISTS(SELECT 1 FROM im_friendship WHERE user_low_id=? AND user_high_id=?), EXISTS(SELECT 1 FROM im_user_block WHERE (blocker_user_id=? AND blocked_user_id=?) OR (blocker_user_id=? AND blocked_user_id=?)), EXISTS(SELECT 1 FROM im_friend_request WHERE requester_id=? AND addressee_id=? AND status=0), EXISTS(SELECT 1 FROM im_friend_request WHERE requester_id=? AND addressee_id=? AND status=0)`
 )
+
+// 手机号与邮箱均为唯一索引点查（users.uk_phone / users.uk_email）；只投影公开资料，不回传检索所用的敏感值。
+const (
+	HGIMContactSearchPhoneSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.phone=? LIMIT 1`
+	HGIMContactSearchEmailSQL = `SELECT u.user_id,CONCAT('U',LPAD(u.id,20,'0')),COALESCE(u.user_name,''),COALESCE(u.nickname,''),COALESCE(u.signature,'') FROM users u WHERE u.email=? LIMIT 1`
+)
