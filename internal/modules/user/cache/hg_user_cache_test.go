@@ -27,3 +27,16 @@ func TestUserCache_NilRedisDependency(t *testing.T) {
 		t.Fatalf("SetUserListTotalCache err=%v, want ErrUserCacheRedisNil", err)
 	}
 }
+
+func TestUserListCacheHasProfileFields(t *testing.T) {
+	gender := 0
+	if hgUserListCacheHasProfileFields([]*UserDtoPackage.HGCreateUserDTO{{}}) {
+		t.Fatal("旧缓存缺少资料列时应回源")
+	}
+	if !hgUserListCacheHasProfileFields([]*UserDtoPackage.HGCreateUserDTO{{Gender: &gender}}) {
+		t.Fatal("新缓存允许头像为空，但需要 gender 字段")
+	}
+	if !hgUserListCacheHasProfileFields(nil) {
+		t.Fatal("空列表缓存无需回源")
+	}
+}

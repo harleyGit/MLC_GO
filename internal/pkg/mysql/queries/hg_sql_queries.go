@@ -42,11 +42,13 @@ const (
 	// QueryUserPageSQL 使用 LIMIT/OFFSET 做传统分页；数据量大或页码很深时会扫描较多行。
 	QueryUserPageSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ? OFFSET ?`
-	// QueryUserPageFirstSQL 游标分页首屏查询，按 id 倒序取最新用户列表。
-	QueryUserPageFirstSQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
+	// QueryUserPageFirstSQL 列出用户资料首屏；沿主键 id 倒序只读取 pageSize+1 行，不读取密码哈希和盐。
+	// 千万级表前提：依赖 users 主键 id 排序及 LIMIT；资料列增加单行读取量，total 仍由独立缓存/计数查询提供。
+	QueryUserPageFirstSQL = `SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone, created_at, updated_at
 	FROM users ORDER BY id DESC LIMIT ?`
-	// QueryUserPageV2SQL 游标分页下一页查询，取 id 小于 cursor 的数据，避免深分页 offset 扫描。
-	QueryUserPageV2SQL = `SELECT id, user_id, user_name, email, phone, password_hash, salt, created_at, updated_at
+	// QueryUserPageV2SQL 列出下一页用户资料；依赖 users 主键 id 范围扫描和 LIMIT，避免深 OFFSET。
+	// 千万级表前提：cursor 为上页最后一条 id；仅取 pageSize+1 行，资料列增加单行读取量。
+	QueryUserPageV2SQL = `SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone, created_at, updated_at
 	FROM users WHERE id < ? ORDER BY id DESC LIMIT ?`
 	// GetUserByUsernameSQL 按用户名查询认证信息；注意当前 SQL 使用 username 字段名，需与表结构保持一致。
 	GetUserByUsernameSQL = "SELECT user_id, username, email, phone, password_hash, salt FROM users WHERE username = ?"

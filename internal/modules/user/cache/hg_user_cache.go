@@ -53,8 +53,21 @@ func (c *HGUserCache) GetUserListCache(
 	if err := json.Unmarshal([]byte(val), &resp); err != nil {
 		return nil, err
 	}
+	if !hgUserListCacheHasProfileFields(resp.Result) {
+		return nil, nil
+	}
 
 	return &resp, nil
+}
+
+// hgUserListCacheHasProfileFields 通过非空 gender 识别已包含资料列的缓存；头像本身可为空。
+func hgUserListCacheHasProfileFields(users []*UserDtoPackage.HGCreateUserDTO) bool {
+	for _, user := range users {
+		if user == nil || user.Gender == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // SetUserListCache 写入用户 cursor 分页缓存，key 维度包含 cursor 和 size。

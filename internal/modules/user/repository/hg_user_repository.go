@@ -9,9 +9,9 @@
 package repository
 
 import (
-	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	RepositoryPackage "MLC_GO/internal/repository"
 	"context"
 	"database/sql"
@@ -285,10 +285,13 @@ func (r *UserRepo) FindByCursor(
 			&u.ID,
 			&u.UserID,
 			&u.Username,
+			&u.Nickname,
+			&u.Signature,
+			&u.Gender,
+			&u.BirthMonth,
+			&u.AvatarURL,
 			&u.Email,
 			&u.Phone,
-			&u.PasswordHash,
-			&u.Salt,
 			&u.CreatedAt,
 			&u.UpdatedAt,
 		)
