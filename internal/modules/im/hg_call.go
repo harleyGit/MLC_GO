@@ -95,6 +95,9 @@ func (s *HGCalls) HGCreate(ctx context.Context, user string, cmd HGCallCreate) (
 	if user != low && user != high {
 		return empty, HGErrForbidden
 	}
+	if err = hgIMFriendAllowed(ctx, tx, low, high); err != nil {
+		return empty, err
+	}
 	var member int
 	if err = tx.QueryRowContext(ctx, SQL.HGIMConversationMemberSQL, conversation, user).Scan(&member); err != nil {
 		return empty, HGErrForbidden
@@ -187,6 +190,15 @@ func (s *HGCalls) hgChange(ctx context.Context, user, raw, action string, device
 		var member int
 		if err = tx.QueryRowContext(ctx, SQL.HGIMConversationMemberSQL, call.ConversationID, user).Scan(&member); err != nil {
 			return HGCallView{}, HGErrForbidden
+		}
+		if action == "accept" {
+			low, high := call.CallerID, call.CalleeID
+			if low > high {
+				low, high = high, low
+			}
+			if err = hgIMFriendAllowed(ctx, tx, low, high); err != nil {
+				return HGCallView{}, err
+			}
 		}
 	}
 	terminal := call.State != "ringing" && call.State != "accepted"
@@ -304,6 +316,18 @@ func (s *HGCalls) HGToken(ctx context.Context, user, raw string, credential HGDe
 	if !bytes.Equal(boundDevice, device) {
 		return nil, HGErrForbidden
 	}
+	low, high := call.CallerID, call.CalleeID
+	if low > high {
+		low, high = high, low
+	}
+	// 先过滤已解除关系，避免对无权限用户发起外部建房 I/O；事务内再次校验。
+	var allowed int
+	if err = s.service.db.QueryRowContext(ctx, SQL.HGIMContactPairSQL, low, high).Scan(&allowed); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, HGErrForbidden
+		}
+		return nil, err
+	}
 	roomSID, err := s.livekit.HGCreateRoom(ctx, "im_"+raw)
 	if err != nil {
 		return nil, err
@@ -324,6 +348,13 @@ func (s *HGCalls) HGToken(ctx context.Context, user, raw string, credential HGDe
 	}
 	if call.State != "accepted" || !bytes.Equal(bound, device) {
 		return nil, HGErrConflict
+	}
+	low, high = call.CallerID, call.CalleeID
+	if low > high {
+		low, high = high, low
+	}
+	if err = hgIMFriendAllowed(ctx, tx, low, high); err != nil {
+		return nil, err
 	}
 	var hgMember, hgActive int
 	if err = tx.QueryRowContext(ctx, SQL.HGIMCallMemberSQL, call.ConversationID, user).Scan(&hgMember); err != nil {

@@ -43,7 +43,7 @@ type HGRuntime struct {
 // HGRegisterConfigured 创建默认关闭或显式配置的 IM 模块，不启动任务、不执行迁移。
 func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster Kafka.HGClusterConfig) (*HGRuntime, error) {
 	if !cfg.Realtime {
-		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)))
+		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)), db)
 		return nil, nil
 	}
 	for _, topic := range cluster.Topics {
@@ -102,7 +102,7 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 	if err != nil {
 		return nil, err
 	}
-	hgRegisterHandler(IM.HGNewFeatureHandler(service, r.gateway, r.media, r.calls, cfg.WebSocketURL))
+	hgRegisterHandler(IM.HGNewFeatureHandler(service, r.gateway, r.media, r.calls, cfg.WebSocketURL), db)
 	success = true
 	return r, nil
 }

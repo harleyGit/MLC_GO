@@ -64,6 +64,10 @@ func (s *HGService) HGCreateConversation(ctx context.Context, user, peer string)
 		return "", err
 	}
 	defer tx.Rollback()
+	// 仅在双方已同意且互未拉黑时创建普通单聊；旧直连路径不能绕过关系服务。
+	if err := hgIMFriendAllowed(ctx, tx, low, high); err != nil {
+		return "", err
+	}
 	result, err := tx.ExecContext(ctx, SQLQueriesPackage.HGIMCreateConversationSQL, low, high)
 	if err != nil {
 		return "", err
@@ -122,6 +126,10 @@ func (s *HGService) HGSend(ctx context.Context, sender string, cmd HGSendCommand
 	}
 	if sender != low && sender != high {
 		return HGSendReceipt{}, HGErrForbidden
+	}
+	// 与删除好友共用 friendship 行锁，确保删除/拉黑后的消息不能继续提交。
+	if err = hgIMFriendAllowed(ctx, tx, low, high); err != nil {
+		return HGSendReceipt{}, err
 	}
 	var member int
 	if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMConversationMemberSQL, id, sender).Scan(&member); err != nil {
@@ -209,6 +217,22 @@ func (s *HGService) HGSend(ctx context.Context, sender string, cmd HGSendCommand
 		return HGSendReceipt{}, err
 	}
 	return HGSendReceipt{MessageID: strconv.FormatInt(messageID, 10), Seq: seq}, nil
+}
+
+func hgIMFriendAllowed(ctx context.Context, tx *sql.Tx, low, high string) error {
+	var exists int
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMContactPairSQL, low, high).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGErrForbidden
+		}
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMContactBlockPairSQL, low, high, high, low).Scan(&exists); err == nil {
+		return HGErrForbidden
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return nil
 }
 
 func hgIMASCII(value string) bool {

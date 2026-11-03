@@ -3,42 +3,46 @@ package module
 import (
 	HGHandlerPackage "MLC_GO/internal/handler"
 	IMPackage "MLC_GO/internal/modules/im"
+	Contacts "MLC_GO/internal/modules/im_contacts"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	"database/sql"
 	"net/http"
 )
 
 // HGModule 提供 JWT 鉴权的 IM 权威接口；外部能力按显式配置启用，缺配置时失败关闭。
 type HGModule struct {
-	handler *IMPackage.HGHandler // 与业务路由共享同一 IM 服务实例。
+	handler  *IMPackage.HGHandler // 与业务路由共享同一 IM 服务实例。
+	contacts *Contacts.HGHandler  // 联系人关系独立领域，复用现有 JWT 和路由保护。
 }
 
 func (m *HGModule) Name() string     { return "im" }
 func (m *HGModule) BasePath() string { return "/api/v1/im" }
 func (m *HGModule) Handler() http.Handler {
-	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.BasePath(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, hgRoutes(m.handler))
+	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.BasePath(), AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware}, hgRoutes(m.handler, m.contacts))
 }
 
 // HGRegisterModules 通过现有领域事件 topic 持久化已提交 IM 事件；不得把 HTTP ACK 解释为实时送达。
 func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, topic string) {
 	service := IMPackage.HGNewService(sqlManager.GetSQLDB(), topic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)
-	HGHandlerPackage.RegisterModule(&HGModule{handler: IMPackage.HGNewHandler(service)})
+	HGHandlerPackage.RegisterModule(&HGModule{handler: IMPackage.HGNewHandler(service), contacts: Contacts.HGNewHandler(sqlManager.GetSQLDB())})
 }
 
-func hgRegisterHandler(handler *IMPackage.HGHandler) {
-	HGHandlerPackage.RegisterModule(&HGModule{handler: handler})
+func hgRegisterHandler(handler *IMPackage.HGHandler, db *sql.DB) {
+	HGHandlerPackage.RegisterModule(&HGModule{handler: handler, contacts: Contacts.HGNewHandler(db)})
 }
 
 func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
-	return HGRouterPackage.BuildRouteCatalogItems(hgRoutes(nil))
+	return HGRouterPackage.BuildRouteCatalogItems(hgRoutes(nil, nil))
 }
 
-func hgRoutes(handler *IMPackage.HGHandler) []HGRouterPackage.RouteSpec {
+func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRouterPackage.RouteSpec {
 	var list, create, messages, send, read, registerDevice, pendingDevice, ackDevice http.HandlerFunc
 	var realtime, uploadInit, uploadComplete, mediaStatus, mediaRead, callCreate, callGet, callChange, callToken http.HandlerFunc
 	var revokeDevice, deleteMedia http.HandlerFunc
+	var friends, incoming, blocks, profile, search, request, accept, reject, edit, remove, block, unblock http.HandlerFunc
 	if handler != nil {
 		list, create, messages, send, read = handler.HGConversations, handler.HGCreateConversation, handler.HGMessages, handler.HGSend, handler.HGRead
 		registerDevice, pendingDevice, ackDevice = handler.HGRegisterDevice, handler.HGDevicePending, handler.HGAckDevice
@@ -46,8 +50,25 @@ func hgRoutes(handler *IMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		callCreate, callGet, callChange, callToken = handler.HGCallCreate, handler.HGCallGet, handler.HGCallChange, handler.HGCallToken
 		revokeDevice, deleteMedia = handler.HGDeviceRevoke, handler.HGMediaDelete
 	}
+	if contacts != nil {
+		friends, incoming, blocks, profile, search, request = contacts.HGFriends, contacts.HGIncoming, contacts.HGBlocks, contacts.HGProfile, contacts.HGSearch, contacts.HGSend
+		accept, reject, edit = contacts.HGDecision(true), contacts.HGDecision(false), contacts.HGEdit
+		remove, block, unblock = contacts.HGAction("remove"), contacts.HGAction("block"), contacts.HGAction("unblock")
+	}
 	base := "/api/v1/im"
 	return []HGRouterPackage.RouteSpec{
+		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/friends", true, "本人好友游标列表", friends),
+		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/requests/incoming", true, "本人收到的申请游标列表", incoming),
+		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/blocks", true, "本人有方向黑名单游标列表", blocks),
+		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/contacts/profile", true, "用户公开资料，不返回隐私字段", profile),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/search", true, "按公开 ID 或自定义 ID 精确搜索", search),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests", true, "发起好友申请", request),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests/accept", true, "接受本人收到的申请", accept),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/requests/reject", true, "拒绝本人收到的申请", reject),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/friends/edit", true, "编辑本人单向备注", edit),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/friends/remove", true, "删除双方好友关系但保留历史", remove),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/blocks/add", true, "本人拉黑对方并解除好友关系", block),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/blocks/remove", true, "解除本人发起的拉黑", unblock),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/conversations", true, "本人单聊会话游标列表", list),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations", true, "创建本人单聊会话", create),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/messages", true, "本人会话 seq 补拉", messages),
