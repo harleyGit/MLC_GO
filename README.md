@@ -1,4 +1,5 @@
 >#  [接口文档URL](https://app.apifox.com/project/8272891)
+- [IAM 管理角色与用户目录授权](#iam-管理角色与用户目录授权)
 - [**‌ 工程启动**](#工程启动)
   - [VSCode 启动](#VSCode启动)
   - [Intel 电脑修改配置启动](#Intel电脑修改配置启动)
@@ -63,6 +64,46 @@
 
 <br/>
 
+
+## IAM 管理角色与用户目录授权
+
+### `/api/v1/profile/security?user_id=...` 返回 403 的原因
+
+`PUT /api/v1/profile/security?user_id=<目标用户业务 ID>` 指向**他人**时，登录人须是活动管理员，并在 IAM 的 **global** 作用域实际持有 `user:directory:write`。同一权限也保护跨用户的 `PUT /api/v1/profile/update` 和 `POST /api/v1/profile/avatar`；`GET /api/v1/profile/list` 则要求 `user:directory:read`。`user_id` 省略或等于登录人时更新本人，不要求目录写权限。`GET /api/v1/profile/account` 和 `GET /api/v1/profile/avatar` 不允许借 query 参数读取他人资料。目录写权限不允许管理员代改他人密码、QQ、微信；跨用户手机号/邮箱变更走 `/security`，变更与审计同事务提交。
+
+`403 无权执行此操作` 表示当前身份未通过 IAM 判断，不要绕开 `user_id`、修改 JWT 或关闭鉴权。依次核对：
+
+1. 发布系统在**目标环境**按序部署 `000057_user_directory_write.up.sql`（登记权限）、`000058_user_directory_security_audit.up.sql`（安全字段审计表）、`000059_bootstrap_user_directory_write.up.sql`（仅引导 `super_admin` 拥有目录写权限）。已经执行 `000057` 的环境仍需执行 `000059`；仅重启服务不会给角色补权限。迁移会修改数据库，**本说明不是执行授权**，不得在共享环境直接运行迁移或初始化脚本。
+2. 登录人必须是有效的 `admin_user`，且拥有活动的 IAM **global** 角色绑定；登录名中包含 `admin` 或仅有旧 `role` / `admin_user_role` 不等于持有 IAM 权限。`super_admin` 的新权限由 `000059` 引导，其他内置角色不会自动获得。
+3. 用 `GET /api/v1/iam/bindings/list?userId=<登录人业务 user_id>&cursor=0&pageSize=20` 核对本人角色及作用域，用 `GET /api/v1/iam/permissions/list?roleId=<角色主键>` 核对角色 `selected` 是否含 `user:directory:write`。这两个查询要求 `iam:role:read`；无权查看时请让 IAM 管理员核对，切勿把请求中的目标用户 ID 当作登录人 ID。
+4. 迁移和授权同事务推进 `iam_policy_revision` 以失效旧权限缓存。若迁移、绑定及权限都有效仍 403，再核对活动管理员状态、绑定状态/有效期、global 作用域和 JWT 身份。本文不代表已核验任何真实账号权限。
+
+### 内置角色默认权限（最终以运行时 IAM 表为准）
+
+| 角色编码 | 迁移预置权限 | 说明 |
+| --- | --- | --- |
+| `super_admin` | `000046` 赋当时全部权限，`000047` 回填新权限，`000048` 追加路由权限，`000051` 追加通知权限，`000059` 追加 `user:directory:write` | 仅受控超级管理员；还须有活动管理员身份与有效 global 绑定。未来权限不是自动继承，须由迁移明确授予。 |
+| `security_admin` | `iam:role:read`、`iam:role:grant`（`000046`），`iam:approval:approve`（`000047`） | 可管理 IAM 与参与双人审批；**默认不能读/改用户目录**，不能审批本人申请。 |
+| `operator` | 无预置业务权限 | 按运营职责申请，不因名称自动拥有用户目录权限。 |
+| `content_reviewer` | 无预置业务权限 | 内容审核能力需另行授予。 |
+| `crawler_operator` | 无预置业务权限 | 采集任务读、写、运行权限均需另行授予。 |
+| `ops_engineer` | 无预置业务权限 | 指标、菜单、文件等权限按需授予。 |
+
+`creator` 默认具备 `video:submission:create`、`video:submission:update`；`merchant` 默认具备 `mall:product:create`、`mall:product:update`、`mall:product:publish`、`mall:order:read`、`mall:order:ship`。两者是**本人业务资源**角色，不是用户管理角色。`legacy_<id>` 是 `000047` 从旧 RBAC 运行数据一次性回填的自定义角色，各环境权限不同。内置角色不可通过普通自定义角色接口修改；实际授权以 IAM 当前角色权限与有效绑定为准。
+
+### 如何给管理人员分配权限
+
+建议新建自定义“用户目录管理员”角色，仅赋 `user:directory:read`（看列表）和 `user:directory:write`（代改他人资料、头像及手机号/邮箱），不要附带 IAM 管理、资产等无关权限。权限目录以 `GET /api/v1/iam/permissions/list` 为准；完整编码见 `internal/pkg/permission/hg_permission.go`。
+
+1. 有 `iam:role:grant` 的活动管理员经 `POST /api/v1/iam/roles` 创建**空权限**自定义角色，取得十进制字符串 `id`；不能直接修改内置角色。
+2. 经 `POST /api/v1/iam/roles/permissions` 提交 `{ "roleId": "<角色主键>", "permissions": ["user:directory:read", "user:directory:write"], "mfaCode": "<一次性验证码>" }`。这是**全量替换**：已有自定义角色必须一并提交其全部原有权限；返回 `pending` 不表示已经生效。
+3. **另一位**具备 `iam:role:grant`、`iam:approval:approve` 且**本人也持有拟授予的全部权限**的活动管理员，经 `POST /api/v1/iam/approvals/approve` 提交 `{ "id": "<审批主键>", "mfaCode": "<审批人一次性验证码>" }`；申请人不能自批。以新权限为例，首次委派通常需要两位不同、均已拥有 `user:directory:write` 的活动 `super_admin`。
+4. 经 `POST /api/v1/iam/bindings/grant` 申请把角色绑定到**活动管理员**：`{ "userId": "<管理员业务 user_id>", "roleId": "<角色主键>", "scopeType": "global", "scopeId": "", "mfaCode": "<一次性验证码>" }`，再由另一位同样持有该角色全部权限的管理员审批。用户目录权限只按 global 检查，shop/org 不能替代；可按需要设置 `expiresAt`。
+5. 核对角色 `selected` 权限与管理员的活动绑定，再用隔离测试用户验证目录读取及跨用户编辑；勿对真实账号发出验证性写请求。旧 `/api/v1/ops/roles/*` 为已停用入口，不能代替 `/api/v1/iam/*`。
+
+如果当前环境只有**一位**符合条件的超级管理员，迁移可使其本人执行跨用户编辑，但不足以完成“申请人与审批人不同”且双方均可委派的授权流程；应按 IAM 受控引导流程准备第二位授权管理员，**不能**取消双人审批或直接将写权限授予普通角色绕过流程。
+
+其他能力按最小权限从权限目录选择：IAM 管理与审批 `iam:*`；视频投稿 `video:submission:*`；商城商家、订单及审核 `mall:*`；爬虫 `crawler:task:*`；运维菜单、文件、标签与指标 `ops:*`；资产 `asset:*`；充值档位 `payment:recharge_sku:*`；通知 `notification:*`。同名角色不会自动获得对应业务权限；业务服务仍检查对象归属、状态和额外审批。用户物理删除 `DELETE /api/v1/profile/delete` **尚未实现**，`user:directory:write` 不授予删除能力。
 
 > <h1 id="工程启动">工程启动</h1>
 
@@ -588,7 +629,7 @@ mysql -h127.0.0.1 -P3306 -uroot -p HG_MLC_DB -e \
   "SELECT user_id,user_name,phone,salt FROM users WHERE phone='17681317668';"
 ```
 
-注意：`000002` 只负责创建用户表和初始化登录账号。`admin_user`、`role` 等权限表在后续迁移中才创建，因此要获得完整 `super-admin` 权限，必须继续执行全部迁移到版本 19：
+注意：`000002` 只负责创建用户表和初始化登录账号；`admin_user`、IAM 角色及最新目录写权限来自后续迁移。以下命令仅用于经授权的隔离环境，不能把历史版本 19 当成当前最新权限状态：
 
 ```bash
 migrate -path migrations \
@@ -605,7 +646,7 @@ go run ./cmd/hg_config_check \
   --migrations-dir ./migrations
 ```
 
-迁移已经是最新版本时输出 `no change` 属于正常结果。不要在已经由 `golang-migrate` 管理版本的共享环境中反复手工执行单个旧迁移；pre/prod 应由发布流程按顺序执行完整迁移并确认 `schema_migrations.version=19`、`dirty=0`。
+迁移已经是最新版本时输出 `no change` 属于正常结果。不要在已经由 `golang-migrate` 管理版本的共享环境中反复手工执行单个旧迁移；pre/prod 应由发布流程按顺序执行到仓库当前最新版本（本次为 `000059`），并确认 `schema_migrations.dirty=0`。
 
 <br/><br/>
 
