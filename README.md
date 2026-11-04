@@ -67,6 +67,72 @@
 
 ## IAM 管理角色与用户目录授权
 
+### IAM 角色权限树（按迁移预置分组，无继承）
+
+```text
+iam_roles (角色彼此独立，无父子继承)
+|
++-- 内置管理角色 [000046]
+|   |
+|   +-- super_admin        超级管理员
+|   |   +-- 迁移明确预置权限 [000046/047/048/051/059]
+|   |   +-- 新权限不会因角色名称自动继承
+|   |
+|   +-- security_admin     安全管理员
+|   |   +-- iam:role:read / iam:role:grant [000046]
+|   |   +-- iam:approval:approve [000047]
+|   |
+|   +-- operator           运营人员          (无预置业务权限)
+|   +-- content_reviewer   内容审核员        (无预置业务权限)
+|   +-- crawler_operator   爬虫操作员        (无预置业务权限)
+|   +-- ops_engineer       运维人员          (无预置业务权限)
+|
++-- 内置业务角色 [000047] (仅本人资源，不等于管理员)
+|   +-- creator            视频创作者        (video:submission:create/update)
+|   +-- merchant           商家              (mall:product:create/update/publish,
+|                                            mall:order:read/ship)
+|
++-- 非内置角色 (权限由各环境的有效授权决定)
+    +-- legacy_<id>        旧 RBAC 角色回填 [000047]
+    +-- <custom_code>      经 IAM 接口创建，初始无权限
+
+普通登录用户 = users + JWT；不是名为 user 的内置 IAM 角色。
+```
+
+来源：`migrations/000046_create_iam.up.sql` 定义六个管理角色，`000047_iam_cutover_security.up.sql` 增加业务角色及旧角色回填。`internal/modules/iam/hg_iam_service.go` 通过 `iam_user_role_bindings`、`iam_role_permissions`、作用域和资源归属判断权限，而非查询角色的“上级”。`admin`、`ops_admin`、`reviewer` 均**不是**当前内置角色编码；多个角色可同时绑定。图中仅表示迁移预置，不代表现网已执行迁移或角色实际绑定；最终以 IAM 实际数据为准。
+
+### 角色层级速览（仅按迁移预置权限和职责展示）
+
+```text
+             管理域（上下仅表示默认权限范围，不表示继承）
+
+                   +---------------------------+
+                   | super_admin               |
+                   | migration-seeded          |
+                   +---------------------------+
+                              :
+                   +---------------------------+
+                   | security_admin            |
+                   | IAM read/grant/approve    |
+                   +---------------------------+
+                              :
+    +------------+------------------+------------------+--------------+
+    | operator   | content_reviewer | crawler_operator | ops_engineer |
+    +------------+------------------+------------------+--------------+
+                 四者并列；默认无预置业务权限，按需审批赋权
+
+             业务域（与管理域并列，不是其下级）
+                +----------+       +----------+
+                | creator  |       | merchant |
+                +----------+       +----------+
+                本人投稿             本人店铺资源
+
+      legacy_<id> / 自定义角色：权限取决于回填或后续审批，无法预设层级
+      普通用户：没有名为 user 的内置 IAM 角色
+```
+
+冒号仅作视觉分层，**不是**角色间的授权连线；`super_admin` 不会自动继承未来权限，`security_admin` 不会自动获得目录写权限。业务角色的权限也不能与管理角色直接按高低比较。运行时还要核对有效角色绑定、作用域及资源条件；同一账号可绑定多个独立角色。
+
 ### `/api/v1/profile/security?user_id=...` 返回 403 的原因
 
 `PUT /api/v1/profile/security?user_id=<目标用户业务 ID>` 指向**他人**时，登录人须是活动管理员，并在 IAM 的 **global** 作用域实际持有 `user:directory:write`。同一权限也保护跨用户的 `PUT /api/v1/profile/update` 和 `POST /api/v1/profile/avatar`；`GET /api/v1/profile/list` 则要求 `user:directory:read`。`user_id` 省略或等于登录人时更新本人，不要求目录写权限。`GET /api/v1/profile/account` 和 `GET /api/v1/profile/avatar` 不允许借 query 参数读取他人资料。目录写权限不允许管理员代改他人密码、QQ、微信；跨用户手机号/邮箱变更走 `/security`，变更与审计同事务提交。
