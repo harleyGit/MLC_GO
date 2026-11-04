@@ -8,6 +8,7 @@ import (
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
 	"errors"
+	"unicode/utf8"
 )
 
 // CreateUser 创建用户并写入数据库，负责密码加盐哈希和 DTO 到 model 的转换。
@@ -83,6 +84,9 @@ func (s *UserService) UpdateProfile(
 	}
 	if d.Gender != nil && (*d.Gender < 0 || *d.Gender > 2) {
 		return nil, ErrProfileGenderInvalid
+	}
+	if d.Signature != nil && utf8.RuneCountInString(*d.Signature) > 200 {
+		return nil, ErrProfileSignatureTooLong
 	}
 	if d.BirthDate != nil {
 		normalizedDate, err := hg_time.NormalizeBirthDate(*d.BirthDate)

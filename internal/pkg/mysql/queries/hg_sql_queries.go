@@ -69,6 +69,8 @@ const (
 	// SelectUserSecurityByUserIDSQL 按业务 user_id 读取账号安全表全部字段。
 	SelectUserSecurityByUserIDSQL = `SELECT id, user_id, email, phone, password_hash, salt, qq, wechat, created_at, updated_at
 	FROM user_security WHERE user_id = ?`
+	// HGInsertUserDirectorySecurityAuditSQL 与安全字段变更同事务写入，不记录敏感值；target_user_id 上建立索引供审计按用户查询。
+	HGInsertUserDirectorySecurityAuditSQL = `INSERT INTO user_directory_security_audit(operator_user_id,target_user_id,changed_fields) VALUES (?,?,?)`
 )
 
 // 朋友圈模块

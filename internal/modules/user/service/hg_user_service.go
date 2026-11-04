@@ -1,9 +1,9 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	usercache "MLC_GO/internal/modules/user/cache"
 	userrepository "MLC_GO/internal/modules/user/repository"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"errors"
 )
 
@@ -20,6 +20,8 @@ var (
 	ErrProfileNoField = errors.New("至少更新一个资料字段")
 	// ErrProfileGenderInvalid 表示性别字段超出允许范围。
 	ErrProfileGenderInvalid = errors.New("gender 仅支持 0/1/2")
+	// ErrProfileSignatureTooLong 表示个性签名超过编辑页允许的 200 个 Unicode 字符。
+	ErrProfileSignatureTooLong = errors.New("个性签名不能超过 200 个字符")
 	// ErrProfileBirthDateInvalid 表示出生日期格式不符合约定。
 	ErrProfileBirthDateInvalid = errors.New("birth_date 仅支持 YYYY-MM-DD 或 YYYY-MM")
 	// ErrUserNotFound 表示登录账号没有匹配用户。

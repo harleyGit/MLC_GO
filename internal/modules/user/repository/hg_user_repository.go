@@ -397,6 +397,7 @@ func (r *UserRepo) UpdateSecurityByUserID(
 	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
 	passwordHash *string,
 	salt *string,
+	operatorID ...string,
 ) error {
 	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
@@ -436,6 +437,28 @@ func (r *UserRepo) UpdateSecurityByUserID(
 	} else if securityID > 0 {
 		if err = updateUserSecurity(queryCtx, tx, security.UserID, d, passwordHash, salt); err != nil {
 			return err
+		}
+	}
+	// 管理员跨用户变更与审计在同一事务内提交，失败时不允许安全字段单独落库。
+	if len(operatorID) > 0 && operatorID[0] != "" && operatorID[0] != userID {
+		fields := make([]string, 0, 5)
+		if d.Phone != nil {
+			fields = append(fields, "phone")
+		}
+		if d.Email != nil {
+			fields = append(fields, "email")
+		}
+		if d.Password != nil {
+			fields = append(fields, "password")
+		}
+		if d.QQ != nil {
+			fields = append(fields, "qq")
+		}
+		if d.Wechat != nil {
+			fields = append(fields, "wechat")
+		}
+		if _, err = tx.ExecContext(queryCtx, SQLQueriesPackage.HGInsertUserDirectorySecurityAuditSQL, operatorID[0], userID, strings.Join(fields, ",")); err != nil {
+			return wrapUserRepoWriteErr("audit user security update", err)
 		}
 	}
 

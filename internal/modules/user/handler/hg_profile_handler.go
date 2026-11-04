@@ -4,9 +4,9 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
+	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	"MLC_GO/internal/pkg/logHG"
 	HGResponsePakcage "MLC_GO/internal/response"
-	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -105,6 +105,7 @@ func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		case errors.Is(err, UserServicePackage.ErrProfileNoField),
 			errors.Is(err, UserServicePackage.ErrProfileGenderInvalid),
+			errors.Is(err, UserServicePackage.ErrProfileSignatureTooLong),
 			errors.Is(err, UserServicePackage.ErrProfileBirthDateInvalid):
 			w.WriteHeader(http.StatusBadRequest)
 			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})

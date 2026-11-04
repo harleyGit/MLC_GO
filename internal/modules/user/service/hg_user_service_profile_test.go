@@ -5,6 +5,7 @@ import (
 	hg_time "MLC_GO/internal/pkg/hg_time"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,15 @@ func TestUpdateProfile_ValidateRequiredFields(t *testing.T) {
 	_, err := svc.UpdateProfile(context.Background(), "hgid_1001", &UserDtoPackage.HGUpdateUserProfileReqDTO{})
 	if !errors.Is(err, ErrProfileNoField) {
 		t.Fatalf("expected ErrProfileNoField, got err=%v", err)
+	}
+}
+
+func TestUpdateProfile_RejectsOverlongSignature(t *testing.T) {
+	svc := &UserService{}
+	signature := strings.Repeat("签", 201)
+	_, err := svc.UpdateProfile(context.Background(), "user-1", &UserDtoPackage.HGUpdateUserProfileReqDTO{Signature: &signature})
+	if !errors.Is(err, ErrProfileSignatureTooLong) {
+		t.Fatalf("签名超过 200 字符应被拒绝: %v", err)
 	}
 }
 

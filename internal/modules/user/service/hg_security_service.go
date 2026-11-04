@@ -26,6 +26,7 @@ func (s *UserService) UpdateSecurity(
 	ctx context.Context,
 	userID string,
 	d *UserDtoPackage.HGUpdateUserSecurityReqDTO,
+	operatorID ...string,
 ) (*UserDtoPackage.HGUpdateUserSecurityRespDTO, error) {
 	if strings.TrimSpace(userID) == "" {
 		return nil, errors.New("user_id 不能为空")
@@ -46,7 +47,7 @@ func (s *UserService) UpdateSecurity(
 		salt = &generatedSalt
 	}
 
-	if err := s.repo.UpdateSecurityByUserID(ctx, userID, d, passwordHash, salt); err != nil {
+	if err := s.repo.UpdateSecurityByUserID(ctx, userID, d, passwordHash, salt, operatorID...); err != nil {
 		if errors.Is(err, userrepository.ErrUserSecurityDuplicate) {
 			return nil, ErrSecurityDuplicate
 		}

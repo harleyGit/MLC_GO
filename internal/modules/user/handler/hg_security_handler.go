@@ -3,6 +3,7 @@ package UserHandlerPackage
 import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
+	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"database/sql"
 	"encoding/json"
@@ -27,7 +28,19 @@ func (h *HGUserHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.svc.UpdateSecurity(r.Context(), userID, &req)
+	actorID, ok := HGContextPackage.CurrentUserID(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePakcage.FailTokenInvalid(w, r, "登录状态无效")
+		return
+	}
+	// 目录写权限只允许管理员代改联系方式；不得借此重置他人密码或绑定第三方账号。
+	if actorID != userID && (req.Password != nil || req.QQ != nil || req.Wechat != nil || (req.Phone == nil && req.Email == nil)) {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "代改账号安全信息仅支持手机号或邮箱"})
+		return
+	}
+	resp, err := h.svc.UpdateSecurity(r.Context(), userID, &req, actorID)
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):

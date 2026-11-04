@@ -120,7 +120,7 @@ func NewUserRouteGroup(userHandler *UserHandlerPackage.HGUserHandler, hgAuthoriz
 			Authorizer:     hgFirstAuthorizer(hgAuthorizers),
 			AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware,
 		},
-		userRoutes(userHandler),
+		userRoutes(userHandler, hgFirstAuthorizer(hgAuthorizers)),
 	)
 }
 
