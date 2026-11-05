@@ -22,6 +22,21 @@
       "problemMatcher": []
     },
     {
+      // 按顺序准备基础设施，再复用或启动 debug 独立服务；刷新主服务不会重启它们。
+      "label": "ensure-debug-services",
+      "dependsOn": ["ensure-debug-deps", "ensure-debug-aux"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "ensure-debug-aux",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/ensure_debug_aux.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
       "label": "ensure-pre-deps",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/ensure_debug_deps.sh pre",
