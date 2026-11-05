@@ -278,6 +278,9 @@ func (s *HGPrivateMedia) HGMediaStatus(ctx context.Context, user, raw string) (m
 		return nil, err
 	}
 	a, err := hgScanAttachment(s.db.QueryRowContext(ctx, SQL.HGIMMediaGetSQL, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, HGErrForbidden
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +296,9 @@ func (s *HGPrivateMedia) hgReadable(ctx context.Context, user, raw string) (hgAt
 		return hgAttachment{}, err
 	}
 	a, err := hgScanAttachment(s.db.QueryRowContext(ctx, SQL.HGIMMediaGetSQL, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, HGErrForbidden
+	}
 	if err != nil {
 		return a, err
 	}
