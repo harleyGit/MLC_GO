@@ -41,6 +41,22 @@
       //"stopOnEntry": true //“启动调试”按钮后程序就立即暂停在入口（main函数），可以立即 Evaluate 表达式
     },
     {
+      // 独立审核身份与主服务分离；只在选择 IM 联合调试入口时自动启动。
+      "name": "MLC_GO Debug（IM 审核进程）",
+      "presentation": { "hidden": true },
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
+      "program": "${workspaceFolder}/cmd/hg_im_review",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SERVER_ENV": "debug",
+        "MLC_CONFIG_DIR": "${workspaceFolder}/config"
+      },
+      "console": "integratedTerminal"
+    },
+    {
       // 8080 主服务已运行时可单独选择此项；无 --help，直接启动 8090 管理 API 和周期 worker。
       "name": "🕷️ Launch hg_crawler Debug",
       "presentation": { "group": "MLC", "order": 2 },
@@ -211,6 +227,18 @@
       "name": "🧪 Launch MLC_GO Debug",
       "presentation": { "group": "MLC", "order": 1 },
       "configurations": [
+        "MLC_GO Debug（主服务进程）",
+        "🕷️ Launch hg_crawler Debug"
+      ],
+      "preLaunchTask": "ensure-debug-deps",
+      "stopAll": true
+    },
+    {
+      // 媒体功能已配置的隔离 debug 环境：依赖检查后同时启动独立审核器、业务 API 与 crawler。
+      "name": "🧪 Launch MLC_GO Debug + IM 审核",
+      "presentation": { "group": "MLC", "order": 2 },
+      "configurations": [
+        "MLC_GO Debug（IM 审核进程）",
         "MLC_GO Debug（主服务进程）",
         "🕷️ Launch hg_crawler Debug"
       ],
