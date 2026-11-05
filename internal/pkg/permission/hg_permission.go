@@ -8,8 +8,14 @@ import "slices"
 type HGPermission string
 
 const (
-	HGIAMRoleRead                HGPermission = "iam:role:read"                 // 读取角色、绑定、权限目录和待审批列表；不允许变更授权。
-	HGIAMRoleGrant               HGPermission = "iam:role:grant"                // 管理角色及发起授权变更；扩权仍须 MFA、双人审批与可委派权限校验。
+	// IAM 管理端三种权限均要求 JWT 对应的 user_id 是 admin_user 中的活动管理员，
+	// 且持有未撤销、未过期的全局 IAM 角色绑定；权限码存在不等于已获授权。
+	// HGIAMRoleRead = "iam:role:read"：可查看角色、绑定、权限目录及待审批列表，不可申请授权。
+	HGIAMRoleRead HGPermission = "iam:role:read" // 读取角色、绑定、权限目录和待审批列表；不允许变更授权。
+	// HGIAMRoleGrant = "iam:role:grant"：角色管理、授权申请及本人 MFA 绑定入口。
+	// 绑定 MFA 仍须复核当前登录密码、通过 Redis 限流且服务端配置加密密钥；授权申请还需 MFA 与双人审批。
+	HGIAMRoleGrant HGPermission = "iam:role:grant" // 管理角色及发起授权变更；扩权仍须 MFA、双人审批与可委派权限校验。
+	// HGIAMApprovalApprove = "iam:approval:approve"：审批或拒绝他人申请时还必须同时拥有 HGIAMRoleGrant；不可自批。
 	HGIAMApprovalApprove         HGPermission = "iam:approval:approve"          // 裁决 IAM 扩权申请；需同时拥有角色管理权，且不能审批本人申请。
 	HGVideoSubmissionRead        HGPermission = "video:submission:read"         // 读取视频投稿；资源可见范围仍由业务层限制。
 	HGVideoSubmissionCreate      HGPermission = "video:submission:create"       // 创建本人视频投稿；首次创作者身份由现有业务流程建立。
