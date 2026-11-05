@@ -376,7 +376,17 @@ func (r *UserRepo) UpdateProfileByUserID(
 		return wrapUserRepoWriteErr("update profile", err)
 	}
 
-	return ensureRowsAffected(res)
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if affected != 0 {
+		return nil
+	}
+
+	// MySQL 默认只统计实际变化行；重复提交可能影响 0 行，此时才按唯一 user_id 点查确认。
+	var existingID int64
+	return r.QueryRow(queryCtx, SQLQueriesPackage.HGUserProfileExistsByUserIDSQL, userID).Scan(&existingID)
 }
 
 // UpdateProfileByID 兼容旧方法名；实际语义为按业务 user_id 更新资料。

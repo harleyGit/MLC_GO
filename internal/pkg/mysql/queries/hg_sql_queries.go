@@ -36,6 +36,8 @@ const (
 	UpdateUserInfoByUserIDSQL = `UPDATE users SET email = ?, phone = ? WHERE user_id = ?`
 	// GetUserByUserIDSQL 按业务 user_id 查询用户资料。
 	GetUserByUserIDSQL = "SELECT id, user_id, user_name, nickname, signature, gender, birth_month, avatar_url, email, phone FROM users WHERE user_id = ?"
+	// HGUserProfileExistsByUserIDSQL 仅在资料更新影响 0 行时点查目标是否存在；依赖 users.user_id 唯一索引，避免将重复提交误判为 404。
+	HGUserProfileExistsByUserIDSQL = "SELECT id FROM users WHERE user_id = ? LIMIT 1"
 	// SelectUserInfoByPhoneSQL 按手机号查询登录签发 token 所需的用户 id、业务 user_id 和密码字段。
 	SelectUserInfoByPhoneSQL = `SELECT id, user_id, email, phone, password_hash, salt
 	FROM users WHERE phone = ?`
