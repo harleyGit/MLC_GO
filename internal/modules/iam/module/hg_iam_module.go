@@ -54,6 +54,9 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		mfaEnroll, mfaConfirm = handler.HGEnrollMFA, handler.HGConfirmMFA
 		approvals, approve, reject = handler.HGListApprovals, handler.HGApproveApproval, handler.HGRejectApproval
 	}
+	// 管理端权限是带字符串值的 HGPermission 枚举：HGIAMRoleRead="iam:role:read"，
+	// HGIAMRoleGrant="iam:role:grant"，HGIAMApprovalApprove="iam:approval:approve"。
+	// 除 JWT 外，授权器还要求当前 user_id 为活动管理员，且有未过期的全局角色绑定及对应权限。
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/roles/list", true, "查询角色", list, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles", true, "创建角色", create, HGPermissionPackage.HGIAMRoleGrant),
@@ -64,6 +67,8 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/revoke", true, "撤销员工角色", revoke, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/permissions/list", true, "查询权限目录", permissions, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/permissions", true, "设置角色权限", setPermissions, HGPermissionPackage.HGIAMRoleGrant),
+		// /mfa/enroll 仅为当前管理员绑定自己的 TOTP，不授予 IAM 权限：还要复核本人登录密码、检查 Redis 尝试次数和 MFA 加密密钥。
+		// /mfa/confirm 使用绑定时返回的密钥生成的六位动态码启用因子；两者均要求 HGIAMRoleGrant，不接受代他人绑定。
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/mfa/enroll", true, "绑定 TOTP 因子", mfaEnroll, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/mfa/confirm", true, "启用 TOTP 因子", mfaConfirm, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/approvals/list", true, "查询待审批授权", approvals, HGPermissionPackage.HGIAMRoleRead),

@@ -20,6 +20,21 @@
 | GET | `/approvals/list` | `id DESC` 游标读取待审批申请，单页最多 50 条 |
 | POST | `/approvals/approve`、`/approvals/reject` | `id/mfaCode`；申请人不可自批，24 小时后过期 |
 
+### 使用前需要的身份与权限
+
+路由使用 `permission.HGPermission` 字符串枚举（`internal/pkg/permission/hg_permission.go`）；枚举只是权限编码，不会自动给账号授权。登录令牌中的 `user_id` 必须对应 `admin_user` 中 `status=1`、`is_delete=0` 的活动管理员，并通过有效的 `iam_user_role_bindings` **全局**（`scope_type=global`、`scope_id` 为空）绑定启用角色；该角色在 `iam_role_permissions` 中还须拥有接口要求的权限。手机号、旧 ops 角色和登录密码本身都不是 IAM 授权依据。
+
+| 接口 | 必需权限枚举（字符串值） | 额外条件 |
+| --- | --- | --- |
+| 角色、绑定、权限目录、审批列表查询 | `HGIAMRoleRead`（`iam:role:read`） | 只读，不能据此执行变更 |
+| 创建/更新/停用角色、授权申请与撤销、设置角色权限 | `HGIAMRoleGrant`（`iam:role:grant`） | 授权申请需本人已启用 MFA，部分变更须由另一位合格管理员审批；角色及可委派权限仍受业务校验 |
+| 本人 `/mfa/enroll`、`/mfa/confirm` | `HGIAMRoleGrant`（`iam:role:grant`） | enroll 复核当前登录密码、Redis 每人五分钟最多五次尝试及服务端 MFA 加密密钥；confirm 用六位 TOTP 验证并启用，不会赋予角色权限 |
+| `/approvals/approve`、`/approvals/reject` | `HGIAMRoleGrant` **和** `HGIAMApprovalApprove`（`iam:approval:approve`） | 本人 MFA 验证；不可审批自己的申请 |
+
+开通方式：由获授权人员先核对目标账号的业务 `user_id`、活动管理员状态、IAM 全局角色绑定及角色权限。内置 `super_admin` 在迁移中预置权限，但仍以当前数据库的有效绑定为准；其他角色应按现有 MFA + 双人审批流程授予权限和绑定，不要修改代码中的枚举或关闭鉴权来放行。首次尚无 MFA 的管理员需要**先已有** `iam:role:grant`，才能通过 `/mfa/enroll` 绑定自己的因子。若绑定或权限缺失，须由已具备权限的其他管理员或受控引导流程处理，不能靠当前账号自助扩权。
+
+`/mfa/enroll` 返回的 `secret/otpauthUri` 用于在认证器中添加动态码，随后调用 `/mfa/confirm` 激活；它不是登录接口，也不负责创建管理员或授予角色。不要记录、分享或缓存密钥。HTTP 403 的“无权执行此操作”还可能来自服务层密码复核失败、MFA 密钥缺失或限流等拒绝；仅凭该响应不能判定缺少 `iam:role:grant`，请由有权限的人员按服务端配置和授权数据逐项核查，不要提交密码或密钥作为排障材料。
+
 `scopeType` 只接受 `global`、`shop`、`org`；`global` 的 `scopeId` 必须为空。非全局作用域须先由可信业务流程登记到 `iam_organizations`，不能使用前端自行填入的资源归属做授权依据。管理端只给活动管理员授予角色，业务用户的角色授予需由对应业务服务接入内部授权流程。单页最多 100 条角色或绑定；角色最多 50 项权限，权限目录超过 200 项时拒绝返回，避免编辑页静默丢失已有权限。
 
 `HGService.Authorize` 是业务授权入口。视频上传/投稿、商城商品发布/编辑/补图、商家订单读取与发货在可信 MySQL 资源读取后执行 IAM 判断；写事务重复约束归属和状态。资产、爬虫与商城审核的旧权限编码由适配器映射到 IAM。普通买家订单支付、确认收货和退款继续使用既有订单事务的本人和状态条件。
