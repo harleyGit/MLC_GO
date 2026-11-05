@@ -64,6 +64,22 @@
       "console": "integratedTerminal"
     },
     {
+      // 独立审核身份与主服务分离；只在选择 IM 联合调试入口时自动启动。
+      "name": "📩 MLC_GO Debug（IM 审核进程）",
+      "presentation": { "hidden": true },
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "dlvFlags": ["--check-go-version=false"],
+      "program": "${workspaceFolder}/cmd/hg_im_review",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SERVER_ENV": "debug",
+        "MLC_CONFIG_DIR": "${workspaceFolder}/config"
+      },
+      "console": "integratedTerminal"
+    },
+    {
       "name": "💥 Launch MLC_GO Pre",
       "type": "go",
       "request": "launch",
