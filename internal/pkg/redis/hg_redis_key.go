@@ -35,7 +35,13 @@ const (
 	VideoRecommendCardKeyPrefix             = "video:recommend:card:"
 	IAMPermissionKeyPrefix                  = "iam:permission:v1:"
 	IAMMFAAttemptKeyPrefix                  = "iam:mfa:attempt:"
+	HGUserDeleteFenceKeyPrefix              = "user:delete:fence:"
 )
+
+// HGUserDeleteFenceKey 标记用户删除期间及旧令牌有效期内不可再认证的账号。
+func HGUserDeleteFenceKey(userID string) string {
+	return HGUserDeleteFenceKeyPrefix + hgRedisKeyDigest(userID)
+}
 
 // GetIAMPermissionKey 使用 MySQL 同事务策略版本隔离旧授权，摘要隐藏用户和作用域标识。
 func GetIAMPermissionKey(revision uint64, userID, permission, scopeType, scopeID string) string {

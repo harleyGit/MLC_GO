@@ -27,6 +27,9 @@ func (h *hgSessionCheckHook) ProcessHook(next redis.ProcessHook) redis.ProcessHo
 		if cmd.Name() != "exists" {
 			return errors.New("未预期 Redis 命令")
 		}
+		if cmd.Args()[1] == PersistenceRedisPackage.HGUserDeleteFenceKey("user-1") {
+			return nil
+		}
 		if h.active {
 			cmd.(*redis.IntCmd).SetVal(1)
 		}

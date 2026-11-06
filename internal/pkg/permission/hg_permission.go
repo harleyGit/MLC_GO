@@ -41,6 +41,7 @@ const (
 	HGOpsBilibiliTagWrite        HGPermission = "ops:bilibili_tag:write"        // 创建、更新或删除 Bilibili 动画标签配置。
 	HGUserDirectoryRead          HGPermission = "user:directory:read"           // 查询平台用户目录；查询本人资料不需要该管理权限。
 	HGUserDirectoryWrite         HGPermission = "user:directory:write"          // 修改其他用户的资料或安全字段；本人更新无需此权限。
+	HGUserDirectoryDelete        HGPermission = "user:directory:delete"         // 物理删除无关联账号；不能通过编辑权限获得。
 	HGAssetCoinBalanceRead       HGPermission = "asset:coin_balance:read"       // 查询目标用户的硬币权威余额。
 	HGAssetCoinTransactionRead   HGPermission = "asset:coin_transaction:read"   // 查询目标用户的硬币资产流水。
 	HGAssetCoinGrant             HGPermission = "asset:coin:grant"              // 人工赠币；继续执行限流、幂等和审计约束。
@@ -85,6 +86,7 @@ var hgPermissions = [...]HGPermission{
 	HGOpsBilibiliTagWrite,
 	HGUserDirectoryRead,
 	HGUserDirectoryWrite,
+	HGUserDirectoryDelete,
 	HGAssetCoinBalanceRead,
 	HGAssetCoinTransactionRead,
 	HGAssetCoinGrant,

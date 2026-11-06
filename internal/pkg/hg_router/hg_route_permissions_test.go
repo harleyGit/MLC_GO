@@ -6,6 +6,7 @@ import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,7 +24,34 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
+
+// hgDeleteFenceTestHook 模拟无删除隔离标记；仅处理认证新增的 EXISTS 查询。
+type hgDeleteFenceTestHook struct{}
+
+func (hgDeleteFenceTestHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (hgDeleteFenceTestHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+func (hgDeleteFenceTestHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(_ context.Context, cmd redis.Cmder) error {
+		if cmd.Name() != "exists" {
+			return errors.New("未预期 Redis 操作")
+		}
+		cmd.(*redis.IntCmd).SetVal(0)
+		return nil
+	}
+}
+
+func hgConfigureDeleteFenceTest(t *testing.T) {
+	t.Helper()
+	old := PersistenceRedisPackage.RDB
+	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+	client.AddHook(hgDeleteFenceTestHook{})
+	PersistenceRedisPackage.RDB = client
+	t.Cleanup(func() { PersistenceRedisPackage.RDB = old; _ = client.Close() })
+}
 
 type hgRouteAuthorizerStub struct {
 	hgAllowed map[string]bool // 本用例允许的权限编码。
@@ -70,6 +98,7 @@ func hgSignedPermissionRequest(t *testing.T, hgMethod, hgPath, hgTokenMode strin
 }
 
 func TestHGRoutePermissionChain(t *testing.T) {
+	hgConfigureDeleteFenceTest(t)
 	for _, hgCase := range []struct {
 		hgName    string          // 用例说明。
 		hgToken   string          // valid、invalid 或空。
@@ -246,6 +275,7 @@ func TestHGMethodBoundPermissionsAndPublicRoutes(t *testing.T) {
 }
 
 func TestHGOpsLegacyRoleRouteStillGoneAfterAuthorization(t *testing.T) {
+	hgConfigureDeleteFenceTest(t)
 	hgStub := &hgRouteAuthorizerStub{hgAllowed: map[string]bool{"iam:role:read": true}}
 	hgRoot := http.NewServeMux()
 	hgRoot.Handle(OpsModuleBasePath+"/", http.StripPrefix(OpsModuleBasePath, NewOpsRouteGroup(&OpsHandlerPackage.Handler{}, hgStub)))

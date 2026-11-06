@@ -87,6 +87,13 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
+			// 旧版无 sid 的 JWT 也必须受账号删除隔离约束；Redis 故障时失败关闭。
+			deleted, deleteErr := UserServicePackage.HGUserDeleted(r.Context(), PersistenceRedisPackage.RDB, claims.UserID)
+			if deleteErr != nil || deleted {
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
+				return
+			}
 			if claims.SessionID != "" {
 				active, sessionErr := UserServicePackage.HGSessionActive(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
 				if sessionErr != nil || !active {

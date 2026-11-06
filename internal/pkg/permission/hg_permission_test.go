@@ -11,7 +11,7 @@ import (
 func TestHGPermissionEnumMatchesMigrations(t *testing.T) {
 	hgExpected := make(map[string]bool)
 	hgPattern := regexp.MustCompile(`'([a-z][a-z0-9_]*:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*)'`)
-	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql"} {
+	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql"} {
 		hgSQL, hgErr := os.ReadFile("../../../migrations/" + hgFile)
 		if hgErr != nil {
 			t.Fatal(hgErr)
@@ -52,5 +52,19 @@ func TestHGUserDirectoryWriteBootstrap(t *testing.T) {
 		!strings.Contains(text, "p.permission_code='user:directory:write'") ||
 		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") {
 		t.Fatal("目录写权限必须仅向活动超级管理员引导授权，并推进策略版本")
+	}
+}
+
+// TestHGUserDirectoryDeleteBootstrap 防止物理删除权限继承目录编辑权限或自动授予普通角色。
+func TestHGUserDirectoryDeleteBootstrap(t *testing.T) {
+	sql, err := os.ReadFile("../../../migrations/000060_user_delete_dependency_indexes.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(sql)
+	if !strings.Contains(text, "r.role_code='super_admin' AND r.status=1") ||
+		!strings.Contains(text, "p.permission_code='user:directory:delete'") ||
+		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") {
+		t.Fatal("用户删除权限必须仅授予超级管理员并推进 IAM 版本")
 	}
 }

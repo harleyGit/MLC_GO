@@ -114,6 +114,9 @@ func GenerateTokens(
 	if userID == "" || rdb == nil {
 		return nil, errors.New("登录用户或 Redis 不可用")
 	}
+	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
+		return nil, errors.New("账号不可登录")
+	}
 	var hgSessionBytes [16]byte
 	if _, err := rand.Read(hgSessionBytes[:]); err != nil {
 		return nil, fmt.Errorf("生成登录会话 ID 失败: %w", err)
@@ -122,6 +125,10 @@ func GenerateTokens(
 	hgKey := PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID
 	if err := rdb.Set(ctx, hgKey, "1", RefreshTTL).Err(); err != nil {
 		return nil, fmt.Errorf("存储登录会话失败: %w", err)
+	}
+	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
+		_ = rdb.Del(ctx, hgKey).Err()
+		return nil, errors.New("账号不可登录")
 	}
 	pair, err := hgGenerateSessionTokens(ctx, rdb, userID, device, role, sessionID)
 	if err != nil {
@@ -134,6 +141,9 @@ func GenerateTokens(
 func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, device, role, sessionID string) (*TokenPair, error) {
 	if userID == "" {
 		return nil, errors.New("userID 不能为空")
+	}
+	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
+		return nil, errors.New("账号不可登录")
 	}
 
 	if role == "" {
