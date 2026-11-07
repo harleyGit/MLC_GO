@@ -3,17 +3,19 @@ package SQLQueriesPackage
 // 以下 SQL 仅以会话或用户 ID 点查/有界游标读取；会话行锁负责单聊 seq 顺序，热点单聊须限流或水平分片。
 const (
 	HGIMUserExistsSQL         = `SELECT 1 FROM users WHERE user_id=?`
-	HGIMCreateConversationSQL = `INSERT INTO im_conversation(user_low,user_high) VALUES (?,?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`
+	HGIMCreateConversationSQL = `INSERT INTO im_conversation(user_low,user_high,created_at,updated_at) VALUES (?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`
 	HGIMAddMemberSQL          = `INSERT INTO im_conversation_member(conversation_id,user_id) VALUES (?,?) ON DUPLICATE KEY UPDATE user_id=user_id`
 	HGIMConversationMemberSQL = `SELECT 1 FROM im_conversation_member WHERE conversation_id=? AND user_id=?`
 	HGIMLockConversationSQL   = `SELECT user_low,user_high,last_seq FROM im_conversation WHERE id=? FOR UPDATE`
 	HGIMExistingMessageSQL    = `SELECT id,conversation_id,seq,message_type,content_hash FROM im_message WHERE sender_id=? AND client_msg_id=?`
-	HGIMAdvanceSeqSQL         = `UPDATE im_conversation SET last_seq=? WHERE id=? AND last_seq=?`
-	HGIMInsertMessageSQL      = `INSERT INTO im_message(conversation_id,seq,sender_id,client_msg_id,message_type,content,content_hash) VALUES (?,?,?,?,?,?,?)`
-	HGIMHistorySQL            = `SELECT id,seq,sender_id,message_type,content,created_at FROM im_message WHERE conversation_id=? AND seq>? ORDER BY seq ASC LIMIT ?`
-	HGIMConversationPageSQL   = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? ORDER BY c.id DESC LIMIT ?`
-	HGIMReadSQL               = `UPDATE im_conversation_member SET last_read_seq=GREATEST(last_read_seq,?) WHERE conversation_id=? AND user_id=?`
-	HGIMActiveDevicesSQL      = `SELECT id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 6`
+	HGIMAdvanceSeqSQL         = `UPDATE im_conversation SET last_seq=?,updated_at=UTC_TIMESTAMP(3) WHERE id=? AND last_seq=?`
+	// 消息时间由 MySQL 权威 UTC 毫秒时钟生成，不依赖连接 session 时区；会话行锁分配的 seq 保证同毫秒排序。
+	// 点写消息并通过 uk_im_conversation_seq / uk_im_sender_client_id 约束顺序及幂等；高热点会话仍受单行锁限制。
+	HGIMInsertMessageSQL    = `INSERT INTO im_message(conversation_id,seq,sender_id,client_msg_id,message_type,content,content_hash,created_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`
+	HGIMHistorySQL          = `SELECT id,seq,sender_id,message_type,content,created_at FROM im_message WHERE conversation_id=? AND seq>? ORDER BY seq ASC LIMIT ?`
+	HGIMConversationPageSQL = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? ORDER BY c.id DESC LIMIT ?`
+	HGIMReadSQL             = `UPDATE im_conversation_member SET last_read_seq=GREATEST(last_read_seq,?) WHERE conversation_id=? AND user_id=?`
+	HGIMActiveDevicesSQL    = `SELECT id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 6`
 	// 最早登录设备：按首次注册时间排序，同毫秒以设备 ID 稳定打破并列；走 idx_im_device_oldest，旧失活行需定期归档。
 	HGIMOldestDeviceSQL = `SELECT id,session_id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY created_at,id LIMIT 1`
 	// 所有新会话鉴权均按 (user_id,session_id,forced_logout_at) 点查；不能用只在客户端清理 token 替代服务端撤销。

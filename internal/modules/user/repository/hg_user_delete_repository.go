@@ -1,3 +1,11 @@
+/*
+ * @Author: GangHuang harleysor@qq.com
+ * @Date: 2026-11-05 21:24:15
+ * @LastEditors: GangHuang harleysor@qq.com
+ * @LastEditTime: 2026-11-06 11:12:59
+ * @FilePath: /MLC_GO/internal/modules/user/repository/hg_user_delete_repository.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package repository
 
 import (
@@ -20,6 +28,11 @@ func (r *UserRepo) HGCanonicalDeleteUserID(ctx context.Context, userID string) (
 	queryCtx, cancel := context.WithTimeout(ctx, userRepoQueryTimeout)
 	defer cancel()
 	var canonicalID string
+	/*为什么传入 ID，还要查询 ID？
+	主要有两个作用：
+	1. 验证用户是否存在：避免后续删除不存在的用户。
+	2. 获取规范 ID（Canonical ID）：例如数据库使用不区分大小写的字符串比较，传入 "ABC"，实际存储 "abc"，可能返回 "abc"。
+	*/
 	err := r.QueryRow(queryCtx, SQLQueriesPackage.HGUserDeleteCanonicalIDSQL, userID).Scan(&canonicalID)
 	return canonicalID, err
 }

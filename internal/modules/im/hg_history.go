@@ -17,7 +17,8 @@ type HGHistoryMessage struct {
 	SenderID  string          `json:"senderId"`    // 消息发送人 ID。
 	Type      HGMessageType   `json:"messageType"` // 受支持的内容类型。
 	Content   json.RawMessage `json:"content"`     // 文本或经审核的私有媒体引用。
-	CreatedAt time.Time       `json:"createdAt"`   // MySQL 消息创建时间。
+	CreatedAt time.Time       `json:"createdAt"`   // 兼容旧版客户端的消息创建时间，UTC 毫秒精度。
+	SentAt    time.Time       `json:"sentAt"`      // 标准消息发送时间，取持久化创建时间而非客户端时钟，UTC 毫秒精度。
 	IsSelf    bool            `json:"isSelf"`      // 发送者是否为本次已认证用户。
 }
 
@@ -61,6 +62,8 @@ func (s *HGService) HGHistory(ctx context.Context, user string, conversationID, 
 			return nil, err
 		}
 		item.MessageID = strconv.FormatUint(id, 10)
+		item.CreatedAt = item.CreatedAt.UTC()
+		item.SentAt = item.CreatedAt
 		item.IsSelf = item.SenderID == user
 		items = append(items, item)
 	}
@@ -86,6 +89,7 @@ func (s *HGService) HGConversations(ctx context.Context, user string, before uin
 			return nil, err
 		}
 		item.ConversationID = strconv.FormatUint(id, 10)
+		item.UpdatedAt = item.UpdatedAt.UTC()
 		if user == low {
 			item.Peer = HGPeer{UserID: high, Name: high}
 		} else {
