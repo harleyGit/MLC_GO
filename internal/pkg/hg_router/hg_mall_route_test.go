@@ -9,8 +9,8 @@ import (
 
 func TestHGMallCatalogAndGuardAgree(t *testing.T) {
 	items := HGMallRouteCatalog()
-	rules := hgRouteGuardRules(hgMallRoutes(nil))
-	if len(items) != len(rules) || len(items) != 34 {
+	rules := hgRouteGuardRules(append(hgMallRoutes(nil), hgCNYRoutes(nil)...))
+	if len(items) != len(rules) || len(items) != 50 {
 		t.Fatalf("商城路由数=%d 规则数=%d", len(items), len(rules))
 	}
 	for _, item := range items {
@@ -27,7 +27,7 @@ func TestHGMallCatalogAndGuardAgree(t *testing.T) {
 	}
 	// 与生产入口一致使用 StripPrefix，请求应先被 Guard/JWT 拦截而不是路由 404。
 	group := HGNewMallRouteGroup(nil)
-	for _, route := range []struct{ method, path string }{{http.MethodGet, "/orders"}, {http.MethodGet, "/orders/pending"}, {http.MethodPost, "/orders/pay"}} {
+	for _, route := range []struct{ method, path string }{{http.MethodGet, "/orders"}, {http.MethodGet, "/orders/pending"}, {http.MethodPost, "/orders/pay"}, {http.MethodGet,"/cny/products"}, {http.MethodPost,"/cny/orders/pay"}} {
 		request := httptest.NewRequest(route.method, HGMallModuleBasePath+route.path, nil)
 		request.URL.Path = strings.TrimPrefix(request.URL.Path, HGMallModuleBasePath)
 		writer := httptest.NewRecorder()

@@ -1,6 +1,7 @@
 package HGRouterPackage
 
 import (
+	"MLC_GO/internal/modules/mallcny"
 	"MLC_GO/internal/modules/product"
 	hguser "MLC_GO/internal/modules/user/middleware"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
@@ -11,7 +12,13 @@ const HGMallModuleBasePath = "/api/v1/mall"
 
 // HGNewMallRouteGroup 复用现有签名、Guard 和 JWT 链；审核权限由 product.Service 再次查库。
 func HGNewMallRouteGroup(h *product.HGHandler, hgAuthorizers ...HGRouteAuthorizer) http.Handler {
-	group := NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Authorizer: hgFirstAuthorizer(hgAuthorizers), AuthMiddleware: hguser.AuthMiddleware}, hgMallRoutes(h))
+	return HGNewMallRouteGroupWithCNY(h, nil, hgAuthorizers...)
+}
+
+// HGNewMallRouteGroupWithCNY 在原商城 JWT、签名和 Guard 下追加隔离 CNY 路由，不改动 M币接口。
+func HGNewMallRouteGroupWithCNY(h *product.HGHandler, cny *mallcny.HGHandler, hgAuthorizers ...HGRouteAuthorizer) http.Handler {
+	specs := append(hgMallRoutes(h), hgCNYRoutes(cny)...)
+	group := NewRouteGroup(RouteGroupConfig{BasePath: HGMallModuleBasePath, Authorizer: hgFirstAuthorizer(hgAuthorizers), AuthMiddleware: hguser.AuthMiddleware}, specs)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 订单地址、手机号与商家申请均属于登录态数据，不允许代理或浏览器缓存。
 		w.Header().Set("Cache-Control", "no-store")
@@ -19,7 +26,38 @@ func HGNewMallRouteGroup(h *product.HGHandler, hgAuthorizers ...HGRouteAuthorize
 	})
 }
 
-func HGMallRouteCatalog() []RouteCatalogItem { return BuildRouteCatalogItems(hgMallRoutes(nil)) }
+func HGMallRouteCatalog() []RouteCatalogItem {
+	return BuildRouteCatalogItems(append(hgMallRoutes(nil), hgCNYRoutes(nil)...))
+}
+
+func hgCNYRoutes(h *mallcny.HGHandler) []RouteSpec {
+	var list, detail, publish, createCoupon, coupons, claim, preview, buy, groups, group, order, orders, pay, refund, cancel, capabilities http.HandlerFunc
+	if h != nil {
+		list, detail, publish = h.HGList, h.HGDetail, h.HGPublish
+		createCoupon, coupons, claim = h.HGCreateCoupon, h.HGCoupons, h.HGClaimCoupon
+		preview, buy = h.HGPreview, h.HGBuy
+		groups, group = h.HGGroups, h.HGGroup
+		order, orders, pay, refund, cancel, capabilities = h.HGOrder, h.HGOrders, h.HGDebugPay, h.HGDebugRefund, h.HGCancel, h.HGCapabilities
+	}
+	return []RouteSpec{
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/products", true, "人民币商品目录", list),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/products/detail", true, "人民币商品详情", detail),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/products/publish", true, "沙箱商家发布人民币商品", publish),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/coupons/create", true, "沙箱商家创建优惠券", createCoupon),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/coupons", true, "人民币商品优惠券", coupons),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/coupons/claim", true, "领取商品优惠券", claim),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/orders/preview", true, "服务端试算人民币商品", preview),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/orders", true, "幂等预占库存和下单", buy),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/groups", true, "有界可加入拼团", groups),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/groups/detail", true, "拼团进度", group),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/orders/detail", true, "本人订单", order),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/orders", true, "本人有界订单列表", orders),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/orders/pay", true, "隔离环境模拟支付宝付款", pay),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/orders/refund", true, "隔离环境模拟退款", refund),
+		NewRouteSpec("mall_cny", http.MethodPost, HGMallModuleBasePath, "/cny/orders/cancel", true, "取消待付款订单", cancel),
+		NewRouteSpec("mall_cny", http.MethodGet, HGMallModuleBasePath, "/cny/capabilities", true, "模拟付款开关状态", capabilities),
+	}
+}
 
 func hgMallRoutes(h *product.HGHandler) []RouteSpec {
 	var list, detail, mine, publish, merchant, apply, pendingMerchants, reviewMerchant, pendingProducts, reviewProduct, adminStatus, image, deleteImage, unusedImages http.HandlerFunc

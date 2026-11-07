@@ -149,6 +149,11 @@ func IsWalletDebugPaymentEnabled() bool {
 	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv(hgWalletDebugPaymentEnv) == "true"
 }
 
+// IsMallCNYSandboxEnabled 仅在已加载 debug 环境且显式允许时开放模拟人民币支付/退款；生产和预发永远不开放。
+func IsMallCNYSandboxEnabled() bool {
+	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv("MLC_MALL_CNY_SANDBOX") == "true"
+}
+
 func IsPre() bool {
 	return GetEnv() == EnvPre
 }
