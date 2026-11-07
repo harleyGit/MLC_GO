@@ -6,6 +6,7 @@ import (
 	BilibiliModulePackage "MLC_GO/internal/modules/bilibili/module"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
+	HGCommerceModulePackage "MLC_GO/internal/modules/commerce/module"
 	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
@@ -381,6 +382,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
 	HGMallModulePackage.HGRegisterModules(sqlManager, redisService)
+	HGCommerceModulePackage.HGRegisterModules(sqlManager)
 	hgrecharge.HGRegisterModules(sqlManager)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
 	VideoUploadModulePackage.RegisterModules(redisService, sqlManager)
@@ -981,6 +983,7 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.HGWalletRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGRechargeRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.HGMallRouteCatalog()...)
+	items = append(items, HGMiddlewareGroupPackage.HGCommerceRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)
