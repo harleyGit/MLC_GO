@@ -29,6 +29,7 @@ type HGConversation struct {
 	LastReadSeq    uint64    `json:"lastReadSeq"`    // 本人已读位置。
 	UpdatedAt      time.Time `json:"updatedAt"`      // 会话最后活动时间。
 	Peer           HGPeer    `json:"peer"`           // 另一名用户的标识，不包含在线状态。
+	Muted          bool      `json:"muted"`          // 本人是否开启会话免打扰；不影响消息存储与接收。
 }
 
 // HGPeer 是经成员鉴权的另一名会话成员；昵称由独立公开资料服务获取。
@@ -70,6 +71,16 @@ func (s *HGService) HGHistory(ctx context.Context, user string, conversationID, 
 	return items, rows.Err()
 }
 
+// HGHistoryFloor 返回首条保留消息的 seq；仅在已完成会话成员鉴权后调用。
+func (s *HGService) HGHistoryFloor(ctx context.Context, conversationID uint64) (uint64, error) {
+	var floor uint64
+	err := s.db.QueryRowContext(ctx, SQLQueriesPackage.HGIMHistoryFloorSQL, conversationID).Scan(&floor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return floor, err
+}
+
 // HGConversations 按会话主键倒序、有界读取本人会话；没有深 OFFSET。
 func (s *HGService) HGConversations(ctx context.Context, user string, before uint64, limit int) ([]HGConversation, error) {
 	if s == nil || s.db == nil || user == "" || before == 0 || limit < 1 || limit > 50 {
@@ -85,7 +96,7 @@ func (s *HGService) HGConversations(ctx context.Context, user string, before uin
 		var item HGConversation
 		var id uint64
 		var low, high string
-		if err := rows.Scan(&id, &item.LastSeq, &item.LastReadSeq, &item.UpdatedAt, &low, &high); err != nil {
+		if err := rows.Scan(&id, &item.LastSeq, &item.LastReadSeq, &item.UpdatedAt, &low, &high, &item.Muted); err != nil {
 			return nil, err
 		}
 		item.ConversationID = strconv.FormatUint(id, 10)

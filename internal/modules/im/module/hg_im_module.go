@@ -39,12 +39,13 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRouterPackage.RouteSpec {
-	var list, create, messages, send, read, registerDevice, pendingDevice, ackDevice http.HandlerFunc
+	var list, create, messages, send, read, muted, deleteConversation, registerDevice, pendingDevice, ackDevice http.HandlerFunc
 	var realtime, uploadInit, uploadComplete, mediaStatus, mediaRead, callCreate, callGet, callChange, callToken http.HandlerFunc
 	var revokeDevice, deleteMedia http.HandlerFunc
 	var friends, incoming, blocks, profile, search, request, accept, reject, edit, remove, block, unblock http.HandlerFunc
 	if handler != nil {
 		list, create, messages, send, read = handler.HGConversations, handler.HGCreateConversation, handler.HGMessages, handler.HGSend, handler.HGRead
+		muted, deleteConversation = handler.HGConversationMuted, handler.HGDeleteConversation
 		registerDevice, pendingDevice, ackDevice = handler.HGRegisterDevice, handler.HGDevicePending, handler.HGAckDevice
 		realtime, uploadInit, uploadComplete, mediaStatus, mediaRead = handler.HGRealtimeToken, handler.HGUploadInit, handler.HGUploadComplete, handler.HGMediaStatus, handler.HGMediaRead
 		callCreate, callGet, callChange, callToken = handler.HGCallCreate, handler.HGCallGet, handler.HGCallChange, handler.HGCallToken
@@ -71,6 +72,8 @@ func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRo
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/contacts/blocks/remove", true, "解除本人发起的拉黑", unblock),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/conversations", true, "本人单聊会话游标列表", list),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations", true, "创建本人单聊会话", create),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations/muted", true, "设置本人单聊免打扰", muted),
+		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations/delete", true, "分批清理三天前双方消息并隐藏本人会话", deleteConversation),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/messages", true, "本人会话 seq 补拉", messages),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/messages", true, "发送单聊文本消息", send),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/read", true, "上报本人会话已读水位", read),

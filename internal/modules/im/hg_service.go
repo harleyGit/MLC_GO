@@ -81,6 +81,10 @@ func (s *HGService) HGCreateConversation(ctx context.Context, user, peer string)
 			return "", err
 		}
 	}
+	// 重新从联系人进入旧会话时仅恢复本人列表，不改变对方的删除状态。
+	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGIMRestoreConversationSQL, id, user); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}

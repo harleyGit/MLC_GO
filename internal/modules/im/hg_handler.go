@@ -116,7 +116,64 @@ func (h *HGHandler) HGCreateConversation(w http.ResponseWriter, r *http.Request)
 		hgIMFail(w, r, err)
 		return
 	}
-	HGResponsePackage.SuccessResult(w, r, map[string]string{"conversationId": id})
+	numericID, _ := hgIMID(id)
+	item, err := h.service.HGConversationByID(r.Context(), user, numericID)
+	if err != nil {
+		hgIMFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"conversationId": id, "conversation": item})
+}
+
+// HGConversationMuted 仅变更本人会话免打扰标志，不改变设备投递或消息接收。
+func (h *HGHandler) HGConversationMuted(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgIMUser(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		ConversationID string `json:"conversationId"`
+		Muted          *bool  `json:"muted"`
+	}
+	if !hgIMBody(w, r, &request) {
+		return
+	}
+	id, err := hgIMID(request.ConversationID)
+	if err != nil || request.Muted == nil {
+		hgIMFail(w, r, HGErrInvalid)
+		return
+	}
+	if err := h.service.HGSetConversationMuted(r.Context(), user, id, *request.Muted); err != nil {
+		hgIMFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"ok": true})
+}
+
+// HGDeleteConversation 分批物理删除三天以前的双方历史，仅完成后隐藏本人会话；客户端用 baseSeq 重试。
+func (h *HGHandler) HGDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	user, ok := hgIMUser(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		ConversationID string `json:"conversationId"`
+		BaseSeq        uint64 `json:"baseSeq"`
+	}
+	if !hgIMBody(w, r, &request) {
+		return
+	}
+	id, err := hgIMID(request.ConversationID)
+	if err != nil {
+		hgIMFail(w, r, err)
+		return
+	}
+	baseSeq, more, err := h.service.HGDeleteConversationBatch(r.Context(), user, id, request.BaseSeq)
+	if err != nil {
+		hgIMFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"baseSeq": baseSeq, "hasMore": more})
 }
 
 // HGMessages 按 seq 递增返回本人会话历史，禁止深 OFFSET 与跨用户越权。
@@ -143,7 +200,12 @@ func (h *HGHandler) HGMessages(w http.ResponseWriter, r *http.Request) {
 		hgIMFail(w, r, err)
 		return
 	}
-	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items})
+	floor, err := h.service.HGHistoryFloor(r.Context(), id)
+	if err != nil {
+		hgIMFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "floorSeq": floor})
 }
 
 // HGSend 校验身份和消息参数，将唯一 seq、消息、设备投递和 Outbox 原子提交。

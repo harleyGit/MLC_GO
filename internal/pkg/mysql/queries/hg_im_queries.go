@@ -11,11 +11,27 @@ const (
 	HGIMAdvanceSeqSQL         = `UPDATE im_conversation SET last_seq=?,updated_at=UTC_TIMESTAMP(3) WHERE id=? AND last_seq=?`
 	// 消息时间由 MySQL 权威 UTC 毫秒时钟生成，不依赖连接 session 时区；会话行锁分配的 seq 保证同毫秒排序。
 	// 点写消息并通过 uk_im_conversation_seq / uk_im_sender_client_id 约束顺序及幂等；高热点会话仍受单行锁限制。
-	HGIMInsertMessageSQL    = `INSERT INTO im_message(conversation_id,seq,sender_id,client_msg_id,message_type,content,content_hash,created_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`
-	HGIMHistorySQL          = `SELECT id,seq,sender_id,message_type,content,created_at FROM im_message WHERE conversation_id=? AND seq>? ORDER BY seq ASC LIMIT ?`
-	HGIMConversationPageSQL = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? ORDER BY c.id DESC LIMIT ?`
-	HGIMReadSQL             = `UPDATE im_conversation_member SET last_read_seq=GREATEST(last_read_seq,?) WHERE conversation_id=? AND user_id=?`
-	HGIMActiveDevicesSQL    = `SELECT id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 6`
+	HGIMInsertMessageSQL = `INSERT INTO im_message(conversation_id,seq,sender_id,client_msg_id,message_type,content,content_hash,created_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`
+	HGIMHistorySQL       = `SELECT id,seq,sender_id,message_type,content,created_at FROM im_message WHERE conversation_id=? AND seq>? ORDER BY seq ASC LIMIT ?`
+	// 按 uk_im_conversation_seq 读取单会话最早仍存在的 seq；物理删历史后只允许客户端跳过此前缀。
+	HGIMHistoryFloorSQL            = `SELECT seq FROM im_message WHERE conversation_id=? ORDER BY seq ASC LIMIT 1`
+	HGIMConversationPageSQL        = `SELECT c.id,c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high,m.muted FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.user_id=? AND c.id<? AND (m.deleted_at IS NULL OR c.last_seq>m.deleted_seq) ORDER BY c.id DESC LIMIT ?`
+	HGIMConversationByIDSQL        = `SELECT c.last_seq,m.last_read_seq,c.updated_at,c.user_low,c.user_high,m.muted FROM im_conversation_member m JOIN im_conversation c ON c.id=m.conversation_id WHERE m.conversation_id=? AND m.user_id=? LIMIT 1`
+	HGIMRestoreConversationSQL     = `UPDATE im_conversation_member SET deleted_at=NULL,deleted_seq=0 WHERE conversation_id=? AND user_id=?`
+	HGIMDeleteProgressSQL          = `SELECT deleted_seq,deleted_at FROM im_conversation_member WHERE conversation_id=? AND user_id=?`
+	HGIMStageConversationDeleteSQL = `UPDATE im_conversation_member SET deleted_at=NULL,deleted_seq=? WHERE conversation_id=? AND user_id=?`
+	HGIMSetMutedSQL                = `UPDATE im_conversation_member SET muted=? WHERE conversation_id=? AND user_id=?`
+	// 按会话+created_at 索引有界查询；固定 UTC 截止时间，避免深 OFFSET。删除前需锁定会话行以排斥同时发送。
+	HGIMOldMessagesSQL = `SELECT id FROM im_message FORCE INDEX(idx_im_message_retention) WHERE conversation_id=? AND created_at<? ORDER BY created_at,id LIMIT 21`
+	// 关联记录须先于消息删除；idx_im_job_message、idx_im_delivery_message 与附件映射主键点写。
+	// 每事务最多 20 条消息，失败可重试；对象存储媒体需另行授权清理，不在事务内访问外部服务。
+	HGIMDeleteJobSQL            = `DELETE FROM im_realtime_job WHERE message_id=?`
+	HGIMDeleteDeliverySQL       = `DELETE FROM im_device_delivery WHERE message_id=?`
+	HGIMDeleteAttachmentLinkSQL = `DELETE FROM im_message_attachment WHERE message_id=?`
+	HGIMDeleteMessageSQL        = `DELETE FROM im_message WHERE id=? AND conversation_id=?`
+	HGIMHideConversationSQL     = `UPDATE im_conversation_member SET deleted_at=UTC_TIMESTAMP(3),deleted_seq=? WHERE conversation_id=? AND user_id=?`
+	HGIMReadSQL                 = `UPDATE im_conversation_member SET last_read_seq=GREATEST(last_read_seq,?) WHERE conversation_id=? AND user_id=?`
+	HGIMActiveDevicesSQL        = `SELECT id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY id LIMIT 6`
 	// 最早登录设备：按首次注册时间排序，同毫秒以设备 ID 稳定打破并列；走 idx_im_device_oldest，旧失活行需定期归档。
 	HGIMOldestDeviceSQL = `SELECT id,session_id FROM im_device WHERE user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY ORDER BY created_at,id LIMIT 1`
 	// 所有新会话鉴权均按 (user_id,session_id,forced_logout_at) 点查；不能用只在客户端清理 token 替代服务端撤销。
