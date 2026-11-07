@@ -49,7 +49,7 @@ CREATE TABLE hg_mall_cny_group (
  target_members TINYINT UNSIGNED NOT NULL COMMENT '目标人数，2-10 人',
  paid_members TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '已模拟支付人数',
  reserved_members TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '未支付占位人数',
- status TINYINT NOT NULL DEFAULT 0 COMMENT '0待团长支付、1招募中、2已成团、3到期失败、4团长取消',
+ status TINYINT NOT NULL DEFAULT 0 COMMENT '0待团长支付、1招募中、2已成团、3到期失败、4团长取消、5到期退款结清',
  expires_at DATETIME(3) NOT NULL COMMENT '成团截止时间，UTC 毫秒',
  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间，UTC 毫秒',
  PRIMARY KEY (group_id), KEY idx_hg_cny_groups_product (product_id,status,expires_at), KEY idx_hg_cny_groups_expire (status,expires_at,group_id),

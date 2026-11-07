@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -87,8 +86,20 @@ func hgContext(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), 5*time.Second)
 }
 
+// hgSandbox 防止未迁移的 pre/prod 环境访问仅在 debug 库创建的 CNY 表。
+func hgSandbox(w http.ResponseWriter, r *http.Request) bool {
+	if cfg.IsMallCNYSandboxEnabled() {
+		return true
+	}
+	hgError(w, r, ErrHGUnavailable)
+	return false
+}
+
 // HGList 按内部游标有界列出已审批商家的人民币商品；不混入 M币目录。
 func (h *HGHandler) HGList(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	hgCursor := uint64(math.MaxUint64)
 	if hgText := r.URL.Query().Get("cursor"); hgText != "" {
 		var err error
@@ -121,6 +132,9 @@ func (h *HGHandler) HGDetail(w http.ResponseWriter, r *http.Request) {
 		hgError(w, r, ErrHGInvalid)
 		return
 	}
+	if !hgSandbox(w, r) {
+		return
+	}
 	hgCtx, hgCancel := hgContext(r)
 	defer hgCancel()
 	hgItem, err := h.repo.HGDetail(hgCtx, id)
@@ -143,7 +157,8 @@ func (h *HGHandler) HGPublish(w http.ResponseWriter, r *http.Request) {
 	if !hgDecode(w, r, &req) {
 		return
 	}
-	if !hgText(req.Title, 128) || !hgText(req.SKUTitle, 128) || utf8.RuneCountInString(req.Description) > 4096 || !utf8.ValidString(req.Description) || req.PriceFen < 1 || req.PriceFen > 10000000 || req.Stock < 1 || req.Stock > 100000 || ((req.GroupPriceFen == nil) != (req.GroupMembers == 0)) || req.GroupMembers != 0 && (req.GroupMembers < 2 || req.GroupMembers > 10 || *req.GroupPriceFen < 1 || *req.GroupPriceFen > req.PriceFen) || req.ImageURL != "" && (!strings.HasPrefix(req.ImageURL, "/uploads/mall_product/") || len(req.ImageURL) > 1024 || strings.ContainsAny(req.ImageURL, "?#\\")) {
+	// CNY 商品暂不提供图片绑定接口，不能让卖家冒用其他店铺已审核的 URL。
+	if !hgText(req.Title, 128) || !hgText(req.SKUTitle, 128) || utf8.RuneCountInString(req.Description) > 4096 || !utf8.ValidString(req.Description) || req.PriceFen < 1 || req.PriceFen > 10000000 || req.Stock < 1 || req.Stock > 100000 || ((req.GroupPriceFen == nil) != (req.GroupMembers == 0)) || req.GroupMembers != 0 && (req.GroupMembers < 2 || req.GroupMembers > 10 || *req.GroupPriceFen < 1 || *req.GroupPriceFen > req.PriceFen) || req.ImageURL != "" {
 		hgError(w, r, ErrHGInvalid)
 		return
 	}
@@ -183,6 +198,9 @@ func (h *HGHandler) HGCreateCoupon(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, hgCoupon)
 }
 func (h *HGHandler) HGCoupons(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	id := r.URL.Query().Get("productId")
 	if !hgID(id) {
 		hgError(w, r, ErrHGInvalid)
@@ -237,6 +255,9 @@ func hgValidOrder(req HGOrderRequest, buy bool) bool {
 	return true
 }
 func (h *HGHandler) HGPreview(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	user, ok := hgUser(w, r)
 	if !ok {
 		return
@@ -285,6 +306,9 @@ func (h *HGHandler) HGBuy(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, hgOrder)
 }
 func (h *HGHandler) HGGroups(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	id := r.URL.Query().Get("productId")
 	if !hgID(id) {
 		hgError(w, r, ErrHGInvalid)
@@ -300,6 +324,9 @@ func (h *HGHandler) HGGroups(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, hgItems)
 }
 func (h *HGHandler) HGGroup(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	id := r.URL.Query().Get("groupId")
 	if !hgID(id) {
 		hgError(w, r, ErrHGInvalid)
@@ -315,6 +342,9 @@ func (h *HGHandler) HGGroup(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, hgGroup)
 }
 func (h *HGHandler) HGOrder(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	user, ok := hgUser(w, r)
 	if !ok {
 		return
@@ -334,6 +364,9 @@ func (h *HGHandler) HGOrder(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, hgOrder)
 }
 func (h *HGHandler) HGOrders(w http.ResponseWriter, r *http.Request) {
+	if !hgSandbox(w, r) {
+		return
+	}
 	user, ok := hgUser(w, r)
 	if !ok {
 		return

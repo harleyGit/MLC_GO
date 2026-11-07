@@ -33,8 +33,10 @@ const HGCNYGroupSQL = `SELECT group_id,product_id,target_members,paid_members,re
 const HGCNYGroupLockSQL = `SELECT group_id,product_id,target_members,paid_members,reserved_members,status,expires_at FROM hg_mall_cny_group WHERE group_id=? FOR UPDATE`
 const HGCNYGroupInsertSQL = `INSERT INTO hg_mall_cny_group(group_id,product_id,creator_id,target_members,reserved_members,status,expires_at) VALUES(?,?,?,?,1,0,?)`
 const HGCNYGroupReserveSQL = `UPDATE hg_mall_cny_group SET reserved_members=reserved_members+1 WHERE group_id=? AND product_id=? AND status=1 AND expires_at>UTC_TIMESTAMP(3) AND paid_members+reserved_members<target_members`
-const HGCNYGroupPaidSQL = `UPDATE hg_mall_cny_group SET reserved_members=reserved_members-1,paid_members=paid_members+1,status=CASE WHEN paid_members+1=target_members THEN 2 ELSE 1 END WHERE group_id=? AND reserved_members>0 AND status IN (0,1) AND expires_at>UTC_TIMESTAMP(3)`
-const HGCNYGroupReleaseSQL = `UPDATE hg_mall_cny_group SET reserved_members=reserved_members-1,status=CASE WHEN status=0 THEN 4 ELSE status END WHERE group_id=? AND reserved_members>0 AND status IN (0,1)`
+
+// MySQL 单表 UPDATE 赋值从左到右；status 比较的是本句已递增的 paid_members，不能再 +1，否则提前成团。
+const HGCNYGroupPaidSQL = `UPDATE hg_mall_cny_group SET reserved_members=reserved_members-1,paid_members=paid_members+1,status=CASE WHEN paid_members=target_members THEN 2 ELSE 1 END,expires_at=CASE WHEN status=1 AND paid_members=1 THEN UTC_TIMESTAMP(3)+INTERVAL 1 DAY ELSE expires_at END WHERE group_id=? AND reserved_members>0 AND status IN (0,1) AND expires_at>UTC_TIMESTAMP(3)`
+const HGCNYGroupReleaseSQL = `UPDATE hg_mall_cny_group SET reserved_members=reserved_members-1,status=CASE WHEN status=0 THEN 4 ELSE status END WHERE group_id=? AND reserved_members>0 AND status IN (0,1,3,4,5)`
 
 // 同一次购买先查 (user_id,request_id) 唯一索引；命中时比较哈希，不重复预留库存或券。
 const HGCNYOrderReplaySQL = `SELECT order_id,product_id,title,quantity,purchase_type,COALESCE(group_id,''),COALESCE(coupon_id,''),total_fen,discount_fen,payable_fen,status,expires_at,request_hash FROM hg_mall_cny_order WHERE user_id=? AND request_id=? LIMIT 1`
@@ -57,6 +59,13 @@ const HGCNYOrderRefundSQL = `UPDATE hg_mall_cny_order SET status=4 WHERE order_i
 // 拼团最多 10 个不同用户，成团后只更新同 group_id 的已付待成团订单，不触碰其他商家。
 const HGCNYGroupOrdersReadySQL = `UPDATE hg_mall_cny_order SET status=1 WHERE group_id=? AND status=2`
 const HGCNYPaymentInsertSQL = `INSERT INTO hg_mall_cny_payment(order_id,payment_id,user_id,amount_fen) VALUES(?,?,?,?)`
+const HGCNYPaymentAmountSQL = `SELECT amount_fen FROM hg_mall_cny_payment WHERE order_id=? AND user_id=? LIMIT 1`
 const HGCNYRefundInsertSQL = `INSERT INTO hg_mall_cny_refund(order_id,refund_id,user_id,amount_fen) VALUES(?,?,?,?)`
 const HGCNYGroupFailSQL = `UPDATE hg_mall_cny_group SET status=3 WHERE group_id=? AND status=1 AND expires_at<=UTC_TIMESTAMP(3)`
-const HGCNYGroupRefundableSQL = `SELECT status,expires_at FROM hg_mall_cny_group WHERE group_id=? FOR UPDATE`
+
+// 定时任务每轮只处理最多 20 笔过期待支付及 10 个过期/待结算拼团；根据唯一 ID 重放幂等。
+const HGCNYExpiredOrderBatchSQL = `SELECT order_id,user_id FROM hg_mall_cny_order WHERE status=0 AND expires_at<=UTC_TIMESTAMP(3) ORDER BY expires_at,id LIMIT 20`
+const HGCNYExpiredGroupBatchSQL = `SELECT group_id FROM hg_mall_cny_group WHERE status=1 AND expires_at<=UTC_TIMESTAMP(3) ORDER BY expires_at,group_id LIMIT 10`
+const HGCNYFailedGroupBatchSQL = `SELECT group_id FROM hg_mall_cny_group WHERE status=3 ORDER BY expires_at,group_id LIMIT 10`
+const HGCNYGroupOpenOrdersSQL = `SELECT order_id,user_id,status FROM hg_mall_cny_order WHERE group_id=? AND status IN (0,2) ORDER BY id LIMIT 11`
+const HGCNYGroupSettledSQL = `UPDATE hg_mall_cny_group SET status=5 WHERE group_id=? AND status=3 AND NOT EXISTS (SELECT 1 FROM hg_mall_cny_order WHERE group_id=? AND status IN (0,2))`

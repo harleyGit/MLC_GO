@@ -105,6 +105,6 @@ type HGGroup struct {
 	TargetMembers   uint8     `json:"targetMembers"`   // 目标人数，2-10。
 	PaidMembers     uint8     `json:"paidMembers"`     // 已模拟支付人数。
 	ReservedMembers uint8     `json:"reservedMembers"` // 未支付订单占位人数。
-	Status          uint8     `json:"status"`          // 0未激活、1招募中、2成团、3失败、4取消。
+	Status          uint8     `json:"status"`          // 0未激活、1招募中、2成团、3失败、4取消、5失败且退款结清。
 	ExpiresAt       time.Time `json:"expiresAt"`       // 拼团截止时间，UTC。
 }

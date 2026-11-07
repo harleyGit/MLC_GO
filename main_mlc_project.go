@@ -12,6 +12,7 @@ import (
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
 	IAMModulePackage "MLC_GO/internal/modules/iam/module"
 	IMModulePackage "MLC_GO/internal/modules/im/module"
+	"MLC_GO/internal/modules/mallcny"
 	NotificationModulePackage "MLC_GO/internal/modules/notification/module"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
@@ -92,6 +93,7 @@ type MLCApplication struct {
 	interactionReprojector  *VideoInteractionTaskPackage.HGReprojector
 	coinJobs                *CoinTaskPackage.HGJobs
 	mallExpiry              *product.HGExpiryWorker
+	mallCNYExpiry           *mallcny.HGExpiryWorker // debug 沙箱有界超时与退款补偿，须先于 MySQL 池关闭。
 	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
@@ -727,15 +729,21 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 	imRuntimeOwned = true
 	return &MLCApplication{
-		server:                  srv,
-		managementServer:        managementServer,
-		redisService:            redisService,
-		sqlManager:              sqlManager,
-		kafkaCloser:             kafkaCloser,
-		kafkaRuntime:            kafkaRuntime,
-		interactionReprojector:  interactionReprojector,
-		coinJobs:                coinJobs,
-		mallExpiry:              product.HGStartExpiryWorker(product.HGNewOrderRepository(sqlManager.GetSQLDB())),
+		server:                 srv,
+		managementServer:       managementServer,
+		redisService:           redisService,
+		sqlManager:             sqlManager,
+		kafkaCloser:            kafkaCloser,
+		kafkaRuntime:           kafkaRuntime,
+		interactionReprojector: interactionReprojector,
+		coinJobs:               coinJobs,
+		mallExpiry:             product.HGStartExpiryWorker(product.HGNewOrderRepository(sqlManager.GetSQLDB())),
+		mallCNYExpiry: func() *mallcny.HGExpiryWorker {
+			if !ConfigPackage.IsMallCNYSandboxEnabled() {
+				return nil
+			}
+			return mallcny.HGStartExpiryWorker(mallcny.HGNewRepository(sqlManager.GetSQLDB()))
+		}(),
 		correctionRecovery:      correctionRecovery,
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
@@ -927,6 +935,9 @@ func (app *MLCApplication) Close() {
 	}
 	if app.mallExpiry != nil {
 		app.mallExpiry.Close()
+	}
+	if app.mallCNYExpiry != nil {
+		app.mallCNYExpiry.Close()
 	}
 	if app.correctionRecovery != nil {
 		app.correctionRecovery.Close()

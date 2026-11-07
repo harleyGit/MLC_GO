@@ -126,11 +126,17 @@ func (r *HGRepository) HGCreateCoupon(ctx context.Context, user string, req HGCr
 	defer tx.Rollback()
 	var hgMerchant string
 	if err = tx.QueryRowContext(ctx, q.HGCNYMerchantSQL, user).Scan(&hgMerchant); err != nil {
-		return HGCoupon{}, ErrHGNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGCoupon{}, ErrHGNotFound
+		}
+		return HGCoupon{}, err
 	}
 	var hgExists int
 	if err = tx.QueryRowContext(ctx, q.HGCNYMerchantProductSQL, req.ProductID, hgMerchant).Scan(&hgExists); err != nil {
-		return HGCoupon{}, ErrHGNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGCoupon{}, ErrHGNotFound
+		}
+		return HGCoupon{}, err
 	}
 	hgCoupon := HGCoupon{CouponID: util.GenerateBusinessID("CNYCOU"), ProductID: req.ProductID, ThresholdFen: req.ThresholdFen, DiscountFen: req.DiscountFen, Remaining: req.Quantity, ExpiresAt: req.ExpiresAt.UTC()}
 	_, err = tx.ExecContext(ctx, q.HGCNYCouponInsertSQL, hgCoupon.CouponID, hgCoupon.ProductID, hgCoupon.ThresholdFen, hgCoupon.DiscountFen, hgCoupon.Remaining, hgCoupon.ExpiresAt)
@@ -540,12 +546,22 @@ func (r *HGRepository) HGDebugRefund(ctx context.Context, user, id string) (HGOr
 	if hgOrder.Status != 1 && hgOrder.Status != 2 {
 		return HGOrder{}, ErrHGConflict
 	}
+	var hgPaidAmount int64
+	if err = tx.QueryRowContext(ctx, q.HGCNYPaymentAmountSQL, id, user).Scan(&hgPaidAmount); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGOrder{}, ErrHGConflict
+		}
+		return HGOrder{}, err
+	}
+	if hgPaidAmount != hgOrder.PayableFen {
+		return HGOrder{}, ErrHGConflict
+	}
 	if hgOrder.GroupID != "" {
 		hgGroup, hgErr := hgGroupScan(tx.QueryRowContext(ctx, q.HGCNYGroupLockSQL, hgOrder.GroupID))
 		if hgErr != nil {
 			return HGOrder{}, hgErr
 		}
-		if hgGroup.Status != 3 && hgGroup.Status != 4 {
+		if hgGroup.Status != 3 && hgGroup.Status != 4 && hgGroup.Status != 5 {
 			return HGOrder{}, ErrHGConflict
 		}
 	}
@@ -564,7 +580,122 @@ func (r *HGRepository) HGDebugRefund(ctx context.Context, user, id string) (HGOr
 	return r.HGOrder(ctx, user, id)
 }
 
-func (r *HGRepository) HGFailExpiredGroup(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, q.HGCNYGroupFailSQL, id)
+// HGExpiryBatch 有界推进订单取消、拼团到期及退款；跨 Pod 并发以订单行锁和唯一索引幂等。
+func (r *HGRepository) HGExpiryBatch(ctx context.Context) error {
+	hgExpired, err := r.db.QueryContext(ctx, q.HGCNYExpiredOrderBatchSQL)
+	if err != nil {
+		return err
+	}
+	type hgOwnerOrder struct {
+		id, user string
+		status   uint8
+	}
+	hgOrders := make([]hgOwnerOrder, 0, 20)
+	for hgExpired.Next() {
+		var hgItem hgOwnerOrder
+		if err = hgExpired.Scan(&hgItem.id, &hgItem.user); err != nil {
+			_ = hgExpired.Close()
+			return err
+		}
+		hgOrders = append(hgOrders, hgItem)
+	}
+	err = hgExpired.Err()
+	_ = hgExpired.Close()
+	if err != nil {
+		return err
+	}
+	for _, hgItem := range hgOrders {
+		if _, err = r.HGCancel(ctx, hgItem.user, hgItem.id); err != nil && !errors.Is(err, ErrHGConflict) {
+			return err
+		}
+	}
+	hgExpiring, err := r.db.QueryContext(ctx, q.HGCNYExpiredGroupBatchSQL)
+	if err != nil {
+		return err
+	}
+	hgGroups := make([]string, 0, 10)
+	for hgExpiring.Next() {
+		var hgID string
+		if err = hgExpiring.Scan(&hgID); err != nil {
+			_ = hgExpiring.Close()
+			return err
+		}
+		hgGroups = append(hgGroups, hgID)
+	}
+	err = hgExpiring.Err()
+	_ = hgExpiring.Close()
+	if err != nil {
+		return err
+	}
+	for _, hgID := range hgGroups {
+		if _, err = r.db.ExecContext(ctx, q.HGCNYGroupFailSQL, hgID); err != nil {
+			return err
+		}
+	}
+	hgFailed, err := r.db.QueryContext(ctx, q.HGCNYFailedGroupBatchSQL)
+	if err != nil {
+		return err
+	}
+	hgGroups = hgGroups[:0]
+	for hgFailed.Next() {
+		var hgID string
+		if err = hgFailed.Scan(&hgID); err != nil {
+			_ = hgFailed.Close()
+			return err
+		}
+		hgGroups = append(hgGroups, hgID)
+	}
+	err = hgFailed.Err()
+	_ = hgFailed.Close()
+	if err != nil {
+		return err
+	}
+	for _, hgID := range hgGroups {
+		if err = r.hgSettleFailedGroup(ctx, hgID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *HGRepository) hgSettleFailedGroup(ctx context.Context, groupID string) error {
+	hgRows, err := r.db.QueryContext(ctx, q.HGCNYGroupOpenOrdersSQL, groupID)
+	if err != nil {
+		return err
+	}
+	hgOrders := make([]struct {
+		id, user string
+		status   uint8
+	}, 0, 10)
+	for hgRows.Next() {
+		var hgItem struct {
+			id, user string
+			status   uint8
+		}
+		if err = hgRows.Scan(&hgItem.id, &hgItem.user, &hgItem.status); err != nil {
+			_ = hgRows.Close()
+			return err
+		}
+		hgOrders = append(hgOrders, hgItem)
+	}
+	err = hgRows.Err()
+	_ = hgRows.Close()
+	if err != nil {
+		return err
+	}
+	if len(hgOrders) > 10 {
+		return ErrHGConflict
+	}
+	for _, hgItem := range hgOrders {
+		if hgItem.status == 0 {
+			_, err = r.HGCancel(ctx, hgItem.user, hgItem.id)
+		} else {
+			_, err = r.HGDebugRefund(ctx, hgItem.user, hgItem.id)
+		}
+		if err != nil && !errors.Is(err, ErrHGConflict) {
+			return err
+		}
+	}
+	_, err = r.db.ExecContext(ctx, q.HGCNYGroupSettledSQL, groupID, groupID)
 	return err
 }
