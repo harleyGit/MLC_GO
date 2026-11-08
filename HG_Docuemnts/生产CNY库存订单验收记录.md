@@ -12,7 +12,7 @@
 - `HGOrderStore` 已实现服务端报价、原子库存预占、统一 `trade_order`/明细与独立 CNY 订单/预占事实、幂等重放、取消/有界过期释放、买家归属查询、已付本店订单读取与发货检查。**000065 阶段**未注册创建订单、付款、盘点、发货接口，也未启动过期 worker；最新边界以文末 000066 增量为准。
 - 支付宝/微信未提供协议、回调验签/退款资料及隔离账号；没有创建支付尝试、伪造已付款、执行发货或将沙箱支付接到生产订单。商家发货要求 `trade_order` 与真正外部 `payment_order` 同时具备成功事实；目前无生产渠道可生成该事实。
 
-## 上线前阻断项
+## 000065/000066 阶段遗留阻断项（以文末 000067 当前边界为准）
 
 1. 取得渠道非敏感协议与隔离测试条件，明确渠道订单号、签名、退款及迟到回调语义；实现支付入账、库存 RESERVED→SOLD、异常实收退款/对账，并用相同订单锁序验证竞争。
 2. 确认仓库真实库存来源与盘点审计/权限，实现正式有界库存调整接口及权限规则；按业务需要补充运费、售后、订单金额和收件地址隐私策略。
@@ -25,3 +25,18 @@
 - `SERVER_ENV=debug`、加载配置环境 `debug`、显式 `MLC_COMMERCE_DEBUG_TRADING=true` **三条件同时满足**才允许 HTTP 盘点、预占、取消及订单查询；关闭开关或运行在 pre/prod 时，交易路径 fail-closed，不查未迁移的交易表。旧 CNY 沙箱开关不影响本模块。启用时注册可停止的每5秒/批20单、4秒超时的过期 worker；进程退出时在关闭 MySQL 前等待结束。启用开关前须先完成 `000066`，启动时校验迁移版本和 dirty 状态，未满足则拒绝启动交易模块。
 - 已注册 `GET /api/v1/commerce/merchant/inventory`、`POST /merchant/inventory/adjust`、`POST /orders/preview`、`POST /orders`、`GET /orders`、`GET /orders/detail`、`POST /orders/cancel`。盘点仅能调整本人获批店铺的公开 SKU，需乐观锁版本和非空原因，更新与 `commerce_inventory_adjustment` 审计同事务；测试直接调用实际 HTTP handler + 隔离 MySQL。订单由真实服务端计算价格并校验本人地址，只能处于待支付或取消状态。
 - 已注册 `POST /orders/payment` 与 `POST /merchant/orders/ship` 的 **不可用响应**，两者在 debug、pre、prod 均返回 503，不创建支付事实、不发货。授权设计 `SIMULATED` 独立 debug 渠道**不等于渠道协议、验签和退款已实现**；目前没有支付宝/微信隔离测试资料，无法声称 debug 完成付款-退款-发货闭环，也不能断言 pre/prod “只接渠道即可正式使用”。正式启用前必须分别验证渠道验签入账、退款/迟到回调对账、订单锁竞争、审计、浏览器 JWT/API Guard 和多实例容量。
+
+## 当前增量：000067 独立 SIMULATED 渠道与页面（仅本机 debug）
+
+- 本机隔离 debug MySQL 已获授权执行 `000067_commerce_simulated_payment.up.sql`，最近一次复查 `migration_version=67 dirty=false`；未在 pre/prod 迁移。原 `000066` 阶段“模拟支付及发货均不可用”的记述为历史状态，**当前仅本机 debug 显式开关**允许 SIMULATED 下单、模拟收款、退款和发货。生产 CNY 商品、旧 debug CNY 沙箱及 M币商品继续分离，模拟流水和退款均不得冒充支付宝或微信资金往来。
+- 开启前必须同时满足加载的 `debug` 环境、`SERVER_ENV=debug`、`MLC_COMMERCE_DEBUG_TRADING=true`、迁移版本/非 dirty 检查以及独立 `MLC_COMMERCE_SIMULATED_WEBHOOK_KEY`（至少 32 字节）。业务 handler 与 store 双重 fail-closed；pre/prod 未开放交易写入，不访问未迁移的订单表。密钥只在服务端持有，不由浏览器输入、记录或返回。
+- `POST /orders/payment` 只为本人待支付订单创建唯一的 `SIMULATED` 待回调支付尝试，**不表示付款成功**。`POST /admin/simulated-payment/callback` 须经过 JWT、API Guard、商城审核 IAM 权限，再对原始 JSON 字节 HMAC-SHA256 验签；金额、币种、订单、尝试流水、模拟外部流水及事件 ID 都受校验。同一事件和正文可幂等重放，同一事件改金额/流水或已入账后再次支付拒绝。`POST /admin/simulated-payment/settle` 为管理员本机显式模拟收款：仅提交订单 ID，由服务端生成一次性事件并走同一验签状态机；重复入账返回冲突，不向网页提供密钥。**此操作不是外部支付渠道验收**。
+- 已收款且未发货的本人订单可以模拟原路退款，更新统一交易、CNY 订单与退款记录；**已售库存不会因退款自动回补可售，需商家按实物盘点处理**。已发货退款拒绝。取消/过期后到达的签名模拟收款保留支付事实并在同一事务登记模拟退款，绝不恢复履约或重新占库存。库存从预占到已售、过期或取消后的释放遵守订单行锁和库存原子更新；商家发货需本店权限与 `SIMULATED` 支付成功证明。只读 `/admin/simulated-payment/reconcile` 检测漂移，不在线修正。
+- 隔离 MySQL 用例 `SERVER_ENV=debug MLC_COMMERCE_INTEGRATION=1 go test -tags production ./internal/modules/commerce -run '^TestHGCommerceDebugLifecycle$' -count=1 -v` 通过：随机夹具验证 10 件库存的并发预占守恒、过期释放、事件验签与篡改拒绝、重放、迟到收款退款、管理员生成模拟事件、重复入账冲突、退款/发货竞争及单订单漂移检查。夹具自动清理；不会发起真实支付。`go test -tags production ./internal/modules/commerce/... ./internal/pkg/hg_router ./internal/pkg/config -count=1` 通过，含管理员收款/回调的未登录、错误令牌、无 IAM、错误 API 签名、pre/prod 环境拒绝路径；这些是本地 handler/路由测试，**不是浏览器验收**。
+- React debug 工作台接入同一 JWT 与签名网络链，提供本人地址与服务端报价、可重试幂等预占、模拟支付尝试/退款、商家权威库存盘点与发货、管理员服务端模拟收款及只读对账。页面入口仅在 Vite `debug` 模式展示；release/pre 即使直接访问路由也不渲染交易操作，后端环境校验为最终边界。商家页及目录页均明确标注非真实付款。定向 Node VM 测试 18/18、改动文件 ESLint 与 Vite debug 构建通过；VM 测试不启动浏览器或真实 API。
+
+## 当前不能开放 pre/prod 的条件
+
+1. 分别取得支付宝与微信的真实协议、隔离测试条件；完成各自回调验签、金额与外部流水校验、退款及迟到回调对账和负向/竞争验收，不得以 SIMULATED 的 HMAC 替代。
+2. 确认生产盘点权威来源、地址隐私与运费/售后政策，以及多实例过期补偿、告警和热点 SKU/亿级订单的 EXPLAIN 与容量实测；本机用例不能证明这些容量条件。
+3. 真实浏览器账号、JWT/API Guard、媒体对象存储与页面联调尚未执行：用户要求不让聊天明文口令进入命令/脚本/日志，且暂未提供安全凭据读取方式。上述 HTTP/VM 测试与构建不能替代此项；获得隔离账号安全读取方式后，仅在确认的本机回环 debug 服务补验。

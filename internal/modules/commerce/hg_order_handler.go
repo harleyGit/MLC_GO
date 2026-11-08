@@ -229,6 +229,35 @@ func (h *HGHandler) HGSimulatedCallback(w http.ResponseWriter, r *http.Request) 
 	resp.SuccessResult(w, r, result)
 }
 
+// HGSimulatedSettle 是 debug 管理员显式模拟收款操作，后端生成并验签一次性事件，不向网页暴露模拟密钥。
+func (h *HGHandler) HGSimulatedSettle(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	if _, ok := hgAuth(w, r); !ok {
+		return
+	}
+	secret := []byte(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY"))
+	if len(secret) < 32 {
+		hgError(w, r, ErrHGPaymentUnavailable)
+		return
+	}
+	var req struct {
+		OrderID string `json:"orderId"` /* 模拟订单 ID，仅管理员操作。 */
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	result, err := h.orders.HGSettleSimulated(ctx, secret, req.OrderID)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, result)
+}
+
 // HGOrderRefund 模拟已付未发货原路退款；不得混入真实支付流水。
 func (h *HGHandler) HGOrderRefund(w http.ResponseWriter, r *http.Request) {
 	if !h.hgDebugTrading(w, r) {

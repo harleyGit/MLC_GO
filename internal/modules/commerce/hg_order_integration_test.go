@@ -335,6 +335,15 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	if status := callback(paid.OrderID, pay.PaymentID, eventID, true); status != http.StatusOK {
 		t.Fatalf("同事件重放应幂等：%d", status)
 	}
+	// 同一事件改写金额或流水即使持有有效测试签名也不能覆盖既有事实。
+	tampered := HGSimulatedEvent{EventID: eventID, PaymentID: pay.PaymentID, OrderID: paid.OrderID, ExternalPaymentID: "SIMEXT_" + eventID, Currency: "CNY", AmountCent: 101, Status: "SUCCESS"}
+	rawTampered, _ := json.Marshal(tampered)
+	if _, err = store.HGApplySimulatedEvent(ctx, []byte(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY")), rawTampered, HGSimulatedSignature([]byte(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY")), rawTampered)); !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("已使用事件号不得变更金额：%v", err)
+	}
+	if status := callback(paid.OrderID, pay.PaymentID, util.GenerateBusinessID("SIMEVT"), true); status != http.StatusConflict {
+		t.Fatalf("已入账订单不得接受第二次收款：%d", status)
+	}
 	if _, err = store.HGSellerOrder(ctx, buyer, paid.OrderID); !errors.Is(err, ErrHGForbidden) {
 		t.Fatalf("跨店收件详情必须拒绝：%v", err)
 	}
@@ -346,6 +355,9 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	shipOrder, err := store.HGOrder(ctx, buyer, paid.OrderID)
 	if err != nil || shipOrder.Status != 3 {
 		t.Fatalf("模拟订单发货状态异常: %d %v", shipOrder.Status, err)
+	}
+	if err = store.HGRefundSimulated(ctx, buyer, paid.OrderID); !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("已发货订单不允许模拟未发货退款：%v", err)
 	}
 	refundOrder := orders[3]
 	refundPay, err := store.HGStartSimulatedPayment(ctx, buyer, refundOrder.OrderID)
@@ -363,7 +375,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	if err = store.HGRefundSimulated(ctx, buyer, refundOrder.OrderID); err != nil {
 		t.Fatalf("模拟退款重复请求须幂等：%v", err)
 	}
-	if err = store.HGShipSimulated(ctx, seller, HGShipRequest{OrderID: refundOrder.OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}); !errors.Is(err, ErrHGForbidden) {
+	if err = store.HGShipSimulated(ctx, seller, HGShipRequest{OrderID: refundOrder.OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}); !errors.Is(err, ErrHGConflict) {
 		t.Fatalf("退款后发货必须拒绝：%v", err)
 	}
 	lateOrder := orders[4]
@@ -439,5 +451,28 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	}
 	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockReadSQL, product).Scan(&available, &reserved, &sold); err != nil || available < 0 || reserved < 0 || sold < 0 {
 		t.Fatalf("模拟付款退款竞争库存出现负值：%d %d %d %v", available, reserved, sold, err)
+	}
+	if available+reserved+sold != 10 {
+		t.Fatalf("隔离盘点10件库存守恒失败：available=%d reserved=%d sold=%d", available, reserved, sold)
+	}
+	// 浏览器管理员无需获取签名密钥：经后端显式模拟收款入口调用同一验签状态机。
+	manual := orders[7]
+	if _, err = store.HGStartSimulatedPayment(ctx, buyer, manual.OrderID); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	handler.HGSimulatedSettle(w, request(http.MethodPost, "/admin/simulated-payment/settle", buyer, map[string]string{"orderId": manual.OrderID}))
+	if w.Code != http.StatusOK {
+		t.Fatalf("管理员模拟验签入账失败：%d", w.Code)
+	}
+	manualStatus, err := store.HGReconcileSimulated(ctx, manual.OrderID)
+	if err != nil || manualStatus.Drift || manualStatus.OrderStatus != 2 {
+		t.Fatalf("管理员模拟付款账本异常：%+v %v", manualStatus, err)
+	}
+	// 模拟付款成功后，管理员重试同一单不可重演支付事实。
+	w = httptest.NewRecorder()
+	handler.HGSimulatedSettle(w, request(http.MethodPost, "/admin/simulated-payment/settle", buyer, map[string]string{"orderId": manual.OrderID}))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("重复模拟入账应冲突：%d", w.Code)
 	}
 }

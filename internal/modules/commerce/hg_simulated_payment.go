@@ -58,6 +58,35 @@ func HGSimulatedSignature(secret, raw []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// HGSettleSimulated 仅 debug 管理员专用操作入口在完成 IAM 验证后调用；服务端生成单次模拟事件再走同一验签入账路径。
+// 这是可审计的测试操作，不代替外部渠道回调或真实支付证明；密钥永不返回浏览器。
+func (s *HGOrderStore) HGSettleSimulated(ctx context.Context, secret []byte, orderID string) (HGSimulatedReceipt, error) {
+	if !config.IsCommerceDebugTradingEnabled() {
+		return HGSimulatedReceipt{}, ErrHGPaymentUnavailable
+	}
+	if len(secret) < 32 || !hgID(orderID) {
+		return HGSimulatedReceipt{}, ErrHGInvalid
+	}
+	var paymentID, owner string
+	var amount int64
+	var status uint8
+	if err := s.db.QueryRowContext(ctx, q.HGCommerceSimPaymentGetSQL, orderID).Scan(&paymentID, &owner, &amount, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGSimulatedReceipt{}, ErrHGConflict
+		}
+		return HGSimulatedReceipt{}, err
+	}
+	if status != 1 {
+		return HGSimulatedReceipt{}, ErrHGConflict
+	}
+	eventID := util.GenerateBusinessID("SIMEVT")
+	raw, err := json.Marshal(HGSimulatedEvent{EventID: eventID, PaymentID: paymentID, OrderID: orderID, ExternalPaymentID: "SIMEXT_" + eventID, Currency: "CNY", AmountCent: amount, Status: "SUCCESS"})
+	if err != nil {
+		return HGSimulatedReceipt{}, err
+	}
+	return s.HGApplySimulatedEvent(ctx, secret, raw, HGSimulatedSignature(secret, raw))
+}
+
 func hgVerifySimulated(secret, raw []byte, signature string) bool {
 	if len(secret) < 32 || len(signature) != 64 {
 		return false
@@ -361,7 +390,7 @@ func (s *HGOrderStore) HGReconcileSimulated(ctx context.Context, id string) (HGR
 	case 3:
 		result.Drift = result.TradeStatus != 3 || result.ReservationStatus != 3 || result.PaymentStatus != 2 || result.EventResult != "PAID" || result.RefundStatus != 0
 	case 5:
-		result.Drift = result.TradeStatus != 5 || result.ReservationStatus != 2 || result.RefundStatus != 0 && result.RefundStatus != 2 || result.PaymentStatus == 2 && (result.RefundStatus != 2 || result.EventResult != "REFUNDED_LATE" && result.EventResult != "REFUNDED_EXPIRED") || result.PaymentStatus != 2 && result.EventResult != ""
+		result.Drift = result.TradeStatus != 5 || result.ReservationStatus != 2 || (result.PaymentStatus == 2 && (result.RefundStatus != 2 || result.EventResult != "REFUNDED_LATE" && result.EventResult != "REFUNDED_EXPIRED")) || (result.PaymentStatus != 2 && (result.RefundStatus != 0 || result.EventResult != ""))
 	case 6:
 		result.Drift = result.TradeStatus != 7 || result.ReservationStatus != 3 || result.PaymentStatus != 2 || result.EventResult != "PAID" || result.RefundStatus != 2
 	default:
