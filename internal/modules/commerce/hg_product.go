@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrHGInvalid   = errors.New("商品参数无效")
-	ErrHGForbidden = errors.New("无商品操作权限")
-	ErrHGConflict  = errors.New("商品版本或状态冲突")
+	ErrHGInvalid          = errors.New("商品参数无效")
+	ErrHGForbidden        = errors.New("无商品操作权限")
+	ErrHGMerchantRequired = errors.New("需要已批准的商家身份")
+	ErrHGConflict         = errors.New("商品版本或状态冲突")
 )
 
 // HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
@@ -210,6 +211,14 @@ func (s *HGService) HGCategories(ctx context.Context, user string) ([]HGCategory
 		return nil, ErrHGForbidden
 	}
 	return s.repo.HGCategories(ctx, user)
+}
+
+// HGAdminCategories 通过平台审核权限读取类目，不赋予商家身份或商品归属权限。
+func (s *HGService) HGAdminCategories(ctx context.Context, user string) ([]HGCategory, error) {
+	if err := s.hgReviewAllowed(ctx, user); err != nil {
+		return nil, err
+	}
+	return s.repo.HGAdminCategories(ctx)
 }
 
 // HGCreateCategory 仅平台管理员可维护类目；受监管类目保留但不可发布。

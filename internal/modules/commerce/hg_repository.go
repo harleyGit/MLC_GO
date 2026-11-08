@@ -42,10 +42,15 @@ func (r *HGRepository) HGCategories(ctx context.Context, user string) ([]HGCateg
 	var merchant string
 	if err := r.db.QueryRowContext(ctx, q.HGCommerceMerchantSQL, user).Scan(&merchant); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrHGForbidden
+			return nil, ErrHGMerchantRequired
 		}
 		return nil, err
 	}
+	return r.HGAdminCategories(ctx)
+}
+
+// HGAdminCategories 读取平台普通叶子类目；调用方必须先通过审核权限校验。
+func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, error) {
 	rows, err := r.db.QueryContext(ctx, q.HGCommerceCategorySQL)
 	if err != nil {
 		return nil, err

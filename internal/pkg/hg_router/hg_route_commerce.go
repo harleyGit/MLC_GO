@@ -25,10 +25,11 @@ func HGCommerceRouteCatalog() []RouteCatalogItem {
 }
 
 func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
-	var categories, createCategory, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
+	var categories, adminCategories, createCategory, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
 	var inventory, adjust, preview, createOrder, orderDetail, orders, cancelOrder, payment, refund, callback, settle, reconcile, merchantOrders, merchantDetail, shipment http.HandlerFunc
 	if h != nil {
 		categories, createCategory = h.HGCategories, h.HGCreateCategory
+		adminCategories = h.HGAdminCategories
 		create, edit, submit, review, publish, unpublish = h.HGCreateDraft, h.HGEditDraft, h.HGSubmit, h.HGReview, h.HGPublish, h.HGUnpublish
 		archive = h.HGArchive
 		list, mine, pending, detail, mineDetail, pendingDetail = h.HGList, h.HGMine, h.HGPending, h.HGDetail, h.HGMineDetail, h.HGPendingDetail
@@ -41,6 +42,7 @@ func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 	}
 	return []RouteSpec{
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/categories", true, "本人可经营普通类目", categories),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/admin/categories", true, "平台普通叶子类目", adminCategories, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/categories", true, "平台维护类目", createCategory, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/products", true, "创建 CNY 商品草稿", create, permission.HGMallProductCreate),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/products/edit", true, "本人编辑草稿版本", edit, permission.HGMallProductUpdate),

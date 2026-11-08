@@ -3,6 +3,7 @@ package HGRouterPackage
 import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	permission "MLC_GO/internal/pkg/permission"
 	HGResponsePackage "MLC_GO/internal/response"
 	"context"
 	"net/http"
@@ -108,20 +109,34 @@ func hgPermissionHandler(hgSpec RouteSpec, hgAuthorizer HGRouteAuthorizer) http.
 				return
 			}
 			if hgSpec.PermissionMatch == HGPermissionMatchAll && !hgAllowed {
-				hgPermissionError(w, r, http.StatusForbidden)
+				hgRoutePermissionError(w, r, hgPermissions, hgSpec.PermissionMatch)
 				return
 			}
 		}
 		if hgSpec.PermissionMatch == HGPermissionMatchAny {
-			hgPermissionError(w, r, http.StatusForbidden)
+			hgRoutePermissionError(w, r, hgPermissions, hgSpec.PermissionMatch)
 			return
 		}
 		hgSpec.Handler(w, r)
 	})
 }
 
+// hgRoutePermissionError 从路由声明生成缺失权限提示，不暴露调用者的 IAM 绑定信息。
+func hgRoutePermissionError(w http.ResponseWriter, r *http.Request, permissions []permission.HGPermission, match HGPermissionMatch) {
+	items := make([]string, 0, len(permissions))
+	for _, item := range permissions {
+		items = append(items, string(item))
+	}
+	mode := "all"
+	if match == HGPermissionMatchAny {
+		mode = "any"
+	}
+	w.WriteHeader(http.StatusForbidden)
+	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGPermissionError("", mode, items...))
+}
+
 func hgPermissionError(w http.ResponseWriter, r *http.Request, hgStatus int) {
-	hgResult := HGResponsePackage.HGErrorResult{Code: HGResponsePackage.Forbidden.Code, Message: "无权执行此操作"}
+	hgResult := HGResponsePackage.HGPermissionError("需具备相应操作权限或满足资源归属条件", "")
 	if hgStatus == http.StatusServiceUnavailable {
 		hgResult = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InternalError.Code, Message: "权限服务暂不可用"}
 	}

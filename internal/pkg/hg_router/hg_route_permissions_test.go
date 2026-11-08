@@ -145,6 +145,9 @@ func TestHGRoutePermissionChain(t *testing.T) {
 			if strings.Contains(hgResponse.Body.String(), "private-database-diagnostic") {
 				t.Fatal("泄露存储诊断")
 			}
+			if hgCase.hgStatus == http.StatusForbidden && !strings.Contains(hgResponse.Body.String(), "crawler:task:write") {
+				t.Fatal("拒绝时未说明路由声明的所需权限")
+			}
 		})
 	}
 }

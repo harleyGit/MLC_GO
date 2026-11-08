@@ -13,7 +13,7 @@ func TestHGCommerceCatalogGuardAndRootPrefix(t *testing.T) {
 	items := HGCommerceRouteCatalog()
 	rules := hgRouteGuardRules(hgCommerceRoutes(nil))
 	// GET/POST /merchant/products 及 GET/POST /orders 各共用一条 Guard 方法规则。
-	if len(items) != 33 || len(rules) != 31 {
+	if len(items) != 34 || len(rules) != 31 {
 		t.Fatalf("生产商品路由或 Guard 数量不一致：%d %d", len(items), len(rules))
 	}
 	for _, item := range items {
@@ -30,7 +30,7 @@ func TestHGCommerceCatalogGuardAndRootPrefix(t *testing.T) {
 		// 交易写路由虽可发现，环境与渠道均必须在处理器内 fail-closed。
 	}
 	group := HGNewCommerceRouteGroup(nil, nil)
-	for _, route := range []struct{ method, path string }{{http.MethodGet, "/products"}, {http.MethodGet, "/admin/products/detail"}, {http.MethodPost, "/merchant/products/submit"}, {http.MethodPost, "/merchant/images/delete"}, {http.MethodPost, "/orders/payment"}, {http.MethodPost, "/admin/simulated-payment/settle"}} {
+	for _, route := range []struct{ method, path string }{{http.MethodGet, "/products"}, {http.MethodGet, "/admin/categories"}, {http.MethodGet, "/admin/products/detail"}, {http.MethodPost, "/merchant/products/submit"}, {http.MethodPost, "/merchant/images/delete"}, {http.MethodPost, "/orders/payment"}, {http.MethodPost, "/admin/simulated-payment/settle"}} {
 		request := httptest.NewRequest(route.method, HGCommerceBasePath+route.path, nil)
 		request.URL.Path = strings.TrimPrefix(request.URL.Path, HGCommerceBasePath)
 		writer := httptest.NewRecorder()

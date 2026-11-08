@@ -60,7 +60,9 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGInvalid):
 		status, message = http.StatusBadRequest, "商品参数无效"
 	case errors.Is(err, ErrHGForbidden):
-		status, message = http.StatusForbidden, "无权操作商品或类目"
+		status, message = http.StatusForbidden, resp.HGPermissionError("需具备相应操作权限或满足本人商品/订单归属条件", "").Message
+	case errors.Is(err, ErrHGMerchantRequired):
+		status, message = http.StatusForbidden, resp.HGPermissionError("需要已批准的商家身份（mall_merchant.status=1）；平台类目请由具备 mall:merchant:review 权限的审核员使用 GET /api/v1/commerce/admin/categories", "").Message
 	case errors.Is(err, ErrHGConflict):
 		status, message = http.StatusConflict, "商品状态、规格或版本已变化"
 	case errors.Is(err, ErrHGStock):
@@ -71,6 +73,9 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusNotFound, "商品或类目不存在"
 	}
 	code := resp.InvalidParam.Code
+	if status == http.StatusForbidden {
+		code = resp.Forbidden.Code
+	}
 	if status >= 500 {
 		code = resp.InternalError.Code
 	}
@@ -107,6 +112,22 @@ func (h *HGHandler) HGCategories(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := hgContext(r)
 	defer cancel()
 	items, err := h.service.HGCategories(ctx, id)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, items)
+}
+
+// HGAdminCategories 供具备商城审核权限的管理员读取平台类目，不要求商家入驻。
+func (h *HGHandler) HGAdminCategories(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	items, err := h.service.HGAdminCategories(ctx, id)
 	if err != nil {
 		hgError(w, r, err)
 		return

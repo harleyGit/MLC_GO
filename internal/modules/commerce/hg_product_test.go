@@ -6,7 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -14,6 +17,47 @@ import (
 
 func hgTestDraft() HGDraftInput {
 	return HGDraftInput{CategoryID: "1", ProductType: "PHYSICAL", Title: "测试实物", ImageURLs: []string{"/commerce/one.jpg"}, SKUs: []HGSKUInput{{SKUCode: "BLACK", Specs: map[string]string{"颜色": "黑色"}, PriceCent: 100, InitialStock: 0}, {SKUCode: "WHITE", Specs: map[string]string{"颜色": "白色"}, PriceCent: 101, InitialStock: 1}}}
+}
+
+// TestHGAdminCategoriesRequiresReviewButNotMerchant 验证管理员可读平台类目，商家接口仍需要已批准商家身份。
+func TestHGAdminCategoriesRequiresReviewButNotMerchant(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := HGNewService(HGNewRepository(db), nil)
+	if _, err := service.HGAdminCategories(context.Background(), "admin"); !errors.Is(err, ErrHGForbidden) {
+		t.Fatalf("无审核权限必须拒绝: %v", err)
+	}
+	service.reviewer = hgCommerceTestReviewer{}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth"}).AddRow(12, "普通叶子类目", nil, 1))
+	items, err := service.HGAdminCategories(context.Background(), "admin")
+	if err != nil || len(items) != 1 || items[0].ID != "12" {
+		t.Fatalf("管理员类目读取失败: %v %+v", err, items)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceMerchantSQL)).WithArgs("admin").WillReturnRows(sqlmock.NewRows([]string{"merchant_id"}))
+	if _, err := service.HGCategories(context.Background(), "admin"); !errors.Is(err, ErrHGMerchantRequired) {
+		t.Fatalf("未入驻管理员不应获商家身份: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGMerchantCategoryDenialExplainsRequirement(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/commerce/merchant/categories", nil)
+	hgError(w, r, ErrHGMerchantRequired)
+	var body struct {
+		Code int `json:"code"` // 权限失败统一使用 ForbiddenCode，不再冒充参数无效。
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "mall_merchant.status=1") || !strings.Contains(w.Body.String(), "mall:merchant:review") || body.Code != 300004 {
+		t.Fatalf("商家身份拒绝响应未说明条件或管理员路径: %d %s", w.Code, w.Body.String())
+	}
 }
 
 func TestHGValidateDraftBoundaries(t *testing.T) {
