@@ -3,7 +3,11 @@ package commerce
 import (
 	config "MLC_GO/internal/pkg/config"
 	resp "MLC_GO/internal/response"
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
+	"os"
 )
 
 // hgDebugTrading 仅本机隔离 debug 的显式交易开关可读写订单；pre/prod 不访问尚未迁移的交易表。
@@ -164,12 +168,165 @@ func (h *HGHandler) HGOrderCancel(w http.ResponseWriter, r *http.Request) {
 	resp.SuccessResult(w, r, struct{}{})
 }
 
-// HGOrderPayment 在渠道回调协议、验签、退款与迟到入账对账未验收前始终拒绝；不接受浏览器模拟成功。
+// HGOrderPayment 创建待回调模拟支付尝试；客户端提交成功不等于已经到账。
 func (h *HGHandler) HGOrderPayment(w http.ResponseWriter, r *http.Request) {
-	hgError(w, r, ErrHGPaymentUnavailable)
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		OrderID string `json:"orderId"` /* 本人待支付的生产 CNY 订单。 */
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	result, err := h.orders.HGStartSimulatedPayment(ctx, user, req.OrderID)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, result)
 }
 
-// HGOrderShipment 在渠道入账及退款竞争未验收前始终拒绝；内部 HGShip 的存在不授予 HTTP 发货能力。
+// HGSimulatedCallback 只受 debug 开关+管理员权限保护，验证原始正文 HMAC 后才允许修改收款事实。
+func (h *HGHandler) HGSimulatedCallback(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	if _, ok := hgAuth(w, r); !ok {
+		return
+	}
+	secret := []byte(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY"))
+	if len(secret) < 32 {
+		hgError(w, r, ErrHGPaymentUnavailable)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil || len(raw) == 0 {
+		hgError(w, r, ErrHGInvalid)
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var event HGSimulatedEvent
+	if decoder.Decode(&event) != nil || decoder.Decode(new(any)) != io.EOF {
+		hgError(w, r, ErrHGInvalid)
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	result, err := h.orders.HGApplySimulatedEvent(ctx, secret, raw, r.Header.Get("X-Simulated-Signature"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, result)
+}
+
+// HGOrderRefund 模拟已付未发货原路退款；不得混入真实支付流水。
+func (h *HGHandler) HGOrderRefund(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		OrderID string `json:"orderId"` /* 本人已确认模拟支付且未发货的订单。 */
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	if err := h.orders.HGRefundSimulated(ctx, user, req.OrderID); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct{}{})
+}
+
+// HGMerchantOrders 商家只能读取已付本店的订单列表，收件信息仅详情返回。
+func (h *HGHandler) HGMerchantOrders(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	page, err := h.orders.HGOrders(ctx, user, r.URL.Query().Get("cursor"), true)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, page)
+}
+
+// HGMerchantOrderDetail 限本店支付后详情，用于发货前确认收件快照。
+func (h *HGHandler) HGMerchantOrderDetail(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	order, err := h.orders.HGSellerOrder(ctx, user, r.URL.Query().Get("orderId"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, order)
+}
+
+// HGSimulatedReconcile 仅管理员按订单查看隔离支付事实漂移，绝不在线改写权威状态。
+func (h *HGHandler) HGSimulatedReconcile(w http.ResponseWriter, r *http.Request) {
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	if _, ok := hgAuth(w, r); !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	result, err := h.orders.HGReconcileSimulated(ctx, r.URL.Query().Get("orderId"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, result)
+}
+
+// HGOrderShipment 仅在 debug 已验签模拟支付且没有退款时允许本店发货；pre/prod 均拒绝。
 func (h *HGHandler) HGOrderShipment(w http.ResponseWriter, r *http.Request) {
-	hgError(w, r, ErrHGPaymentUnavailable)
+	if !h.hgDebugTrading(w, r) {
+		return
+	}
+	user, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var req HGShipRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	if err := h.orders.HGShipSimulated(ctx, user, req); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct{}{})
 }

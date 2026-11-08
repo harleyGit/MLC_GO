@@ -295,6 +295,18 @@ func (s *HGOrderStore) HGOrder(ctx context.Context, user, id string) (HGOrder, e
 	return order, err
 }
 
+// HGSellerOrder 仅本人获批店铺的已付订单可读取地址快照；未付不向商家泄露买家信息。
+func (s *HGOrderStore) HGSellerOrder(ctx context.Context, user, id string) (HGOrder, error) {
+	if user == "" || !hgID(id) {
+		return HGOrder{}, ErrHGInvalid
+	}
+	order, err := hgOrderScan(s.db.QueryRowContext(ctx, q.HGCommerceOrderSellerOneSQL, user, id), true)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HGOrder{}, ErrHGForbidden
+	}
+	return order, err
+}
+
 // HGOrders 按本人或已支付本店订单稳定游标分页；列表不查询收件个人信息。
 func (s *HGOrderStore) HGOrders(ctx context.Context, user, cursor string, merchant bool) (HGOrderPage, error) {
 	if user == "" {

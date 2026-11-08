@@ -39,6 +39,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	}
 	t.Setenv("MLC_CONFIG_DIR", "../../../config")
 	t.Setenv("MLC_COMMERCE_DEBUG_TRADING", "true")
+	t.Setenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY", "integration-only-simulated-channel-v1-key-unique")
 	if err := cfg.LoadConfig("debug"); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	defer stop()
 	var migration uint64
 	var dirty bool
-	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 66 || dirty {
+	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 67 || dirty {
 		t.Fatalf("隔离库版本不符合约束：version=%d dirty=%t err=%v", migration, dirty, err)
 	}
 	seller := util.GenerateBusinessID("COMTESTSELL")
@@ -96,6 +97,9 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 			t.Errorf("读取测试订单清单失败：%v", readErr)
 		}
 		for _, id := range orderIDs {
+			clean(q.HGCommerceFixtureRemoveSimEventSQL, id)
+			clean(q.HGCommerceFixtureRemoveSimRefundSQL, id, buyer, "SIMREF_"+id)
+			clean(q.HGCommerceFixtureRemoveSimPaymentSQL, id, buyer)
 			clean(q.HGCommerceFixtureRemoveReservationSQL, id)
 			clean(q.HGCommerceFixtureRemoveItemSQL, id, buyer)
 			clean(q.HGCommerceFixtureRemoveOrderSQL, id, buyer)
@@ -262,13 +266,13 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	}
 	writer = httptest.NewRecorder()
 	handler.HGOrderPayment(writer, request(http.MethodPost, "/orders/payment", buyer, map[string]any{"orderId": orders[2].OrderID}))
-	if writer.Code != http.StatusServiceUnavailable {
-		t.Fatalf("未验收渠道不允许付款：%d", writer.Code)
+	if writer.Code != http.StatusOK {
+		t.Fatalf("debug 模拟支付应只创建待回调尝试：%d", writer.Code)
 	}
 	writer = httptest.NewRecorder()
 	handler.HGOrderShipment(writer, request(http.MethodPost, "/merchant/orders/ship", seller, HGShipRequest{OrderID: orders[2].OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}))
-	if writer.Code != http.StatusServiceUnavailable {
-		t.Fatalf("未验收渠道不允许发货：%d", writer.Code)
+	if writer.Code != http.StatusConflict {
+		t.Fatalf("未到账不得发货：%d", writer.Code)
 	}
 	var httpOrderID string
 	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureOrderByRequestSQL, buyer, "http-debug-"+buyer[len(buyer)-8:]).Scan(&httpOrderID); err != nil {
@@ -300,5 +304,140 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	worker.Close()
 	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockReadSQL, product).Scan(&available, &reserved, &sold); err != nil || available != 2 || reserved != 8 || sold != 0 {
 		t.Fatalf("自动释放库存不守恒：%d %d %d err=%v", available, reserved, sold, err)
+	}
+	// 每单使用唯一模拟流水及事件；管理员回调经原始字节 HMAC 验证，不能用买家提交模拟付款成功。
+	callback := func(orderID, paymentID, eventID string, sign bool) int {
+		event := HGSimulatedEvent{EventID: eventID, PaymentID: paymentID, OrderID: orderID, ExternalPaymentID: "SIMEXT_" + eventID, Currency: "CNY", AmountCent: 100, Status: "SUCCESS"}
+		raw, _ := json.Marshal(event)
+		req := httptest.NewRequest(http.MethodPost, "/admin/simulated-payment/callback", bytes.NewReader(raw))
+		req = req.WithContext(context.WithValue(req.Context(), userjwt.UserIDKey, &usersvc.HGClaims{UserID: buyer}))
+		signature := "00"
+		if sign {
+			signature = HGSimulatedSignature([]byte(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY")), raw)
+		}
+		req.Header.Set("X-Simulated-Signature", signature)
+		w := httptest.NewRecorder()
+		handler.HGSimulatedCallback(w, req)
+		return w.Code
+	}
+	paid := orders[2]
+	pay, err := store.HGStartSimulatedPayment(ctx, buyer, paid.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventID := util.GenerateBusinessID("SIMEVT")
+	if status := callback(paid.OrderID, pay.PaymentID, eventID, false); status != http.StatusForbidden {
+		t.Fatalf("错误签名不得入账：%d", status)
+	}
+	if status := callback(paid.OrderID, pay.PaymentID, eventID, true); status != http.StatusOK {
+		t.Fatalf("验签后模拟入账：%d", status)
+	}
+	if status := callback(paid.OrderID, pay.PaymentID, eventID, true); status != http.StatusOK {
+		t.Fatalf("同事件重放应幂等：%d", status)
+	}
+	if _, err = store.HGSellerOrder(ctx, buyer, paid.OrderID); !errors.Is(err, ErrHGForbidden) {
+		t.Fatalf("跨店收件详情必须拒绝：%v", err)
+	}
+	w := httptest.NewRecorder()
+	handler.HGOrderShipment(w, request(http.MethodPost, "/merchant/orders/ship", seller, HGShipRequest{OrderID: paid.OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}))
+	if w.Code != http.StatusOK {
+		t.Fatalf("验签到账本店发货失败：%d", w.Code)
+	}
+	shipOrder, err := store.HGOrder(ctx, buyer, paid.OrderID)
+	if err != nil || shipOrder.Status != 3 {
+		t.Fatalf("模拟订单发货状态异常: %d %v", shipOrder.Status, err)
+	}
+	refundOrder := orders[3]
+	refundPay, err := store.HGStartSimulatedPayment(ctx, buyer, refundOrder.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := callback(refundOrder.OrderID, refundPay.PaymentID, util.GenerateBusinessID("SIMEVT"), true); status != http.StatusOK {
+		t.Fatalf("退款前付款失败：%d", status)
+	}
+	w = httptest.NewRecorder()
+	handler.HGOrderRefund(w, request(http.MethodPost, "/orders/refund", buyer, map[string]string{"orderId": refundOrder.OrderID}))
+	if w.Code != http.StatusOK {
+		t.Fatalf("模拟退款失败：%d", w.Code)
+	}
+	if err = store.HGRefundSimulated(ctx, buyer, refundOrder.OrderID); err != nil {
+		t.Fatalf("模拟退款重复请求须幂等：%v", err)
+	}
+	if err = store.HGShipSimulated(ctx, seller, HGShipRequest{OrderID: refundOrder.OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}); !errors.Is(err, ErrHGForbidden) {
+		t.Fatalf("退款后发货必须拒绝：%v", err)
+	}
+	lateOrder := orders[4]
+	latePay, err := store.HGStartSimulatedPayment(ctx, buyer, lateOrder.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.HGCancel(ctx, buyer, lateOrder.OrderID); err != nil {
+		t.Fatal(err)
+	}
+	if status := callback(lateOrder.OrderID, latePay.PaymentID, util.GenerateBusinessID("SIMEVT"), true); status != http.StatusOK {
+		t.Fatalf("取消后迟到收款须退款：%d", status)
+	}
+	lateStatus, err := store.HGReconcileSimulated(ctx, lateOrder.OrderID)
+	if err != nil || lateStatus.Drift || lateStatus.RefundStatus != 2 {
+		t.Fatalf("迟到回调模拟退款对账失败：%+v %v", lateStatus, err)
+	}
+	raceOrder := orders[5]
+	racePay, err := store.HGStartSimulatedPayment(ctx, buyer, raceOrder.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, q.HGCommerceFixtureExpireOrderSQL, raceOrder.OrderID, buyer); err != nil {
+		t.Fatal(err)
+	}
+	var race sync.WaitGroup
+	race.Add(2)
+	var callbackCode int
+	var expiryErr error
+	go func() {
+		defer race.Done()
+		callbackCode = callback(raceOrder.OrderID, racePay.PaymentID, util.GenerateBusinessID("SIMEVT"), true)
+	}()
+	go func() { defer race.Done(); expiryErr = store.HGExpiryBatch(ctx) }()
+	race.Wait()
+	if callbackCode != http.StatusOK || expiryErr != nil {
+		t.Fatalf("过期/迟到回调竞争失败：callback=%d expiry=%v", callbackCode, expiryErr)
+	}
+	raceResult, err := store.HGReconcileSimulated(ctx, raceOrder.OrderID)
+	if err != nil || raceResult.Drift || raceResult.RefundStatus != 2 {
+		t.Fatalf("过期付款退款对账异常：%+v %v", raceResult, err)
+	}
+	// 已付订单的退款与发货在同一订单行锁上竞争，只允许一个终态。
+	shippingRace := orders[6]
+	shippingPay, err := store.HGStartSimulatedPayment(ctx, buyer, shippingRace.OrderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := callback(shippingRace.OrderID, shippingPay.PaymentID, util.GenerateBusinessID("SIMEVT"), true); status != http.StatusOK {
+		t.Fatalf("竞争前模拟入账失败：%d", status)
+	}
+	var settle sync.WaitGroup
+	settle.Add(2)
+	var refundErr, shipErr error
+	go func() { defer settle.Done(); refundErr = store.HGRefundSimulated(ctx, buyer, shippingRace.OrderID) }()
+	go func() {
+		defer settle.Done()
+		shipErr = store.HGShipSimulated(ctx, seller, HGShipRequest{OrderID: shippingRace.OrderID, Carrier: "快递", TrackingNumber: "TEST-456"})
+	}()
+	settle.Wait()
+	if (refundErr == nil) == (shipErr == nil) {
+		t.Fatalf("退款/发货必须恰好一个成功：refund=%v ship=%v", refundErr, shipErr)
+	}
+	if refundErr != nil && !errors.Is(refundErr, ErrHGConflict) {
+		t.Fatalf("退款竞争错误：%v", refundErr)
+	}
+	if shipErr != nil && !errors.Is(shipErr, ErrHGConflict) && !errors.Is(shipErr, ErrHGForbidden) {
+		t.Fatalf("发货竞争错误：%v", shipErr)
+	}
+	raced, err := store.HGReconcileSimulated(ctx, shippingRace.OrderID)
+	if err != nil || raced.Drift {
+		t.Fatalf("竞争后账本漂移：%+v %v", raced, err)
+	}
+	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockReadSQL, product).Scan(&available, &reserved, &sold); err != nil || available < 0 || reserved < 0 || sold < 0 {
+		t.Fatalf("模拟付款退款竞争库存出现负值：%d %d %d %v", available, reserved, sold, err)
 	}
 }

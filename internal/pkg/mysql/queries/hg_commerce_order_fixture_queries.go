@@ -19,6 +19,9 @@ const (
 	HGCommerceFixtureStockAuditCountSQL   = `SELECT COUNT(*) FROM commerce_inventory_adjustment WHERE product_id=? AND actor_user_id=?`
 	HGCommerceFixtureExpireOrderSQL       = `UPDATE commerce_order SET expire_at=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE trade_order_id=? AND user_id=? AND status=1`
 	HGCommerceFixtureRemoveReservationSQL = `DELETE FROM commerce_inventory_reservation WHERE trade_order_id=?`
+	HGCommerceFixtureRemoveSimEventSQL    = `DELETE FROM commerce_simulated_payment_event WHERE trade_order_id=?`
+	HGCommerceFixtureRemoveSimRefundSQL   = `DELETE FROM refund_order WHERE trade_order_id=? AND user_id=? AND request_id=?`
+	HGCommerceFixtureRemoveSimPaymentSQL  = `DELETE FROM payment_order WHERE trade_order_id=? AND user_id=? AND channel='SIMULATED'`
 	HGCommerceFixtureRemoveOrderSQL       = `DELETE FROM commerce_order WHERE trade_order_id=? AND user_id=?`
 	HGCommerceFixtureRemoveItemSQL        = `DELETE FROM trade_order_item WHERE trade_order_id=? AND user_id=?`
 	HGCommerceFixtureRemoveTradeSQL       = `DELETE FROM trade_order WHERE trade_order_id=? AND user_id=?`

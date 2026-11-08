@@ -11,6 +11,7 @@ import (
 	upload "MLC_GO/internal/pkg/upload"
 	"context"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -54,8 +55,11 @@ func HGRegisterModules(manager *mysql.HGSQLManager) {
 		defer cancel()
 		var version uint64
 		var dirty bool
-		if err := db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&version, &dirty); err != nil || version < 66 || dirty {
-			panic("人民币商品 debug 交易要求完成 000066 且 migration dirty=false")
+		if err := db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&version, &dirty); err != nil || version < 67 || dirty {
+			panic("人民币商品 debug 交易要求完成 000067 且 migration dirty=false")
+		}
+		if len(os.Getenv("MLC_COMMERCE_SIMULATED_WEBHOOK_KEY")) < 32 {
+			panic("人民币商品 debug 模拟渠道要求独立的高熵回调密钥")
 		}
 	}
 	checker := iam.NewHGAssetAuthorizer(iam.NewHGService(iam.NewHGRepository(db)))

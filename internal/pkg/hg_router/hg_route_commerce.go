@@ -26,7 +26,7 @@ func HGCommerceRouteCatalog() []RouteCatalogItem {
 
 func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 	var categories, createCategory, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
-	var inventory, adjust, preview, createOrder, orderDetail, orders, cancelOrder, payment, shipment http.HandlerFunc
+	var inventory, adjust, preview, createOrder, orderDetail, orders, cancelOrder, payment, refund, callback, reconcile, merchantOrders, merchantDetail, shipment http.HandlerFunc
 	if h != nil {
 		categories, createCategory = h.HGCategories, h.HGCreateCategory
 		create, edit, submit, review, publish, unpublish = h.HGCreateDraft, h.HGEditDraft, h.HGSubmit, h.HGReview, h.HGPublish, h.HGUnpublish
@@ -35,6 +35,8 @@ func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 		image, unused, remove = h.HGImage, h.HGUnusedImages, h.HGDeleteUnusedImage
 		inventory, adjust, preview, createOrder = h.HGInventory, h.HGInventoryAdjust, h.HGOrderPreview, h.HGOrderCreate
 		orderDetail, orders, cancelOrder, payment, shipment = h.HGOrderDetail, h.HGOrderList, h.HGOrderCancel, h.HGOrderPayment, h.HGOrderShipment
+		refund, callback, merchantOrders, merchantDetail = h.HGOrderRefund, h.HGSimulatedCallback, h.HGMerchantOrders, h.HGMerchantOrderDetail
+		reconcile = h.HGSimulatedReconcile
 	}
 	return []RouteSpec{
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/categories", true, "本人可经营普通类目", categories),
@@ -62,7 +64,12 @@ func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/orders/detail", true, "本人生产 CNY 订单详情", orderDetail),
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/orders", true, "本人生产 CNY 订单列表", orders),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/cancel", true, "本人待支付订单取消", cancelOrder),
-		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/payment", true, "未验收渠道：拒绝创建支付事实", payment),
-		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/orders/ship", true, "未验收渠道：拒绝发货", shipment, permission.HGMallOrderShip),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/payment", true, "debug 模拟支付尝试", payment),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/refund", true, "debug 模拟已付未发货退款", refund),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/simulated-payment/callback", true, "隔离 debug 已验签模拟渠道回调", callback, permission.HGMallMerchantReview),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/admin/simulated-payment/reconcile", true, "隔离 debug 模拟订单对账漂移报告", reconcile, permission.HGMallMerchantReview),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/orders", true, "本店已付订单列表", merchantOrders, permission.HGMallOrderRead),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/orders/detail", true, "本店已付订单详情", merchantDetail, permission.HGMallOrderRead),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/orders/ship", true, "debug 已付本店订单发货", shipment, permission.HGMallOrderShip),
 	}
 }
