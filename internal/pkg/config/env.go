@@ -154,6 +154,12 @@ func IsMallCNYSandboxEnabled() bool {
 	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv("MLC_MALL_CNY_SANDBOX") == "true"
 }
 
+// IsCommerceDebugTradingEnabled 双重限定当前进程和已加载配置为 debug，并要求单独显式授权；与旧 CNY 沙箱开关隔离。
+// 模拟渠道协议与验签、退款、对账尚未实现，本开关仅允许有审计的盘点与待支付订单预占。
+func IsCommerceDebugTradingEnabled() bool {
+	return os.Getenv("SERVER_ENV") == string(EnvDebug) && viper.GetString(hgLoadedEnvKey) == string(EnvDebug) && os.Getenv("MLC_COMMERCE_DEBUG_TRADING") == "true"
+}
+
 func IsPre() bool {
 	return GetEnv() == EnvPre
 }

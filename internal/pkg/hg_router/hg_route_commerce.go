@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-// HGCommerceBasePath 与旧 M币商城及 debug CNY 沙箱隔离；生产商品暂不提供购买接口。
+// HGCommerceBasePath 与旧 M币商城及 debug CNY 沙箱隔离；交易写路由在 pre/prod 均 fail-closed。
 const HGCommerceBasePath = "/api/v1/commerce"
 
 // HGNewCommerceRouteGroup 复用 JWT、API Guard、签名及商城 IAM 权限校验。
@@ -26,12 +26,15 @@ func HGCommerceRouteCatalog() []RouteCatalogItem {
 
 func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 	var categories, createCategory, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
+	var inventory, adjust, preview, createOrder, orderDetail, orders, cancelOrder, payment, shipment http.HandlerFunc
 	if h != nil {
 		categories, createCategory = h.HGCategories, h.HGCreateCategory
 		create, edit, submit, review, publish, unpublish = h.HGCreateDraft, h.HGEditDraft, h.HGSubmit, h.HGReview, h.HGPublish, h.HGUnpublish
 		archive = h.HGArchive
 		list, mine, pending, detail, mineDetail, pendingDetail = h.HGList, h.HGMine, h.HGPending, h.HGDetail, h.HGMineDetail, h.HGPendingDetail
 		image, unused, remove = h.HGImage, h.HGUnusedImages, h.HGDeleteUnusedImage
+		inventory, adjust, preview, createOrder = h.HGInventory, h.HGInventoryAdjust, h.HGOrderPreview, h.HGOrderCreate
+		orderDetail, orders, cancelOrder, payment, shipment = h.HGOrderDetail, h.HGOrderList, h.HGOrderCancel, h.HGOrderPayment, h.HGOrderShipment
 	}
 	return []RouteSpec{
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/categories", true, "本人可经营普通类目", categories),
@@ -52,5 +55,14 @@ func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/images", true, "本人上传生产商品图片", image, permission.HGMallProductCreate),
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/images/unused", true, "本人未绑定图片", unused),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/images/delete", true, "清理本人未绑定图片", remove, permission.HGMallProductCreate),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/inventory", true, "本店 debug SKU 库存", inventory, permission.HGMallProductUpdate),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/inventory/adjust", true, "本店 debug 有审计的库存盘点", adjust, permission.HGMallProductUpdate),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/preview", true, "debug 服务端报价", preview),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders", true, "debug 待支付订单与库存预占", createOrder),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/orders/detail", true, "本人生产 CNY 订单详情", orderDetail),
+		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/orders", true, "本人生产 CNY 订单列表", orders),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/cancel", true, "本人待支付订单取消", cancelOrder),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/orders/payment", true, "未验收渠道：拒绝创建支付事实", payment),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/merchant/orders/ship", true, "未验收渠道：拒绝发货", shipment, permission.HGMallOrderShip),
 	}
 }

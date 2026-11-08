@@ -38,6 +38,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 		t.Fatal("仅允许显式 debug 测试进程")
 	}
 	t.Setenv("MLC_CONFIG_DIR", "../../../config")
+	t.Setenv("MLC_COMMERCE_DEBUG_TRADING", "true")
 	if err := cfg.LoadConfig("debug"); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	defer stop()
 	var migration uint64
 	var dirty bool
-	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 65 || dirty {
+	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 66 || dirty {
 		t.Fatalf("隔离库版本不符合约束：version=%d dirty=%t err=%v", migration, dirty, err)
 	}
 	seller := util.GenerateBusinessID("COMTESTSELL")
@@ -102,6 +103,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 		}
 		clean(q.HGCommerceFixtureRemoveAddressSQL, address, buyer)
 		if product != "" {
+			clean(q.HGCommerceFixtureRemoveStockAuditSQL, product, seller)
 			clean(q.HGCommerceFixtureRemoveStockSQL, product)
 			clean(q.HGCommerceFixtureRemoveSKUSQL, product)
 			clean(q.HGCommerceFixtureRemoveVersionSQL, product)
@@ -136,7 +138,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{})
-	handler := HGNewHandler(service, nil)
+	handler := HGNewHandler(service, nil).HGWithOrderStore(HGNewOrderStore(db))
 	request := func(method, path, user string, payload any) *http.Request {
 		var body []byte
 		if payload != nil {
@@ -186,8 +188,14 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockReadSQL, product).Scan(&available, &reserved, &sold); err != nil || available != 0 {
 		t.Fatalf("审核后库存须为零：%d %v", available, err)
 	}
-	if err = HGNewOrderStore(db).HGAdjustStock(ctx, seller, HGStockAdjustment{ProductID: product, SKUCode: "BLACK", Delta: 10, ExpectedVersion: 1}); err != nil {
-		t.Fatal(err)
+	writer = httptest.NewRecorder()
+	handler.HGInventoryAdjust(writer, request(http.MethodPost, "/merchant/inventory/adjust", seller, HGStockAdjustment{ProductID: product, SKUCode: "BLACK", Delta: 10, ExpectedVersion: 1, Reason: "隔离测试实物盘点10件"}))
+	if writer.Code != http.StatusOK {
+		t.Fatalf("debug 本人盘点 HTTP 状态=%d", writer.Code)
+	}
+	var auditCount int
+	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockAuditCountSQL, product, seller).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("盘点与审计必须同事务持久化：count=%d err=%v", auditCount, err)
 	}
 	store := HGNewOrderStore(db)
 	const contenders = 100
@@ -246,5 +254,51 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	}
 	if err = store.HGShip(ctx, seller, HGShipRequest{OrderID: orders[1].OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}); !errors.Is(err, ErrHGForbidden) {
 		t.Fatalf("未验签支付不得发货：%v", err)
+	}
+	writer = httptest.NewRecorder()
+	handler.HGOrderCreate(writer, request(http.MethodPost, "/orders", buyer, HGReserveRequest{ProductID: product, SKUID: sku, Quantity: 1, AddressID: address, ExpectedCent: 100, RequestID: "http-debug-" + buyer[len(buyer)-8:]}))
+	if writer.Code != http.StatusOK {
+		t.Fatalf("debug 订单预占 HTTP 状态=%d", writer.Code)
+	}
+	writer = httptest.NewRecorder()
+	handler.HGOrderPayment(writer, request(http.MethodPost, "/orders/payment", buyer, map[string]any{"orderId": orders[2].OrderID}))
+	if writer.Code != http.StatusServiceUnavailable {
+		t.Fatalf("未验收渠道不允许付款：%d", writer.Code)
+	}
+	writer = httptest.NewRecorder()
+	handler.HGOrderShipment(writer, request(http.MethodPost, "/merchant/orders/ship", seller, HGShipRequest{OrderID: orders[2].OrderID, Carrier: "快递", TrackingNumber: "TEST-123"}))
+	if writer.Code != http.StatusServiceUnavailable {
+		t.Fatalf("未验收渠道不允许发货：%d", writer.Code)
+	}
+	var httpOrderID string
+	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureOrderByRequestSQL, buyer, "http-debug-"+buyer[len(buyer)-8:]).Scan(&httpOrderID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, q.HGCommerceFixtureExpireOrderSQL, httpOrderID, buyer); err != nil {
+		t.Fatal(err)
+	}
+	worker := hgStartExpiryWorker(store, 20*time.Millisecond)
+	t.Cleanup(worker.Close)
+	wait, waitCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer waitCancel()
+	poll := time.NewTicker(25 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		item, readErr := store.HGOrder(wait, buyer, httpOrderID)
+		if readErr != nil {
+			t.Fatalf("查询自动过期订单失败：%v", readErr)
+		}
+		if item.Status == 5 {
+			break
+		}
+		select {
+		case <-wait.Done():
+			t.Fatal("有界 worker 未能自动释放到期预占")
+		case <-poll.C:
+		}
+	}
+	worker.Close()
+	if err = db.QueryRowContext(ctx, q.HGCommerceFixtureStockReadSQL, product).Scan(&available, &reserved, &sold); err != nil || available != 2 || reserved != 8 || sold != 0 {
+		t.Fatalf("自动释放库存不守恒：%d %d %d err=%v", available, reserved, sold, err)
 	}
 }

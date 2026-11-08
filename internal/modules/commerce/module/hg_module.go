@@ -7,11 +7,14 @@ import (
 	config "MLC_GO/internal/pkg/config"
 	router "MLC_GO/internal/pkg/hg_router"
 	mysql "MLC_GO/internal/pkg/mysql"
+	q "MLC_GO/internal/pkg/mysql/queries"
 	upload "MLC_GO/internal/pkg/upload"
+	"context"
 	"net/http"
+	"time"
 )
 
-// HGModule 是独立生产 CNY 商品模块；暂不连接沙箱、支付、订单或钱包。
+// HGModule 是独立生产 CNY 商品模块；debug 订单仍不接旧沙箱及真实支付。
 type HGModule struct {
 	handler    *commerce.HGHandler      // 商品 HTTP 处理器。
 	authorizer router.HGRouteAuthorizer // 复用 IAM 审核与商家角色权限。
@@ -46,7 +49,16 @@ func HGRegisterModules(manager *mysql.HGSQLManager) {
 		panic(err)
 	}
 	db := manager.GetSQLDB()
+	if config.IsCommerceDebugTradingEnabled() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		var version uint64
+		var dirty bool
+		if err := db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&version, &dirty); err != nil || version < 66 || dirty {
+			panic("人民币商品 debug 交易要求完成 000066 且 migration dirty=false")
+		}
+	}
 	checker := iam.NewHGAssetAuthorizer(iam.NewHGService(iam.NewHGRepository(db)))
 	service := commerce.HGNewService(commerce.HGNewRepository(db), checker)
-	module.RegisterModule(&HGModule{handler: commerce.HGNewHandler(service, commerce.HGNewMediaStore(db, uploader)), authorizer: checker})
+	module.RegisterModule(&HGModule{handler: commerce.HGNewHandler(service, commerce.HGNewMediaStore(db, uploader)).HGWithOrderStore(commerce.HGNewOrderStore(db)), authorizer: checker})
 }

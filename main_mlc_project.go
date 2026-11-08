@@ -6,6 +6,7 @@ import (
 	BilibiliModulePackage "MLC_GO/internal/modules/bilibili/module"
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	CoinTaskPackage "MLC_GO/internal/modules/coin/task"
+	"MLC_GO/internal/modules/commerce"
 	HGCommerceModulePackage "MLC_GO/internal/modules/commerce/module"
 	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
@@ -94,7 +95,8 @@ type MLCApplication struct {
 	interactionReprojector  *VideoInteractionTaskPackage.HGReprojector
 	coinJobs                *CoinTaskPackage.HGJobs
 	mallExpiry              *product.HGExpiryWorker
-	mallCNYExpiry           *mallcny.HGExpiryWorker // debug 沙箱有界超时与退款补偿，须先于 MySQL 池关闭。
+	mallCNYExpiry           *mallcny.HGExpiryWorker  // debug 沙箱有界超时与退款补偿，须先于 MySQL 池关闭。
+	commerceExpiry          *commerce.HGExpiryWorker // 仅显式 debug 开启的生产 CNY 预占释放；须先于 MySQL 关闭。
 	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
 	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
@@ -746,6 +748,12 @@ func buildMLCApplication() (*MLCApplication, error) {
 			}
 			return mallcny.HGStartExpiryWorker(mallcny.HGNewRepository(sqlManager.GetSQLDB()))
 		}(),
+		commerceExpiry: func() *commerce.HGExpiryWorker {
+			if !ConfigPackage.IsCommerceDebugTradingEnabled() {
+				return nil
+			}
+			return commerce.HGStartExpiryWorker(commerce.HGNewOrderStore(sqlManager.GetSQLDB()))
+		}(),
 		correctionRecovery:      correctionRecovery,
 		videoCommentMaintenance: videoCommentComponents.Maintenance,
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
@@ -940,6 +948,9 @@ func (app *MLCApplication) Close() {
 	}
 	if app.mallCNYExpiry != nil {
 		app.mallCNYExpiry.Close()
+	}
+	if app.commerceExpiry != nil {
+		app.commerceExpiry.Close()
 	}
 	if app.correctionRecovery != nil {
 		app.correctionRecovery.Close()

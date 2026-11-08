@@ -14,16 +14,20 @@ import (
 	"time"
 )
 
-// HGHandler 只实现生产 CNY 商品发布与只读目录；故意不提供下单、付款或模拟资金接口。
+// HGHandler 实现生产 CNY 商品发布及 debug 受控订单；生产/预发的交易写入 fail-closed。
 type HGHandler struct {
 	service *HGService    // 发布、审核与归属校验入口。
 	media   *HGMediaStore // 独立生产 CNY 图片资产管理入口。
+	orders  *HGOrderStore // 与商品、统一订单共用的 MySQL 池；nil 表示交易入口不可用。
 }
 
 // HGNewHandler 装配商品和媒体入口，不访问外部服务。
 func HGNewHandler(service *HGService, media *HGMediaStore) *HGHandler {
 	return &HGHandler{service: service, media: media}
 }
+
+// HGWithOrderStore 仅装配共库交易存储，不放宽环境或支付权限。
+func (h *HGHandler) HGWithOrderStore(store *HGOrderStore) *HGHandler { h.orders = store; return h }
 
 func hgAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := user.CurrentUserID(r)
@@ -59,6 +63,10 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusForbidden, "无权操作商品或类目"
 	case errors.Is(err, ErrHGConflict):
 		status, message = http.StatusConflict, "商品状态、规格或版本已变化"
+	case errors.Is(err, ErrHGStock):
+		status, message = http.StatusConflict, "库存不足或商品不可购买"
+	case errors.Is(err, ErrHGPaymentUnavailable):
+		status, message = http.StatusServiceUnavailable, "交易渠道未验收，当前操作未开放"
 	case errors.Is(err, sql.ErrNoRows):
 		status, message = http.StatusNotFound, "商品或类目不存在"
 	}

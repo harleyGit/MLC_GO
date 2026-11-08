@@ -14,7 +14,9 @@ const (
 	HGCommerceFixtureFindDraftSQL         = `SELECT product_id FROM commerce_publish_request WHERE merchant_id=? AND request_id=?`
 	HGCommerceFixtureFindSKUSQL           = `SELECT sku_id FROM commerce_sku WHERE product_id=? AND content_version=1 AND sku_code='BLACK'`
 	HGCommerceFixtureOrderIDsSQL          = `SELECT trade_order_id FROM commerce_order WHERE user_id=? ORDER BY id DESC LIMIT 20`
+	HGCommerceFixtureOrderByRequestSQL    = `SELECT trade_order_id FROM commerce_order WHERE user_id=? AND request_id=?`
 	HGCommerceFixtureStockReadSQL         = `SELECT available,reserved,sold FROM commerce_inventory WHERE product_id=? AND sku_code='BLACK'`
+	HGCommerceFixtureStockAuditCountSQL   = `SELECT COUNT(*) FROM commerce_inventory_adjustment WHERE product_id=? AND actor_user_id=?`
 	HGCommerceFixtureExpireOrderSQL       = `UPDATE commerce_order SET expire_at=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE trade_order_id=? AND user_id=? AND status=1`
 	HGCommerceFixtureRemoveReservationSQL = `DELETE FROM commerce_inventory_reservation WHERE trade_order_id=?`
 	HGCommerceFixtureRemoveOrderSQL       = `DELETE FROM commerce_order WHERE trade_order_id=? AND user_id=?`
@@ -22,6 +24,7 @@ const (
 	HGCommerceFixtureRemoveTradeSQL       = `DELETE FROM trade_order WHERE trade_order_id=? AND user_id=?`
 	HGCommerceFixtureRemoveAddressSQL     = `DELETE FROM user_addresses WHERE address_id=? AND user_id=?`
 	HGCommerceFixtureRemoveStockSQL       = `DELETE FROM commerce_inventory WHERE product_id=? AND sku_code='BLACK'`
+	HGCommerceFixtureRemoveStockAuditSQL  = `DELETE FROM commerce_inventory_adjustment WHERE product_id=? AND actor_user_id=?`
 	HGCommerceFixtureRemoveSKUSQL         = `DELETE FROM commerce_sku WHERE product_id=?`
 	HGCommerceFixtureRemoveVersionSQL     = `DELETE FROM commerce_product_version WHERE product_id=?`
 	HGCommerceFixtureRemoveProductSQL     = `DELETE FROM commerce_product WHERE product_id=?`

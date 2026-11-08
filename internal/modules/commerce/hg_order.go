@@ -11,6 +11,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,6 +81,28 @@ type HGStockAdjustment struct {
 	SKUCode         string `json:"skuCode"`         // 当前公开版本中的 SKU 编码。
 	Delta           int64  `json:"delta"`           // 可售库存增减量，-100000 至 100000 且不为零。
 	ExpectedVersion uint64 `json:"expectedVersion"` // 库存乐观锁版本，用于冲突重读。
+	Reason          string `json:"reason"`          // 本次盘点原因或依据，1-256字符；审计保留，不写请求日志。
+}
+
+// HGStockSnapshot 是本店当前库存快照；调用方不得把建议库存当成可售库存。
+type HGStockSnapshot struct {
+	Available int64  `json:"available"` // 当前可售件数。
+	Reserved  int64  `json:"reserved"`  // 待支付预占件数。
+	Sold      int64  `json:"sold"`      // 已确认支付的件数。
+	Version   uint64 `json:"version"`   // 盘点乐观锁版本。
+}
+
+// HGStock 仅本人已获批商家可读所属 SKU 的库存事实。
+func (s *HGOrderStore) HGStock(ctx context.Context, user, product, sku string) (HGStockSnapshot, error) {
+	if user == "" || !hgID(product) || !hgID(sku) {
+		return HGStockSnapshot{}, ErrHGInvalid
+	}
+	var stock HGStockSnapshot
+	err := s.db.QueryRowContext(ctx, q.HGCommerceStockReadSQL, user, product, sku).Scan(&stock.Available, &stock.Reserved, &stock.Sold, &stock.Version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HGStockSnapshot{}, ErrHGForbidden
+	}
+	return stock, err
 }
 
 // HGShipRequest 仅供真实渠道支付确认后的商家人工发货；当前无支付渠道写入已支付事实。
@@ -309,9 +332,9 @@ func (s *HGOrderStore) HGOrders(ctx context.Context, user, cursor string, mercha
 	return page, nil
 }
 
-// HGAdjustStock 仅供将来人工盘点入口使用；明确盘点前不可将 initial_stock 自动入库。
+// HGAdjustStock 仅供 debug 受控盘点入口使用；同事务写不可变审计，不将 initial_stock 自动入库。
 func (s *HGOrderStore) HGAdjustStock(ctx context.Context, user string, r HGStockAdjustment) error {
-	if user == "" || !hgID(r.ProductID) || !hgID(r.SKUCode) || r.Delta == 0 || r.Delta > 100000 || r.Delta < -100000 || r.ExpectedVersion == 0 {
+	if user == "" || !hgID(r.ProductID) || !hgID(r.SKUCode) || r.Delta == 0 || r.Delta > 100000 || r.Delta < -100000 || r.ExpectedVersion == 0 || !hgText(r.Reason, 256, true) || strings.TrimSpace(r.Reason) == "" {
 		return ErrHGInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -320,7 +343,8 @@ func (s *HGOrderStore) HGAdjustStock(ctx context.Context, user string, r HGStock
 	}
 	defer tx.Rollback()
 	var version uint64
-	if err = tx.QueryRowContext(ctx, q.HGCommerceStockOwnedLockSQL, user, r.ProductID, r.SKUCode).Scan(&version); err != nil {
+	var available int64
+	if err = tx.QueryRowContext(ctx, q.HGCommerceStockOwnedLockSQL, user, r.ProductID, r.SKUCode).Scan(&version, &available); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrHGForbidden
 		}
@@ -330,6 +354,9 @@ func (s *HGOrderStore) HGAdjustStock(ctx context.Context, user string, r HGStock
 		return ErrHGConflict
 	}
 	if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceStockAdjustSQL, r.Delta, r.ProductID, r.SKUCode, version, r.Delta, r.Delta)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, q.HGCommerceStockAuditSQL, util.GenerateBusinessID("COMADJ"), user, r.ProductID, r.SKUCode, r.Delta, available, available+r.Delta, version, r.Reason); err != nil {
 		return err
 	}
 	return tx.Commit()
