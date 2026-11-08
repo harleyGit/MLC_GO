@@ -85,6 +85,8 @@ func TestHGReviewRechecksMerchantAndCategory(t *testing.T) {
 					reason = "图片不清晰"
 					status = "REJECTED"
 					published = 1
+				} else {
+					mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceInventoryEnsureSQL)).WithArgs("CPRD_1", uint64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 				}
 				mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceReviewVersionSQL)).WithArgs("reviewer", reason, "CPRD_1", uint64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 				mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceProductStateSQL)).WithArgs(status, "ON_SHELF", uint64(2), published, "CPRD_1", uint64(3)).WillReturnResult(sqlmock.NewResult(0, 1))

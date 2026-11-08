@@ -306,6 +306,10 @@ func (r *HGRepository) HGReview(ctx context.Context, user, id string, approve bo
 		if err = hgValidateCategory(ctx, tx, strconv.FormatUint(category, 10)); err != nil {
 			return err
 		}
+		// 新审核 SKU 只登记零可售库存；跨版本相同编码保留原库存及已预占量。
+		if _, err = tx.ExecContext(ctx, q.HGCommerceInventoryEnsureSQL, id, p.DraftVersion); err != nil {
+			return err
+		}
 		status = "APPROVED"
 		p.PublishedVersion = p.DraftVersion
 	}
