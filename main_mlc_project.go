@@ -1036,8 +1036,12 @@ func serveNamedMLCServer(name string, srv *http.Server) error {
 	return nil
 }
 
-// buildListenAddr 统一处理端口配置，兼容 "8080" 和 ":8080" 两种写法。
+// buildListenAddr 统一处理端口配置；启用隔离 debug 交易时，仅允许本机回环地址访问业务 HTTP。
+// 关闭开关时保持既有监听地址，pre/prod 不受本机测试隔离策略影响。
 func buildListenAddr(port string) string {
+	if ConfigPackage.IsCommerceDebugTradingEnabled() {
+		return net.JoinHostPort("127.0.0.1", strings.TrimPrefix(port, ":"))
+	}
 	if strings.HasPrefix(port, ":") {
 		return port
 	}
