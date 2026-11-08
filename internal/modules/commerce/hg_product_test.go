@@ -31,7 +31,7 @@ func TestHGAdminCategoriesRequiresReviewButNotMerchant(t *testing.T) {
 		t.Fatalf("无审核权限必须拒绝: %v", err)
 	}
 	service.reviewer = hgCommerceTestReviewer{}
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth"}).AddRow(12, "普通叶子类目", nil, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).AddRow(12, "普通叶子类目", nil, 1, ""))
 	items, err := service.HGAdminCategories(context.Background(), "admin")
 	if err != nil || len(items) != 1 || items[0].ID != "12" {
 		t.Fatalf("管理员类目读取失败: %v %+v", err, items)
@@ -57,6 +57,87 @@ func TestHGMerchantCategoryDenialExplainsRequirement(t *testing.T) {
 	}
 	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "mall_merchant.status=1") || !strings.Contains(w.Body.String(), "mall:merchant:review") || body.Code != 300004 {
 		t.Fatalf("商家身份拒绝响应未说明条件或管理员路径: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHGCategoryCreateInvalidRequestExplainsFields(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/admin/categories", nil)
+	w := httptest.NewRecorder()
+	hgError(w, r, ErrHGInvalid)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "类目参数无效") || !strings.Contains(w.Body.String(), "parentId") || !strings.Contains(w.Body.String(), "imageURL") {
+		t.Fatalf("创建类目失败应指出请求字段: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHGCategoryInvalidFieldErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{ErrHGCategoryNameInvalid, "类目名称无效"},
+		{ErrHGCategoryParentInvalid, "上级类目无效"},
+		{ErrHGCategoryImageInvalid, "类目图片无效"},
+	} {
+		w := httptest.NewRecorder()
+		hgError(w, httptest.NewRequest(http.MethodPost, "/admin/categories", nil), tc.err)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("字段错误未定位: %d %s", w.Code, w.Body.String())
+		}
+	}
+}
+
+// TestHGCategoryImageBindRequiresOwner 验证伪造图片 URL 时回滚类目写入，不可绑定别人的资产。
+func TestHGCategoryImageBindRequiresOwner(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs(nil, uint8(1), "类目", false, "https://example.test/pic.jpg").WillReturnResult(sqlmock.NewResult(31, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs(int64(31), "https://example.test/pic.jpg", "https://example.test/pic.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	_, err = HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{Name: "类目", ImageURL: "https://example.test/pic.jpg"})
+	if !errors.Is(err, ErrHGInvalid) {
+		t.Fatalf("伪造图片 URL 应拒绝并回滚: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryImageBindSucceedsForUploader(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs(nil, uint8(1), "类目", false, "/category.jpg").WillReturnResult(sqlmock.NewResult(32, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs(int64(32), "/category.jpg", "/category.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{Name: "类目", ImageURL: "/category.jpg"})
+	if err != nil || item.ImageURL != "/category.jpg" {
+		t.Fatalf("应原子绑定本人类目图片: %+v %v", item, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryImageCannotDeleteOtherUploaderAsset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaClaimDeleteSQL)).WithArgs("/other.jpg", "/other.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryMediaKeySQL)).WithArgs("/other.jpg", "/other.jpg", "admin").WillReturnRows(sqlmock.NewRows([]string{"storage_key"}))
+	if err = HGNewMediaStore(db, nil).HGDeleteUnusedCategoryImage(context.Background(), "admin", "/other.jpg"); !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("不能清理他人或已绑定的图片: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

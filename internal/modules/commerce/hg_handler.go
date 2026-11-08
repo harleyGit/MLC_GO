@@ -57,8 +57,17 @@ func hgDecode(w http.ResponseWriter, r *http.Request, value any) bool {
 func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	status, message := http.StatusInternalServerError, "人民币商品服务暂不可用"
 	switch {
+	case errors.Is(err, ErrHGCategoryNameInvalid):
+		status, message = http.StatusBadRequest, "类目名称无效：填写 1-64 个字符，不能包含尖括号或换行"
+	case errors.Is(err, ErrHGCategoryParentInvalid):
+		status, message = http.StatusBadRequest, "上级类目无效：填写已启用的上级类目 ID，普通类目不能挂在需资质类目下，最多三级"
+	case errors.Is(err, ErrHGCategoryImageInvalid):
+		status, message = http.StatusBadRequest, "类目图片无效：只能绑定当前管理员已上传且未被其他类目使用的图片"
 	case errors.Is(err, ErrHGInvalid):
 		status, message = http.StatusBadRequest, "商品参数无效"
+		if r.Method == http.MethodPost && r.URL.Path == "/admin/categories" {
+			message = "类目参数无效：请提交 JSON 的 name（1-64 字符）、可选 parentId（有效的上级类目 ID）、regulated（布尔值）和可选 imageURL（本管理员已上传图片）；上级需启用且层级不超过三级"
+		}
 	case errors.Is(err, ErrHGForbidden):
 		status, message = http.StatusForbidden, resp.HGPermissionError("需具备相应操作权限或满足本人商品/订单归属条件", "").Message
 	case errors.Is(err, ErrHGMerchantRequired):
@@ -153,6 +162,80 @@ func (h *HGHandler) HGCreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.SuccessResult(w, r, item)
+}
+
+// HGUploadCategoryImage 审核员专用图片上传，商品商家上传接口不接受管理员身份替代。
+func (h *HGHandler) HGUploadCategoryImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if err := h.service.hgReviewAllowed(ctx, id); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	if r.ContentLength <= 0 || r.ContentLength > 5<<20 {
+		hgError(w, r, ErrHGInvalid)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20)
+	url, err := h.media.HGUploadCategory(ctx, id, strings.ToLower(strings.TrimSpace(r.URL.Query().Get("ext"))), r.Body, r.ContentLength)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		ImageURL string `json:"imageURL"` // 可绑定的管理员类目图片 URL。
+	}{url})
+}
+
+// HGUnusedCategoryImages 列出审核员本人未绑定的图片，避免中断后占满上传额度。
+func (h *HGHandler) HGUnusedCategoryImages(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	if err := h.service.hgReviewAllowed(ctx, id); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	urls, err := h.media.HGUnusedCategoryImages(ctx, id)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct {
+		ImageURLs []string `json:"imageURLs"` // 本人尚未绑定的 URL，最多 20 张。
+	}{urls})
+}
+
+// HGDeleteUnusedCategoryImage 释放本人尚未绑定的类目图片，已绑定图片不可删除。
+func (h *HGHandler) HGDeleteUnusedCategoryImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var request struct {
+		ImageURL string `json:"imageURL"` // 要释放的本人未绑定图片 URL。
+	}
+	if !hgDecode(w, r, &request) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	if err := h.service.hgReviewAllowed(ctx, id); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	if err := h.media.HGDeleteUnusedCategoryImage(ctx, id, request.ImageURL); err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, struct{}{})
 }
 
 // HGCreateDraft 绑定商家幂等键；同键不同正文不创建第二个商品。

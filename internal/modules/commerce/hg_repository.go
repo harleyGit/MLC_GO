@@ -61,7 +61,7 @@ func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, err
 		var id uint64
 		var parent sql.NullInt64
 		var item HGCategory
-		if err = rows.Scan(&id, &item.Name, &parent, &item.Depth); err != nil {
+		if err = rows.Scan(&id, &item.Name, &parent, &item.Depth, &item.ImageURL); err != nil {
 			return nil, err
 		}
 		item.ID = strconv.FormatUint(id, 10)
@@ -71,7 +71,7 @@ func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, err
 }
 
 // HGCreateCategory 仅支持最多三级的平台配置；不预置发布白名单或凭空授予资质。
-func (r *HGRepository) HGCreateCategory(ctx context.Context, request HGCategoryRequest) (HGCategory, error) {
+func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, request HGCategoryRequest) (HGCategory, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return HGCategory{}, err
@@ -90,15 +90,15 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, request HGCategoryR
 			return HGCategory{}, err
 		}
 		if regulated && !request.Regulated {
-			return HGCategory{}, ErrHGInvalid
+			return HGCategory{}, ErrHGCategoryParentInvalid
 		}
 		if parentDepth >= 3 {
-			return HGCategory{}, ErrHGInvalid
+			return HGCategory{}, ErrHGCategoryParentInvalid
 		}
 		depth = parentDepth + 1
 		parent = id
 	}
-	result, err := tx.ExecContext(ctx, q.HGCommerceCategoryInsertSQL, parent, depth, request.Name, request.Regulated)
+	result, err := tx.ExecContext(ctx, q.HGCommerceCategoryInsertSQL, parent, depth, request.Name, request.Regulated, request.ImageURL)
 	if err != nil {
 		return HGCategory{}, err
 	}
@@ -106,10 +106,18 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, request HGCategoryR
 	if err != nil {
 		return HGCategory{}, err
 	}
+	if request.ImageURL != "" {
+		if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryMediaBindSQL, id, request.ImageURL, request.ImageURL, user)); err != nil {
+			if errors.Is(err, ErrHGConflict) {
+				return HGCategory{}, ErrHGCategoryImageInvalid
+			}
+			return HGCategory{}, err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return HGCategory{}, err
 	}
-	return HGCategory{ID: strconv.FormatInt(id, 10), Name: request.Name, Depth: depth}, nil
+	return HGCategory{ID: strconv.FormatInt(id, 10), Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
 }
 
 func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error {

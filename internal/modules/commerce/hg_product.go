@@ -15,17 +15,21 @@ import (
 )
 
 var (
-	ErrHGInvalid          = errors.New("商品参数无效")
-	ErrHGForbidden        = errors.New("无商品操作权限")
-	ErrHGMerchantRequired = errors.New("需要已批准的商家身份")
-	ErrHGConflict         = errors.New("商品版本或状态冲突")
+	ErrHGInvalid               = errors.New("商品参数无效")
+	ErrHGCategoryNameInvalid   = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
+	ErrHGCategoryParentInvalid = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
+	ErrHGCategoryImageInvalid  = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
+	ErrHGForbidden             = errors.New("无商品操作权限")
+	ErrHGMerchantRequired      = errors.New("需要已批准的商家身份")
+	ErrHGConflict              = errors.New("商品版本或状态冲突")
 )
 
 // HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
 type HGCategory struct {
-	ID    string `json:"categoryId"` // 类目 BIGINT ID 的字符串表示，不经过 JS number。
-	Name  string `json:"name"`       // 平台类目名称。
-	Depth uint8  `json:"depth"`      // 所在层级，1-3。
+	ID       string `json:"categoryId"` // 类目 BIGINT ID 的字符串表示，不经过 JS number。
+	Name     string `json:"name"`       // 平台类目名称。
+	Depth    uint8  `json:"depth"`      // 所在层级，1-3。
+	ImageURL string `json:"imageURL"`   // 已绑定的可选类目图片 URL，空表示无图。
 }
 
 // HGCategoryRequest 是平台管理员创建类目的请求；受监管类目创建后仍不可发布。
@@ -33,6 +37,7 @@ type HGCategoryRequest struct {
 	ParentID  string `json:"parentId"`  // 上级 ID；空表示一级类目。
 	Name      string `json:"name"`      // 类目名称，1-64字符。
 	Regulated bool   `json:"regulated"` // 是否需资质；true 首期禁止销售。
+	ImageURL  string `json:"imageURL"`  // 管理员本人已上传的可选类目图片 URL；空表示无图。
 }
 
 // HGSKUInput 是商家草稿 SKU；初始库存只记录建议值，不代表可售库存或支付许可。
@@ -227,9 +232,21 @@ func (s *HGService) HGCreateCategory(ctx context.Context, user string, request H
 		return HGCategory{}, err
 	}
 	if !hgText(request.Name, 64, true) {
-		return HGCategory{}, ErrHGInvalid
+		return HGCategory{}, ErrHGCategoryNameInvalid
 	}
-	return s.repo.HGCreateCategory(ctx, request)
+	if request.ParentID != "" && !hgValidCategoryParent(request.ParentID) {
+		return HGCategory{}, ErrHGCategoryParentInvalid
+	}
+	if len(request.ImageURL) > 1024 {
+		return HGCategory{}, ErrHGCategoryImageInvalid
+	}
+	return s.repo.HGCreateCategory(ctx, user, request)
+}
+
+// hgValidCategoryParent 限制类目 ID 为十进制正整数，避免无效输入进入写事务。
+func hgValidCategoryParent(id string) bool {
+	_, err := hgCategoryID(id)
+	return err == nil
 }
 
 func (s *HGService) hgReviewAllowed(ctx context.Context, user string) error {
