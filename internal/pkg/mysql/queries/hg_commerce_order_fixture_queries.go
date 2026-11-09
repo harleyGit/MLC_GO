@@ -4,7 +4,7 @@ package SQLQueriesPackage
 const (
 	HGCommerceFixtureUserSQL              = `INSERT INTO users(user_id,user_name,password_hash,salt) VALUES(?,?,?,?)`
 	HGCommerceFixtureMerchantSQL          = `INSERT INTO mall_merchant(merchant_id,user_id,shop_name,status) VALUES(?,?,?,1)`
-	HGCommerceFixtureCategorySQL          = `INSERT INTO commerce_category(depth,name,status,regulated) VALUES(1,?,1,0)`
+	HGCommerceFixtureCategorySQL          = `INSERT INTO commerce_category(id,depth,name,status,regulated) VALUES(?,1,?,1,0)`
 	HGCommerceFixtureProductSQL           = `INSERT INTO commerce_product(product_id,merchant_id,category_id,audit_status,sale_status,published_version) VALUES(?,?,?,'APPROVED','ON_SHELF',1)`
 	HGCommerceFixtureVersionSQL           = `INSERT INTO commerce_product_version(product_id,content_version,title,images_json) VALUES(?,1,?,JSON_ARRAY())`
 	HGCommerceFixtureSKUSQL               = `INSERT INTO commerce_sku(sku_id,product_id,content_version,sku_code,specs_json,spec_hash,price_cent,initial_stock) VALUES(?,?,1,'BLACK',JSON_OBJECT(),UNHEX(SHA2('{}',256)),100,10)`

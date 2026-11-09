@@ -16,6 +16,7 @@ import (
 
 var (
 	ErrHGInvalid               = errors.New("商品参数无效")
+	ErrHGCategoryIDInvalid     = fmt.Errorf("%w: 类目 ID 无效", ErrHGInvalid)
 	ErrHGCategoryNameInvalid   = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
 	ErrHGCategoryParentInvalid = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
 	ErrHGCategoryImageInvalid  = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
@@ -26,7 +27,7 @@ var (
 
 // HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
 type HGCategory struct {
-	ID       string `json:"categoryId"` // 类目 BIGINT ID 的字符串表示，不经过 JS number。
+	ID       string `json:"categoryId"` // 类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
 	Name     string `json:"name"`       // 平台类目名称。
 	Depth    uint8  `json:"depth"`      // 所在层级，1-3。
 	ImageURL string `json:"imageURL"`   // 已绑定的可选类目图片 URL，空表示无图。
@@ -34,10 +35,11 @@ type HGCategory struct {
 
 // HGCategoryRequest 是平台管理员创建类目的请求；受监管类目创建后仍不可发布。
 type HGCategoryRequest struct {
-	ParentID  string `json:"parentId"`  // 上级 ID；空表示一级类目。
-	Name      string `json:"name"`      // 类目名称，1-64字符。
-	Regulated bool   `json:"regulated"` // 是否需资质；true 首期禁止销售。
-	ImageURL  string `json:"imageURL"`  // 管理员本人已上传的可选类目图片 URL；空表示无图。
+	CategoryID string `json:"categoryId"` // 新类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
+	ParentID   string `json:"parentId"`   // 上级 ID；空表示一级类目。
+	Name       string `json:"name"`       // 类目名称，1-64字符。
+	Regulated  bool   `json:"regulated"`  // 是否需资质；true 首期禁止销售。
+	ImageURL   string `json:"imageURL"`   // 管理员本人已上传的可选类目图片 URL；空表示无图。
 }
 
 // HGSKUInput 是商家草稿 SKU；初始库存只记录建议值，不代表可售库存或支付许可。
@@ -50,7 +52,7 @@ type HGSKUInput struct {
 
 // HGDraftInput 是生产 CNY 商品内容请求；服务端从登录态获取商家身份，不接收商家 ID 或应付金额。
 type HGDraftInput struct {
-	CategoryID      string       `json:"categoryId"`                // 可经营的叶子类目 BIGINT 字符串。
+	CategoryID      string       `json:"categoryId"`                // 可经营的叶子类目业务 ID。
 	ProductType     string       `json:"productType"`               // 首期仅 PHYSICAL。
 	Title           string       `json:"title"`                     // 1-120字符纯文本。
 	Subtitle        string       `json:"subtitle"`                  // 最多200字符纯文本，空表示没有副标题。
@@ -130,27 +132,30 @@ func hgID(id string) bool {
 	return true
 }
 
-func hgCategoryID(id string) (uint64, error) {
-	if id == "" || len(id) > 20 || id[0] == '0' {
-		return 0, ErrHGInvalid
+func hgCategoryID(id string) (string, error) {
+	if !hgID(id) {
+		return "", ErrHGInvalid
 	}
-	for _, c := range id {
-		if c < '0' || c > '9' {
-			return 0, ErrHGInvalid
-		}
-	}
-	n, err := strconv.ParseUint(id, 10, 64)
-	if err != nil || n == 0 {
-		return 0, ErrHGInvalid
-	}
-	return n, nil
+	return id, nil
 }
 
 func hgCursor(cursor string) (uint64, error) {
 	if cursor == "" {
 		return math.MaxUint64, nil
 	}
-	return hgCategoryID(cursor)
+	if len(cursor) > 20 || cursor[0] == '0' {
+		return 0, ErrHGInvalid
+	}
+	for _, c := range cursor {
+		if c < '0' || c > '9' {
+			return 0, ErrHGInvalid
+		}
+	}
+	n, err := strconv.ParseUint(cursor, 10, 64)
+	if err != nil || n == 0 {
+		return 0, ErrHGInvalid
+	}
+	return n, nil
 }
 
 // hgValidateDraft 验证同版本 SKU 唯一、同维度及笛卡尔积完整性；不以客户端价格作为支付权威。
@@ -231,6 +236,9 @@ func (s *HGService) HGCreateCategory(ctx context.Context, user string, request H
 	if err := s.hgReviewAllowed(ctx, user); err != nil {
 		return HGCategory{}, err
 	}
+	if _, err := hgCategoryID(request.CategoryID); err != nil {
+		return HGCategory{}, ErrHGCategoryIDInvalid
+	}
 	if !hgText(request.Name, 64, true) {
 		return HGCategory{}, ErrHGCategoryNameInvalid
 	}
@@ -243,7 +251,7 @@ func (s *HGService) HGCreateCategory(ctx context.Context, user string, request H
 	return s.repo.HGCreateCategory(ctx, user, request)
 }
 
-// hgValidCategoryParent 限制类目 ID 为十进制正整数，避免无效输入进入写事务。
+// hgValidCategoryParent 限制上级类目 ID 使用与类目主键一致的安全 ASCII 字符集。
 func hgValidCategoryParent(id string) bool {
 	_, err := hgCategoryID(id)
 	return err == nil

@@ -60,7 +60,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	defer stop()
 	var migration uint64
 	var dirty bool
-	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 67 || dirty {
+	if err = db.QueryRowContext(ctx, q.HGGetCrawlerMigrationVersionSQL).Scan(&migration, &dirty); err != nil || migration != 69 || dirty {
 		t.Fatalf("隔离库版本不符合约束：version=%d dirty=%t err=%v", migration, dirty, err)
 	}
 	seller := util.GenerateBusinessID("COMTESTSELL")
@@ -69,7 +69,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	address := util.GenerateBusinessID("COMTESTADDR")
 	mediaURL := "https://example.invalid/" + util.GenerateBusinessID("COMTESTIMG") + ".jpg"
 	createKey := util.GenerateBusinessID("COMTESTDRAFT")
-	var category int64
+	category := util.GenerateBusinessID("COMTESTCAT")
 	var product string
 	// 先注册清理：即使创建后的响应丢失，仍按唯一幂等键找到本次商品并精确删除。
 	t.Cleanup(func() {
@@ -115,7 +115,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 			clean(q.HGCommerceFixtureRemoveProductSQL, product)
 		}
 		clean(q.HGCommerceFixtureRemoveMediaSQL, seller, mediaURL)
-		if category > 0 {
+		if category != "" {
 			clean(q.HGCommerceFixtureRemoveCategorySQL, category)
 		}
 		clean(q.HGCommerceFixtureRemoveMerchantSQL, merchant)
@@ -127,12 +127,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 	if _, err = db.ExecContext(ctx, q.HGCommerceFixtureMerchantSQL, merchant, seller, "隔离测试店铺"); err != nil {
 		t.Fatal(err)
 	}
-	result, err := db.ExecContext(ctx, q.HGCommerceFixtureCategorySQL, "隔离测试普通类目")
-	if err != nil {
-		t.Fatal(err)
-	}
-	category, err = result.LastInsertId()
-	if err != nil {
+	if _, err = db.ExecContext(ctx, q.HGCommerceFixtureCategorySQL, category, "隔离测试普通类目"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = db.ExecContext(ctx, q.HGCommerceFixtureMediaSQL, seller, mediaURL, "integration-only"); err != nil {
@@ -151,7 +146,7 @@ func TestHGCommerceDebugLifecycle(t *testing.T) {
 		httpRequest := httptest.NewRequest(method, path, bytes.NewReader(body))
 		return httpRequest.WithContext(context.WithValue(httpRequest.Context(), userjwt.UserIDKey, &usersvc.HGClaims{UserID: user}))
 	}
-	draft := HGDraftInput{CategoryID: fmt.Sprint(category), ProductType: "PHYSICAL", Title: "隔离测试商品", ImageURLs: []string{mediaURL}, SKUs: []HGSKUInput{{SKUCode: "BLACK", Specs: map[string]string{}, PriceCent: 100, InitialStock: 10}}}
+	draft := HGDraftInput{CategoryID: category, ProductType: "PHYSICAL", Title: "隔离测试商品", ImageURLs: []string{mediaURL}, SKUs: []HGSKUInput{{SKUCode: "BLACK", Specs: map[string]string{}, PriceCent: 100, InitialStock: 10}}}
 	create := request(http.MethodPost, "/merchant/products", seller, draft)
 	create.Header.Set("Idempotency-Key", createKey)
 	writer := httptest.NewRecorder()

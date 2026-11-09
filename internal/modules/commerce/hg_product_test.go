@@ -16,7 +16,7 @@ import (
 )
 
 func hgTestDraft() HGDraftInput {
-	return HGDraftInput{CategoryID: "1", ProductType: "PHYSICAL", Title: "测试实物", ImageURLs: []string{"/commerce/one.jpg"}, SKUs: []HGSKUInput{{SKUCode: "BLACK", Specs: map[string]string{"颜色": "黑色"}, PriceCent: 100, InitialStock: 0}, {SKUCode: "WHITE", Specs: map[string]string{"颜色": "白色"}, PriceCent: 101, InitialStock: 1}}}
+	return HGDraftInput{CategoryID: "DIG-0001", ProductType: "PHYSICAL", Title: "测试实物", ImageURLs: []string{"/commerce/one.jpg"}, SKUs: []HGSKUInput{{SKUCode: "BLACK", Specs: map[string]string{"颜色": "黑色"}, PriceCent: 100, InitialStock: 0}, {SKUCode: "WHITE", Specs: map[string]string{"颜色": "白色"}, PriceCent: 101, InitialStock: 1}}}
 }
 
 // TestHGAdminCategoriesRequiresReviewButNotMerchant 验证管理员可读平台类目，商家接口仍需要已批准商家身份。
@@ -31,9 +31,9 @@ func TestHGAdminCategoriesRequiresReviewButNotMerchant(t *testing.T) {
 		t.Fatalf("无审核权限必须拒绝: %v", err)
 	}
 	service.reviewer = hgCommerceTestReviewer{}
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).AddRow(12, "普通叶子类目", nil, 1, ""))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).AddRow("DIG-0012", "普通叶子类目", nil, 1, ""))
 	items, err := service.HGAdminCategories(context.Background(), "admin")
-	if err != nil || len(items) != 1 || items[0].ID != "12" {
+	if err != nil || len(items) != 1 || items[0].ID != "DIG-0012" {
 		t.Fatalf("管理员类目读取失败: %v %+v", err, items)
 	}
 	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceMerchantSQL)).WithArgs("admin").WillReturnRows(sqlmock.NewRows([]string{"merchant_id"}))
@@ -64,7 +64,7 @@ func TestHGCategoryCreateInvalidRequestExplainsFields(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/admin/categories", nil)
 	w := httptest.NewRecorder()
 	hgError(w, r, ErrHGInvalid)
-	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "类目参数无效") || !strings.Contains(w.Body.String(), "parentId") || !strings.Contains(w.Body.String(), "imageURL") {
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "类目参数无效") || !strings.Contains(w.Body.String(), "categoryId") || !strings.Contains(w.Body.String(), "parentId") || !strings.Contains(w.Body.String(), "imageURL") {
 		t.Fatalf("创建类目失败应指出请求字段: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -74,6 +74,7 @@ func TestHGCategoryInvalidFieldErrors(t *testing.T) {
 		err  error
 		want string
 	}{
+		{ErrHGCategoryIDInvalid, "类目 ID 无效"},
 		{ErrHGCategoryNameInvalid, "类目名称无效"},
 		{ErrHGCategoryParentInvalid, "上级类目无效"},
 		{ErrHGCategoryImageInvalid, "类目图片无效"},
@@ -94,10 +95,10 @@ func TestHGCategoryImageBindRequiresOwner(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs(nil, uint8(1), "类目", false, "https://example.test/pic.jpg").WillReturnResult(sqlmock.NewResult(31, 1))
-	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs(int64(31), "https://example.test/pic.jpg", "https://example.test/pic.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs("CAT-0031", nil, uint8(1), "类目", false, "https://example.test/pic.jpg").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs("CAT-0031", "https://example.test/pic.jpg", "https://example.test/pic.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
-	_, err = HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{Name: "类目", ImageURL: "https://example.test/pic.jpg"})
+	_, err = HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{CategoryID: "CAT-0031", Name: "类目", ImageURL: "https://example.test/pic.jpg"})
 	if !errors.Is(err, ErrHGInvalid) {
 		t.Fatalf("伪造图片 URL 应拒绝并回滚: %v", err)
 	}
@@ -113,14 +114,33 @@ func TestHGCategoryImageBindSucceedsForUploader(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs(nil, uint8(1), "类目", false, "/category.jpg").WillReturnResult(sqlmock.NewResult(32, 1))
-	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs(int64(32), "/category.jpg", "/category.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs("CAT-0032", nil, uint8(1), "类目", false, "/category.jpg").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs("CAT-0032", "/category.jpg", "/category.jpg", "admin").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{Name: "类目", ImageURL: "/category.jpg"})
-	if err != nil || item.ImageURL != "/category.jpg" {
+	item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{CategoryID: "CAT-0032", Name: "类目", ImageURL: "/category.jpg"})
+	if err != nil || item.ID != "CAT-0032" || item.ImageURL != "/category.jpg" {
 		t.Fatalf("应原子绑定本人类目图片: %+v %v", item, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryStringIDAndParentArePersisted(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryParentSQL)).WithArgs("DIG-PARENT").WillReturnRows(sqlmock.NewRows([]string{"depth", "regulated"}).AddRow(1, false))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs("DIG-0001", "DIG-PARENT", uint8(2), "数码影音", false, "").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{CategoryID: "DIG-0001", ParentID: "DIG-PARENT", Name: "数码影音"})
+	if err != nil || item.ID != "DIG-0001" || item.Depth != 2 {
+		t.Fatalf("字符串类目 ID 或上级未正确保存: %+v %v", item, err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -194,13 +214,13 @@ func TestHGReviewRechecksMerchantAndCategory(t *testing.T) {
 			}
 			defer db.Close()
 			mock.ExpectBegin()
-			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceReviewLockSQL)).WithArgs("CPRD_1").WillReturnRows(sqlmock.NewRows([]string{"audit_status", "sale_status", "version", "draft_version", "published_version", "user_id", "category_id"}).AddRow("PENDING", "ON_SHELF", 3, 2, 1, tc.owner, 5))
+			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceReviewLockSQL)).WithArgs("CPRD_1").WillReturnRows(sqlmock.NewRows([]string{"audit_status", "sale_status", "version", "draft_version", "published_version", "user_id", "category_id"}).AddRow("PENDING", "ON_SHELF", 3, 2, 1, tc.owner, "CAT-0005"))
 			if tc.approve && tc.owner != "reviewer" {
 				rows := sqlmock.NewRows([]string{"id"})
 				if tc.category {
-					rows.AddRow(5)
+					rows.AddRow("CAT-0005")
 				}
-				mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryLeafSQL)).WithArgs(uint64(5)).WillReturnRows(rows)
+				mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryLeafSQL)).WithArgs("CAT-0005").WillReturnRows(rows)
 			}
 			if tc.want == nil {
 				reason := ""
@@ -241,7 +261,7 @@ func TestHGSubmitRejectsReviewedVersion(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "merchant-user").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", 5, "REJECTED", "OFF_SHELF", 3, 1, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "merchant-user").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", "CAT-0005", "REJECTED", "OFF_SHELF", 3, 1, 0))
 	mock.ExpectRollback()
 	if err = HGNewRepository(db).HGSubmit(context.Background(), "merchant-user", "CPRD_1", 3); !errors.Is(err, ErrHGConflict) {
 		t.Fatalf("已驳回版本必须编辑后重审：%v", err)
@@ -258,7 +278,7 @@ func TestHGSubmitReplaySameOwnerAndVersion(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "owner").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", 5, "PENDING", "OFF_SHELF", 4, 1, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "owner").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", "CAT-0005", "PENDING", "OFF_SHELF", 4, 1, 0))
 	mock.ExpectRollback()
 	if err = HGNewRepository(db).HGSubmit(context.Background(), "owner", "CPRD_1", 3); err != nil {
 		t.Fatalf("本人同版本提交重试应返回首次成功：%v", err)
@@ -274,7 +294,7 @@ func TestHGPublicDetailOnlyReadsPublishedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicOneSQL)).WithArgs("CPRD_1").WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow(1, "CPRD_1", "SHOP_1", 5, "PENDING", "ON_SHELF", 4, 2, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicOneSQL)).WithArgs("CPRD_1").WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow(1, "CPRD_1", "SHOP_1", "CAT-0005", "PENDING", "ON_SHELF", 4, 2, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceVersionSQL)).WithArgs("CPRD_1", uint64(1)).WillReturnRows(sqlmock.NewRows([]string{"title", "subtitle", "description", "images_json", "reject_reason"}).AddRow("已审核标题", "", "公开介绍", `["/one.jpg"]`, ""))
 	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceSKUsSQL)).WithArgs("CPRD_1", uint64(1)).WillReturnRows(sqlmock.NewRows([]string{"sku_id", "sku_code", "specs_json", "price_cent", "initial_stock"}).AddRow("CSKU_1", "BLACK", `{}`, 100, 2))
 	p, err := HGNewRepository(db).HGDetail(context.Background(), "viewer", "CPRD_1", "public")
@@ -341,7 +361,7 @@ func TestHGArchivePreservesHistoryAndRejectsPending(t *testing.T) {
 			}
 			defer db.Close()
 			mock.ExpectBegin()
-			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "owner").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", 5, tc.audit, "ON_SHELF", 2, 1, 1))
+			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceOwnerLockSQL)).WithArgs("CPRD_1", "owner").WillReturnRows(sqlmock.NewRows([]string{"merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version"}).AddRow("SHOP_1", "CAT-0005", tc.audit, "ON_SHELF", 2, 1, 1))
 			if tc.want == nil {
 				mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceProductStateSQL)).WithArgs("APPROVED", "DELETED", uint64(1), uint64(1), "CPRD_1", uint64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 				mock.ExpectCommit()

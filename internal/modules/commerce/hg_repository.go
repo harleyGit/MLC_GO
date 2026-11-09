@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strconv"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -58,13 +57,11 @@ func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, err
 	defer rows.Close()
 	items := make([]HGCategory, 0, 20)
 	for rows.Next() {
-		var id uint64
-		var parent sql.NullInt64
+		var parent sql.NullString
 		var item HGCategory
-		if err = rows.Scan(&id, &item.Name, &parent, &item.Depth, &item.ImageURL); err != nil {
+		if err = rows.Scan(&item.ID, &item.Name, &parent, &item.Depth, &item.ImageURL); err != nil {
 			return nil, err
 		}
-		item.ID = strconv.FormatUint(id, 10)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -98,16 +95,12 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, reques
 		depth = parentDepth + 1
 		parent = id
 	}
-	result, err := tx.ExecContext(ctx, q.HGCommerceCategoryInsertSQL, parent, depth, request.Name, request.Regulated, request.ImageURL)
+	_, err = tx.ExecContext(ctx, q.HGCommerceCategoryInsertSQL, request.CategoryID, parent, depth, request.Name, request.Regulated, request.ImageURL)
 	if err != nil {
-		return HGCategory{}, err
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return HGCategory{}, err
+		return HGCategory{}, hgDBError(err)
 	}
 	if request.ImageURL != "" {
-		if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryMediaBindSQL, id, request.ImageURL, request.ImageURL, user)); err != nil {
+		if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryMediaBindSQL, request.CategoryID, request.ImageURL, request.ImageURL, user)); err != nil {
 			if errors.Is(err, ErrHGConflict) {
 				return HGCategory{}, ErrHGCategoryImageInvalid
 			}
@@ -117,13 +110,12 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, reques
 	if err = tx.Commit(); err != nil {
 		return HGCategory{}, err
 	}
-	return HGCategory{ID: strconv.FormatInt(id, 10), Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
+	return HGCategory{ID: request.CategoryID, Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
 }
 
 func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error {
-	id, _ := hgCategoryID(category)
-	var exists uint64
-	err := tx.QueryRowContext(ctx, q.HGCommerceCategoryLeafSQL, id).Scan(&exists)
+	var exists string
+	err := tx.QueryRowContext(ctx, q.HGCommerceCategoryLeafSQL, category).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrHGInvalid
 	}
@@ -132,9 +124,7 @@ func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error 
 
 func hgProductState(row interface{ Scan(...any) error }) (HGProduct, error) {
 	var p HGProduct
-	var category uint64
-	err := row.Scan(&p.ID, &p.ProductID, &p.MerchantID, &category, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion)
-	p.CategoryID = strconv.FormatUint(category, 10)
+	err := row.Scan(&p.ID, &p.ProductID, &p.MerchantID, &p.CategoryID, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion)
 	p.Currency = "CNY"
 	p.ProductType = "PHYSICAL"
 	return p, err
@@ -142,10 +132,8 @@ func hgProductState(row interface{ Scan(...any) error }) (HGProduct, error) {
 
 func hgOwnerState(row interface{ Scan(...any) error }, id string) (HGProduct, error) {
 	var p HGProduct
-	var category uint64
-	err := row.Scan(&p.MerchantID, &category, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion)
+	err := row.Scan(&p.MerchantID, &p.CategoryID, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion)
 	p.ProductID = id
-	p.CategoryID = strconv.FormatUint(category, 10)
 	p.Currency = "CNY"
 	p.ProductType = "PHYSICAL"
 	if errors.Is(err, sql.ErrNoRows) {
@@ -210,8 +198,7 @@ func (r *HGRepository) HGCreateDraft(ctx context.Context, user, requestID string
 		return HGProduct{}, err
 	}
 	id := util.GenerateBusinessID("CPRD")
-	category, _ := hgCategoryID(d.CategoryID)
-	if _, err = tx.ExecContext(ctx, q.HGCommerceCreateProductSQL, id, merchant, category); err != nil {
+	if _, err = tx.ExecContext(ctx, q.HGCommerceCreateProductSQL, id, merchant, d.CategoryID); err != nil {
 		return HGProduct{}, hgDBError(err)
 	}
 	if err = hgWriteVersion(ctx, tx, user, id, 1, d); err != nil {
@@ -250,8 +237,7 @@ func (r *HGRepository) HGEditDraft(ctx context.Context, user, id string, d HGDra
 		return HGProduct{}, ErrHGConflict
 	}
 	version := p.DraftVersion + 1
-	category, _ := hgCategoryID(d.CategoryID)
-	if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceProductCategorySQL, category, version, id, p.Version)); err != nil {
+	if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceProductCategorySQL, d.CategoryID, version, id, p.Version)); err != nil {
 		return HGProduct{}, err
 	}
 	if err = hgWriteVersion(ctx, tx, user, id, version, d); err != nil {
@@ -300,7 +286,7 @@ func (r *HGRepository) HGReview(ctx context.Context, user, id string, approve bo
 	defer tx.Rollback()
 	var p HGProduct
 	var owner string
-	var category uint64
+	var category string
 	err = tx.QueryRowContext(ctx, q.HGCommerceReviewLockSQL, id).Scan(&p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion, &owner, &category)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sql.ErrNoRows
@@ -316,7 +302,7 @@ func (r *HGRepository) HGReview(ctx context.Context, user, id string, approve bo
 	}
 	status := "REJECTED"
 	if approve {
-		if err = hgValidateCategory(ctx, tx, strconv.FormatUint(category, 10)); err != nil {
+		if err = hgValidateCategory(ctx, tx, category); err != nil {
 			return err
 		}
 		// 新审核 SKU 只登记零可售库存；跨版本相同编码保留原库存及已预占量。
@@ -389,14 +375,12 @@ func (r *HGRepository) HGArchive(ctx context.Context, user, id string, version u
 
 func hgScanPage(row interface{ Scan(...any) error }) (HGProduct, error) {
 	var p HGProduct
-	var category uint64
 	var images []byte
 	var price sql.NullInt64
-	err := row.Scan(&p.ID, &p.ProductID, &p.MerchantID, &category, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion, &p.Title, &images, &price)
+	err := row.Scan(&p.ID, &p.ProductID, &p.MerchantID, &p.CategoryID, &p.AuditStatus, &p.SaleStatus, &p.Version, &p.DraftVersion, &p.PublishedVersion, &p.Title, &images, &price)
 	if err != nil {
 		return p, err
 	}
-	p.CategoryID = strconv.FormatUint(category, 10)
 	p.Currency = "CNY"
 	p.ProductType = "PHYSICAL"
 	p.MinPriceCent = price.Int64

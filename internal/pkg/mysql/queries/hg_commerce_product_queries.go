@@ -6,7 +6,7 @@ const (
 	HGCommerceMerchantLockSQL       = `SELECT merchant_id FROM mall_merchant WHERE user_id=? AND status=1 FOR UPDATE`
 	HGCommerceCategorySQL           = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE status=1 AND regulated=0 AND NOT EXISTS (SELECT 1 FROM commerce_category child WHERE child.parent_id=commerce_category.id AND child.status=1) ORDER BY id LIMIT 200`
 	HGCommerceCategoryParentSQL     = `SELECT depth,regulated FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
-	HGCommerceCategoryInsertSQL     = `INSERT INTO commerce_category(parent_id,depth,name,regulated,image_url) VALUES(?,?,?,?,?)`
+	HGCommerceCategoryInsertSQL     = `INSERT INTO commerce_category(id,parent_id,depth,name,regulated,image_url) VALUES(?,?,?,?,?,?)`
 	HGCommerceCategoryLeafSQL       = `SELECT id FROM commerce_category WHERE id=? AND status=1 AND regulated=0 AND NOT EXISTS (SELECT 1 FROM commerce_category child WHERE child.parent_id=commerce_category.id AND child.status=1) LIMIT 1`
 	HGCommerceCreateReplaySQL       = `SELECT request_hash,product_id FROM commerce_publish_request WHERE merchant_id=? AND request_id=?`
 	HGCommerceCreateProductSQL      = `INSERT INTO commerce_product(product_id,merchant_id,category_id) VALUES(?,?,?)`

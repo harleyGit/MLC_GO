@@ -57,6 +57,8 @@ func hgDecode(w http.ResponseWriter, r *http.Request, value any) bool {
 func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	status, message := http.StatusInternalServerError, "人民币商品服务暂不可用"
 	switch {
+	case errors.Is(err, ErrHGCategoryIDInvalid):
+		status, message = http.StatusBadRequest, "类目 ID 无效：填写 1-64 位 ASCII 字母、数字、连字符或下划线"
 	case errors.Is(err, ErrHGCategoryNameInvalid):
 		status, message = http.StatusBadRequest, "类目名称无效：填写 1-64 个字符，不能包含尖括号或换行"
 	case errors.Is(err, ErrHGCategoryParentInvalid):
@@ -66,7 +68,7 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGInvalid):
 		status, message = http.StatusBadRequest, "商品参数无效"
 		if r.Method == http.MethodPost && r.URL.Path == "/admin/categories" {
-			message = "类目参数无效：请提交 JSON 的 name（1-64 字符）、可选 parentId（有效的上级类目 ID）、regulated（布尔值）和可选 imageURL（本管理员已上传图片）；上级需启用且层级不超过三级"
+			message = "类目参数无效：请提交 JSON 的 categoryId（1-64 位安全 ASCII 业务 ID）、name（1-64 字符）、可选 parentId（有效的上级类目 ID）、regulated（布尔值）和可选 imageURL（本管理员已上传图片）；上级需启用且层级不超过三级"
 		}
 	case errors.Is(err, ErrHGForbidden):
 		status, message = http.StatusForbidden, resp.HGPermissionError("需具备相应操作权限或满足本人商品/订单归属条件", "").Message
