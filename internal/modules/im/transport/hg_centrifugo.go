@@ -1,21 +1,24 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
+	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/centrifugal/gocent/v3"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // HGCentrifugo 使用 v6 HTTP API 与独立连接 JWT；默认禁止客户端自行订阅/发布。
 type HGCentrifugo struct {
-	endpoint string       // 服务端 API 根地址，不含 /api。
-	key      string       // 仅服务端可见的 API Key。
-	secret   []byte       // 独立连接签名密钥，不复用业务 JWT。
-	client   *http.Client // 有超时和连接上限的客户端。
+	secret []byte         // 独立连接签名密钥，不复用业务 JWT。
+	client *http.Client   // 有超时和连接上限的客户端。
+	sdk    *gocent.Client // Centrifugo 服务端 API 客户端，仅发布已授权设备频道。
 }
 
 func HGNewCentrifugo(endpoint, key, secret string) (*HGCentrifugo, error) {
@@ -25,7 +28,11 @@ func HGNewCentrifugo(endpoint, key, secret string) (*HGCentrifugo, error) {
 	if len(key) < 16 || len(secret) < 32 {
 		return nil, fmt.Errorf("Centrifugo 凭据未配置或过短")
 	}
-	return &HGCentrifugo{endpoint: strings.TrimRight(endpoint, "/"), key: key, secret: []byte(secret), client: hgClient()}, nil
+	client := hgClient()
+	// gocent 默认将凭据放入 Authorization；网关现有策略只接受 X-API-Key。
+	client.Transport = hgCentrifugoTransport{base: client.Transport}
+	addr := strings.TrimRight(endpoint, "/")
+	return &HGCentrifugo{secret: []byte(secret), client: client, sdk: gocent.New(gocent.Config{Addr: addr + "/api", Key: key, HTTPClient: client})}, nil
 }
 
 // HGDeviceChannel 仅由服务端已认证的十六进制设备 ID 构造，客户端无法选择他人频道。
@@ -42,20 +49,47 @@ func (g *HGCentrifugo) HGToken(device string) (string, error) {
 
 // HGPublish 只确认网关受理；不能修改设备 delivered_at。
 func (g *HGCentrifugo) HGPublish(ctx context.Context, device string, payload json.RawMessage) error {
-	var result struct {
-		Result json.RawMessage `json:"result"` // 成功结果对象，空对象也是成功。
-		Error  *struct {
-			Code int `json:"code"`
-		} `json:"error"` // 网关错误代码，不返回内部文本。
+	pipe := g.sdk.Pipe()
+	if err := pipe.AddPublish(HGDeviceChannel(device), payload); err != nil {
+		return fmt.Errorf("Centrifugo 发布参数无效")
 	}
-	if err := hgPost(ctx, g.client, g.endpoint+"/api/publish", "apikey "+g.key, map[string]any{"channel": HGDeviceChannel(device), "data": payload}, &result); err != nil {
-		return err
+	result, err := g.sdk.SendPipe(ctx, pipe)
+	if err != nil || len(result) != 1 || result[0].Error != nil {
+		return fmt.Errorf("Centrifugo 未确认发布")
 	}
 	var publication map[string]any
-	if result.Error != nil || json.Unmarshal(result.Result, &publication) != nil || publication == nil {
+	if json.Unmarshal(result[0].Result, &publication) != nil || publication == nil {
 		return fmt.Errorf("Centrifugo 未确认发布")
 	}
 	return nil
+}
+
+// hgCentrifugoTransport 保持原网关凭据头及 64KiB 响应上限，不让 SDK 回显外部正文。
+type hgCentrifugoTransport struct{ base http.RoundTripper }
+
+func (t hgCentrifugoTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	copy := req.Clone(req.Context())
+	if auth := copy.Header.Get("Authorization"); strings.HasPrefix(auth, "apikey ") {
+		copy.Header.Set("X-API-Key", strings.TrimPrefix(auth, "apikey "))
+		copy.Header.Del("Authorization")
+	}
+	resp, err := t.base.RoundTrip(copy)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 65537))
+	_ = resp.Body.Close()
+	if readErr != nil || len(data) > 65536 {
+		return nil, fmt.Errorf("Centrifugo 响应超限或读取失败")
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(data))
+	return resp, nil
+}
+
+func (t hgCentrifugoTransport) CloseIdleConnections() {
+	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
 }
 
 func (g *HGCentrifugo) HGClose() {

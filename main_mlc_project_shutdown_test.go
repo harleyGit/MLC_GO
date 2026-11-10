@@ -40,8 +40,17 @@ func TestHGIMCentrifugoRejectsUnconfirmedPublish(t *testing.T) {
 	for _, hgBody := range []string{`{"error":{"code":100}}`, `{"result":null}`, `{}`, `{"result":[]}`} {
 		t.Run(hgBody, func(t *testing.T) {
 			hgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/api/publish" || r.Header.Get("X-API-Key") != strings.Repeat("k", 16) {
+				if r.URL.Path != "/api" || r.Header.Get("X-API-Key") != strings.Repeat("k", 16) || r.Header.Get("Authorization") != "" {
 					t.Error("网关请求契约不匹配")
+				}
+				var hgCommand struct {
+					Method string `json:"method"`
+					Params struct {
+						Channel string `json:"channel"`
+					} `json:"params"`
+				}
+				if json.NewDecoder(r.Body).Decode(&hgCommand) != nil || hgCommand.Method != "publish" || hgCommand.Params.Channel != "im:"+strings.Repeat("a", 32) {
+					t.Error("网关发布命令不匹配")
 				}
 				_, _ = w.Write([]byte(hgBody))
 			}))

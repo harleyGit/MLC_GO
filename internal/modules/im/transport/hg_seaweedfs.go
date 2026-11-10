@@ -13,6 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 var hgObjectKey = regexp.MustCompile(`^(quarantine|sealed)/[a-f0-9]{32}$`)
@@ -42,12 +46,13 @@ func HGMediaSizeAllowed(mime string, size int64) bool {
 
 // HGSeaweedFS 仅通过 S3 SigV4 访问私有桶；上传身份只能写 quarantine，审核器独占 sealed 写权限。
 type HGSeaweedFS struct {
-	endpoint string       // 客户端可达 S3 根端点，不包含 bucket 或查询参数。
-	region   string       // SigV4 region，须与 SeaweedFS 一致。
-	bucket   string       // 私有桶，禁止匿名访问。
-	key      string       // S3 Access Key，仅后端持有。
-	secret   string       // S3 Secret Key，不记录日志。
-	client   *http.Client // GET/HEAD 连接池，禁止重定向。
+	endpoint string            // 客户端可达 S3 根端点，不包含 bucket 或查询参数。
+	region   string            // SigV4 region，须与 SeaweedFS 一致。
+	bucket   string            // 私有桶，禁止匿名访问。
+	key      string            // S3 Access Key，仅后端持有。
+	secret   string            // S3 Secret Key，不记录日志。
+	client   *http.Client      // GET/HEAD 连接池，禁止重定向。
+	presign  *s3.PresignClient // S3 兼容只读预签名；写入仍绑定 Content-Length 和条件头。
 }
 
 func HGNewSeaweedFS(endpoint, region, bucket, key, secret string) (*HGSeaweedFS, error) {
@@ -60,7 +65,12 @@ func HGNewSeaweedFS(endpoint, region, bucket, key, secret string) (*HGSeaweedFS,
 	}
 	client := hgClient()
 	client.Timeout = 270 * time.Second
-	return &HGSeaweedFS{endpoint: strings.TrimRight(endpoint, "/"), region: region, bucket: bucket, key: key, secret: secret, client: client}, nil
+	endpoint = strings.TrimRight(endpoint, "/")
+	sdk := s3.NewFromConfig(aws.Config{Region: region, Credentials: credentials.NewStaticCredentialsProvider(key, secret, ""), HTTPClient: client}, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+		o.UsePathStyle = true
+	})
+	return &HGSeaweedFS{endpoint: endpoint, region: region, bucket: bucket, key: key, secret: secret, client: client, presign: s3.NewPresignClient(sdk)}, nil
 }
 
 func hgMAC(key []byte, value string) []byte {
@@ -85,6 +95,13 @@ func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl tim
 	}
 	if createOnly && (method != http.MethodPut || !strings.HasPrefix(key, "sealed/")) {
 		return "", fmt.Errorf("条件写入只允许封存对象")
+	}
+	if method == http.MethodGet {
+		result, err := s.presign.PresignGetObject(context.Background(), &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, func(o *s3.PresignOptions) { o.Expires = ttl })
+		if err != nil {
+			return "", fmt.Errorf("私有对象签名失败")
+		}
+		return result.URL, nil
 	}
 	u, _ := url.Parse(s.endpoint + "/" + s.bucket + "/" + key)
 	now := time.Now().UTC()

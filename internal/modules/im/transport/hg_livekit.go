@@ -8,18 +8,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/livekit/protocol/auth"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
 // HGLiveKit 实现 LiveKit JWT 与 RoomService Twirp JSON；房间业务权限由 IM 服务执行。
 type HGLiveKit struct {
-	endpoint string       // LiveKit HTTP 控制端点。
-	key      string       // API Key，同时是 JWT issuer。
-	secret   []byte       // JWT 签名密钥，独立于 Centrifugo/业务 JWT。
-	client   *http.Client // 有界控制请求池。
+	endpoint string                   // LiveKit HTTP 控制端点。
+	key      string                   // API Key，同时是 JWT issuer。
+	secret   []byte                   // JWT 签名密钥，独立于 Centrifugo/业务 JWT。
+	client   *http.Client             // 有界控制请求池。
+	sdk      *lksdk.RoomServiceClient // 官方令牌构造器；房间写操作仍使用有界且禁止重定向的旧控制链。
 }
 
 func HGNewLiveKit(endpoint, key, secret string) (*HGLiveKit, error) {
@@ -29,7 +33,7 @@ func HGNewLiveKit(endpoint, key, secret string) (*HGLiveKit, error) {
 	if key == "" || len(secret) < 32 {
 		return nil, fmt.Errorf("LiveKit 凭据未配置")
 	}
-	return &HGLiveKit{endpoint: strings.TrimRight(endpoint, "/"), key: key, secret: []byte(secret), client: hgClient()}, nil
+	return &HGLiveKit{endpoint: strings.TrimRight(endpoint, "/"), key: key, secret: []byte(secret), client: hgClient(), sdk: lksdk.NewRoomServiceClient(endpoint, key, secret)}, nil
 }
 func (l *HGLiveKit) hgToken(identity string, grant map[string]any) (string, error) {
 	now := time.Now()
@@ -42,7 +46,11 @@ func (l *HGLiveKit) HGJoinToken(room, identity, kind string) (string, error) {
 	if kind == "video" {
 		sources = append(sources, "camera")
 	}
-	return l.hgToken(identity, map[string]any{"roomJoin": true, "room": room, "canPublish": true, "canSubscribe": true, "canPublishData": false, "canPublishSources": sources})
+	grant := &auth.VideoGrant{RoomJoin: true, Room: room, CanPublishSources: sources}
+	grant.SetCanPublish(true)
+	grant.SetCanSubscribe(true)
+	grant.SetCanPublishData(false)
+	return l.sdk.CreateToken().SetIdentity(identity).SetValidFor(time.Minute).SetVideoGrant(grant).ToJWT()
 }
 
 func (l *HGLiveKit) hgRoom(ctx context.Context, method, room string) error {

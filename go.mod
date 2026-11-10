@@ -1,6 +1,7 @@
 module MLC_GO
 
 go 1.24.1
+
 // go 1.26.4
 
 // 这里是项目所依赖的第三方包列表： go get -u 更新依赖包【github.com/spf13/viper】
@@ -77,7 +78,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/schollz/closestmatch v2.1.0+incompatible // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	// cora 命令行界面工具
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.6 // indirect
@@ -94,7 +95,7 @@ require (
 	github.com/yosssi/ace v0.0.5 // indirect
 	golang.org/x/arch v0.14.0 // indirect
 	golang.org/x/crypto v0.48.0
-	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
+	golang.org/x/exp v0.0.0-20250207012021-f9890c6ad9f3 // indirect
 	golang.org/x/net v0.50.0
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
@@ -165,10 +166,71 @@ require (
 )
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-20240717164558-a6c49f84cc0f.2 // indirect
+	buf.build/go/protoyaml v0.2.0 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.36.3
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.60
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.34 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.34 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.3.34 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.12.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.7.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.15 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.18.15 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.80.0
+	github.com/aws/smithy-go v1.22.2 // indirect
+	github.com/benbjohnson/clock v1.3.5 // indirect
+	github.com/bep/debounce v1.2.1 // indirect
+	github.com/bufbuild/protovalidate-go v0.6.3 // indirect
+	github.com/centrifugal/gocent/v3 v3.4.0
+	github.com/dennwc/iters v1.0.1 // indirect
+	github.com/frostbyte73/core v0.1.0 // indirect
+	github.com/gammazero/deque v1.0.0 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/google/cel-go v0.21.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/jxskiss/base62 v1.1.0 // indirect
+	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
+	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
+	github.com/livekit/mediatransportutil v0.0.0-20241220010243-a2bdee945564 // indirect
+	github.com/livekit/protocol v1.32.2-0.20250206110518-331f97dbf4f3 // indirect
+	github.com/livekit/psrpc v0.6.1-0.20250204212339-6de8b05bfcff // indirect
+	github.com/livekit/server-sdk-go/v2 v2.5.0
+	github.com/magefile/mage v1.15.0 // indirect
+	github.com/nats-io/nats.go v1.38.0 // indirect
+	github.com/nats-io/nkeys v0.4.9 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
+	github.com/pion/datachannel v1.5.10 // indirect
+	github.com/pion/dtls/v3 v3.0.4 // indirect
+	github.com/pion/ice/v4 v4.0.6 // indirect
+	github.com/pion/interceptor v0.1.37 // indirect
+	github.com/pion/logging v0.2.3 // indirect
+	github.com/pion/mdns/v2 v2.0.7 // indirect
+	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pion/rtcp v1.2.15 // indirect
+	github.com/pion/rtp v1.8.11 // indirect
+	github.com/pion/sctp v1.8.35 // indirect
+	github.com/pion/sdp/v3 v3.0.10 // indirect
+	github.com/pion/srtp/v3 v3.0.4 // indirect
+	github.com/pion/stun/v3 v3.0.0 // indirect
+	github.com/pion/transport/v3 v3.0.7 // indirect
+	github.com/pion/turn/v4 v4.0.0 // indirect
+	github.com/pion/webrtc/v4 v4.0.9 // indirect
+	github.com/puzpuzpuz/xsync/v3 v3.4.0 // indirect
+	github.com/stoewer/go-strcase v1.3.0 // indirect
+	github.com/twitchtv/twirp v8.1.3+incompatible // indirect
+	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/zeebo/xxh3 v1.0.2 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
+	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )

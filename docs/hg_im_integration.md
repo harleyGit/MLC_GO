@@ -5,7 +5,7 @@
 ## 代码与数据边界
 
 - `internal/modules/im/`：现有会话/消息/设备 ACK，新增实时任务、私有附件、单聊呼叫及 HTTP 入口。
-- `internal/modules/im/transport/`：Centrifugo v6 HTTP API/连接 JWT、SeaweedFS S3 SigV4、受信审核器 HTTP 协议、LiveKit JWT/Twirp/回调验签。使用现有 `golang-jwt/jwt/v5`，没有新增 Go 依赖。
+- `internal/modules/im/transport/`：Centrifugo v6 服务端 HTTP API 使用 `gocent/v3` 发布（`/api` 命令协议，仍发送现有 `X-API-Key`）；连接 JWT 保持原协议。LiveKit 使用 `server-sdk-go/v2` 签发 60 秒入房令牌；房间写操作与 Webhook 验签仍使用现有带超时、禁止重定向和响应上限的受控实现。SeaweedFS 的私有 GET 预签名使用 AWS SDK for Go v2 的 S3 path-style 客户端，上传及条件封存 PUT 保持已有绑定长度、MIME 和 `If-None-Match` 的签名协议。SDK 接入不启用录制或任意房间/S3 管理能力，不改变环境门禁。
 - `internal/modules/im/module/`：默认关闭的环境配置、路由目录/Guard 共用 RouteSpec、独立 Kafka 消费及固定数量后台任务。应用关闭时取消并等待任务，再关闭连接池。
 - `internal/consumer/im/`：独立消费组，Inbox 与投递任务同事务；不把 Kafka offset 提交当作设备送达。
 - `internal/pkg/mysql/queries/hg_im_*_queries.go`：集中参数化 SQL。
@@ -55,6 +55,8 @@
 新增 `/device/revoke` 接受本人设备凭据。重连后应先处理当前设备 pending（以 `messageId` 游标翻页）再核对每个会话 seq。新注册设备不回填所有旧设备任务，必须同步会话历史。
 
 任务完成要求更新命中当前租约；零行命中返回错误且不增加耗尽计数。发布确认与数据库提交之间仍可能重放，客户端去重不可省略。消费协议错误目前会阻塞该分区重试，需监控和人工处置，不能当作已实现自动毒消息隔离。
+
+SDK 发布仍要求恰好一个成功结果对象；错误码或缺失结果均视为未确认。`gocent/v3` 的 `/api` 与已部署的 Centrifugo v6 需在隔离 debug 实测，旧 `/api/publish` 路径不再由 Go 调用；本轮只有内存 HTTP 测试，不能把它当作网关端到端验收。
 
 ## 私有媒体 API 与审核契约
 
@@ -106,6 +108,8 @@ Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配
 - 结束/拒绝/取消/超时后，后台在 `cleanup_until` 前重复 DeleteRoom；仅正常 JSON 成功响应或 Twirp `404 + code=not_found` 确认清理，普通代理 404 不算成功。**当前 120 秒窗口只覆盖 Go 初始令牌，无法保证覆盖 LiveKit 自主刷新的令牌。** 官方当前 `RoomManager.refreshToken` 会签发至少十分钟有效的令牌；重连还可能继续刷新，因此不能把重入风险描述为“一分钟内”，也不能仅将清理窗口延长到十分钟就称为可靠撤权。必须锁定实际版本，确定结束后拒绝重新入房/续签的方案并实测后才能解除生产门禁。
 
 尚需验证 TURN、TLS、UDP、公网地址、带宽、浏览器权限及多设备断网重连。回调无可靠到达保证，漏回调时一小时业务超时兜底；没有完整参与者状态对账、录制或多人会议。同名房间跨节点创建/重建与迟到回调的竞态也需真实故障验收，当前 SID 比较不能替代版本绑定的入房控制。
+
+SDK 依赖固定 `server-sdk-go/v2@v2.5.0`（兼容仓库 `go 1.24.1`）；只替换入房 token 的生成，不授予 `roomRecord`/`roomAdmin`，也不新增 Egress 业务接口。后续录制必须先定义参与者同意、租户隔离、录制存储路径和配额/计费、幂等启动/停止、Webhook 终态及清理机制，并核对实际 LiveKit 服务端版本；不允许直接从客户端获得 SDK 管理能力。
 
 ## 检查、容量与上线阻断
 
