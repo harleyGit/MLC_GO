@@ -111,6 +111,8 @@ Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配
 
 SDK 依赖固定 `server-sdk-go/v2@v2.5.0`（兼容仓库 `go 1.24.1`）；只替换入房 token 的生成，不授予 `roomRecord`/`roomAdmin`，也不新增 Egress 业务接口。后续录制必须先定义参与者同意、租户隔离、录制存储路径和配额/计费、幂等启动/停止、Webhook 终态及清理机制，并核对实际 LiveKit 服务端版本；不允许直接从客户端获得 SDK 管理能力。
 
+录制、复杂房间与终态重入的待确认设计见 [hg_im_livekit_recording_design.md](hg_im_livekit_recording_design.md)；设计不是实施或验收结果。
+
 ## 检查、容量与上线阻断
 
 进程指标：`mlc_im_publish_failures_total`、`mlc_im_delivery_exhausted_total`、`mlc_im_worker_failures_total{worker=delivery|media|calls}`；复用 Kafka lag 指标。Ready 检查任务是否启动/异常退出及最近后台错误，不能证明所有外部服务均可用。还需持久队列最老年龄、任务积压、ACK 延迟、审核拒绝原因及回调延迟告警。标签不含用户/消息/设备 ID。
