@@ -59,6 +59,8 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, ErrHGCategoryIDInvalid):
 		status, message = http.StatusBadRequest, "类目 ID 无效：填写 1-64 位 ASCII 字母、数字、连字符或下划线"
+	case errors.Is(err, ErrHGCategoryIDConflict):
+		status, message = http.StatusConflict, "类目 ID 已被占用：请更换 categoryId，或保持原名称、上级类目和图片后重试"
 	case errors.Is(err, ErrHGCategoryNameInvalid):
 		status, message = http.StatusBadRequest, "类目名称无效：填写 1-64 个字符，不能包含尖括号或换行"
 	case errors.Is(err, ErrHGCategoryParentInvalid):

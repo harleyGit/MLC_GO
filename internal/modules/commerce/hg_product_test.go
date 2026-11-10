@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-sql-driver/mysql"
 )
 
 func hgTestDraft() HGDraftInput {
@@ -87,6 +88,14 @@ func TestHGCategoryInvalidFieldErrors(t *testing.T) {
 	}
 }
 
+func TestHGCategoryIDConflictExplainsRetryContract(t *testing.T) {
+	w := httptest.NewRecorder()
+	hgError(w, httptest.NewRequest(http.MethodPost, "/admin/categories", nil), ErrHGCategoryIDConflict)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "类目 ID 已被占用") || !strings.Contains(w.Body.String(), "categoryId") {
+		t.Fatalf("类目 ID 冲突应说明更换或原样重试: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // TestHGCategoryImageBindRequiresOwner 验证伪造图片 URL 时回滚类目写入，不可绑定别人的资产。
 func TestHGCategoryImageBindRequiresOwner(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -142,6 +151,40 @@ func TestHGCategoryStringIDAndParentArePersisted(t *testing.T) {
 	}
 	if err = mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryCreateReplayUsesBusinessIDIdempotently(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		storedName string
+		want       error
+	}{
+		{name: "相同正文重试返回首次结果", storedName: "数码影音"},
+		{name: "同 ID 不同正文拒绝覆盖", storedName: "已存在类目", want: ErrHGCategoryIDConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectBegin()
+			mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryInsertSQL)).WithArgs("DIG-0001", nil, uint8(1), "数码影音", false, "/category.png").WillReturnError(&mysql.MySQLError{Number: 1062, Message: "duplicate category id"})
+			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryReplaySQL)).WithArgs("DIG-0001").WillReturnRows(sqlmock.NewRows([]string{"parent_id", "depth", "name", "regulated", "image_url", "status"}).AddRow(nil, 1, tc.storedName, false, "/category.png", 1))
+			if tc.want == nil {
+				mock.ExpectCommit()
+			} else {
+				mock.ExpectRollback()
+			}
+			item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{CategoryID: "DIG-0001", Name: "数码影音", ImageURL: "/category.png"})
+			if !errors.Is(err, tc.want) || (tc.want == nil && (err != nil || item.ID != "DIG-0001")) {
+				t.Fatalf("类目创建重试结果=%+v err=%v，期望=%v", item, err, tc.want)
+			}
+			if err = mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

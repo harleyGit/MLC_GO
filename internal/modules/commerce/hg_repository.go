@@ -27,6 +27,11 @@ func hgDBError(err error) error {
 	return err
 }
 
+func hgIsDuplicate(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
+}
+
 func (r *HGRepository) hgMerchant(ctx context.Context, tx *sql.Tx, user string) (string, error) {
 	var merchant string
 	err := tx.QueryRowContext(ctx, q.HGCommerceMerchantLockSQL, user).Scan(&merchant)
@@ -97,6 +102,9 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, reques
 	}
 	_, err = tx.ExecContext(ctx, q.HGCommerceCategoryInsertSQL, request.CategoryID, parent, depth, request.Name, request.Regulated, request.ImageURL)
 	if err != nil {
+		if hgIsDuplicate(err) {
+			return hgReplayCategory(ctx, tx, request, depth)
+		}
 		return HGCategory{}, hgDBError(err)
 	}
 	if request.ImageURL != "" {
@@ -111,6 +119,30 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, reques
 		return HGCategory{}, err
 	}
 	return HGCategory{ID: request.CategoryID, Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
+}
+
+// hgReplayCategory 将完全相同的 categoryId 创建请求视为重试；任何正文差异都禁止覆盖已有类目。
+func hgReplayCategory(ctx context.Context, tx *sql.Tx, request HGCategoryRequest, depth uint8) (HGCategory, error) {
+	var parent sql.NullString
+	var stored HGCategory
+	var regulated bool
+	var status uint8
+	err := tx.QueryRowContext(ctx, q.HGCommerceCategoryReplaySQL, request.CategoryID).Scan(&parent, &stored.Depth, &stored.Name, &regulated, &stored.ImageURL, &status)
+	if err != nil {
+		return HGCategory{}, err
+	}
+	stored.ID = request.CategoryID
+	parentID := ""
+	if parent.Valid {
+		parentID = parent.String
+	}
+	if status != 1 || parentID != request.ParentID || stored.Depth != depth || stored.Name != request.Name || regulated != request.Regulated || stored.ImageURL != request.ImageURL {
+		return HGCategory{}, ErrHGCategoryIDConflict
+	}
+	if err = tx.Commit(); err != nil {
+		return HGCategory{}, err
+	}
+	return stored, nil
 }
 
 func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error {

@@ -17,6 +17,7 @@ import (
 var (
 	ErrHGInvalid               = errors.New("商品参数无效")
 	ErrHGCategoryIDInvalid     = fmt.Errorf("%w: 类目 ID 无效", ErrHGInvalid)
+	ErrHGCategoryIDConflict    = errors.New("类目 ID 已被占用")
 	ErrHGCategoryNameInvalid   = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
 	ErrHGCategoryParentInvalid = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
 	ErrHGCategoryImageInvalid  = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
