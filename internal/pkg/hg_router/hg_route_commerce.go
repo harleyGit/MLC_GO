@@ -25,11 +25,12 @@ func HGCommerceRouteCatalog() []RouteCatalogItem {
 }
 
 func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
-	var categories, adminCategories, createCategory, categoryImage, categoryUnused, categoryRemove, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
+	var categories, adminCategories, createCategory, deleteCategory, categoryImage, categoryUnused, categoryRemove, create, edit, submit, review, publish, unpublish, archive, list, mine, pending, detail, mineDetail, pendingDetail, image, unused, remove http.HandlerFunc
 	var inventory, adjust, preview, createOrder, orderDetail, orders, cancelOrder, payment, refund, callback, settle, reconcile, merchantOrders, merchantDetail, shipment http.HandlerFunc
 	if h != nil {
 		categories, createCategory = h.HGCategories, h.HGCreateCategory
 		adminCategories = h.HGAdminCategories
+		deleteCategory = h.HGDeleteCategory
 		categoryImage = h.HGUploadCategoryImage
 		categoryUnused, categoryRemove = h.HGUnusedCategoryImages, h.HGDeleteUnusedCategoryImage
 		create, edit, submit, review, publish, unpublish = h.HGCreateDraft, h.HGEditDraft, h.HGSubmit, h.HGReview, h.HGPublish, h.HGUnpublish
@@ -46,6 +47,7 @@ func hgCommerceRoutes(h *commerce.HGHandler) []RouteSpec {
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/merchant/categories", true, "本人可经营普通类目", categories),
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/admin/categories", true, "平台普通叶子类目", adminCategories, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/categories", true, "平台维护类目", createCategory, permission.HGMallMerchantReview),
+		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/categories/delete", true, "平台停用类目", deleteCategory, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/categories/images", true, "管理员上传类目图片", categoryImage, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodGet, HGCommerceBasePath, "/admin/categories/images/unused", true, "本人未绑定类目图片", categoryUnused, permission.HGMallMerchantReview),
 		NewRouteSpec("commerce", http.MethodPost, HGCommerceBasePath, "/admin/categories/images/delete", true, "清理本人未绑定类目图片", categoryRemove, permission.HGMallMerchantReview),

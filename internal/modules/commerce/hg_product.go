@@ -15,15 +15,16 @@ import (
 )
 
 var (
-	ErrHGInvalid               = errors.New("商品参数无效")
-	ErrHGCategoryIDInvalid     = fmt.Errorf("%w: 类目 ID 无效", ErrHGInvalid)
-	ErrHGCategoryIDConflict    = errors.New("类目 ID 已被占用")
-	ErrHGCategoryNameInvalid   = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
-	ErrHGCategoryParentInvalid = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
-	ErrHGCategoryImageInvalid  = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
-	ErrHGForbidden             = errors.New("无商品操作权限")
-	ErrHGMerchantRequired      = errors.New("需要已批准的商家身份")
-	ErrHGConflict              = errors.New("商品版本或状态冲突")
+	ErrHGInvalid                = errors.New("商品参数无效")
+	ErrHGCategoryIDInvalid      = fmt.Errorf("%w: 类目 ID 无效", ErrHGInvalid)
+	ErrHGCategoryIDConflict     = errors.New("类目 ID 已被占用")
+	ErrHGCategoryDeleteConflict = errors.New("类目仍有子类目或关联商品")
+	ErrHGCategoryNameInvalid    = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
+	ErrHGCategoryParentInvalid  = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
+	ErrHGCategoryImageInvalid   = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
+	ErrHGForbidden              = errors.New("无商品操作权限")
+	ErrHGMerchantRequired       = errors.New("需要已批准的商家身份")
+	ErrHGConflict               = errors.New("商品版本或状态冲突")
 )
 
 // HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
@@ -41,6 +42,11 @@ type HGCategoryRequest struct {
 	Name       string `json:"name"`       // 类目名称，1-64字符。
 	Regulated  bool   `json:"regulated"`  // 是否需资质；true 首期禁止销售。
 	ImageURL   string `json:"imageURL"`   // 管理员本人已上传的可选类目图片 URL；空表示无图。
+}
+
+// HGCategoryDeleteRequest 是平台管理员停用类目的请求；服务端保留历史行及已绑定图片。
+type HGCategoryDeleteRequest struct {
+	CategoryID string `json:"categoryId"` // 待停用类目业务 ID，1-64 位安全 ASCII 字符。
 }
 
 // HGSKUInput 是商家草稿 SKU；初始库存只记录建议值，不代表可售库存或支付许可。
@@ -250,6 +256,17 @@ func (s *HGService) HGCreateCategory(ctx context.Context, user string, request H
 		return HGCategory{}, ErrHGCategoryImageInvalid
 	}
 	return s.repo.HGCreateCategory(ctx, user, request)
+}
+
+// HGDeleteCategory 仅允许审核管理员停用无子类目、无关联商品的类目，不物理删除历史数据。
+func (s *HGService) HGDeleteCategory(ctx context.Context, user string, request HGCategoryDeleteRequest) error {
+	if err := s.hgReviewAllowed(ctx, user); err != nil {
+		return err
+	}
+	if _, err := hgCategoryID(request.CategoryID); err != nil {
+		return ErrHGCategoryIDInvalid
+	}
+	return s.repo.HGDeleteCategory(ctx, request.CategoryID)
 }
 
 // hgValidCategoryParent 限制上级类目 ID 使用与类目主键一致的安全 ASCII 字符集。

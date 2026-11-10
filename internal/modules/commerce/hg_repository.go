@@ -145,6 +145,33 @@ func hgReplayCategory(ctx context.Context, tx *sql.Tx, request HGCategoryRequest
 	return stored, nil
 }
 
+// HGDeleteCategory 串行化类目校验与商品创建；仅将安全叶子类目标记为禁用。
+func (r *HGRepository) HGDeleteCategory(ctx context.Context, categoryID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lockedID string
+	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryDeleteLockSQL, categoryID).Scan(&lockedID); err != nil {
+		return err
+	}
+	var hasChild, hasProduct bool
+	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryChildExistsSQL, categoryID).Scan(&hasChild); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryProductExistsSQL, categoryID).Scan(&hasProduct); err != nil {
+		return err
+	}
+	if hasChild || hasProduct {
+		return ErrHGCategoryDeleteConflict
+	}
+	if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryDisableSQL, categoryID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error {
 	var exists string
 	err := tx.QueryRowContext(ctx, q.HGCommerceCategoryLeafSQL, category).Scan(&exists)

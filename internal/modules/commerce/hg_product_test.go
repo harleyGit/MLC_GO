@@ -4,6 +4,7 @@ import (
 	q "MLC_GO/internal/pkg/mysql/queries"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -180,6 +181,51 @@ func TestHGCategoryCreateReplayUsesBusinessIDIdempotently(t *testing.T) {
 			item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGCreateCategory(context.Background(), "admin", HGCategoryRequest{CategoryID: "DIG-0001", Name: "数码影音", ImageURL: "/category.png"})
 			if !errors.Is(err, tc.want) || (tc.want == nil && (err != nil || item.ID != "DIG-0001")) {
 				t.Fatalf("类目创建重试结果=%+v err=%v，期望=%v", item, err, tc.want)
+			}
+			if err = mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestHGCategoryDeleteProtectsRelationshipsAndSoftDeletes(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		hasChild, hasProduct bool
+		missing              bool
+		want                 error
+	}{
+		{name: "无关联类目可停用"},
+		{name: "存在启用子类目时拒绝", hasChild: true, want: ErrHGCategoryDeleteConflict},
+		{name: "存在关联商品时拒绝", hasProduct: true, want: ErrHGCategoryDeleteConflict},
+		{name: "不存在或已停用返回未找到", missing: true, want: sql.ErrNoRows},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			mock.ExpectBegin()
+			locked := sqlmock.NewRows([]string{"id"})
+			if !tc.missing {
+				locked.AddRow("DIG-0001")
+			}
+			mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryDeleteLockSQL)).WithArgs("DIG-0001").WillReturnRows(locked)
+			if !tc.missing {
+				mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryChildExistsSQL)).WithArgs("DIG-0001").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tc.hasChild))
+				mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryProductExistsSQL)).WithArgs("DIG-0001").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(tc.hasProduct))
+			}
+			if tc.want == nil {
+				mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryDisableSQL)).WithArgs("DIG-0001").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
+			} else {
+				mock.ExpectRollback()
+			}
+			err = HGNewRepository(db).HGDeleteCategory(context.Background(), "DIG-0001")
+			if !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
+				t.Fatalf("停用类目结果=%v，期望=%v", err, tc.want)
 			}
 			if err = mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)
