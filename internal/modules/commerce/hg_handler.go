@@ -61,8 +61,12 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusBadRequest, "类目 ID 无效：填写 1-64 位 ASCII 字母、数字、连字符或下划线"
 	case errors.Is(err, ErrHGCategoryIDConflict):
 		status, message = http.StatusConflict, "类目 ID 已被占用：请更换 categoryId，或保持原名称、上级类目和图片后重试"
+	case errors.Is(err, ErrHGCategoryIDEditConflict):
+		status, message = http.StatusConflict, "类目 ID 无法修改：该类目已有商品；可继续修改名称、上级类目和图片"
 	case errors.Is(err, ErrHGCategoryDeleteConflict):
 		status, message = http.StatusConflict, "类目无法删除：请先处理其启用子类目和关联商品"
+	case errors.Is(err, ErrHGCategoryEditConflict):
+		status, message = http.StatusConflict, "类目无法编辑：当前仅允许修改无子类目的叶子类目"
 	case errors.Is(err, ErrHGCategoryNameInvalid):
 		status, message = http.StatusBadRequest, "类目名称无效：填写 1-64 个字符，不能包含尖括号或换行"
 	case errors.Is(err, ErrHGCategoryParentInvalid):
@@ -187,6 +191,26 @@ func (h *HGHandler) HGDeleteCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.SuccessResult(w, r, struct{}{})
+}
+
+// HGEditCategory 修改叶子类目的 ID、名称、上级和图片；已有商品时 ID 保持不变。
+func (h *HGHandler) HGEditCategory(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	var request HGCategoryEditRequest
+	if !hgDecode(w, r, &request) {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	item, err := h.service.HGEditCategory(ctx, id, r.URL.Query().Get("categoryId"), request)
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, item)
 }
 
 // HGUploadCategoryImage 审核员专用图片上传，商品商家上传接口不接受管理员身份替代。

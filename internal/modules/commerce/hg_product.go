@@ -18,7 +18,9 @@ var (
 	ErrHGInvalid                = errors.New("商品参数无效")
 	ErrHGCategoryIDInvalid      = fmt.Errorf("%w: 类目 ID 无效", ErrHGInvalid)
 	ErrHGCategoryIDConflict     = errors.New("类目 ID 已被占用")
+	ErrHGCategoryIDEditConflict = errors.New("有关联商品的类目不能修改 ID")
 	ErrHGCategoryDeleteConflict = errors.New("类目仍有子类目或关联商品")
+	ErrHGCategoryEditConflict   = errors.New("仅允许编辑无子类目的类目")
 	ErrHGCategoryNameInvalid    = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
 	ErrHGCategoryParentInvalid  = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
 	ErrHGCategoryImageInvalid   = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
@@ -30,6 +32,7 @@ var (
 // HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
 type HGCategory struct {
 	ID       string `json:"categoryId"` // 类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
+	ParentID string `json:"parentId"`   // 上级类目业务 ID；空表示一级类目。
 	Name     string `json:"name"`       // 平台类目名称。
 	Depth    uint8  `json:"depth"`      // 所在层级，1-3。
 	ImageURL string `json:"imageURL"`   // 已绑定的可选类目图片 URL，空表示无图。
@@ -47,6 +50,14 @@ type HGCategoryRequest struct {
 // HGCategoryDeleteRequest 是平台管理员停用类目的请求；服务端保留历史行及已绑定图片。
 type HGCategoryDeleteRequest struct {
 	CategoryID string `json:"categoryId"` // 待停用类目业务 ID，1-64 位安全 ASCII 字符。
+}
+
+// HGCategoryEditRequest 是平台管理员编辑叶子类目的请求；原 ID 通过查询参数传入。
+type HGCategoryEditRequest struct {
+	CategoryID string `json:"categoryId"` // 修改后的类目业务 ID，1-64 位安全 ASCII 字符。
+	ParentID   string `json:"parentId"`   // 修改后的上级类目 ID；空表示一级类目。
+	Name       string `json:"name"`       // 修改后的类目名称，1-64 字符。
+	ImageURL   string `json:"imageURL"`   // 修改后的图片 URL；空表示移除图片。
 }
 
 // HGSKUInput 是商家草稿 SKU；初始库存只记录建议值，不代表可售库存或支付许可。
@@ -267,6 +278,29 @@ func (s *HGService) HGDeleteCategory(ctx context.Context, user string, request H
 		return ErrHGCategoryIDInvalid
 	}
 	return s.repo.HGDeleteCategory(ctx, request.CategoryID)
+}
+
+// HGEditCategory 编辑普通叶子类目；已有商品时禁止修改 ID，避免大表关联更新。
+func (s *HGService) HGEditCategory(ctx context.Context, user, originalID string, request HGCategoryEditRequest) (HGCategory, error) {
+	if err := s.hgReviewAllowed(ctx, user); err != nil {
+		return HGCategory{}, err
+	}
+	if _, err := hgCategoryID(originalID); err != nil {
+		return HGCategory{}, ErrHGCategoryIDInvalid
+	}
+	if _, err := hgCategoryID(request.CategoryID); err != nil {
+		return HGCategory{}, ErrHGCategoryIDInvalid
+	}
+	if !hgText(request.Name, 64, true) {
+		return HGCategory{}, ErrHGCategoryNameInvalid
+	}
+	if request.ParentID != "" && !hgValidCategoryParent(request.ParentID) {
+		return HGCategory{}, ErrHGCategoryParentInvalid
+	}
+	if len(request.ImageURL) > 1024 {
+		return HGCategory{}, ErrHGCategoryImageInvalid
+	}
+	return s.repo.HGEditCategory(ctx, user, originalID, request)
 }
 
 // hgValidCategoryParent 限制上级类目 ID 使用与类目主键一致的安全 ASCII 字符集。

@@ -8,6 +8,9 @@ const (
 	HGCommerceCategoryParentSQL        = `SELECT depth,regulated FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
 	HGCommerceCategoryInsertSQL        = `INSERT INTO commerce_category(id,parent_id,depth,name,regulated,image_url) VALUES(?,?,?,?,?,?)`
 	HGCommerceCategoryReplaySQL        = `SELECT parent_id,depth,name,regulated,image_url,status FROM commerce_category WHERE id=? FOR UPDATE`
+	HGCommerceCategoryEditLockSQL      = `SELECT parent_id,depth,name,regulated,image_url FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
+	HGCommerceCategoryAnyChildSQL      = `SELECT EXISTS(SELECT 1 FROM commerce_category WHERE parent_id=? LIMIT 1)`
+	HGCommerceCategoryUpdateSQL        = `UPDATE commerce_category SET id=?,parent_id=?,depth=?,name=?,image_url=? WHERE id=? AND status=1`
 	HGCommerceCategoryDeleteLockSQL    = `SELECT id FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
 	HGCommerceCategoryChildExistsSQL   = `SELECT EXISTS(SELECT 1 FROM commerce_category WHERE parent_id=? AND status=1 LIMIT 1)`
 	HGCommerceCategoryProductExistsSQL = `SELECT EXISTS(SELECT 1 FROM commerce_product WHERE category_id=? LIMIT 1)`

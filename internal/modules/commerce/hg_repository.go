@@ -67,6 +67,9 @@ func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, err
 		if err = rows.Scan(&item.ID, &item.Name, &parent, &item.Depth, &item.ImageURL); err != nil {
 			return nil, err
 		}
+		if parent.Valid {
+			item.ParentID = parent.String
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -118,7 +121,7 @@ func (r *HGRepository) HGCreateCategory(ctx context.Context, user string, reques
 	if err = tx.Commit(); err != nil {
 		return HGCategory{}, err
 	}
-	return HGCategory{ID: request.CategoryID, Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
+	return HGCategory{ID: request.CategoryID, ParentID: request.ParentID, Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
 }
 
 // hgReplayCategory 将完全相同的 categoryId 创建请求视为重试；任何正文差异都禁止覆盖已有类目。
@@ -136,6 +139,7 @@ func hgReplayCategory(ctx context.Context, tx *sql.Tx, request HGCategoryRequest
 	if parent.Valid {
 		parentID = parent.String
 	}
+	stored.ParentID = parentID
 	if status != 1 || parentID != request.ParentID || stored.Depth != depth || stored.Name != request.Name || regulated != request.Regulated || stored.ImageURL != request.ImageURL {
 		return HGCategory{}, ErrHGCategoryIDConflict
 	}
@@ -170,6 +174,83 @@ func (r *HGRepository) HGDeleteCategory(ctx context.Context, categoryID string) 
 		return err
 	}
 	return tx.Commit()
+}
+
+// HGEditCategory 只编辑叶子类目；无商品时允许修改主键并同步有界图片关联。
+func (r *HGRepository) HGEditCategory(ctx context.Context, user, originalID string, request HGCategoryEditRequest) (HGCategory, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return HGCategory{}, err
+	}
+	defer tx.Rollback()
+	var oldParent sql.NullString
+	var oldDepth uint8
+	var oldName string
+	var regulated bool
+	var oldImageURL string
+	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryEditLockSQL, originalID).Scan(&oldParent, &oldDepth, &oldName, &regulated, &oldImageURL); err != nil {
+		return HGCategory{}, err
+	}
+	var hasChild bool
+	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryAnyChildSQL, originalID).Scan(&hasChild); err != nil {
+		return HGCategory{}, err
+	}
+	if hasChild {
+		return HGCategory{}, ErrHGCategoryEditConflict
+	}
+	if request.CategoryID != originalID {
+		var hasProduct bool
+		if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryProductExistsSQL, originalID).Scan(&hasProduct); err != nil {
+			return HGCategory{}, err
+		}
+		if hasProduct {
+			return HGCategory{}, ErrHGCategoryIDEditConflict
+		}
+	}
+	depth := uint8(1)
+	var parent any
+	if request.ParentID != "" {
+		if request.ParentID == originalID || request.ParentID == request.CategoryID {
+			return HGCategory{}, ErrHGCategoryParentInvalid
+		}
+		var parentDepth uint8
+		var parentRegulated bool
+		if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryParentSQL, request.ParentID).Scan(&parentDepth, &parentRegulated); err != nil {
+			return HGCategory{}, err
+		}
+		if parentDepth >= 3 || (parentRegulated && !regulated) {
+			return HGCategory{}, ErrHGCategoryParentInvalid
+		}
+		depth = parentDepth + 1
+		parent = request.ParentID
+	}
+	if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryUpdateSQL, request.CategoryID, parent, depth, request.Name, request.ImageURL, originalID)); err != nil {
+		if hgIsDuplicate(err) {
+			return HGCategory{}, ErrHGCategoryIDConflict
+		}
+		return HGCategory{}, err
+	}
+	if request.CategoryID != originalID {
+		if _, err = tx.ExecContext(ctx, q.HGCommerceCategoryMediaMoveSQL, request.CategoryID, originalID); err != nil {
+			return HGCategory{}, err
+		}
+	}
+	if request.ImageURL != oldImageURL {
+		if oldImageURL != "" {
+			if _, err = tx.ExecContext(ctx, q.HGCommerceCategoryMediaUnbindSQL, request.CategoryID, oldImageURL); err != nil {
+				return HGCategory{}, err
+			}
+		}
+		if request.ImageURL != "" {
+			if err = hgExactlyOne(tx.ExecContext(ctx, q.HGCommerceCategoryMediaBindSQL, request.CategoryID, request.ImageURL, request.ImageURL, user)); err != nil {
+				return HGCategory{}, ErrHGCategoryImageInvalid
+			}
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return HGCategory{}, err
+	}
+	return HGCategory{ID: request.CategoryID, ParentID: request.ParentID, Name: request.Name, Depth: depth, ImageURL: request.ImageURL}, nil
 }
 
 func hgValidateCategory(ctx context.Context, tx *sql.Tx, category string) error {

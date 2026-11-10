@@ -10,6 +10,8 @@ const (
 	HGCommerceCategoryMediaReadySQL         = `UPDATE commerce_category_media SET status=1 WHERE image_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=0`
 	HGCommerceCategoryMediaRemovePendingSQL = `DELETE FROM commerce_category_media WHERE image_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=0`
 	HGCommerceCategoryMediaBindSQL          = `UPDATE commerce_category_media SET category_id=?,status=2 WHERE image_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=1`
+	HGCommerceCategoryMediaMoveSQL          = `UPDATE commerce_category_media SET category_id=? WHERE category_id=?`
+	HGCommerceCategoryMediaUnbindSQL        = `UPDATE commerce_category_media SET category_id=NULL,status=1 WHERE category_id=? AND image_url=? AND status=2`
 	HGCommerceCategoryMediaUnusedSQL        = `SELECT image_url FROM commerce_category_media WHERE user_id=? AND status IN (1,3) ORDER BY id DESC LIMIT 20`
 	HGCommerceCategoryMediaClaimDeleteSQL   = `UPDATE commerce_category_media SET status=3 WHERE image_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=1`
 	HGCommerceCategoryMediaKeySQL           = `SELECT storage_key FROM commerce_category_media WHERE image_hash=UNHEX(SHA2(?,256)) AND image_url=? AND user_id=? AND status=3`

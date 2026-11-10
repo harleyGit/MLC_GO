@@ -33,9 +33,9 @@ func TestHGAdminCategoriesRequiresReviewButNotMerchant(t *testing.T) {
 		t.Fatalf("无审核权限必须拒绝: %v", err)
 	}
 	service.reviewer = hgCommerceTestReviewer{}
-	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).AddRow("DIG-0012", "普通叶子类目", nil, 1, ""))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategorySQL)).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).AddRow("DIG-0012", "普通叶子类目", "DIG-PARENT", 2, ""))
 	items, err := service.HGAdminCategories(context.Background(), "admin")
-	if err != nil || len(items) != 1 || items[0].ID != "DIG-0012" {
+	if err != nil || len(items) != 1 || items[0].ID != "DIG-0012" || items[0].ParentID != "DIG-PARENT" {
 		t.Fatalf("管理员类目读取失败: %v %+v", err, items)
 	}
 	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceMerchantSQL)).WithArgs("admin").WillReturnRows(sqlmock.NewRows([]string{"merchant_id"}))
@@ -231,6 +231,70 @@ func TestHGCategoryDeleteProtectsRelationshipsAndSoftDeletes(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestHGCategoryEditMovesIDParentProductsAndImageAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryEditLockSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"parent_id", "depth", "name", "regulated", "image_url"}).AddRow(nil, 1, "旧类目", false, "/old.png"))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryAnyChildSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryProductExistsSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryParentSQL)).WithArgs("DIG-PARENT").WillReturnRows(sqlmock.NewRows([]string{"depth", "regulated"}).AddRow(1, false))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryUpdateSQL)).WithArgs("DIG-NEW", "DIG-PARENT", uint8(2), "新类目", "/new.png", "DIG-OLD").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaMoveSQL)).WithArgs("DIG-NEW", "DIG-OLD").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaUnbindSQL)).WithArgs("DIG-NEW", "/old.png").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(q.HGCommerceCategoryMediaBindSQL)).WithArgs("DIG-NEW", "/new.png", "/new.png", "admin").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	item, err := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGEditCategory(context.Background(), "admin", "DIG-OLD", HGCategoryEditRequest{CategoryID: "DIG-NEW", ParentID: "DIG-PARENT", Name: "新类目", ImageURL: "/new.png"})
+	if err != nil || item.ID != "DIG-NEW" || item.ParentID != "DIG-PARENT" || item.Depth != 2 || item.ImageURL != "/new.png" {
+		t.Fatalf("类目编辑未同步关联: %+v %v", item, err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryEditRejectsNonLeafCategory(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryEditLockSQL)).WithArgs("DIG-PARENT").WillReturnRows(sqlmock.NewRows([]string{"parent_id", "depth", "name", "regulated", "image_url"}).AddRow(nil, 1, "父类目", false, ""))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryAnyChildSQL)).WithArgs("DIG-PARENT").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectRollback()
+	_, err = HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGEditCategory(context.Background(), "admin", "DIG-PARENT", HGCategoryEditRequest{CategoryID: "DIG-PARENT", Name: "父类目"})
+	if !errors.Is(err, ErrHGCategoryEditConflict) {
+		t.Fatalf("非叶子类目编辑必须拒绝: %v", err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCategoryEditRejectsIDChangeWithProducts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryEditLockSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"parent_id", "depth", "name", "regulated", "image_url"}).AddRow(nil, 1, "数码", false, ""))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryAnyChildSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceCategoryProductExistsSQL)).WithArgs("DIG-OLD").WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectRollback()
+	_, err = HGNewService(HGNewRepository(db), hgCommerceTestReviewer{}).HGEditCategory(context.Background(), "admin", "DIG-OLD", HGCategoryEditRequest{CategoryID: "DIG-NEW", Name: "数码"})
+	if !errors.Is(err, ErrHGCategoryIDEditConflict) {
+		t.Fatalf("有关联商品时修改类目 ID 必须拒绝: %v", err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
