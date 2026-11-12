@@ -5,10 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -112,67 +109,6 @@ func (h *HGHandler) HGMediaStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	Response.SuccessResult(w, r, result)
-}
-
-// HGMediaRead 每次 GET/Range 都鉴权和检查审核状态；流式转发私有对象，不下发可绕过授权的下载 URL。
-func (h *HGHandler) HGMediaRead(w http.ResponseWriter, r *http.Request) {
-	user, ok := hgIMUser(w, r)
-	if !ok {
-		return
-	}
-	if h.media == nil {
-		hgIMFail(w, r, hgErrDisabled)
-		return
-	}
-	select {
-	case h.media.downloadSlots <- struct{}{}:
-		defer func() { <-h.media.downloadSlots }()
-	default:
-		w.WriteHeader(http.StatusTooManyRequests)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
-	a, err := h.media.hgReadable(ctx, user, r.URL.Query().Get("mediaId"))
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	response, err := h.media.storage.HGOpen(ctx, a.sealed, r.Header.Get("Range"))
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	defer response.Body.Close()
-	if response.ContentLength > a.size || (response.StatusCode == http.StatusOK && response.ContentLength != a.size) {
-		hgIMFail(w, r, HGErrConflict)
-		return
-	}
-	// transport 已校验起止位置和分段长度；总大小还必须匹配数据库中的审核结果。
-	if response.StatusCode == http.StatusPartialContent && !strings.HasSuffix(response.Header.Get("Content-Range"), "/"+strconv.FormatInt(a.size, 10)) {
-		hgIMFail(w, r, HGErrConflict)
-		return
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.Header().Set("Content-Type", a.mime)
-	if a.kind == HGImage || a.kind == HGVideo || a.kind == HGAudio {
-		w.Header().Set("Content-Disposition", "inline")
-	} else {
-		w.Header().Set("Content-Disposition", "attachment")
-	}
-	w.Header().Set("Content-Length", strconv.FormatInt(response.ContentLength, 10))
-	if response.StatusCode == http.StatusPartialContent {
-		w.Header().Set("Content-Range", response.Header.Get("Content-Range"))
-	}
-	w.Header().Set("Accept-Ranges", "bytes")
-	// 仅暴露媒体响应元数据，供已获 Origin 许可的 Web 客户端核对分段；不放宽 CORS 来源。
-	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Disposition")
-	w.WriteHeader(response.StatusCode)
-	if _, err = io.CopyN(w, response.Body, response.ContentLength); err != nil {
-		panic(http.ErrAbortHandler)
-	}
 }
 
 func (h *HGHandler) HGMediaDelete(w http.ResponseWriter, r *http.Request) {

@@ -98,4 +98,11 @@ func TestHGSeaweedFSSDKGetPresignIsPrivateAndBounded(t *testing.T) {
 	if _, err = storage.hgSign(http.MethodGet, "public/file", "", 0, time.Minute); err == nil {
 		t.Fatal("不允许签发任意对象")
 	}
+	grant, err := storage.HGSignRead(key)
+	if err != nil || !strings.Contains(grant, "X-Amz-Expires=15") {
+		t.Fatal("私有下载凭据必须只有 15 秒有效期")
+	}
+	if _, err = storage.HGSignRead("quarantine/" + strings.Repeat("a", 32)); err == nil {
+		t.Fatal("不得为隔离区或客户端自选对象签发读取凭据")
+	}
 }

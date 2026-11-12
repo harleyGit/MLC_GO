@@ -44,8 +44,10 @@ const (
 	HGIMCreateDeviceSQL        = `INSERT INTO im_device(id,user_id,credential_hash) VALUES (?,?,?)`
 	HGIMCreateSessionDeviceSQL = `INSERT INTO im_device(id,user_id,credential_hash,session_id) VALUES (?,?,?,?)`
 	HGIMDeviceCredentialSQL    = `SELECT credential_hash FROM im_device WHERE id=? AND user_id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
-	HGIMTouchDeviceSQL         = `UPDATE im_device SET last_active_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
-	HGIMRevokeDeviceSQL        = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
+	// RPC 仅以设备主键点查归属，再校验独立设备 secret；不能信任代理请求中的 user 字段。
+	HGIMRPCDeviceOwnerSQL = `SELECT user_id FROM im_device WHERE id=? AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
+	HGIMTouchDeviceSQL    = `UPDATE im_device SET last_active_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
+	HGIMRevokeDeviceSQL   = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND revoked_at IS NULL`
 	// 旧版设备无可关联的登录会话，仅撤销最早那台 IM 设备；主键点写且再次核实旧记录，不误删其他用户设备。
 	HGIMRevokeLegacyDeviceSQL = `UPDATE im_device SET revoked_at=NOW(3) WHERE id=? AND user_id=? AND session_id IS NULL AND revoked_at IS NULL AND last_active_at>NOW(3)-INTERVAL 30 DAY`
 	// 同会话设备替换仅点写所选设备；不设置 forced_logout_at，避免把当前登录会话踢下线。

@@ -39,15 +39,15 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRouterPackage.RouteSpec {
-	var list, create, messages, send, read, muted, deleteConversation, registerDevice, pendingDevice, ackDevice http.HandlerFunc
-	var realtime, uploadInit, uploadComplete, mediaStatus, mediaRead, callCreate, callGet, callChange, callToken http.HandlerFunc
+	var list, create, read, muted, deleteConversation, registerDevice http.HandlerFunc
+	var realtime, uploadInit, uploadComplete, mediaStatus, callCreate, callGet, callChange, callToken http.HandlerFunc
 	var revokeDevice, deleteMedia http.HandlerFunc
 	var friends, incoming, blocks, profile, search, request, accept, reject, edit, remove, block, unblock http.HandlerFunc
 	if handler != nil {
-		list, create, messages, send, read = handler.HGConversations, handler.HGCreateConversation, handler.HGMessages, handler.HGSend, handler.HGRead
+		list, create, read = handler.HGConversations, handler.HGCreateConversation, handler.HGRead
 		muted, deleteConversation = handler.HGConversationMuted, handler.HGDeleteConversation
-		registerDevice, pendingDevice, ackDevice = handler.HGRegisterDevice, handler.HGDevicePending, handler.HGAckDevice
-		realtime, uploadInit, uploadComplete, mediaStatus, mediaRead = handler.HGRealtimeToken, handler.HGUploadInit, handler.HGUploadComplete, handler.HGMediaStatus, handler.HGMediaRead
+		registerDevice = handler.HGRegisterDevice
+		realtime, uploadInit, uploadComplete, mediaStatus = handler.HGRealtimeToken, handler.HGUploadInit, handler.HGUploadComplete, handler.HGMediaStatus
 		callCreate, callGet, callChange, callToken = handler.HGCallCreate, handler.HGCallGet, handler.HGCallChange, handler.HGCallToken
 		revokeDevice, deleteMedia = handler.HGDeviceRevoke, handler.HGMediaDelete
 	}
@@ -74,18 +74,13 @@ func hgRoutes(handler *IMPackage.HGHandler, contacts *Contacts.HGHandler) []HGRo
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations", true, "创建本人单聊会话", create),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations/muted", true, "设置本人单聊免打扰", muted),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/conversations/delete", true, "分批清理三天前双方消息并隐藏本人会话", deleteConversation),
-		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/messages", true, "本人会话 seq 补拉", messages),
-		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/messages", true, "发送单聊文本消息", send),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/read", true, "上报本人会话已读水位", read),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/device/register", true, "注册本人随机设备", registerDevice),
-		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/device/pending", true, "补拉本设备待确认消息指针", pendingDevice),
-		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/device/ack", true, "客户端本设备确认消息", ackDevice),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/device/revoke", true, "撤销本人设备凭据", revokeDevice),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/realtime/token", true, "本设备 Centrifugo 连接凭证；需启用实时能力", realtime),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/media/upload/init", true, "申请会话绑定私有上传；需启用媒体能力", uploadInit),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/media/upload/complete", true, "申请后台审核；不表示审核通过", uploadComplete),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/media/status", true, "本人上传审核状态", mediaStatus),
-		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/media/read", true, "逐请求鉴权的私有媒体流", mediaRead),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/media/delete", true, "撤销本人私有媒体读取与发送", deleteMedia),
 		HGRouterPackage.NewRouteSpec("im", http.MethodPost, base, "/calls", true, "发起单聊呼叫；需启用通话能力", callCreate),
 		HGRouterPackage.NewRouteSpec("im", http.MethodGet, base, "/calls", true, "本人通话状态", callGet),

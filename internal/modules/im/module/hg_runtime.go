@@ -38,6 +38,7 @@ type HGRuntime struct {
 	consumerErr    error                        // 消费循环异常退出，不自动清除。
 	workerErrors   map[string]error             // 固定三个后台任务的最近错误，恢复后清除。
 	workerFailures map[string]uint64            // 固定低基数任务失败计数。
+	rpc            http.Handler                 // 仅管理面挂载的受保护网关代理。
 }
 
 // HGRegisterConfigured 创建默认关闭或显式配置的 IM 模块，不启动任务、不执行迁移。
@@ -84,6 +85,7 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 		mediaAuthorizer = r.media
 	}
 	service := IM.HGNewService(db, cfg.Topic, mediaAuthorizer).HGWithSessionRedis(PersistenceRedisPackage.RDB)
+	r.rpc = IM.HGNewRPCHandler(service, r.media, cfg.rpcProxySecret)
 	if cfg.Calls {
 		r.livekit, err = transport.HGNewLiveKit(cfg.livekitURL, cfg.livekitKey, cfg.livekitSecret)
 		if err != nil {
@@ -208,6 +210,9 @@ func (r *HGRuntime) HGWritePrometheusMetrics(w io.Writer) {
 
 // HGMountManagement 注册验签的服务器回调，仅允许 LiveKit 到管理端口的受控网络访问。
 func (r *HGRuntime) HGMountManagement(mux *http.ServeMux) {
+	if r != nil && r.rpc != nil {
+		mux.Handle("POST /internal/im/centrifugo/rpc", r.rpc)
+	}
 	if r != nil && r.calls != nil {
 		mux.HandleFunc("POST /internal/im/livekit/webhook", r.calls.HGWebhookHandler)
 	}

@@ -176,59 +176,6 @@ func (h *HGHandler) HGDeleteConversation(w http.ResponseWriter, r *http.Request)
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"baseSeq": baseSeq, "hasMore": more})
 }
 
-// HGMessages 按 seq 递增返回本人会话历史，禁止深 OFFSET 与跨用户越权。
-func (h *HGHandler) HGMessages(w http.ResponseWriter, r *http.Request) {
-	user, ok := hgIMUser(w, r)
-	if !ok {
-		return
-	}
-	id, err := hgIMID(r.URL.Query().Get("conversationId"))
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	after := uint64(0)
-	if raw := r.URL.Query().Get("afterSeq"); raw != "" {
-		after, err = strconv.ParseUint(raw, 10, 63)
-		if err != nil {
-			hgIMFail(w, r, HGErrInvalid)
-			return
-		}
-	}
-	items, err := h.service.HGHistory(r.Context(), user, id, after, 50)
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	floor, err := h.service.HGHistoryFloor(r.Context(), id)
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "floorSeq": floor})
-}
-
-// HGSend 校验身份和消息参数，将唯一 seq、消息、设备投递和 Outbox 原子提交。
-func (h *HGHandler) HGSend(w http.ResponseWriter, r *http.Request) {
-	user, ok := hgIMUser(w, r)
-	if !ok {
-		return
-	}
-	var command HGSendCommand
-	if !hgIMBody(w, r, &command) {
-		return
-	}
-	receipt, err := h.service.HGSend(r.Context(), user, command)
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	HGResponsePackage.SuccessResult(w, r, map[string]any{"message": map[string]any{
-		"messageId": receipt.MessageID, "seq": receipt.Seq, "senderId": user,
-		"messageType": command.MessageType, "content": command.Content, "isSelf": true,
-	}})
-}
-
 // HGRead 只推进本人当前会话的合法已读 seq。
 func (h *HGHandler) HGRead(w http.ResponseWriter, r *http.Request) {
 	user, ok := hgIMUser(w, r)
@@ -280,51 +227,4 @@ func (h *HGHandler) HGRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, credential)
-}
-
-// HGDevicePending 仅向持有绑定设备凭据的用户返回本设备尚未确认的消息指针。
-func (h *HGHandler) HGDevicePending(w http.ResponseWriter, r *http.Request) {
-	user, ok := hgIMUser(w, r)
-	if !ok {
-		return
-	}
-	var request struct {
-		HGDeviceCredential
-		After uint64 `json:"after"`
-	}
-	if !hgIMBody(w, r, &request) {
-		return
-	}
-	items, err := h.service.HGDevicePending(r.Context(), user, request.HGDeviceCredential, request.After, 100)
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items})
-}
-
-// HGAckDevice 仅在客户端显式处理消息后记录本设备送达，不能由服务端写 socket 成功代替。
-func (h *HGHandler) HGAckDevice(w http.ResponseWriter, r *http.Request) {
-	user, ok := hgIMUser(w, r)
-	if !ok {
-		return
-	}
-	var request struct {
-		HGDeviceCredential
-		MessageID string `json:"messageId"`
-	}
-	if !hgIMBody(w, r, &request) {
-		return
-	}
-	id, err := hgIMID(request.MessageID)
-	if err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	if err = h.service.HGAckDeviceMessage(r.Context(), user, request.HGDeviceCredential, id); err != nil {
-		hgIMFail(w, r, err)
-		return
-	}
-	HGResponsePackage.SuccessResult(w, r, map[string]bool{"ok": true})
 }

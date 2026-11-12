@@ -13,15 +13,14 @@ import (
 
 // HGPrivateMedia 管理私有附件；审核器是受信的独立计算服务，未得到真实验证结果一律不开放。
 type HGPrivateMedia struct {
-	db            *sql.DB                // 权威附件元数据。
-	storage       *transport.HGSeaweedFS // 私有 S3 对象适配器。
-	reviewer      *transport.HGReviewer  // 内容/病毒/格式验证与不可变封存服务。
-	bucket        string                 // 受信私有桶名称，不能由客户端指定。
-	downloadSlots chan struct{}          // 每进程最多十六条媒体读取，满载立即拒绝，不累积等待队列。
+	db       *sql.DB                // 权威附件元数据。
+	storage  *transport.HGSeaweedFS // 私有 S3 对象适配器。
+	reviewer *transport.HGReviewer  // 内容/病毒/格式验证与不可变封存服务。
+	bucket   string                 // 受信私有桶名称，不能由客户端指定。
 }
 
 func HGNewPrivateMedia(db *sql.DB, storage *transport.HGSeaweedFS, reviewer *transport.HGReviewer, bucket string) *HGPrivateMedia {
-	return &HGPrivateMedia{db: db, storage: storage, reviewer: reviewer, bucket: bucket, downloadSlots: make(chan struct{}, 16)}
+	return &HGPrivateMedia{db: db, storage: storage, reviewer: reviewer, bucket: bucket}
 }
 
 // HGUploadCommand 是上传初始化协议；SHA256/MIME/大小均须由审核器重新验证，不能凭声明通过。
@@ -315,6 +314,19 @@ func (s *HGPrivateMedia) hgReadable(ctx context.Context, user, raw string) (hgAt
 		}
 	}
 	return a, nil
+}
+
+// HGReadGrant 每次经设备 RPC 核实成员、审核/撤销及消息关联，再签发 15 秒 SeaweedFS 只读凭据。
+// 已发凭据在有效期内无法即时撤销；浏览器须逐段重新授权，禁止持久化或分享 URL。
+func (s *HGPrivateMedia) HGReadGrant(ctx context.Context, user, mediaID string) (string, error) {
+	if s == nil || s.storage == nil {
+		return "", HGErrForbidden
+	}
+	a, err := s.hgReadable(ctx, user, mediaID)
+	if err != nil {
+		return "", err
+	}
+	return s.storage.HGSignRead(a.sealed)
 }
 
 var _ HGMediaAuthorizer = (*HGPrivateMedia)(nil)

@@ -23,6 +23,7 @@ type HGConfig struct {
 	centrifugoURL    string // 服务端 HTTP API 根地址。
 	centrifugoKey    string // 服务端 API Key。
 	centrifugoSecret string // 专用连接 JWT 密钥。
+	rpcProxySecret   string // 管理面 RPC 代理共享密钥，不向浏览器提供。
 	s3URL            string // SeaweedFS S3 端点。
 	s3Region         string // SigV4 region。
 	s3Bucket         string // 私有桶。
@@ -64,6 +65,7 @@ func HGLoadConfig() (HGConfig, error) {
 	cfg.centrifugoURL = os.Getenv("MLC_IM_CENTRIFUGO_API_URL")
 	cfg.centrifugoKey = os.Getenv("MLC_IM_CENTRIFUGO_API_KEY")
 	cfg.centrifugoSecret = os.Getenv("MLC_IM_CENTRIFUGO_TOKEN_SECRET")
+	cfg.rpcProxySecret = os.Getenv("MLC_IM_RPC_PROXY_SECRET")
 	cfg.WebSocketURL = os.Getenv("MLC_IM_CENTRIFUGO_WS_URL")
 	if err := hgWebSocketURL(cfg.WebSocketURL); err != nil {
 		return cfg, err
@@ -73,6 +75,9 @@ func HGLoadConfig() (HGConfig, error) {
 	}
 	if len(cfg.centrifugoKey) < 16 || len(cfg.centrifugoSecret) < 32 {
 		return cfg, fmt.Errorf("Centrifugo 独立密钥缺失")
+	}
+	if len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey {
+		return cfg, fmt.Errorf("IM RPC 代理密钥缺失或与网关密钥共用")
 	}
 	if cfg.Media {
 		cfg.s3URL = os.Getenv("MLC_IM_S3_ENDPOINT")

@@ -12,6 +12,15 @@
       "address": "redis://127.0.0.1:6379"
     }
   },
+  "rpc": {
+    "proxy": {
+      "endpoint": "http://127.0.0.1:9091/internal/im/centrifugo/rpc",
+      "timeout": "8s"
+    },
+    "namespaces": [
+      { "name": "im", "proxy_enabled": true }
+    ]
+  },
   "channel": {
     "namespaces": [
       {

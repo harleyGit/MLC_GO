@@ -88,6 +88,14 @@ func (s *HGSeaweedFS) hgSign(method, key, mime string, size int64, ttl time.Dura
 	return s.hgSignObject(method, key, mime, size, ttl, false)
 }
 
+// HGSignRead 为已完成业务鉴权的封存对象签发短时只读 URL；调用方不得传入用户提供的对象键。
+func (s *HGSeaweedFS) HGSignRead(key string) (string, error) {
+	if !strings.HasPrefix(key, "sealed/") {
+		return "", fmt.Errorf("仅允许读取封存对象")
+	}
+	return s.hgSign(http.MethodGet, key, "", 0, 15*time.Second)
+}
+
 // hgSignObject 在封存写入时额外签名 If-None-Match；部署前须实测存储是否真正执行条件写入。
 func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl time.Duration, createOnly bool) (string, error) {
 	if !hgObjectKey.MatchString(key) || ttl <= 0 || ttl > 10*time.Minute {

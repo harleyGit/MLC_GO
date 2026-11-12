@@ -11,7 +11,7 @@
 - `internal/pkg/mysql/queries/hg_im_*_queries.go`：集中参数化 SQL。
 - `migrations/000054_im_realtime_media_call.*.sql`：新增 7 张扩展表，并给旧 `im_device_delivery` 增加 `(message_id,device_id)` 索引。本机 debug 经只读核对为 `version=54 dirty=false`，本轮迁移执行 `no change`；**不能据此推断 pre/prod 已执行**。`LOCK=NONE` 仍会产生元数据锁、索引构建 I/O 和复制压力，需实际表规模评审。down 会丢失扩展业务数据，不是生产回滚方案。DDL 各语句分别提交，部分失败可能留下已建索引/表，不能直接 force 版本或盲目重跑；须核对已执行语句后制定恢复步骤。
 
-沿用 000052 的单聊会话、消息 ID、seq 和 `clientMsgId`，不替换已应用迁移；原 `im_media` 表保持兼容，新上传使用 `im_private_attachment`。没有实现群聊、好友/屏蔽策略、消息撤回、离线 APNs/FCM/Web Push、录制或 React SDK 对接。
+沿用 000052 的单聊会话、消息 ID、seq 和 `clientMsgId`，不替换已应用迁移；原 `im_media` 表保持兼容，新上传使用 `im_private_attachment`。Web 首页与消息中心已接入消息 Centrifugo RPC；没有实现群聊、消息撤回、离线 APNs/FCM/Web Push 或录制。
 
 ## 启用配置
 
@@ -27,6 +27,7 @@
 | `MLC_IM_CENTRIFUGO_WS_URL` | 客户端完整 WebSocket URL，包含 `/connection/websocket` |
 | `MLC_IM_CENTRIFUGO_API_KEY` | 服务端专用，至少 16 字符；请求头 `X-API-Key` |
 | `MLC_IM_CENTRIFUGO_TOKEN_SECRET` | 独立连接 JWT 密钥，至少 32 字符 |
+| `MLC_IM_RPC_PROXY_SECRET` | 管理面 RPC 代理共享密钥，至少 32 字符，不与网关 API/JWT 密钥共用；Centrifugo 注入同值到固定头 `X-IM-RPC-Secret` |
 | `MLC_IM_S3_ENDPOINT` / `MLC_IM_S3_REGION` / `MLC_IM_S3_BUCKET` | SeaweedFS S3 端点、签名 region、独立私有桶 |
 | `MLC_IM_S3_ACCESS_KEY` / `MLC_IM_S3_SECRET_KEY` | 上传隔离区写权限、封存区只读权限；不复用公开 CDN 身份 |
 | `MLC_IM_REVIEW_URL` / `MLC_IM_REVIEW_TOKEN` | 必需的审核/封存服务；token 至少 32 字符，缺失不得启用媒体 |
@@ -35,24 +36,26 @@
 
 本机 debug 的 `make kafka-init` 现会创建/校验独立 `mlc.im.messages.v1`（12 分区、3 副本及 ISR）；pre/prod 不自动创建 Topic，桶、容器和密钥也须分别管理。Kafka 复用现有业务集群的可靠生产者/Outbox，但消费组和 topic 独立。需先配置副本、ISR、保留期、ACL 与 `hg.dlq.business` 故障处理；分区键是会话 ID。现有并发 Outbox 发布不承诺按 seq 到达 Kafka，客户端必须按权威 seq 补洞排序，不能声称全链路严格到达有序。
 
-当实时扩展关闭时，保留原 debug HTTP 路由与共享业务 topic 兼容路径。切换前产生的旧事件不会被新独立消费组自动补发，历史依赖现有授权补拉；应在隔离环境定义切换水位，不能直接重写既有 Outbox。
+实时扩展关闭时，消息发送、会话历史和设备待确认/ACK HTTP 路由也不再提供；没有可用的 WebSocket RPC 时聊天失败关闭。切换前产生的旧事件不会被新独立消费组自动补发，历史依赖现有授权 RPC 补拉；应在隔离环境定义切换水位，不能直接重写既有 Outbox。
 
 ## Centrifugo 网关与可靠性
 
 `deployments/im/hg_centrifugo.example.json` 是 v6 配置模板；本机生成的私有配置已通过 v6.2.4 `checkconfig`、单节点 `/health` 和授权 HTTP publish 检查，但**未实测该模板的 Redis 多节点模式**。部署时锁定具体版本和镜像 digest，注入独立 JWT/API 密钥，替换精确 Origin 和隔离 Redis 地址。多节点须连接同一 Redis broker；API 端点仅对 Go 服务开放。禁止 `client.insecure`、任意 Origin 和客户端直接发布。
+
+RPC 模板使用 `im` 命名空间将 `send/history/pending/ack` 代理至管理面。必须在 Centrifugo **服务端**环境设置 `CENTRIFUGO_RPC_PROXY_HTTP_STATIC_HEADERS` 为仅含 `X-IM-RPC-Secret` 的 JSON 对象，值与 Go 的 `MLC_IM_RPC_PROXY_SECRET` 相同；严禁在 `http_headers`/`emulated_headers` 转发同名客户端头（会覆盖固定值）。管理端口仅允许网关/运维受控访问；跨容器时将模板中的 `127.0.0.1:9091` 改为受网络策略保护的 Go 管理端点。旧运行中网关配置不自动更新，启用前须检查运行网关 `checkconfig` 并重启。RPC 请求按设备主键点查归属，再比对当前设备 secret 与撤销状态，不信任客户端或网关请求中的 userId；客户端不得自行发布频道。此配置和双用户真实 WebSocket 行为**尚未在隔离 debug 验收**。
 
 本地 Vite 使用 `http://localhost:5174`，Centrifugo 的 `client.allowed_origins` 必须精确放行浏览器的 Origin；模板保留旧开发端口 5173 并增加 5174。仅修改模板不会更新已运行网关的私有配置，修改实际配置后需按部署流程重启网关；可用无凭据 WebSocket 握手确认不再因 Origin 返回 403。不要把连接密钥写入仓库或浏览器日志。
 
 1. JWT 登录后注册设备，取得 `deviceId`/`secret`；最多五台活跃设备，30 天未活动失活。
 2. `POST /api/v1/im/realtime/token`，body 为设备凭据。返回 `token,url,channel,expiresIn`。连接 JWT 的 `sub=im/<deviceId>`、`iss=mlc-im`、`aud=centrifugo`，只自动订阅本设备 `im:<deviceId>`。不要再调用 `newSubscription()` 订阅此频道。
 3. 客户端通过 centrifuge-js 的连接级 `publication`/`subscribed` 事件接收服务端订阅，刷新时重新调用 token 接口。有效期 60 秒；撤销设备后拒绝刷新，已有连接仍可能存续到 token 到期加网关宽限，只收到指针，正文仍须 JWT 资源鉴权。
-4. 先建立订阅，再分页读取 `/conversations` 和 `/messages?conversationId=...&afterSeq=...`。连接恢复失败、epoch 变化、游标丢失、新设备登录都必须走 MySQL 补拉。频道历史仅 100 条/300 秒，不是正式历史。
-5. 网关事件包含 `eventId,eventType,eventVersion,conversationId,messageId,seq` 或 `callId,version`。客户端以 `messageId` 去重、按 seq 连续补拉；持久保存/处理消息后才调用 `/device/ack`。自己的发送回执同样只是 `sent`。
+4. 先建立订阅，再分页读取 HTTP `/conversations` 和 `im:history` RPC（`conversationId,afterSeq`）；重连、游标丢失、新设备登录必须经 RPC 从 MySQL 补拉。频道历史仅 100 条/300 秒，不是正式历史。RPC `data` 同时携带当前设备的 `deviceId,secret`，不会进入 URL、日志或持久化正文。
+5. 网关事件包含 `eventId,eventType,eventVersion,conversationId,messageId,seq` 或 `callId,version`。客户端以 `messageId` 去重、按 seq 连续补拉；处理已展示消息后调用 `im:ack`，待确认用 `im:pending`。发送用 `im:send`，返回的回执只表示 MySQL/Outbox 已提交，不表示设备送达。私有文件每个分段前通过 `im:media_read` 重新授权并获得 15 秒 SeaweedFS GET 签名；签名 URL 不进日志/持久存储，过期前不能即时撤销，须限制存储服务 CORS、私有桶 ACL 与 URL 日志采集。
 6. 消息/原设备投递记录/Outbox 原子提交；独立消费者校验事件与权威消息后，将 Inbox 与设备任务原子提交。Kafka 重放不会重置已存在任务；同 EventID 不同内容拒绝。
 7. 每进程单次最多抢四条投递任务，`FOR UPDATE SKIP LOCKED`、30 秒租约、随机栅栏 token，外部发布每次最多三秒。失败或设备未 ACK 时指数退避，最多十二次。ACK 后或设备撤销/失活后停止。
-8. 耗尽任务保留 `state=3`，**不标记 delivered**。原 `/device/pending` 和消息历史仍可恢复；没有自动无限重试/自动死信重放。通话指针在网关确认后完成任务，不代表设备确认接听。
+8. 耗尽任务保留 `state=3`，**不标记 delivered**。`im:pending` 和 `im:history` 仍可恢复；没有自动无限重试/自动死信重放。通话指针在网关确认后完成任务，不代表设备确认接听。
 
-新增 `/device/revoke` 接受本人设备凭据。重连后应先处理当前设备 pending（以 `messageId` 游标翻页）再核对每个会话 seq。新注册设备不回填所有旧设备任务，必须同步会话历史。
+保留 `/device/revoke` 接受本人设备凭据。重连后应先处理当前设备 pending（以 `messageId` 游标翻页）再核对每个会话 seq。新注册设备不回填所有旧设备任务，必须同步会话历史。
 
 任务完成要求更新命中当前租约；零行命中返回错误且不增加耗尽计数。发布确认与数据库提交之间仍可能重放，客户端去重不可省略。消费协议错误目前会阻塞该分区重试，需监控和人工处置，不能当作已实现自动毒消息隔离。
 
@@ -75,8 +78,8 @@ SDK 发布仍要求恰好一个成功结果对象；错误码或缺失结果均�
 | `POST /media/upload/init` | `{conversationId,messageType,mime,size,sha256}`；返回 `{mediaId,uploadUrl,method,headers,size,expiresIn}` |
 | `POST /media/upload/complete` | `{mediaId}`，只声明完成，进入 verifying |
 | `GET /media/status?mediaId=...` | 上传者读取 `state,width,height,durationMs` |
-| `POST /messages` | 原协议，新增 audio/file；content 仍为 `{mediaId,width,height,durationMs}` |
-| `GET /media/read?mediaId=...` | JWT + 会话成员 + ready + 消息关联验证；支持单段 `Range: bytes=start-end` |
+| `im:send` Centrifugo RPC | 发送 text/image/video/audio/file 的小体积引用；content 为文本或 `{mediaId,width,height,durationMs}`，字节不进入网关 |
+| `im:media_read` Centrifugo RPC | 当前设备 + 会话成员 + ready + 消息关联验证，返回 15 秒 SeaweedFS 私有 GET URL；浏览器 Range 直读对象存储 |
 | `POST /media/delete` | `{mediaId}`，本人撤销后续发送/读取；不立即物理删除 |
 
 图片最多 10MiB，视频最多 300MiB（314572800 字节，包含边界），音频/文件最多 128MiB。每用户最多 100 个上传预留、总申请大小不超过 512MiB；失败/删除不自动返还配额。PUT 凭证十分钟，签名绑定 Content-Length、Content-Type 和 `x-amz-acl: private`。浏览器直接上传 Blob，让浏览器生成匹配的 Content-Length；禁止压缩/转换代理改写请求体。本机 SeaweedFS 4.51 已实测小文件 Go 预签名上传、带 ACL 的分前缀身份、条件封存及 `localhost:5173` 的 PUT 预检响应；**300MiB 视频、真实浏览器跨域发送、签名过期与代理链尚未实测**。桶策略还必须禁止匿名读取、公开 ACL 和用户覆盖封存区，不能只依赖 Go 参数检查。
@@ -91,7 +94,7 @@ SDK 发布仍要求恰好一个成功结果对象；错误码或缺失结果均�
 
 审核服务必须实现：有界获取对象、真实格式与尺寸/时长探测、实际 SHA256、恶意文件与所需类别内容审核、写入不可变 `sealed/<id>` 后核对封存字节，并对 mediaId 幂等；不得先审核隔离区再无保护复制已被替换的内容。本机使用 SeaweedFS `3.83` 实测第二次 `If-None-Match: *` 仍返回 200，**不得使用该版本**；`4.51` 首次 200、重复 412，原字节未变。此证据不代替线上版本/桶策略验收或完整内容审核。审核 HTTP 调用最多 275 秒，pending/错误三十秒后重试（执行期间租约 330 秒），最多十二次，之后 rejected。
 
-发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每次重新授权后由 Go 流式代理，客户端拿不到对象下载签名 URL。下载每进程最多十六条并发，满载 429，单请求预算 90 秒；大视频需 Range 分段。撤销只阻止后续请求，不追溯中断已授权在途流。不提供公开 CDN。浏览器当前整文件计算 SHA256、拼接完整 Blob，300MiB 会占用大量内存，低内存设备未验收。
+发送事务锁定 ready 附件并校验上传者、会话、类型及实际元数据，同事务建立 `im_message_attachment`；不扫描 JSON 做读授权。读取每段由 Go 经 WS RPC 重新授权、向浏览器签发 15 秒 GET URL，私有桶禁止匿名访问。SeaweedFS 必须允许浏览器 Origin 的 Range GET、预检及 `Content-Range`/`Content-Type` 响应头读取；跨域/短时效/撤销窗口尚未实测。URL 在有效期内可由持有者重放，撤销只阻止下一次授权，不追溯在途请求。不提供公开 CDN。浏览器当前整文件计算 SHA256、拼接完整 Blob，300MiB 会占用大量内存，低内存设备未验收。
 
 Range 仅接受 `bytes=start-end` 或 `bytes=start-`；206 响应须同时匹配请求起止、实际分段长度及审核总大小，拒绝未知总大小、编码变换和畸形范围。对象存储返回合法完整 200 时允许完整转发。图片/视频/音频使用 `inline`，file 使用 `attachment`；浏览器仍须携带项目鉴权，不能直接把无认证的 URL 填到媒体标签。
 
