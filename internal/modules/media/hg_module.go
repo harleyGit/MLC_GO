@@ -1,0 +1,83 @@
+package media
+
+import (
+	HGHandlerRegistry "MLC_GO/internal/handler"
+	UserJWT "MLC_GO/internal/modules/user/middleware"
+	HGRouter "MLC_GO/internal/pkg/hg_router"
+	SQL "MLC_GO/internal/pkg/mysql/queries"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+)
+
+const hgBasePath = "/api/v1/media"
+
+// HGModule 提供独立于旧上传链路的隔离上传 API；部署迁移与审核器前不能替换现有读路径。
+type HGModule struct {
+	handler *HGHandler // 已验证的隔离上传 handler。
+}
+
+func (m *HGModule) Name() string     { return "media" }
+func (m *HGModule) BasePath() string { return hgBasePath }
+func (m *HGModule) Handler() http.Handler {
+	return HGRouter.NewRouteGroup(HGRouter.RouteGroupConfig{BasePath: hgBasePath, AuthMiddleware: UserJWT.AuthMiddleware}, hgRoutes(m.handler))
+}
+
+func hgRoutes(h *HGHandler) []HGRouter.RouteSpec {
+	var init, complete, status http.HandlerFunc
+	if h != nil {
+		init, complete, status = h.HGInitUpload, h.HGCompleteUpload, h.HGAssetStatus
+	}
+	return []HGRouter.RouteSpec{
+		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/init", true, "按业务用途创建隔离上传", init),
+		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/complete", true, "确认本人隔离对象大小，等待内容审核", complete),
+		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/status", true, "查询本人资源审核状态", status),
+	}
+}
+
+// HGRouteCatalog 由同一 RouteSpec 构造路由清单及 API Guard。
+func HGRouteCatalog() []HGRouter.RouteCatalogItem {
+	return HGRouter.BuildRouteCatalogItems(hgRoutes(nil))
+}
+
+// HGConfigured 检查是否显式启用媒体隔离桶；缺失配置时不挂载半初始化模块。
+func HGConfigured() bool { return os.Getenv("MLC_MEDIA_S3_ENDPOINT") != "" }
+
+// HGRegister 从进程环境读取受信配置；密钥不得写入配置文件、日志或 API 响应。
+func HGRegister(db *sql.DB) error {
+	if !HGConfigured() {
+		return nil
+	}
+	bucket := os.Getenv("MLC_MEDIA_S3_BUCKET")
+	if bucket == "" {
+		return errors.New("媒体隔离桶未配置")
+	}
+	if db == nil {
+		return errors.New("媒体数据库未配置")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for _, query := range []string{SQL.HGMediaAssetSchemaSQL, SQL.HGMediaSessionSchemaSQL, SQL.HGMediaQuotaSchemaSQL} {
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("媒体元数据迁移未就绪: %w", err)
+		}
+		if err = rows.Close(); err != nil {
+			return fmt.Errorf("关闭媒体数据库检查失败: %w", err)
+		}
+	}
+	store, err := HGNewSeaweedStore(os.Getenv("MLC_MEDIA_S3_ENDPOINT"), os.Getenv("MLC_MEDIA_S3_REGION"), bucket, os.Getenv("MLC_MEDIA_S3_ACCESS_KEY"), os.Getenv("MLC_MEDIA_S3_SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+	service, err := HGNewService(db, store, bucket)
+	if err != nil {
+		return err
+	}
+	HGHandlerRegistry.RegisterModule(&HGModule{handler: HGNewHandler(service)})
+	return nil
+}

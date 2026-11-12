@@ -15,6 +15,7 @@ import (
 	IAMModulePackage "MLC_GO/internal/modules/iam/module"
 	IMModulePackage "MLC_GO/internal/modules/im/module"
 	"MLC_GO/internal/modules/mallcny"
+	MediaModulePackage "MLC_GO/internal/modules/media"
 	NotificationModulePackage "MLC_GO/internal/modules/notification/module"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
@@ -384,6 +385,21 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
 	HGMallModulePackage.HGRegisterModules(sqlManager, redisService)
+	if err := MediaModulePackage.HGRegister(sqlManager.GetSQLDB()); err != nil {
+		if coinJobs != nil {
+			coinJobs.Close()
+		}
+		if interactionReprojector != nil {
+			interactionReprojector.Close()
+		}
+		if kafkaCloser != nil {
+			kafkaCloser()
+		}
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, fmt.Errorf("媒体隔离上传模块初始化失败: %w", err)
+	}
 	HGCommerceModulePackage.HGRegisterModules(sqlManager)
 	hgrecharge.HGRegisterModules(sqlManager)
 	// 注册上传视频模块时传入 Redis/MySQL 依赖，模块内部创建 Handler 时会用到这些依赖构建 Service 和 Handler。
@@ -1000,6 +1016,9 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.HGCommerceRouteCatalog()...)
 	// 收集 video_upload 模块路由清单
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
+	if MediaModulePackage.HGConfigured() {
+		items = append(items, MediaModulePackage.HGRouteCatalog()...)
+	}
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoRecommendRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoInteractionRouteCatalog()...)

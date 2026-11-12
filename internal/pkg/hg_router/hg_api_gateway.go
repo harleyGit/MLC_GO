@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -88,6 +89,7 @@ var hgGatewayModulePaths = []struct {
 	{"notification_preferences", "/api/v1/notification"},
 	{"notification_admin", "/admin/v1/notification"},
 	{"im", "/api/v1/im"},
+	{"media", "/api/v1/media"},
 	{"ops", OpsModuleBasePath},
 }
 
@@ -121,7 +123,7 @@ func newHGAPIGateway(eval hgGatewayRateEval, config ConfigPackage.HGAPIGatewayCo
 	for _, module := range hgGatewayModulePaths {
 		policy, ok := config.Modules[module.name]
 		// 旧版配置/隔离用例不包含新模块；生产 base 配置必须显式为新模块启用舱壁。
-		if !ok && (module.name == "notifications" || module.name == "notification_preferences" || module.name == "notification_admin") {
+		if !ok && (module.name == "notifications" || module.name == "notification_preferences" || module.name == "notification_admin" || (module.name == "media" && os.Getenv("MLC_MEDIA_S3_ENDPOINT") == "")) {
 			continue
 		}
 		if !ok || policy.Capacity < 1 || policy.RefillPerSecond <= 0 || policy.MaxBodyBytes < 1 || policy.MaxInFlight < 1 {
