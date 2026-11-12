@@ -77,7 +77,7 @@ func HGLoadConfig() (HGConfig, error) {
 		return cfg, fmt.Errorf("Centrifugo 独立密钥缺失")
 	}
 	if len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey {
-		return cfg, fmt.Errorf("IM RPC 代理密钥缺失或与网关密钥共用")
+		return cfg, fmt.Errorf("IM RPC 代理密钥缺失或与网关密钥共用：请在本机运行环境设置独立的 MLC_IM_RPC_PROXY_SECRET，并同步至 Centrifugo 服务端 RPC 代理固定请求头")
 	}
 	if cfg.Media {
 		cfg.s3URL = os.Getenv("MLC_IM_S3_ENDPOINT")

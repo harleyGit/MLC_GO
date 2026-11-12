@@ -5,6 +5,7 @@ import (
 	KafkaRuntime "MLC_GO/internal/infrastructure/kafka"
 	IM "MLC_GO/internal/modules/im"
 	"MLC_GO/internal/modules/im/transport"
+	Config "MLC_GO/internal/pkg/config"
 	Kafka "MLC_GO/internal/pkg/kafka"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
@@ -208,7 +209,15 @@ func (r *HGRuntime) HGWritePrometheusMetrics(w io.Writer) {
 	}
 }
 
-// HGMountManagement 注册验签的服务器回调，仅允许 LiveKit 到管理端口的受控网络访问。
+// HGMountDebugRPC 仅供本机 debug Docker 网关回调；独立密钥与设备凭据仍在 RPC 入口校验。
+// 管理面仍只监听 loopback，不借此开放其他管理路由。
+func (r *HGRuntime) HGMountDebugRPC(mux *http.ServeMux) {
+	if r != nil && r.rpc != nil && Config.GetEnv() == Config.EnvDebug {
+		mux.Handle("POST /internal/im/centrifugo/rpc", r.rpc)
+	}
+}
+
+// HGMountManagement 注册验签的服务器回调；管理端口只允许受控网络访问。
 func (r *HGRuntime) HGMountManagement(mux *http.ServeMux) {
 	if r != nil && r.rpc != nil {
 		mux.Handle("POST /internal/im/centrifugo/rpc", r.rpc)

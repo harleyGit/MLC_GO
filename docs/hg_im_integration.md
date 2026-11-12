@@ -42,7 +42,7 @@
 
 `deployments/im/hg_centrifugo.example.json` 是 v6 配置模板；本机生成的私有配置已通过 v6.2.4 `checkconfig`、单节点 `/health` 和授权 HTTP publish 检查，但**未实测该模板的 Redis 多节点模式**。部署时锁定具体版本和镜像 digest，注入独立 JWT/API 密钥，替换精确 Origin 和隔离 Redis 地址。多节点须连接同一 Redis broker；API 端点仅对 Go 服务开放。禁止 `client.insecure`、任意 Origin 和客户端直接发布。
 
-RPC 模板使用 `im` 命名空间将 `send/history/pending/ack` 代理至管理面。必须在 Centrifugo **服务端**环境设置 `CENTRIFUGO_RPC_PROXY_HTTP_STATIC_HEADERS` 为仅含 `X-IM-RPC-Secret` 的 JSON 对象，值与 Go 的 `MLC_IM_RPC_PROXY_SECRET` 相同；严禁在 `http_headers`/`emulated_headers` 转发同名客户端头（会覆盖固定值）。管理端口仅允许网关/运维受控访问；跨容器时将模板中的 `127.0.0.1:9091` 改为受网络策略保护的 Go 管理端点。旧运行中网关配置不自动更新，启用前须检查运行网关 `checkconfig` 并重启。RPC 请求按设备主键点查归属，再比对当前设备 secret 与撤销状态，不信任客户端或网关请求中的 userId；客户端不得自行发布频道。此配置和双用户真实 WebSocket 行为**尚未在隔离 debug 验收**。
+RPC 模板使用 `im` 命名空间将 `send/history/pending/ack/media_read` 代理至 Go。必须在 Centrifugo **服务端**通过 `rpc.proxy.http.static_headers` 或 `CENTRIFUGO_RPC_PROXY_HTTP_STATIC_HEADERS` 配置固定 `X-IM-RPC-Secret`，值与 Go 的 `MLC_IM_RPC_PROXY_SECRET` 相同；严禁在 `http_headers`/`emulated_headers` 转发同名客户端头（会覆盖固定值）。本机 VS Code debug 使用 `config/MLC.local.env` 加载 Go 密钥，Docker 网关仅在未提交的私有配置中保存同值。Docker Desktop 容器不能访问主机的 `127.0.0.1:9091`：此场景使用 `http://host.docker.internal:8080/internal/im/centrifugo/rpc`，仅 `SERVER_ENV=debug` 时挂载该业务端口的受保护 RPC 入口，管理端口仍只监听 loopback；其他部署保持模板中的隔离管理面端点并配置受控网络。旧运行中网关配置不自动更新，启用前须检查运行网关 `checkconfig` 并重启。RPC 请求按设备主键点查归属，再比对当前设备 secret 与撤销状态，不信任客户端或网关请求中的 userId；客户端不得自行发布频道。双用户真实 WebSocket 行为**尚未在隔离 debug 验收**。
 
 本地 Vite 使用 `http://localhost:5174`，Centrifugo 的 `client.allowed_origins` 必须精确放行浏览器的 Origin；模板保留旧开发端口 5173 并增加 5174。仅修改模板不会更新已运行网关的私有配置，修改实际配置后需按部署流程重启网关；可用无凭据 WebSocket 握手确认不再因 Origin 返回 403。不要把连接密钥写入仓库或浏览器日志。
 

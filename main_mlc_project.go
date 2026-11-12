@@ -683,6 +683,9 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 4. 所有业务 HTTP 请求最终进入的总入口。
 	// 结构：HTTP Request -> RootMux -> 根据 URL ->  找到具体Handler -> 找到具体业务逻辑 -> 返回结果
 	rootMux := HGHandlerPackage.NewBusinessRootHandler(routeCatalogs)
+	// Docker Desktop 的本机 debug 网关无法访问 loopback 管理端口；仅 debug 提供独立密钥和设备双重验证的 RPC 回调。
+	// 不将管理面探活、指标或 LiveKit Webhook 暴露到业务端口。
+	imRuntime.HGMountDebugRPC(rootMux)
 	//整个 HTTP Middleware 链，调用链为：客户端 -> CORS -> Recover -> AccessLog -> RequestID -> API Gateway -> rootMux -> 具体业务 Handler
 	businessHandler := HGMiddlewarePackage.Chain(
 		apiGateway.Middleware(rootMux),          //
