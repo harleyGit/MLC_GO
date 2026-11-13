@@ -5,7 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +19,7 @@ type HGService struct {
 	bucket       string        // 与 store 一致的受信隔离桶名。
 	reviewer     HGReviewer    // 受信内容审核服务，仅在显式启用的模块内注入。
 	sealed       HGSealedStore // 封存复查及异步清理的独立后台 S3 能力。
+	read         HGReadStore   // 可选的受限封存读取签名身份，未配置则不发放下载授权。
 	expireCursor atomic.Uint32 // 轮询过期状态；避免多范围排序与状态饥饿。
 	deleteCursor atomic.Uint32 // 轮询待处理和租约到期任务。
 }
@@ -56,14 +57,15 @@ type hgSavedSession struct {
 
 // HGInit 创建幂等上传会话：同一调用人及重试键必须有相同业务语义；活动会话数和字节数有界。
 func (s *HGService) HGInit(ctx context.Context, owner string, req HGUploadRequest) (HGUploadSession, error) {
-	policy, ext, err := hgValidateRequest(req)
+	_, _, err := hgValidateRequest(req)
 	if err != nil || owner == "" || len(owner) > 64 {
 		return HGUploadSession{}, HGErrInvalid
 	}
 	// 先签名随机键并不写存储；真正进入事务后才持久化该键。
 	asset := uuid.NewString()
 	id := uuid.NewString()
-	key := fmt.Sprintf("quarantine/%s/%s/%s.%s", policy.biz, policy.kind, asset, ext)
+	// 与受信审核器的严格对象键协议保持一致；purpose/type 仅在 MySQL 中用于业务隔离。
+	key := "quarantine/" + strings.ReplaceAll(asset, "-", "")
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return HGUploadSession{}, err
@@ -227,8 +229,8 @@ func (s *HGService) HGAssetStatus(ctx context.Context, owner, asset string) (map
 
 // HGOwnerDownload 仅为原上传者的低敏已审核图片签发私有只读 URL；IM/认证/售后等须另走业务鉴权。
 func (s *HGService) HGOwnerDownload(ctx context.Context, owner, asset string) (string, error) {
-	if s.sealed == nil {
-		return "", errors.New("封存存储未配置")
+	if s.read == nil {
+		return "", errors.New("私有媒体读取身份未配置")
 	}
 	if owner == "" || len(owner) > 64 || uuid.Validate(asset) != nil {
 		return "", HGErrInvalid
@@ -245,7 +247,7 @@ func (s *HGService) HGOwnerDownload(ctx context.Context, owner, asset string) (s
 	if !hgOwnerReadPurpose(purpose) || state != "ready" || !key.Valid || !hgSealedKey.MatchString(key.String) {
 		return "", HGErrNotFound
 	}
-	return s.sealed.HGSignRead(ctx, key.String)
+	return s.read.HGSignRead(ctx, key.String)
 }
 
 func hgOwnerReadPurpose(purpose string) bool {

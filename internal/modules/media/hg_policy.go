@@ -21,8 +21,8 @@ type HGUploadRequest struct {
 }
 
 type hgPolicy struct {
-	biz   string            // 所属业务域，用于对象路径隔离；不是客户端可写字段。
-	kind  string            // 内容类别，用于隔离路径与 MIME 交叉校验。
+	biz   string            // 所属业务域，用于元数据和引用策略；审核器只接受固定随机 Key。
+	kind  string            // 内容类别，用于业务用途分类，不透出到隔离对象 Key。
 	max   int64             // 单次申请最大字节数；不等于用户总配额。
 	mimes map[string]string // MIME 到固定扩展名的映射，不使用原始文件名。
 }
@@ -51,7 +51,7 @@ var hgPolicies = map[string]hgPolicy{
 func hgValidateRequest(req HGUploadRequest) (hgPolicy, string, error) {
 	policy, ok := hgPolicies[req.Purpose]
 	ext, okMIME := policy.mimes[req.MIME]
-	if !ok || !okMIME || req.Size < 1 || req.Size > policy.max || len(req.SHA256) != 64 || len(req.IdempotencyKey) < 1 || len(req.IdempotencyKey) > 64 {
+	if !ok || !okMIME || req.Size < 1 || req.Size > policy.max || !hgReviewerSupportedMIME(req.MIME, req.Size) || len(req.SHA256) != 64 || len(req.IdempotencyKey) < 1 || len(req.IdempotencyKey) > 64 {
 		return hgPolicy{}, "", HGErrInvalid
 	}
 	for _, c := range req.SHA256 {
@@ -65,4 +65,18 @@ func hgValidateRequest(req HGUploadRequest) (hgPolicy, string, error) {
 		}
 	}
 	return policy, ext, nil
+}
+
+// hgReviewerSupportedMIME 与现有 IM 审核器的实际接受列表对齐；未获审核支持的 GIF/字幕失败关闭。
+func hgReviewerSupportedMIME(mime string, size int64) bool {
+	switch mime {
+	case "image/jpeg", "image/png", "image/webp":
+		return size <= 10<<20
+	case "video/mp4", "video/quicktime":
+		return size <= 300<<20
+	case "audio/mpeg", "audio/ogg", "audio/mp4", "audio/aac", "application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return size <= 128<<20
+	default:
+		return false
+	}
 }

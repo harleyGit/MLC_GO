@@ -16,7 +16,7 @@ import (
 )
 
 var hgSealedKey = regexp.MustCompile(`^sealed/[a-f0-9]{32}$`)
-var hgQuarantineKey = regexp.MustCompile(`^quarantine/[a-z]+/[a-z]+/[0-9a-f-]{36}\.[a-z0-9]+$`)
+var hgQuarantineKey = regexp.MustCompile(`^quarantine/[a-f0-9]{32}$`)
 
 // HGReviewer 接受现有 IM 审核服务的同步契约：扫描、探测真实类型/摘要、不可变封存；pending 不等于通过。
 type HGReviewer interface {
@@ -29,6 +29,15 @@ func (s *HGService) HGEnableReview(reviewer HGReviewer, sealed HGSealedStore) er
 		return HGErrInvalid
 	}
 	s.reviewer, s.sealed = reviewer, sealed
+	return nil
+}
+
+// HGEnableOwnerRead 在启动前显式注入只读签名身份；未注入时下载入口失败关闭。
+func (s *HGService) HGEnableOwnerRead(store HGReadStore) error {
+	if store == nil {
+		return HGErrInvalid
+	}
+	s.read = store
 	return nil
 }
 
@@ -94,8 +103,8 @@ func hgReviewValid(job hgReviewJob, result Transport.HGReviewResult) bool {
 
 func hgValidReviewRequest(job hgReviewJob) bool {
 	policy, ok := hgPolicies[job.purpose]
-	ext, allowed := policy.mimes[job.mime]
-	if !ok || !allowed || uuid.Validate(job.asset) != nil || job.size < 1 || job.size > policy.max || job.key != fmt.Sprintf("quarantine/%s/%s/%s.%s", policy.biz, policy.kind, job.asset, ext) || len(job.sha) != 64 {
+	_, allowed := policy.mimes[job.mime]
+	if !ok || !allowed || uuid.Validate(job.asset) != nil || job.size < 1 || job.size > policy.max || !hgReviewerSupportedMIME(job.mime, job.size) || job.key != "quarantine/"+strings.ReplaceAll(job.asset, "-", "") || len(job.sha) != 64 {
 		return false
 	}
 	for _, c := range job.sha {

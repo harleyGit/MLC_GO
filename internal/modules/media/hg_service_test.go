@@ -12,12 +12,14 @@ import (
 )
 
 type hgFakeStore struct {
-	size   int64 // Head 返回的真实对象字节数，测试期间不访问外部服务。
-	called bool  // 标记是否在短事务外发生远端调用。
+	size   int64  // Head 返回的真实对象字节数，测试期间不访问外部服务。
+	called bool   // 标记是否在短事务外发生远端调用。
+	key    string // 最近一次签名键，验证与审核器对象键契约一致。
 }
 
-func (f *hgFakeStore) HGSignUpload(context.Context, string, string, int64) (string, error) {
+func (f *hgFakeStore) HGSignUpload(_ context.Context, key string, _ string, _ int64) (string, error) {
 	f.called = true
+	f.key = key
 	return "https://upload.example.test/opaque", nil
 }
 func (f *hgFakeStore) HGHead(context.Context, string) (int64, error) {
@@ -53,7 +55,7 @@ func TestHGInitIdempotentReplayAndPayloadConflict(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectExec("INSERT IGNORE INTO media_upload_quota").WithArgs("owner").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectQuery("SELECT owner_id FROM media_upload_quota").WithArgs("owner").WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("owner"))
-			mock.ExpectQuery("SELECT upload_id, asset_id, purpose").WithArgs("owner", req.IdempotencyKey).WillReturnRows(sqlmock.NewRows([]string{"upload_id", "asset_id", "purpose", "mime_type", "expected_size", "expected_sha256", "object_key", "status", "expires_at"}).AddRow("upload", "asset", purpose, req.MIME, req.Size, req.SHA256, "quarantine/user/avatar/asset.jpg", "pending", time.Now().Add(time.Hour)))
+			mock.ExpectQuery("SELECT upload_id, asset_id, purpose").WithArgs("owner", req.IdempotencyKey).WillReturnRows(sqlmock.NewRows([]string{"upload_id", "asset_id", "purpose", "mime_type", "expected_size", "expected_sha256", "object_key", "status", "expires_at"}).AddRow("upload", "asset", purpose, req.MIME, req.Size, req.SHA256, "quarantine/019ac000000070008000000000000001", "pending", time.Now().Add(time.Hour)))
 			if conflict {
 				mock.ExpectRollback()
 			} else {
@@ -91,6 +93,9 @@ func TestHGInitPersistsBeforeSigning(t *testing.T) {
 	if err != nil || result.Status != "pending" || result.UploadURL == "" || !store.called {
 		t.Fatalf("持久化成功后才应签发隔离桶授权: %+v %v", result, err)
 	}
+	if store.key != "quarantine/"+strings.ReplaceAll(result.AssetID, "-", "") || !hgQuarantineKey.MatchString(store.key) {
+		t.Fatal("新申请的随机隔离键未匹配审核器契约")
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +105,7 @@ func TestHGCompleteRejectsSizeMismatchWithoutStateChange(t *testing.T) {
 	db, mock := hgMockDB(t)
 	service, _ := HGNewService(db, &hgFakeStore{size: 122}, "mlc-temp")
 	id := "019ac000-0000-7000-8000-000000000001"
-	mock.ExpectQuery("SELECT asset_id, object_key, expected_size").WithArgs(id, "owner").WillReturnRows(sqlmock.NewRows([]string{"asset_id", "object_key", "expected_size", "status", "expires_at"}).AddRow(id, "quarantine/user/avatar/asset.jpg", 123, "pending", time.Now().Add(time.Hour)))
+	mock.ExpectQuery("SELECT asset_id, object_key, expected_size").WithArgs(id, "owner").WillReturnRows(sqlmock.NewRows([]string{"asset_id", "object_key", "expected_size", "status", "expires_at"}).AddRow(id, "quarantine/019ac000000070008000000000000001", 123, "pending", time.Now().Add(time.Hour)))
 	if _, err := service.HGComplete(context.Background(), "owner", id); !errors.Is(err, HGErrConflict) {
 		t.Fatalf("对象长度不匹配仍确认：%v", err)
 	}

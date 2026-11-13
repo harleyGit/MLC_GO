@@ -77,6 +77,14 @@ func HGRegister(db *sql.DB) (*HGRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	cleanupKey, cleanupSecret := os.Getenv("MLC_MEDIA_CLEANUP_S3_ACCESS_KEY"), os.Getenv("MLC_MEDIA_CLEANUP_S3_SECRET_KEY")
+	if cleanupKey == "" || cleanupSecret == "" || cleanupKey == os.Getenv("MLC_MEDIA_S3_ACCESS_KEY") || cleanupKey == os.Getenv("MLC_IM_REVIEW_S3_ACCESS_KEY") {
+		return nil, errors.New("媒体专用清理身份未配置或与上传/审核身份相同")
+	}
+	cleanup, err := HGNewSeaweedStore(os.Getenv("MLC_MEDIA_S3_ENDPOINT"), os.Getenv("MLC_MEDIA_S3_REGION"), bucket, cleanupKey, cleanupSecret)
+	if err != nil {
+		return nil, err
+	}
 	service, err := HGNewService(db, store, bucket)
 	if err != nil {
 		return nil, err
@@ -92,9 +100,25 @@ func HGRegister(db *sql.DB) (*HGRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = service.HGEnableReview(reviewer, store); err != nil {
+	if err = service.HGEnableReview(reviewer, &hgWorkerStore{head: store, cleanup: cleanup}); err != nil {
 		reviewer.HGClose()
 		return nil, err
+	}
+	readKey, readSecret := os.Getenv("MLC_MEDIA_READ_S3_ACCESS_KEY"), os.Getenv("MLC_MEDIA_READ_S3_SECRET_KEY")
+	if readKey != "" || readSecret != "" {
+		if readKey == "" || readSecret == "" || readKey == cleanupKey || readKey == os.Getenv("MLC_MEDIA_S3_ACCESS_KEY") {
+			reviewer.HGClose()
+			return nil, errors.New("媒体私有读取身份不完整或与写入/清理身份混用")
+		}
+		readStore, readErr := HGNewSeaweedStore(os.Getenv("MLC_MEDIA_S3_ENDPOINT"), os.Getenv("MLC_MEDIA_S3_REGION"), bucket, readKey, readSecret)
+		if readErr != nil {
+			reviewer.HGClose()
+			return nil, readErr
+		}
+		if err = service.HGEnableOwnerRead(readStore); err != nil {
+			reviewer.HGClose()
+			return nil, err
+		}
 	}
 	HGHandlerRegistry.RegisterModule(&HGModule{handler: HGNewHandler(service)})
 	return &HGRuntime{service: service, closeReviewer: reviewer.HGClose}, nil

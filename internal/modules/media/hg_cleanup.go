@@ -49,7 +49,7 @@ func (s *HGService) HGExpireOnce(ctx context.Context) error {
 	if err = tx.QueryRowContext(ctx, SQL.HGMediaExpireAssetLockSQL, asset).Scan(&assetStatus, &sealed); err != nil {
 		return err
 	}
-	if assetStatus != status || !hgQuarantineKey.MatchString(key) || !strings.Contains(key, "/"+asset+".") || (sealed.Valid && !hgSealedKey.MatchString(sealed.String)) {
+	if assetStatus != status || !hgQuarantineKey.MatchString(key) || key != "quarantine/"+strings.ReplaceAll(asset, "-", "") || (sealed.Valid && !hgSealedKey.MatchString(sealed.String)) {
 		return HGErrConflict
 	}
 	var found int
@@ -144,7 +144,7 @@ func (s *HGService) HGDeleteOnce(ctx context.Context) error {
 	}
 	status := "done"
 	var deleteErr error
-	validKey := hgQuarantineKey.MatchString(job.key) && strings.Contains(job.key, "/"+job.asset+".") || hgSealedKey.MatchString(job.key) && job.key == "sealed/"+strings.ReplaceAll(job.asset, "-", "")
+	validKey := hgQuarantineKey.MatchString(job.key) && job.key == "quarantine/"+strings.ReplaceAll(job.asset, "-", "") || hgSealedKey.MatchString(job.key) && job.key == "sealed/"+strings.ReplaceAll(job.asset, "-", "")
 	if job.attempts >= 12 || job.bucket != s.bucket || !validKey {
 		status = "failed"
 	} else {

@@ -16,7 +16,7 @@ import (
 
 func TestHGReviewValidRejectsForgedSealedObject(t *testing.T) {
 	id := "019ac000-0000-7000-8000-000000000001"
-	job := hgReviewJob{asset: id, purpose: "user_avatar", key: "quarantine/user/avatar/" + id + ".jpg", mime: "image/jpeg", sha: strings.Repeat("a", 64), size: 123}
+	job := hgReviewJob{asset: id, purpose: "user_avatar", key: "quarantine/" + strings.ReplaceAll(id, "-", ""), mime: "image/jpeg", sha: strings.Repeat("a", 64), size: 123}
 	result := Transport.HGReviewResult{Status: "ready", SealedKey: "sealed/" + strings.ReplaceAll(id, "-", ""), MIME: job.mime, SHA256: job.sha, Size: job.size, Width: 128, Height: 128}
 	if !hgReviewValid(job, result) {
 		t.Fatal("有效封存证明应通过结构校验")
@@ -58,7 +58,7 @@ func (r hgReviewStub) HGReview(_ context.Context, id, bucket, key, sha, mime str
 
 func TestHGReviewOnceRequiresMatchingSealBeforeReady(t *testing.T) {
 	asset := "019ac000-0000-7000-8000-000000000001"
-	key := "quarantine/user/avatar/" + asset + ".jpg"
+	key := "quarantine/" + strings.ReplaceAll(asset, "-", "")
 	sealed := "sealed/" + strings.ReplaceAll(asset, "-", "")
 	sha := strings.Repeat("a", 64)
 	for _, tc := range []struct {
@@ -112,7 +112,7 @@ func TestHGExpirePreservesReferencedAsset(t *testing.T) {
 	service.expireCursor.Store(3)
 	asset := "019ac000-0000-7000-8000-000000000001"
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaExpireReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"upload_id", "asset_id", "object_key", "status"}).AddRow("upload", asset, "quarantine/user/avatar/"+asset+".jpg", "ready"))
+	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaExpireReadySQL)).WillReturnRows(sqlmock.NewRows([]string{"upload_id", "asset_id", "object_key", "status"}).AddRow("upload", asset, "quarantine/"+strings.ReplaceAll(asset, "-", ""), "ready"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaExpireAssetLockSQL)).WithArgs(asset).WillReturnRows(sqlmock.NewRows([]string{"status", "sealed_key"}).AddRow("ready", "sealed/"+strings.ReplaceAll(asset, "-", "")))
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaHasRefSQL)).WithArgs(asset).WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
 	mock.ExpectExec(regexp.QuoteMeta(SQL.HGMediaExpireAttachSQL)).WithArgs("upload").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -130,7 +130,7 @@ func TestHGExpireQueuesBothQuarantineAndPotentialSeal(t *testing.T) {
 	service, _ := HGNewService(db, &hgFakeStore{}, "mlc-temp")
 	service.sealed = &hgFakeSealed{}
 	asset := "019ac000-0000-7000-8000-000000000001"
-	key := "quarantine/user/avatar/" + asset + ".jpg"
+	key := "quarantine/" + strings.ReplaceAll(asset, "-", "")
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaExpireClaimSQL)).WillReturnRows(sqlmock.NewRows([]string{"upload_id", "asset_id", "object_key", "status"}).AddRow("upload", asset, key, "pending"))
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaExpireAssetLockSQL)).WithArgs(asset).WillReturnRows(sqlmock.NewRows([]string{"status", "sealed_key"}).AddRow("pending", nil))
@@ -222,7 +222,7 @@ func TestHGOwnerDownloadOnlyReadyAndOwner(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock := hgMockDB(t)
 			service, _ := HGNewService(db, &hgFakeStore{}, "mlc-temp")
-			service.sealed = &hgFakeSealed{}
+			service.read = &hgFakeSealed{}
 			mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaOwnerDownloadSQL)).WithArgs(id, "owner").WillReturnRows(sqlmock.NewRows([]string{"purpose", "status", "sealed_key"}).AddRow("user_avatar", tc.state, tc.key))
 			link, err := service.HGOwnerDownload(context.Background(), "owner", id)
 			if tc.want && (err != nil || link == "") || !tc.want && (!errors.Is(err, HGErrNotFound) || link != "") {
@@ -235,7 +235,7 @@ func TestHGOwnerDownloadOnlyReadyAndOwner(t *testing.T) {
 	}
 	db, mock := hgMockDB(t)
 	service, _ := HGNewService(db, &hgFakeStore{}, "mlc-temp")
-	service.sealed = &hgFakeSealed{}
+	service.read = &hgFakeSealed{}
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGMediaOwnerDownloadSQL)).WithArgs(id, "other").WillReturnError(sql.ErrNoRows)
 	if _, err := service.HGOwnerDownload(context.Background(), "other", id); !errors.Is(err, HGErrNotFound) {
 		t.Fatalf("跨用户读取应拒绝：%v", err)

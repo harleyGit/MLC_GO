@@ -59,4 +59,22 @@ const (
 	HGMediaReferenceAttachSQL  = `UPDATE media_upload_sessions SET status='attached' WHERE asset_id=? AND status IN ('ready','attached')`
 	// 解绑后保留 24 小时保护期；只有在最后一个引用消失后才使会话重新参与有界过期回收。
 	HGMediaReferenceReleaseSQL = `UPDATE media_upload_sessions SET status='ready',expires_at=DATE_ADD(NOW(3),INTERVAL 24 HOUR) WHERE asset_id=? AND status='attached'`
+	// 仅供显式 opt-in 的独占 debug 测试使用：未清空新媒体表时拒绝运行全局 worker 验收。
+	HGMediaDebugEmptySQL          = `SELECT EXISTS(SELECT 1 FROM media_assets LIMIT 1)+EXISTS(SELECT 1 FROM media_delete_jobs LIMIT 1)`
+	HGMediaDebugExpireSQL         = `UPDATE media_upload_sessions SET expires_at=DATE_SUB(NOW(3),INTERVAL 1 SECOND) WHERE upload_id=? AND asset_id=? AND owner_id=? AND status='ready'`
+	HGMediaDebugAssetStatusSQL    = `SELECT status FROM media_assets WHERE asset_id=? AND owner_id=?`
+	HGMediaDebugInspectSQL        = `SELECT asset_id,owner_id,status,object_key FROM media_assets ORDER BY asset_id LIMIT 2`
+	HGMediaDebugInspectSessionSQL = `SELECT upload_id,status FROM media_upload_sessions WHERE asset_id=? LIMIT 2`
+	// 仅清理经人工检查为单条新测试记录的夹具；必须先由正常 worker 标记已删除且两个 S3 Key 不存在。
+	HGMediaDebugExpirePendingSQL = `UPDATE media_upload_sessions SET expires_at=DATE_SUB(NOW(3),INTERVAL 1 SECOND) WHERE upload_id=? AND asset_id=? AND owner_id=? AND status='pending'`
+	HGMediaDebugDoneJobsSQL      = `SELECT COUNT(*) FROM media_delete_jobs WHERE asset_id=? AND status='done'`
+	HGMediaDebugDeleteJobsSQL    = `DELETE FROM media_delete_jobs WHERE asset_id=? AND status='done'`
+	HGMediaDebugDeleteSessionSQL = `DELETE FROM media_upload_sessions WHERE upload_id=? AND asset_id=? AND owner_id=? AND status='deleted'`
+	HGMediaDebugDeleteAssetSQL   = `DELETE FROM media_assets WHERE asset_id=? AND owner_id=? AND status='deleted'`
+	HGMediaDebugDeleteQuotaSQL   = `DELETE FROM media_upload_quota WHERE owner_id=?`
+	// 旧来源只读样本：均走主键顺序，100 行上限，不按未索引的 URL/路径过滤，不读取文件字节或输出隐私。
+	HGMediaLegacyAvatarSampleSQL = `SELECT user_id,avatar_url FROM users ORDER BY id LIMIT 100`
+	HGMediaLegacyMallSampleSQL   = `SELECT user_id,product_id,storage_key,status FROM mall_product_image ORDER BY id LIMIT 100`
+	HGMediaLegacyVideoSampleSQL  = `SELECT user_id,submission_id,file_path,upload_status FROM video_files ORDER BY id LIMIT 100`
+	HGMediaLegacyIMSampleSQL     = `SELECT owner_id,conversation_id,object_key,immutable_key,state FROM im_private_attachment ORDER BY id LIMIT 100`
 )

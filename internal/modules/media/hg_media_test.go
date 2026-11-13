@@ -17,12 +17,14 @@ func TestHGPolicyRequiresPurposeAndRestrictsType(t *testing.T) {
 		t.Fatalf("有效头像用途未通过：%v", err)
 	}
 	for name, change := range map[string]func(*HGUploadRequest){
-		"缺少用途":  func(r *HGUploadRequest) { r.Purpose = "" },
-		"伪造用途":  func(r *HGUploadRequest) { r.Purpose = "admin" },
-		"跨类型":   func(r *HGUploadRequest) { r.MIME = "video/mp4" },
-		"超出大小":  func(r *HGUploadRequest) { r.Size = 11 << 20 },
-		"错误摘要":  func(r *HGUploadRequest) { r.SHA256 = strings.Repeat("Z", 64) },
-		"注入重试键": func(r *HGUploadRequest) { r.IdempotencyKey = "../../etc" },
+		"缺少用途":        func(r *HGUploadRequest) { r.Purpose = "" },
+		"伪造用途":        func(r *HGUploadRequest) { r.Purpose = "admin" },
+		"跨类型":         func(r *HGUploadRequest) { r.MIME = "video/mp4" },
+		"超出大小":        func(r *HGUploadRequest) { r.Size = 11 << 20 },
+		"错误摘要":        func(r *HGUploadRequest) { r.SHA256 = strings.Repeat("Z", 64) },
+		"注入重试键":       func(r *HGUploadRequest) { r.IdempotencyKey = "../../etc" },
+		"审核器不支持的 GIF": func(r *HGUploadRequest) { r.Purpose = "comment_image"; r.MIME = "image/gif" },
+		"审核器不支持的字幕":   func(r *HGUploadRequest) { r.Purpose = "video_subtitle"; r.MIME = "text/vtt" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := valid
@@ -39,7 +41,7 @@ func TestHGSignUploadDoesNotAllowUnlimitedBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	link, err := store.HGSignUpload(context.Background(), "quarantine/user/avatar/"+uuid.NewString()+".jpg", "image/jpeg", 123)
+	link, err := store.HGSignUpload(context.Background(), "quarantine/"+strings.ReplaceAll(uuid.NewString(), "-", ""), "image/jpeg", 123)
 	if err != nil {
 		t.Fatal(err)
 	}

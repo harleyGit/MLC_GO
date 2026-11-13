@@ -24,10 +24,26 @@ type HGObjectStore interface {
 	HGHead(ctx context.Context, key string) (int64, error)
 }
 
-// HGSealedStore 仅供后台审核与回收使用；不得将 sealed/ 的读取/删除权限交给上传签名身份。
+// HGSealedStore 仅供后台审核与回收使用；组合不同身份执行 HEAD 与 DELETE。
 type HGSealedStore interface {
 	HGHeadSealed(ctx context.Context, key string) (int64, error)
 	HGDelete(ctx context.Context, key string) error
+}
+
+type hgWorkerStore struct {
+	head    HGSealedStore // 审核结果复查所需的封存 HEAD 身份，不具备删除权限。
+	cleanup HGSealedStore // 只对限权前缀执行删除的独立身份，不具备读取/上传权限。
+}
+
+func (s *hgWorkerStore) HGHeadSealed(ctx context.Context, key string) (int64, error) {
+	return s.head.HGHeadSealed(ctx, key)
+}
+func (s *hgWorkerStore) HGDelete(ctx context.Context, key string) error {
+	return s.cleanup.HGDelete(ctx, key)
+}
+
+// HGReadStore 仅为业务授权后短时私有读取签名；不得复用只具备 HEAD/DELETE 的清理身份。
+type HGReadStore interface {
 	HGSignRead(ctx context.Context, key string) (string, error)
 }
 
@@ -57,7 +73,7 @@ func HGNewSeaweedStore(endpoint, region, bucket, accessKey, secretKey string) (*
 
 // HGSignUpload 签发最长十分钟的隔离桶直传 URL；长度/类型由完成确认再核对，签名不得替代配额与审核。
 func (s *HGSeaweedStore) HGSignUpload(ctx context.Context, key, mime string, size int64) (string, error) {
-	if !strings.HasPrefix(key, "quarantine/") || size < 1 {
+	if !hgQuarantineKey.MatchString(key) || size < 1 {
 		return "", HGErrInvalid
 	}
 	result, err := s.signer.PresignPutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), ContentType: aws.String(mime), ContentLength: aws.Int64(size)}, func(o *s3.PresignOptions) { o.Expires = 10 * time.Minute })
@@ -73,7 +89,7 @@ func (s *HGSeaweedStore) HGSignUpload(ctx context.Context, key, mime string, siz
 
 // HGHead 只检查隔离对象真实长度；不能据此判定真实 MIME、摘要或安全性。
 func (s *HGSeaweedStore) HGHead(ctx context.Context, key string) (int64, error) {
-	if !strings.HasPrefix(key, "quarantine/") {
+	if !hgQuarantineKey.MatchString(key) {
 		return 0, HGErrInvalid
 	}
 	result, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
