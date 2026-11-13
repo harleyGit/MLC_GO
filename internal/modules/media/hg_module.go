@@ -2,6 +2,7 @@ package media
 
 import (
 	HGHandlerRegistry "MLC_GO/internal/handler"
+	Transport "MLC_GO/internal/modules/im/transport"
 	UserJWT "MLC_GO/internal/modules/user/middleware"
 	HGRouter "MLC_GO/internal/pkg/hg_router"
 	SQL "MLC_GO/internal/pkg/mysql/queries"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -28,14 +30,15 @@ func (m *HGModule) Handler() http.Handler {
 }
 
 func hgRoutes(h *HGHandler) []HGRouter.RouteSpec {
-	var init, complete, status http.HandlerFunc
+	var init, complete, status, download http.HandlerFunc
 	if h != nil {
-		init, complete, status = h.HGInitUpload, h.HGCompleteUpload, h.HGAssetStatus
+		init, complete, status, download = h.HGInitUpload, h.HGCompleteUpload, h.HGAssetStatus, h.HGOwnerDownload
 	}
 	return []HGRouter.RouteSpec{
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/init", true, "按业务用途创建隔离上传", init),
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/complete", true, "确认本人隔离对象大小，等待内容审核", complete),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/status", true, "查询本人资源审核状态", status),
+		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/download", true, "获取本人已审核私有文件短时读授权", download),
 	}
 }
 
@@ -48,36 +51,51 @@ func HGRouteCatalog() []HGRouter.RouteCatalogItem {
 func HGConfigured() bool { return os.Getenv("MLC_MEDIA_S3_ENDPOINT") != "" }
 
 // HGRegister 从进程环境读取受信配置；密钥不得写入配置文件、日志或 API 响应。
-func HGRegister(db *sql.DB) error {
+func HGRegister(db *sql.DB) (*HGRuntime, error) {
 	if !HGConfigured() {
-		return nil
+		return nil, nil
 	}
 	bucket := os.Getenv("MLC_MEDIA_S3_BUCKET")
 	if bucket == "" {
-		return errors.New("媒体隔离桶未配置")
+		return nil, errors.New("媒体隔离桶未配置")
 	}
 	if db == nil {
-		return errors.New("媒体数据库未配置")
+		return nil, errors.New("媒体数据库未配置")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	for _, query := range []string{SQL.HGMediaAssetSchemaSQL, SQL.HGMediaSessionSchemaSQL, SQL.HGMediaQuotaSchemaSQL} {
+	for _, query := range []string{SQL.HGMediaAssetSchemaSQL, SQL.HGMediaSessionSchemaSQL, SQL.HGMediaQuotaSchemaSQL, SQL.HGMediaDeleteSchemaSQL, SQL.HGMediaRefsSchemaSQL} {
 		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
-			return fmt.Errorf("媒体元数据迁移未就绪: %w", err)
+			return nil, fmt.Errorf("媒体元数据迁移未就绪: %w", err)
 		}
 		if err = rows.Close(); err != nil {
-			return fmt.Errorf("关闭媒体数据库检查失败: %w", err)
+			return nil, fmt.Errorf("关闭媒体数据库检查失败: %w", err)
 		}
 	}
 	store, err := HGNewSeaweedStore(os.Getenv("MLC_MEDIA_S3_ENDPOINT"), os.Getenv("MLC_MEDIA_S3_REGION"), bucket, os.Getenv("MLC_MEDIA_S3_ACCESS_KEY"), os.Getenv("MLC_MEDIA_S3_SECRET_KEY"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	service, err := HGNewService(db, store, bucket)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	url, token := os.Getenv("MLC_MEDIA_REVIEW_URL"), os.Getenv("MLC_MEDIA_REVIEW_TOKEN")
+	if url == "" || token == "" {
+		return nil, errors.New("可信媒体审核服务未配置")
+	}
+	if strings.HasPrefix(url, "http://") && os.Getenv("SERVER_ENV") != "debug" {
+		return nil, errors.New("非 debug 环境禁止明文审核端点")
+	}
+	reviewer, err := Transport.HGNewReviewer(url, token)
+	if err != nil {
+		return nil, err
+	}
+	if err = service.HGEnableReview(reviewer, store); err != nil {
+		reviewer.HGClose()
+		return nil, err
 	}
 	HGHandlerRegistry.RegisterModule(&HGModule{handler: HGNewHandler(service)})
-	return nil
+	return &HGRuntime{service: service, closeReviewer: reviewer.HGClose}, nil
 }

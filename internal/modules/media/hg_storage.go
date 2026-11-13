@@ -24,6 +24,13 @@ type HGObjectStore interface {
 	HGHead(ctx context.Context, key string) (int64, error)
 }
 
+// HGSealedStore 仅供后台审核与回收使用；不得将 sealed/ 的读取/删除权限交给上传签名身份。
+type HGSealedStore interface {
+	HGHeadSealed(ctx context.Context, key string) (int64, error)
+	HGDelete(ctx context.Context, key string) error
+	HGSignRead(ctx context.Context, key string) (string, error)
+}
+
 // HGSeaweedStore 管理隔离桶的 S3 客户端，调用方负责保证 Gateway 的私有访问与 TLS。
 type HGSeaweedStore struct {
 	bucket string            // 受信配置的隔离桶，不能从客户端请求提取。
@@ -74,4 +81,40 @@ func (s *HGSeaweedStore) HGHead(ctx context.Context, key string) (int64, error) 
 		return 0, fmt.Errorf("检查隔离对象失败: %w", err)
 	}
 	return aws.ToInt64(result.ContentLength), nil
+}
+
+// HGHeadSealed 在可信审核器报告成功后复查封存对象，不能仅凭回调宣称已落盘。
+func (s *HGSeaweedStore) HGHeadSealed(ctx context.Context, key string) (int64, error) {
+	if !hgSealedKey.MatchString(key) {
+		return 0, HGErrInvalid
+	}
+	result, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	if err != nil {
+		return 0, fmt.Errorf("复查封存对象失败: %w", err)
+	}
+	return aws.ToInt64(result.ContentLength), nil
+}
+
+// HGDelete 仅供持久化删除任务调用，重复删除同一 Key 视作幂等；必须由受限服务凭据执行。
+func (s *HGSeaweedStore) HGDelete(ctx context.Context, key string) error {
+	if !hgSealedKey.MatchString(key) && !hgQuarantineKey.MatchString(key) {
+		return HGErrInvalid
+	}
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	if err != nil {
+		return fmt.Errorf("删除媒体对象失败: %w", err)
+	}
+	return nil
+}
+
+// HGSignRead 仅为经过业务鉴权的封存对象签发 30 秒临时读 URL；不得对 quarantine/ 签发。
+func (s *HGSeaweedStore) HGSignRead(ctx context.Context, key string) (string, error) {
+	if !hgSealedKey.MatchString(key) {
+		return "", HGErrInvalid
+	}
+	result, err := s.signer.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, func(o *s3.PresignOptions) { o.Expires = 30 * time.Second })
+	if err != nil {
+		return "", fmt.Errorf("创建私有媒体读取授权失败: %w", err)
+	}
+	return result.URL, nil
 }

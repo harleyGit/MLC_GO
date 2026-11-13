@@ -103,6 +103,7 @@ type MLCApplication struct {
 	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
 	crawlerManager          *CrawlerSpiderPackage.HGManager
 	crawlerTaskScheduler    *CrawlerRuntimePackage.HGTaskScheduler
+	mediaRuntime            *MediaModulePackage.HGRuntime
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -385,7 +386,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 	HGUserModulePackage.RegisterModules(redisService, sqlManager, nil)
 	hgwallet.HGRegisterModules(sqlManager)
 	HGMallModulePackage.HGRegisterModules(sqlManager, redisService)
-	if err := MediaModulePackage.HGRegister(sqlManager.GetSQLDB()); err != nil {
+	mediaRuntime, err := MediaModulePackage.HGRegister(sqlManager.GetSQLDB())
+	if err != nil {
 		if coinJobs != nil {
 			coinJobs.Close()
 		}
@@ -712,7 +714,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	)
 	// ⑨ 注册管理端口
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
-		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime, imRuntime),
+		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime, imRuntime, mediaRuntime),
 		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics, imRuntime.HGWritePrometheusMetrics),
 	})
 	imRuntime.HGMountManagement(managementMux)
@@ -741,6 +743,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	}
 
 	imRuntime.Start()
+	mediaRuntime.HGStart()
 	if imRuntime != nil {
 		previousKafkaCloser := kafkaCloser
 		kafkaCloser = func() {
@@ -778,6 +781,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
 		crawlerManager:          crawlerManager,
 		crawlerTaskScheduler:    crawlerTaskScheduler,
+		mediaRuntime:            mediaRuntime,
 	}, nil
 }
 
@@ -956,6 +960,9 @@ func (app *MLCApplication) Close() {
 		return
 	}
 	// 先停止并等待后台 worker，避免数据库和 Redis 关闭后仍有投影或消息处理。
+	if app.mediaRuntime != nil {
+		app.mediaRuntime.Close()
+	}
 	if app.interactionReprojector != nil {
 		app.interactionReprojector.Close()
 	}

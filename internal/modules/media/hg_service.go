@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,9 +14,13 @@ import (
 
 // HGService 管理媒体隔离上传会话；不会将未经审核的对象升级为可引用资源。
 type HGService struct {
-	db     *sql.DB       // MySQL 权威会话与元数据，事务不可跨 S3 网络 I/O。
-	store  HGObjectStore // SeaweedFS 隔离桶访问，必须复用持久客户端。
-	bucket string        // 与 store 一致的受信隔离桶名。
+	db           *sql.DB       // MySQL 权威会话与元数据，事务不可跨 S3 网络 I/O。
+	store        HGObjectStore // SeaweedFS 隔离桶访问，必须复用持久客户端。
+	bucket       string        // 与 store 一致的受信隔离桶名。
+	reviewer     HGReviewer    // 受信内容审核服务，仅在显式启用的模块内注入。
+	sealed       HGSealedStore // 封存复查及异步清理的独立后台 S3 能力。
+	expireCursor atomic.Uint32 // 轮询过期状态；避免多范围排序与状态饥饿。
+	deleteCursor atomic.Uint32 // 轮询待处理和租约到期任务。
 }
 
 // HGNewService 构造未审核上传服务；bucket 必须与对象存储实例配置相同。
@@ -218,4 +223,36 @@ func (s *HGService) HGAssetStatus(ctx context.Context, owner, asset string) (map
 		return nil, err
 	}
 	return map[string]any{"asset_id": asset, "purpose": purpose, "mime_type": mime, "file_size": size, "status": status}, nil
+}
+
+// HGOwnerDownload 仅为原上传者的低敏已审核图片签发私有只读 URL；IM/认证/售后等须另走业务鉴权。
+func (s *HGService) HGOwnerDownload(ctx context.Context, owner, asset string) (string, error) {
+	if s.sealed == nil {
+		return "", errors.New("封存存储未配置")
+	}
+	if owner == "" || len(owner) > 64 || uuid.Validate(asset) != nil {
+		return "", HGErrInvalid
+	}
+	var purpose, state string
+	var key sql.NullString
+	err := s.db.QueryRowContext(ctx, SQL.HGMediaOwnerDownloadSQL, asset, owner).Scan(&purpose, &state, &key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", HGErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if !hgOwnerReadPurpose(purpose) || state != "ready" || !key.Valid || !hgSealedKey.MatchString(key.String) {
+		return "", HGErrNotFound
+	}
+	return s.sealed.HGSignRead(ctx, key.String)
+}
+
+func hgOwnerReadPurpose(purpose string) bool {
+	switch purpose {
+	case "user_avatar", "user_cover", "product_main", "product_detail", "product_sku", "shop_logo", "video_cover", "comment_image", "marketing_poster":
+		return true
+	default:
+		return false
+	}
 }

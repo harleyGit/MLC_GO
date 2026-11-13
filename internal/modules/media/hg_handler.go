@@ -100,3 +100,17 @@ func (h *HGHandler) HGAssetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	HGResponse.SuccessResult(w, r, result)
 }
+
+// HGOwnerDownload 只向经 JWT 验证的原上传者签发短时私有链接；不承担 IM 接收方或商家全员权限。
+func (h *HGHandler) HGOwnerDownload(w http.ResponseWriter, r *http.Request) {
+	owner, ok := h.hgUser(w, r)
+	if !ok {
+		return
+	}
+	link, err := h.service.HGOwnerDownload(r.Context(), owner, r.URL.Query().Get("asset_id"))
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	HGResponse.SuccessResult(w, r, map[string]any{"download_url": link, "expires_in": 30})
+}
