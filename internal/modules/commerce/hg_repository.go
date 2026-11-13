@@ -50,12 +50,16 @@ func (r *HGRepository) HGCategories(ctx context.Context, user string) ([]HGCateg
 		}
 		return nil, err
 	}
-	return r.HGAdminCategories(ctx)
+	return r.hgListCategories(ctx, q.HGCommerceCategorySQL)
 }
 
-// HGAdminCategories 读取平台普通叶子类目；调用方必须先通过审核权限校验。
+// HGAdminCategories 读取启用的普通父子类目；调用方必须先通过审核权限校验。
 func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, error) {
-	rows, err := r.db.QueryContext(ctx, q.HGCommerceCategorySQL)
+	return r.hgListCategories(ctx, q.HGCommerceAdminCategorySQL)
+}
+
+func (r *HGRepository) hgListCategories(ctx context.Context, query string) ([]HGCategory, error) {
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +180,7 @@ func (r *HGRepository) HGDeleteCategory(ctx context.Context, categoryID string) 
 	return tx.Commit()
 }
 
-// HGEditCategory 只编辑叶子类目；无商品时允许修改主键并同步有界图片关联。
+// HGEditCategory 允许原位编辑父类目名称/图片；叶子类目无商品时可修改主键并同步有界图片关联。
 func (r *HGRepository) HGEditCategory(ctx context.Context, user, originalID string, request HGCategoryEditRequest) (HGCategory, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -195,7 +199,8 @@ func (r *HGRepository) HGEditCategory(ctx context.Context, user, originalID stri
 	if err = tx.QueryRowContext(ctx, q.HGCommerceCategoryAnyChildSQL, originalID).Scan(&hasChild); err != nil {
 		return HGCategory{}, err
 	}
-	if hasChild {
+	// 有子类目时仅允许原位更新名称/图片；改 ID 或上级会破坏子节点的引用与深度。
+	if hasChild && (request.CategoryID != originalID || request.ParentID != oldParent.String) {
 		return HGCategory{}, ErrHGCategoryEditConflict
 	}
 	if request.CategoryID != originalID {

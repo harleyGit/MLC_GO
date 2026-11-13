@@ -2,9 +2,11 @@ package SQLQueriesPackage
 
 // 生产 CNY 商品 SQL 仅访问 commerce_*；所有 ID 点查走唯一键，列表走 (merchant_id,id)/(category_id,sale_status,id)/(audit_status,id)，单页最多 21 行。
 const (
-	HGCommerceMerchantSQL              = `SELECT merchant_id FROM mall_merchant WHERE user_id=? AND status=1`
-	HGCommerceMerchantLockSQL          = `SELECT merchant_id FROM mall_merchant WHERE user_id=? AND status=1 FOR UPDATE`
-	HGCommerceCategorySQL              = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE status=1 AND regulated=0 AND NOT EXISTS (SELECT 1 FROM commerce_category child WHERE child.parent_id=commerce_category.id AND child.status=1) ORDER BY id LIMIT 200`
+	HGCommerceMerchantSQL     = `SELECT merchant_id FROM mall_merchant WHERE user_id=? AND status=1`
+	HGCommerceMerchantLockSQL = `SELECT merchant_id FROM mall_merchant WHERE user_id=? AND status=1 FOR UPDATE`
+	HGCommerceCategorySQL     = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE status=1 AND regulated=0 AND NOT EXISTS (SELECT 1 FROM commerce_category child WHERE child.parent_id=commerce_category.id AND child.status=1) ORDER BY id LIMIT 200`
+	// 管理列表包含启用的普通父子类目；按主键稳定排序、最多 200 条，分页及容量上限后续需单独设计。
+	HGCommerceAdminCategorySQL         = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE status=1 AND regulated=0 ORDER BY id LIMIT 200`
 	HGCommerceCategoryParentSQL        = `SELECT depth,regulated FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
 	HGCommerceCategoryInsertSQL        = `INSERT INTO commerce_category(id,parent_id,depth,name,regulated,image_url) VALUES(?,?,?,?,?,?)`
 	HGCommerceCategoryReplaySQL        = `SELECT parent_id,depth,name,regulated,image_url,status FROM commerce_category WHERE id=? FOR UPDATE`

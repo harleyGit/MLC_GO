@@ -20,7 +20,7 @@ var (
 	ErrHGCategoryIDConflict     = errors.New("类目 ID 已被占用")
 	ErrHGCategoryIDEditConflict = errors.New("有关联商品的类目不能修改 ID")
 	ErrHGCategoryDeleteConflict = errors.New("类目仍有子类目或关联商品")
-	ErrHGCategoryEditConflict   = errors.New("仅允许编辑无子类目的类目")
+	ErrHGCategoryEditConflict   = errors.New("有子类目的类目不能修改 ID 或上级")
 	ErrHGCategoryNameInvalid    = fmt.Errorf("%w: 类目名称无效", ErrHGInvalid)
 	ErrHGCategoryParentInvalid  = fmt.Errorf("%w: 上级类目无效", ErrHGInvalid)
 	ErrHGCategoryImageInvalid   = fmt.Errorf("%w: 类目图片无效", ErrHGInvalid)
@@ -29,7 +29,7 @@ var (
 	ErrHGConflict               = errors.New("商品版本或状态冲突")
 )
 
-// HGCategory 是服务端管理的普通叶子类目；受监管类目首期不返回给商家。
+// HGCategory 是服务端管理的普通类目；管理员可见父子节点，商家仅可见普通叶子节点。
 type HGCategory struct {
 	ID       string `json:"categoryId"` // 类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
 	ParentID string `json:"parentId"`   // 上级类目业务 ID；空表示一级类目。
