@@ -802,6 +802,75 @@ func (r *Repository) appendAdminUsersByIDQuery(ctx context.Context, list *[]map[
 	return rows.Err()
 }
 
+// ListAvailableAdminCandidates 按 users.id 倒序分批读取尚无 admin_user 记录的用户。
+// cursorID 为 0 表示第一页；每次最多扫描 100 个 users.id，避免全为管理员时扫描整个 users 表。
+func (r *Repository) ListAvailableAdminCandidates(ctx context.Context, cursorID int64, limit int) ([]map[string]interface{}, string, bool, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	const windowSize = 100
+	windowSQL := SQLQueriesPackage.SelectOpsAvailableAdminCandidateWindowSQL
+	args := []interface{}{windowSize}
+	if cursorID > 0 {
+		windowSQL = SQLQueriesPackage.SelectOpsAvailableAdminCandidateWindowAfterSQL
+		args = []interface{}{cursorID, windowSize}
+	}
+	windowRows, err := r.db.QueryContext(ctx, windowSQL, args...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	var firstID, lastID int64
+	count := 0
+	for windowRows.Next() {
+		var id int64
+		if err := windowRows.Scan(&id); err != nil {
+			windowRows.Close()
+			return nil, "", false, err
+		}
+		if count == 0 {
+			firstID = id
+		}
+		lastID = id
+		count++
+	}
+	if err := windowRows.Err(); err != nil {
+		windowRows.Close()
+		return nil, "", false, err
+	}
+	windowRows.Close()
+	if count == 0 {
+		return []map[string]interface{}{}, "", false, nil
+	}
+	querySQL := SQLQueriesPackage.SelectOpsAvailableAdminCandidatesSQL
+	if r.hasAdminUserEmailColumn(ctx) {
+		querySQL = SQLQueriesPackage.SelectOpsAvailableAdminCandidatesWithEmailSQL
+	}
+	rows, err := r.db.QueryContext(ctx, querySQL, lastID, firstID, limit+1)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+	list := make([]map[string]interface{}, 0, limit+1)
+	for rows.Next() {
+		item, err := scanAdminCandidateRow(rows)
+		if err != nil {
+			return nil, "", false, err
+		}
+		list = append(list, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", false, err
+	}
+	if len(list) > limit {
+		list = list[:limit]
+		return list, list[len(list)-1]["id"].(string), true, nil
+	}
+	if count == windowSize {
+		return list, strconv.FormatInt(lastID, 10), true, nil
+	}
+	return list, "", false, nil
+}
+
 // SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
 // 千万级表约束：避免多字段 OR；按 users.id 主键和 user_id/user_name/email/phone 唯一索引分别小范围查询，再在内存合并去重。
 func (r *Repository) SearchAdminCandidates(ctx context.Context, keyword string, limit int) ([]map[string]interface{}, int64, error) {

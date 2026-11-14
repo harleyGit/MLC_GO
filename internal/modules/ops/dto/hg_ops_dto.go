@@ -113,10 +113,12 @@ type AdminUserListResponse struct {
 }
 
 // AdminCandidateSearchResponse 添加管理员候选用户搜索响应。
-// 调用场景：运维后台添加管理员时，先从注册用户 users 表搜索候选，再确认提升为 admin_user。
+// 调用场景：运维后台添加管理员；空关键词按 users.id 倒序游标浏览未加入 admin_user 的用户，非空关键词保持搜索行为。
 type AdminCandidateSearchResponse struct {
-	Total int64                `json:"total"`
-	List  []AdminCandidateItem `json:"list"`
+	Total      int64                `json:"total"`      // 当前页返回条数，非全量总数；避免大表 COUNT。
+	List       []AdminCandidateItem `json:"list"`       // 当前页候选用户；无数据时为空数组。
+	NextCursor string               `json:"nextCursor"` // 空关键词续页游标（users.id）；空字符串表示无下一页。
+	HasMore    bool                 `json:"hasMore"`    // 空关键词是否还有下一页；搜索模式恒为 false。
 }
 
 // AdminCandidateItem 添加管理员候选用户项。

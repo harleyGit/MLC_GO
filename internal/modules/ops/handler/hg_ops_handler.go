@@ -425,7 +425,7 @@ func (h *Handler) SearchAdminCandidates(w http.ResponseWriter, r *http.Request) 
 
 	keyword := r.URL.Query().Get("keyword")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	resp, err := h.service.SearchAdminCandidates(r.Context(), keyword, limit)
+	resp, err := h.service.SearchAdminCandidates(r.Context(), keyword, r.URL.Query().Get("cursor"), limit)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})

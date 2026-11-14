@@ -207,6 +207,22 @@ const (
 	// 命中 users.phone/uk_phone 唯一索引前缀；手机号搜索是添加管理员最常用路径之一。
 	SelectOpsAdminCandidateByPhonePrefixSQL = "SELECT `id`, `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `phone` LIKE ? ORDER BY `id` DESC LIMIT ?"
 
+	// SelectOpsAvailableAdminCandidateWindowSQL 首次查询最多读取 100 个 users.id，限制单次反查 admin_user 的扫描范围。
+	// 命中 users.id 主键倒序扫描，不做 COUNT 或深 OFFSET；即使窗口内全为管理员也能继续翻页。
+	SelectOpsAvailableAdminCandidateWindowSQL = "SELECT `id` FROM `users` ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAvailableAdminCandidateWindowAfterSQL 后续页沿 users.id 主键范围继续读取最多 100 个 ID。
+	SelectOpsAvailableAdminCandidateWindowAfterSQL = "SELECT `id` FROM `users` WHERE `id` < ? ORDER BY `id` DESC LIMIT ?"
+
+	// SelectOpsAvailableAdminCandidatesSQL 仅在 ID 窗口内按 users 主键倒序查可添加的用户。
+	// admin_user.idx_user_id 与 idx_mobile 用于反查；窗口大小限制 users 扫描及 admin_user 探测量，limit+1 判断窗口内是否有更多合格行。
+	// 生产索引与反查成本需按实际表结构和管理员占比核验；不执行 COUNT/OFFSET。
+	SelectOpsAvailableAdminCandidatesSQL = "SELECT u.`id`, u.`user_id`, u.`user_name`, u.`nickname`, u.`email`, u.`phone` FROM `users` u WHERE u.`id` BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM `admin_user` a WHERE a.`user_id` = u.`user_id`) AND NOT EXISTS (SELECT 1 FROM `admin_user` a WHERE a.`mobile` = COALESCE(NULLIF(u.`phone`, ''), CONCAT('user_', u.`id`))) ORDER BY u.`id` DESC LIMIT ?"
+
+	// SelectOpsAvailableAdminCandidatesWithEmailSQL admin_user.email 已迁移时额外排除邮箱唯一键冲突；旧库不能引用此字段。
+	// admin_user.idx_email 用于邮箱反查，仅在前述同一主键窗口内探测。
+	SelectOpsAvailableAdminCandidatesWithEmailSQL = "SELECT u.`id`, u.`user_id`, u.`user_name`, u.`nickname`, u.`email`, u.`phone` FROM `users` u WHERE u.`id` BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM `admin_user` a WHERE a.`user_id` = u.`user_id`) AND NOT EXISTS (SELECT 1 FROM `admin_user` a WHERE a.`mobile` = COALESCE(NULLIF(u.`phone`, ''), CONCAT('user_', u.`id`))) AND NOT EXISTS (SELECT 1 FROM `admin_user` a WHERE a.`email` = NULLIF(u.`email`, '')) ORDER BY u.`id` DESC LIMIT ?"
+
 	// SelectOpsCoinUserByUserIDSQL 按 users.user_id 唯一索引精确定位资产目标，不使用 LIKE、COUNT 或 OFFSET。
 	SelectOpsCoinUserByUserIDSQL = "SELECT `user_id`, `user_name`, `nickname`, `email`, `phone` FROM `users` WHERE `user_id` = ? LIMIT 1"
 

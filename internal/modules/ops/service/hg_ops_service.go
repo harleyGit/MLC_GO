@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -184,13 +185,10 @@ func (s *Service) SearchAdminUsers(ctx context.Context, keyword string, limit in
 }
 
 // SearchAdminCandidates 搜索可添加为管理员的注册用户候选。
-// 千万级表约束：只允许有限长度关键词和有限返回条数，Repository 仅做主键/唯一键/前缀索引查询。
-func (s *Service) SearchAdminCandidates(ctx context.Context, keyword string, limit int) (*OpsDtoPackage.AdminCandidateSearchResponse, error) {
+// 千万级表约束：空关键词走 users.id 游标分页；关键词搜索仍限定长度与页大小。
+func (s *Service) SearchAdminCandidates(ctx context.Context, keyword, cursor string, limit int) (*OpsDtoPackage.AdminCandidateSearchResponse, error) {
 	keyword = strings.TrimSpace(keyword)
-	if keyword == "" {
-		return &OpsDtoPackage.AdminCandidateSearchResponse{Total: 0, List: []OpsDtoPackage.AdminCandidateItem{}}, nil
-	}
-	if len([]rune(keyword)) > maxAdminSearchKeywordLen {
+	if keyword != "" && len([]rune(keyword)) > maxAdminSearchKeywordLen {
 		return nil, errors.New("搜索关键词过长")
 	}
 	if limit <= 0 {
@@ -199,7 +197,24 @@ func (s *Service) SearchAdminCandidates(ctx context.Context, keyword string, lim
 	if limit > maxAdminSearchLimit {
 		limit = maxAdminSearchLimit
 	}
-	items, total, err := s.repo.SearchAdminCandidates(ctx, keyword, limit)
+	var items []map[string]interface{}
+	var total int64
+	var hasMore bool
+	var nextCursor string
+	var err error
+	if keyword == "" {
+		var cursorID int64
+		if cursor != "" {
+			cursorID, err = strconv.ParseInt(cursor, 10, 64)
+			if err != nil || cursorID <= 0 {
+				return nil, errors.New("无效的候选用户游标")
+			}
+		}
+		items, nextCursor, hasMore, err = s.repo.ListAvailableAdminCandidates(ctx, cursorID, limit)
+		total = int64(len(items))
+	} else {
+		items, total, err = s.repo.SearchAdminCandidates(ctx, keyword, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +229,7 @@ func (s *Service) SearchAdminCandidates(ctx context.Context, keyword string, lim
 			Phone:    toString(item["phone"]),
 		})
 	}
-	return &OpsDtoPackage.AdminCandidateSearchResponse{Total: total, List: list}, nil
+	return &OpsDtoPackage.AdminCandidateSearchResponse{Total: total, List: list, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
 // AddAdmin 将注册用户添加为管理员。
