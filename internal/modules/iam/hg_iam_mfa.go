@@ -23,11 +23,11 @@ import (
 	"time"
 )
 
-// hgMFAKey 从进程密钥读取 32 字节 AES-GCM KEK；缺失时 MFA 和审批均默认拒绝。
+// hgMFAKey 从进程密钥读取 32 字节 AES-GCM KEK；缺失或格式错误时停止 MFA 和审批，并区别于无权限。
 func hgMFAKey() ([]byte, error) {
 	key, err := hex.DecodeString(os.Getenv("MLC_IAM_MFA_KEY_HEX"))
 	if err != nil || len(key) != 32 {
-		return nil, ErrHGForbidden
+		return nil, ErrHGMFAKeyUnavailable
 	}
 	return key, nil
 }

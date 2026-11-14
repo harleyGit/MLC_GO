@@ -7,10 +7,11 @@ import (
 )
 
 var (
-	ErrHGInvalid   = errors.New("IAM 参数无效")
-	ErrHGForbidden = errors.New("无 IAM 管理权限")
-	ErrHGNotFound  = errors.New("IAM 记录不存在")
-	ErrHGConflict  = errors.New("IAM 记录冲突")
+	ErrHGInvalid           = errors.New("IAM 参数无效")
+	ErrHGForbidden         = errors.New("无 IAM 管理权限")
+	ErrHGMFAKeyUnavailable = errors.New("IAM MFA 加密密钥不可用")
+	ErrHGNotFound          = errors.New("IAM 记录不存在")
+	ErrHGConflict          = errors.New("IAM 记录冲突")
 )
 
 // HGRole 是 IAM 业务角色；Code 是稳定授权标识，ID 仅用于存储和游标。
