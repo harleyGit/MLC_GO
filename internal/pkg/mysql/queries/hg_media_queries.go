@@ -77,4 +77,23 @@ const (
 	HGMediaLegacyMallSampleSQL   = `SELECT user_id,product_id,storage_key,status FROM mall_product_image ORDER BY id LIMIT 100`
 	HGMediaLegacyVideoSampleSQL  = `SELECT user_id,submission_id,file_path,upload_status FROM video_files ORDER BY id LIMIT 100`
 	HGMediaLegacyIMSampleSQL     = `SELECT owner_id,conversation_id,object_key,immutable_key,state FROM im_private_attachment ORDER BY id LIMIT 100`
+	// 盘点按固定来源顺序和各自主键倒序推进，每次 LIMIT 由服务端限制 <= 51；不扫描对象内容或返回 owner/key/URL。
+	// 新媒体无类别走 PRIMARY(asset_id)，按种类走 idx_media_inventory_kind(media_kind,asset_id)；迁移 000073 未执行时失败关闭。
+	HGMediaInventoryNewAllFirstSQL  = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewAllSQL       = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE asset_id<? ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewKindFirstSQL = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE media_kind=? ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewKindSQL      = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE media_kind=? AND asset_id<? ORDER BY asset_id DESC LIMIT ?`
+	// 旧商品与视频均按 PRIMARY(id) 游标；视频源只对应 video 类型，商品图片只对应 image。
+	HGMediaInventoryMallFirstSQL  = `SELECT id,status FROM mall_product_image ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryMallSQL       = `SELECT id,status FROM mall_product_image WHERE id<? ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryVideoFirstSQL = `SELECT id,mime_type,file_size,upload_status FROM video_files ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryVideoSQL      = `SELECT id,mime_type,file_size,upload_status FROM video_files WHERE id<? ORDER BY id DESC LIMIT ?`
+	// 旧头像走 idx_users_avatar_inventory(hg_has_avatar,id)，只读是否存在，不返回 avatar_url 或用户标识。
+	HGMediaInventoryAvatarFirstSQL = `SELECT id FROM users WHERE hg_has_avatar=1 ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryAvatarSQL      = `SELECT id FROM users WHERE hg_has_avatar=1 AND id<? ORDER BY id DESC LIMIT ?`
+	// 旧私有 IM 仅返回类别/声明 MIME/大小/审核状态；无类别走 PRIMARY(id)，按类别走 idx_im_inventory_type。
+	HGMediaInventoryIMAllFirstSQL  = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryIMAllSQL       = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE id<UNHEX(?) ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryIMKindFirstSQL = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE media_type=? ORDER BY id DESC LIMIT ?`
+	HGMediaInventoryIMKindSQL      = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE media_type=? AND id<UNHEX(?) ORDER BY id DESC LIMIT ?`
 )

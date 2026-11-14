@@ -55,6 +55,7 @@ const (
 	HGNotificationChannelRead    HGPermission = "notification:channel:read"     // 查看站内信与未接供应商渠道的真实可用状态。
 	HGNotificationDeliveryRead   HGPermission = "notification:delivery:read"    // 查看站内通知投递记录，不包括私信内容。
 	HGNotificationChannelSend    HGPermission = "notification:channel:send"     // 仅向本人发送有界站内试通知，不是运营群发。
+	HGMediaInventoryRead         HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
 )
 
 // hgPermissions 是编译期权限字典；新增权限须同步受控迁移，不在路由注册时写库。
@@ -100,6 +101,7 @@ var hgPermissions = [...]HGPermission{
 	HGNotificationChannelRead,
 	HGNotificationDeliveryRead,
 	HGNotificationChannelSend,
+	HGMediaInventoryRead,
 }
 
 // HGKnown 判断是否为已登记的路由权限；仅用于启动配置校验，不代替 IAM 授权查询。

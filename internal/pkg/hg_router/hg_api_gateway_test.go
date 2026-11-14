@@ -46,6 +46,21 @@ func TestHGAPIGatewayLimitsIMRequests(t *testing.T) {
 	}
 }
 
+// TestHGAPIGatewayLimitsMediaRequests 确认媒体请求按独立模块限流，不回退为未受保护的路由。
+func TestHGAPIGatewayLimitsMediaRequests(t *testing.T) {
+	eval := &hgGatewayFakeEval{allowed: 0}
+	gateway := hgTestGateway(t, eval)
+	for _, path := range []string{"/api/v1/media", "/api/v1/media/uploads"} {
+		recorder := httptest.NewRecorder()
+		gateway.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("受限媒体请求不应到达业务处理器")
+		})).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusTooManyRequests || eval.key != PersistenceRedisPackage.GetAPIGatewayIPRateKey("media", "192.0.2.1") {
+			t.Fatalf("path=%s status=%d key=%q", path, recorder.Code, eval.key)
+		}
+	}
+}
+
 func TestHGAPIGatewayRequiresIMPolicy(t *testing.T) {
 	modules := make(map[string]ConfigPackage.HGAPIGatewayModulePolicy, len(hgGatewayModulePaths))
 	for _, module := range hgGatewayModulePaths {

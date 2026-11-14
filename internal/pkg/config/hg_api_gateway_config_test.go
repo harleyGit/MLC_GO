@@ -53,6 +53,30 @@ func TestGetAPIGatewayConfigAcceptsIMPolicy(t *testing.T) {
 	}
 }
 
+// TestGetAPIGatewayConfigAcceptsMediaPolicy 验证基础配置中的媒体模块可通过校验且仍受限流参数约束。
+func TestGetAPIGatewayConfigAcceptsMediaPolicy(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("API_GATEWAY_TRUSTED_PROXY_CIDRS", "")
+	viper.Set("api_gateway.enabled", true)
+	viper.Set("api_gateway.max_url_bytes", 8192)
+	viper.Set("api_gateway.supported_versions", []string{"v1"})
+	for _, module := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im", "media"} {
+		viper.Set("api_gateway.modules."+module+".capacity", 10)
+		viper.Set("api_gateway.modules."+module+".refill_per_second", 2)
+		viper.Set("api_gateway.modules."+module+".max_body_bytes", 4096)
+		viper.Set("api_gateway.modules."+module+".max_in_flight", 10)
+	}
+	cfg, err := GetAPIGatewayConfig()
+	if err != nil || len(cfg.Modules) != 11 || cfg.Modules["media"].MaxBodyBytes != 4096 {
+		t.Fatalf("媒体模块策略未正确加载: %v", err)
+	}
+	viper.Set("api_gateway.modules.media.capacity", 0)
+	if _, err := GetAPIGatewayConfig(); err == nil || !strings.Contains(err.Error(), "media 限流参数无效") {
+		t.Fatalf("媒体模块无效限流策略应拒绝: %v", err)
+	}
+}
+
 func TestGetAPIGatewayConfigRequiresIMPolicy(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

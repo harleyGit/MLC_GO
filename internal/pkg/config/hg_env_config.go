@@ -771,7 +771,7 @@ func GetAPIGatewayConfig() (HGAPIGatewayConfig, error) {
 		"auth": {}, "profile": {}, "video_upload": {}, "bilibili": {},
 		"video_recommend": {}, "video_interaction": {}, "video_comment": {}, "video_danmaku": {}, "ops": {},
 		"notifications": {}, "notification_preferences": {}, "notification_admin": {},
-		"im": {},
+		"im": {}, "media": {},
 	}
 	for _, required := range []string{"auth", "profile", "video_upload", "bilibili", "video_recommend", "video_interaction", "video_comment", "video_danmaku", "ops", "im"} {
 		if _, ok := raw.Modules[required]; !ok {

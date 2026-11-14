@@ -3,13 +3,16 @@ package media
 import (
 	HGContext "MLC_GO/internal/pkg/hg_context"
 	HGResponse "MLC_GO/internal/response"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 )
 
-// HGHandler 只暴露本人隔离上传和状态查询；不得返回隔离对象的下载地址。
+// HGHandler 除本人隔离上传与状态外，仅提供受 IAM 限制的新旧媒体元数据盘点，不向管理员提供对象读取地址。
 type HGHandler struct {
 	service *HGService // 媒体元数据服务；依赖受信用户上下文。
 }
@@ -113,4 +116,44 @@ func (h *HGHandler) HGOwnerDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	HGResponse.SuccessResult(w, r, map[string]any{"download_url": link, "expires_in": 30})
+}
+
+// HGInventoryList 全平台新旧媒体只读盘点；RouteSpec 先验证活动管理员和 media:inventory:read。
+// kind=空/image/video/audio/file，limit 默认 20、最大 50；游标绑定种类并限制长度。
+func (h *HGHandler) HGInventoryList(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.hgUser(w, r); !ok {
+		return
+	}
+	query := r.URL.Query()
+	if len(query) > 3 || len(query["kind"]) > 1 || len(query["cursor"]) > 1 || len(query["limit"]) > 1 {
+		hgFail(w, r, HGErrInvalid)
+		return
+	}
+	for key := range query {
+		if key != "kind" && key != "cursor" && key != "limit" {
+			hgFail(w, r, HGErrInvalid)
+			return
+		}
+	}
+	limit := 20
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 50 {
+			hgFail(w, r, HGErrInvalid)
+			return
+		}
+		limit = parsed
+	}
+	if !hgInventoryKindValid(query.Get("kind")) || len(query.Get("cursor")) > 90 {
+		hgFail(w, r, HGErrInvalid)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
+	page, err := h.service.HGInventory(ctx, query.Get("kind"), query.Get("cursor"), limit)
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	HGResponse.SuccessResult(w, r, page)
 }

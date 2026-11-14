@@ -2,10 +2,12 @@ package media
 
 import (
 	HGHandlerRegistry "MLC_GO/internal/handler"
+	IAM "MLC_GO/internal/modules/iam"
 	Transport "MLC_GO/internal/modules/im/transport"
 	UserJWT "MLC_GO/internal/modules/user/middleware"
 	HGRouter "MLC_GO/internal/pkg/hg_router"
 	SQL "MLC_GO/internal/pkg/mysql/queries"
+	Permission "MLC_GO/internal/pkg/permission"
 	"context"
 	"database/sql"
 	"errors"
@@ -20,25 +22,28 @@ const hgBasePath = "/api/v1/media"
 
 // HGModule 提供独立于旧上传链路的隔离上传 API；部署迁移与审核器前不能替换现有读路径。
 type HGModule struct {
-	handler *HGHandler // 已验证的隔离上传 handler。
+	handler    *HGHandler                 // 已验证的隔离上传 handler。
+	authorizer HGRouter.HGRouteAuthorizer // 管理盘点只读权限；未配置时路由失败关闭。
 }
 
 func (m *HGModule) Name() string     { return "media" }
 func (m *HGModule) BasePath() string { return hgBasePath }
 func (m *HGModule) Handler() http.Handler {
-	return HGRouter.NewRouteGroup(HGRouter.RouteGroupConfig{BasePath: hgBasePath, AuthMiddleware: UserJWT.AuthMiddleware}, hgRoutes(m.handler))
+	return HGRouter.NewRouteGroup(HGRouter.RouteGroupConfig{BasePath: hgBasePath, Authorizer: m.authorizer, AuthMiddleware: UserJWT.AuthMiddleware}, hgRoutes(m.handler))
 }
 
 func hgRoutes(h *HGHandler) []HGRouter.RouteSpec {
-	var init, complete, status, download http.HandlerFunc
+	var init, complete, status, download, inventory http.HandlerFunc
 	if h != nil {
 		init, complete, status, download = h.HGInitUpload, h.HGCompleteUpload, h.HGAssetStatus, h.HGOwnerDownload
+		inventory = h.HGInventoryList
 	}
 	return []HGRouter.RouteSpec{
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/init", true, "按业务用途创建隔离上传", init),
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/complete", true, "确认本人隔离对象大小，等待内容审核", complete),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/status", true, "查询本人资源审核状态", status),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/download", true, "获取本人已审核私有文件短时读授权", download),
+		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/admin/assets/list", true, "管理端分页盘点新旧媒体元数据，不授予下载或删除", inventory, Permission.HGMediaInventoryRead),
 	}
 }
 
@@ -120,6 +125,8 @@ func HGRegister(db *sql.DB) (*HGRuntime, error) {
 			return nil, err
 		}
 	}
-	HGHandlerRegistry.RegisterModule(&HGModule{handler: HGNewHandler(service)})
+	// 管理接口独立使用 IAM 活动管理员 + 全局权限；不改变普通用户的本人上传和私有读取链路。
+	authorizer := IAM.NewHGAssetAuthorizer(IAM.NewHGService(IAM.NewHGRepository(db)))
+	HGHandlerRegistry.RegisterModule(&HGModule{handler: HGNewHandler(service), authorizer: authorizer})
 	return &HGRuntime{service: service, closeReviewer: reviewer.HGClose}, nil
 }
