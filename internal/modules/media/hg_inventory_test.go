@@ -1,15 +1,55 @@
 package media
 
 import (
+	HGHandlerRegistry "MLC_GO/internal/handler"
 	Permission "MLC_GO/internal/pkg/permission"
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestHGInventoryRegistersWithoutObjectStore(t *testing.T) {
+	t.Setenv("MLC_MEDIA_S3_ENDPOINT", "")
+	HGHandlerRegistry.ClearModules()
+	t.Cleanup(HGHandlerRegistry.ClearModules)
+	db, mock := hgMockDB(t)
+	runtime, err := HGRegister(db)
+	if err != nil || runtime != nil {
+		t.Fatalf("未启用存储时不应启动上传服务: %v, %v", runtime, err)
+	}
+	modules := HGHandlerRegistry.GetRegisteredModules()
+	if len(modules) != 1 || modules[0].BasePath() != hgBasePath {
+		t.Fatalf("未注册只读媒体模块: %v", modules)
+	}
+	catalog := HGInventoryRouteCatalog()
+	if len(catalog) != 1 || catalog[0].Path != hgBasePath+"/admin/assets/list" || len(catalog[0].Permissions) != 1 || catalog[0].Permissions[0] != Permission.HGMediaInventoryRead {
+		t.Fatalf("只读路由目录和 IAM 权限未保持一致: %v", catalog)
+	}
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/admin/assets/list", http.StatusBadRequest}, // 未提供客户端头或令牌时不得访问数据库。
+		{"/uploads/init", http.StatusNotFound},
+		{"/assets/status", http.StatusNotFound},
+		{"/assets/download", http.StatusNotFound},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		w := httptest.NewRecorder()
+		modules[0].Handler().ServeHTTP(w, req)
+		if w.Code != tc.want {
+			t.Errorf("%s: 状态 %d，期望 %d", tc.path, w.Code, tc.want)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestHGInventoryRouteHasIndependentReadPermission(t *testing.T) {
 	for _, route := range HGRouteCatalog() {

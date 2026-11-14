@@ -33,23 +33,49 @@ func (m *HGModule) Handler() http.Handler {
 }
 
 func hgRoutes(h *HGHandler) []HGRouter.RouteSpec {
-	var init, complete, status, download, inventory http.HandlerFunc
+	var init, complete, status, download http.HandlerFunc
 	if h != nil {
 		init, complete, status, download = h.HGInitUpload, h.HGCompleteUpload, h.HGAssetStatus, h.HGOwnerDownload
-		inventory = h.HGInventoryList
 	}
-	return []HGRouter.RouteSpec{
+	routes := []HGRouter.RouteSpec{
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/init", true, "按业务用途创建隔离上传", init),
 		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/uploads/complete", true, "确认本人隔离对象大小，等待内容审核", complete),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/status", true, "查询本人资源审核状态", status),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/download", true, "获取本人已审核私有文件短时读授权", download),
-		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/admin/assets/list", true, "管理端分页盘点新旧媒体元数据，不授予下载或删除", inventory, Permission.HGMediaInventoryRead),
 	}
+	return append(routes, hgInventoryRoutes(h)...)
 }
 
 // HGRouteCatalog 由同一 RouteSpec 构造路由清单及 API Guard。
 func HGRouteCatalog() []HGRouter.RouteCatalogItem {
 	return HGRouter.BuildRouteCatalogItems(hgRoutes(nil))
+}
+
+// HGInventoryModule 仅挂载 IAM 管理元数据盘点；缺少对象存储配置时不启用上传及私有读取。
+type HGInventoryModule struct {
+	handler    *HGHandler                 // 只使用数据库查询的管理盘点入口。
+	authorizer HGRouter.HGRouteAuthorizer // 活动管理员和全局 IAM 权限，缺失时拒绝访问。
+}
+
+func (m *HGInventoryModule) Name() string     { return "media" }
+func (m *HGInventoryModule) BasePath() string { return hgBasePath }
+func (m *HGInventoryModule) Handler() http.Handler {
+	return HGRouter.NewRouteGroup(HGRouter.RouteGroupConfig{BasePath: hgBasePath, Authorizer: m.authorizer, AuthMiddleware: UserJWT.AuthMiddleware}, hgInventoryRoutes(m.handler))
+}
+
+func hgInventoryRoutes(h *HGHandler) []HGRouter.RouteSpec {
+	var inventory http.HandlerFunc
+	if h != nil {
+		inventory = h.HGInventoryList
+	}
+	return []HGRouter.RouteSpec{
+		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/admin/assets/list", true, "管理端分页盘点新旧媒体元数据，不授予下载或删除", inventory, Permission.HGMediaInventoryRead),
+	}
+}
+
+// HGInventoryRouteCatalog 只声明未启用对象存储时实际挂载的管理路由。
+func HGInventoryRouteCatalog() []HGRouter.RouteCatalogItem {
+	return HGRouter.BuildRouteCatalogItems(hgInventoryRoutes(nil))
 }
 
 // HGConfigured 检查是否显式启用媒体隔离桶；缺失配置时不挂载半初始化模块。
@@ -58,6 +84,12 @@ func HGConfigured() bool { return os.Getenv("MLC_MEDIA_S3_ENDPOINT") != "" }
 // HGRegister 从进程环境读取受信配置；密钥不得写入配置文件、日志或 API 响应。
 func HGRegister(db *sql.DB) (*HGRuntime, error) {
 	if !HGConfigured() {
+		if db == nil {
+			return nil, errors.New("媒体盘点数据库未配置")
+		}
+		// 只读盘点不依赖隔离桶凭据；不创建 S3 客户端、后台 worker 或上传路由。
+		authorizer := IAM.NewHGAssetAuthorizer(IAM.NewHGService(IAM.NewHGRepository(db)))
+		HGHandlerRegistry.RegisterModule(&HGInventoryModule{handler: HGNewHandler(&HGService{db: db}), authorizer: authorizer})
 		return nil, nil
 	}
 	bucket := os.Getenv("MLC_MEDIA_S3_BUCKET")

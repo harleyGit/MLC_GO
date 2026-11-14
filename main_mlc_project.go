@@ -1025,6 +1025,8 @@ func collectRouteCatalogs() []HGMiddlewareGroupPackage.HGRouteCatalogItem {
 	items = append(items, HGMiddlewareGroupPackage.VideoUploadRouteCatalog()...)
 	if MediaModulePackage.HGConfigured() {
 		items = append(items, MediaModulePackage.HGRouteCatalog()...)
+	} else {
+		items = append(items, MediaModulePackage.HGInventoryRouteCatalog()...)
 	}
 	items = append(items, HGMiddlewareGroupPackage.BilibiliRouteCatalog()...)
 	items = append(items, HGMiddlewareGroupPackage.VideoRecommendRouteCatalog()...)
