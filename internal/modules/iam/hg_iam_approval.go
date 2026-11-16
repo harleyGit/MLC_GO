@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -79,6 +80,7 @@ func (s *HGService) RequestGrant(ctx context.Context, actor, requestID, otp stri
 	if err := s.hgCanManage(ctx, actor, true); err != nil {
 		return "", err
 	}
+	p.UserID = strings.TrimSpace(p.UserID) // 与绑定查询使用相同目标 ID，避免申请快照与按用户查询不一致。
 	if !hgValidText(p.UserID, 64) || p.RoleID == 0 {
 		return "", ErrHGInvalid
 	}
@@ -320,6 +322,64 @@ func (s *HGService) ListApprovals(ctx context.Context, actor string, cursor uint
 	next := ""
 	if len(items) > 0 {
 		next = items[len(items)-1].ID
+	}
+	return items, next, more, nil
+}
+
+// ListPendingGrants 按目标管理员分页查询未过期的待审批授权；保留双人裁决，绝不读取为活动绑定。
+func (s *HGService) ListPendingGrants(ctx context.Context, actor, userID string, cursor uint64, limit int) ([]HGPendingGrantResponse, string, bool, error) {
+	if err := s.hgCanManage(ctx, actor, false); err != nil {
+		return nil, "", false, err
+	}
+	userID = strings.TrimSpace(userID)
+	if !hgValidText(userID, 64) {
+		return nil, "", false, ErrHGInvalid
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	query := SQLQueriesPackage.HGSelectIAMPendingGrantsFirst
+	args := []any{userID, limit + 1}
+	if cursor > 0 {
+		query = SQLQueriesPackage.HGSelectIAMPendingGrantsAfter
+		args = []any{userID, cursor, limit + 1}
+	}
+	rows, err := s.repo.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+	items := make([]HGPendingGrantResponse, 0, limit+1)
+	for rows.Next() {
+		var id uint64
+		var payload []byte
+		var item HGPendingGrantResponse
+		if err := rows.Scan(&id, &payload, &item.ApprovalExpiresAt, &item.CreatedAt); err != nil {
+			return nil, "", false, err
+		}
+		var grant hgGrantApprovalPayload
+		if err := json.Unmarshal(payload, &grant); err != nil || grant.UserID != userID || grant.RoleID == 0 {
+			return nil, "", false, ErrHGInvalid
+		}
+		item.ApprovalID = strconv.FormatUint(id, 10)
+		item.RoleID = strconv.FormatUint(grant.RoleID, 10)
+		item.ScopeType, item.ScopeID, item.ExpiresAt = grant.ScopeType, grant.ScopeID, grant.ExpiresAt
+		item.Status = "pending"
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", false, err
+	}
+	more := len(items) > limit
+	if more {
+		items = items[:limit]
+	}
+	next := ""
+	if len(items) > 0 {
+		next = items[len(items)-1].ApprovalID
 	}
 	return items, next, more, nil
 }

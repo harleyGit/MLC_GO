@@ -305,6 +305,30 @@ func (h *HGHandler) HGListBindings(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": bindings, "nextCursor": next, "hasMore": more})
 }
 
+// HGListPendingGrants 按目标管理员读取待审批角色申请；审批通过之前不属于活动绑定。
+func (h *HGHandler) HGListPendingGrants(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var cursor uint64
+	if value := r.URL.Query().Get("cursor"); value != "" && value != "0" {
+		var err error
+		cursor, err = hgID(value)
+		if err != nil {
+			hgHTTPError(w, r, err)
+			return
+		}
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	items, next, more, err := h.service.ListPendingGrants(r.Context(), actor, r.URL.Query().Get("userId"), cursor, limit)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next, "hasMore": more})
+}
+
 // HGGrant 授予一个角色及作用域。
 func (h *HGHandler) HGGrant(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)

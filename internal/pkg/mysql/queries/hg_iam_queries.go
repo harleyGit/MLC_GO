@@ -22,6 +22,10 @@ const (
 	// 审批列表依赖 status,id 索引，仅返回待处理申请，游标递减且单页有上限。
 	HGSelectIAMApprovalsFirst = `SELECT id,request_id,applicant_id,action,payload,expires_at,created_at FROM iam_approval_requests WHERE status='pending' AND expires_at>CURRENT_TIMESTAMP(3) ORDER BY id DESC LIMIT ?`
 	HGSelectIAMApprovalsAfter = `SELECT id,request_id,applicant_id,action,payload,expires_at,created_at FROM iam_approval_requests WHERE status='pending' AND expires_at>CURRENT_TIMESTAMP(3) AND id<? ORDER BY id DESC LIMIT ?`
+	// 目标管理员待审批授权查询依赖 idx_iam_approval_target_status_id：只读 pending 且未过期的 grant，id 倒序游标与 LIMIT 避免全表扫描。
+	// target_user_id 为生成列，旧申请由 JSON 自动派生；仅在迁移 000074 应用后可用，未迁移时请求失败而不降级为无界过滤。
+	HGSelectIAMPendingGrantsFirst = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) ORDER BY id DESC LIMIT ?`
+	HGSelectIAMPendingGrantsAfter = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) AND id<? ORDER BY id DESC LIMIT ?`
 	HGSelectIAMRoleVersion    = `SELECT version,built_in FROM iam_roles WHERE id=? AND status=1 LIMIT 1`
 	// 创作者身份在首次上传前按 users 唯一业务 ID 建立；业务权限不进入 Redis 授权缓存。
 	HGInsertIAMCreatorBinding = `INSERT IGNORE INTO iam_user_role_bindings(user_id,role_id,scope_type,scope_id,status,granted_by) SELECT u.user_id,r.id,'global','',1,'creator-onboarding' FROM users u JOIN iam_roles r ON r.role_code='creator' AND r.status=1 WHERE u.user_id=? LIMIT 1`

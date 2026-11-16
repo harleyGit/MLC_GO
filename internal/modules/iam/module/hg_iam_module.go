@@ -46,10 +46,10 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
-	var list, create, update, disable, bindings, grant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
+	var list, create, update, disable, bindings, pendingGrants, grant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	if handler != nil {
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
-		bindings, grant, revoke = handler.HGListBindings, handler.HGGrant, handler.HGRevoke
+		bindings, pendingGrants, grant, revoke = handler.HGListBindings, handler.HGListPendingGrants, handler.HGGrant, handler.HGRevoke
 		permissions, setPermissions = handler.HGListPermissions, handler.HGSetRolePermissions
 		mfaEnroll, mfaConfirm = handler.HGEnrollMFA, handler.HGConfirmMFA
 		approvals, approve, reject = handler.HGListApprovals, handler.HGApproveApproval, handler.HGRejectApproval
@@ -63,6 +63,7 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/update", true, "更新角色", update, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/disable", true, "停用角色", disable, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/bindings/list", true, "查询员工角色", bindings, HGPermissionPackage.HGIAMRoleRead),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/bindings/pending", true, "查询目标员工待审批角色", pendingGrants, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant", true, "授予员工角色", grant, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/revoke", true, "撤销员工角色", revoke, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/permissions/list", true, "查询权限目录", permissions, HGPermissionPackage.HGIAMRoleRead),

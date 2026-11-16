@@ -27,6 +27,19 @@ type HGBindingResponse struct {
 	ExpiresAt *time.Time `json:"expiresAt"` // 可空的 RFC3339 失效时间。
 }
 
+// HGPendingGrantResponse 是按目标管理员查询待审批角色申请的只读 JSON 协议。
+// 与 HGBindingResponse 分离：申请未获第二名管理员批准，绝不能作为已生效绑定或撤销对象。
+type HGPendingGrantResponse struct {
+	ApprovalID        string     `json:"approvalId"`        // 申请主键十进制字符串，仅用于审批队列定位；不是绑定 ID。
+	RoleID            string     `json:"roleId"`            // 申请授予的 IAM 角色主键十进制字符串。
+	ScopeType         string     `json:"scopeType"`         // global、shop 或 org，由审批快照读取。
+	ScopeID           string     `json:"scopeId"`           // global 时为空，其余为组织/店铺业务 ID。
+	ExpiresAt         *time.Time `json:"expiresAt"`         // 拟授予角色的失效时间；null 表示长期有效，审批前不生效。
+	ApprovalExpiresAt time.Time  `json:"approvalExpiresAt"` // 审批单自身的截止时间，过期后不再返回。
+	CreatedAt         time.Time  `json:"createdAt"`         // 申请创建时间（数据库 DATETIME(3)）；用于只读展示。
+	Status            string     `json:"status"`            // 恒为 pending，不代表已授予权限。
+}
+
 func hgRoleDTO(role HGRole) HGRoleResponse {
 	return HGRoleResponse{ID: strconv.FormatUint(role.ID, 10), Code: role.Code, Name: role.Name, Description: role.Description, Status: role.Status, BuiltIn: role.BuiltIn, CreatedAt: role.CreatedAt}
 }

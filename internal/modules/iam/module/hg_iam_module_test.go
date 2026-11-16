@@ -2,6 +2,7 @@ package module
 
 import (
 	IAMPackage "MLC_GO/internal/modules/iam"
+	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,6 +23,29 @@ func TestHGIAMRoutesMatchGuard(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("接口 Guard 未拦截: %s %s: %d", spec.Method, spec.SubPath, response.Code)
 		}
+	}
+}
+
+// 待审批授权按目标用户查询必须在路由目录和 Guard 中保持相同的 IAM 读权限。
+func TestHGPendingGrantRouteCatalogAndGuard(t *testing.T) {
+	var found bool
+	for _, item := range RouteCatalog() {
+		if item.Path == hgBasePath+"/bindings/pending" && item.Method == http.MethodGet {
+			found = true
+			if !item.NeedAuth || len(item.Permissions) != 1 || item.Permissions[0] != HGPermissionPackage.HGIAMRoleRead {
+				t.Fatalf("目标用户待审批路由权限不一致: %+v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("待审批查询未注册到路由目录")
+	}
+	root := http.NewServeMux()
+	root.Handle(hgBasePath+"/", http.StripPrefix(hgBasePath, (&HGModule{handler: IAMPackage.NewHGHandler(nil)}).Handler()))
+	response := httptest.NewRecorder()
+	root.ServeHTTP(response, httptest.NewRequest(http.MethodGet, hgBasePath+"/bindings/pending?userId=TARGET", nil))
+	if response.Code == http.StatusNotFound {
+		t.Fatal("待审批查询未经过根路由 StripPrefix + Guard")
 	}
 }
 
