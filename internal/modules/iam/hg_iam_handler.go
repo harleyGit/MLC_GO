@@ -33,7 +33,7 @@ type HGRoleRequest struct {
 
 // HGBindingRequest 是授权与撤销 JSON 协议；撤销时只使用 userId 和 bindingId。
 type HGBindingRequest struct {
-	UserID    string     `json:"userId"`    // 现有管理员的业务用户 ID。
+	UserID    string     `json:"userId"`    // 目标业务用户 ID；普通授权要求活动管理员，即时授权接受现存 users.user_id。
 	RoleID    string     `json:"roleId"`    // 授予的角色主键，十进制字符串。
 	BindingID string     `json:"bindingId"` // 撤销的绑定主键，十进制字符串。
 	ScopeType string     `json:"scopeType"` // global、shop 或 org。
@@ -329,7 +329,7 @@ func (h *HGHandler) HGListPendingGrants(w http.ResponseWriter, r *http.Request) 
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next, "hasMore": more})
 }
 
-// HGGrant 授予一个角色及作用域。
+// HGGrant 提交角色及作用域的双人审批申请。
 func (h *HGHandler) HGGrant(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {
@@ -350,6 +350,28 @@ func (h *HGHandler) HGGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, map[string]string{"approvalId": approvalID, "status": "pending"})
+}
+
+// HGGrantDirect 是独立的即时授权协议；服务端验证专用权限、目标、委派范围及本人 MFA，旧审批接口不变。
+func (h *HGHandler) HGGrantDirect(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGBindingRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	id, err := hgID(req.RoleID)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	if err = h.service.HGGrantDirect(r.Context(), actor, hgRequestID(r), req.MFACode, req.UserID, id, req.ScopeType, req.ScopeID, req.ExpiresAt); err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"granted": true})
 }
 
 // HGRevoke 撤销一条精确绑定。

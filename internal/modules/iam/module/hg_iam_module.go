@@ -46,16 +46,17 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
-	var list, create, update, disable, bindings, pendingGrants, grant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
+	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	if handler != nil {
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
 		bindings, pendingGrants, grant, revoke = handler.HGListBindings, handler.HGListPendingGrants, handler.HGGrant, handler.HGRevoke
+		directGrant = handler.HGGrantDirect
 		permissions, setPermissions = handler.HGListPermissions, handler.HGSetRolePermissions
 		mfaEnroll, mfaConfirm = handler.HGEnrollMFA, handler.HGConfirmMFA
 		approvals, approve, reject = handler.HGListApprovals, handler.HGApproveApproval, handler.HGRejectApproval
 	}
 	// 管理端权限是带字符串值的 HGPermission 枚举：HGIAMRoleRead="iam:role:read"，
-	// HGIAMRoleGrant="iam:role:grant"，HGIAMApprovalApprove="iam:approval:approve"。
+	// HGIAMRoleGrant="iam:role:grant"，HGIAMRoleGrantDirect="iam:role:grant_direct"，HGIAMApprovalApprove="iam:approval:approve"。
 	// 除 JWT 外，授权器还要求当前 user_id 为活动管理员，且有未过期的全局角色绑定及对应权限。
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/roles/list", true, "查询角色", list, HGPermissionPackage.HGIAMRoleRead),
@@ -65,6 +66,7 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/bindings/list", true, "查询员工角色", bindings, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/bindings/pending", true, "查询目标员工待审批角色", pendingGrants, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant", true, "授予员工角色", grant, HGPermissionPackage.HGIAMRoleGrant),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant-direct", true, "直接授予员工角色", directGrant, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/revoke", true, "撤销员工角色", revoke, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/permissions/list", true, "查询权限目录", permissions, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/permissions", true, "设置角色权限", setPermissions, HGPermissionPackage.HGIAMRoleGrant),

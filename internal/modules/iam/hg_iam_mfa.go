@@ -231,6 +231,11 @@ func (s *HGService) hgConsumeMFA(ctx context.Context, tx *sql.Tx, userID, code s
 	if err := s.hgLimitMFA(ctx, userID); err != nil {
 		return err
 	}
+	return s.hgConsumeMFATx(ctx, tx, userID, code)
+}
+
+// hgConsumeMFATx 在短事务内仅使用权威 MySQL 消费时间步；调用方须在事务外完成 Redis 尝试限流。
+func (s *HGService) hgConsumeMFATx(ctx context.Context, tx *sql.Tx, userID, code string) error {
 	var ciphertext []byte
 	var enabled bool
 	var last int64

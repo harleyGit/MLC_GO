@@ -8,13 +8,15 @@ import "slices"
 type HGPermission string
 
 const (
-	// IAM 管理端三种权限均要求 JWT 对应的 user_id 是 admin_user 中的活动管理员，
+	// IAM 管理端权限均要求 JWT 对应的 user_id 是 admin_user 中的活动管理员，
 	// 且持有未撤销、未过期的全局 IAM 角色绑定；权限码存在不等于已获授权。
 	// HGIAMRoleRead = "iam:role:read"：可查看角色、绑定、权限目录及待审批列表，不可申请授权。
 	HGIAMRoleRead HGPermission = "iam:role:read" // 读取角色、绑定、权限目录和待审批列表；不允许变更授权。
 	// HGIAMRoleGrant = "iam:role:grant"：角色管理、授权申请及本人 MFA 绑定入口。
 	// 绑定 MFA 仍须复核当前登录密码、通过 Redis 限流且服务端配置加密密钥；授权申请还需 MFA 与双人审批。
 	HGIAMRoleGrant HGPermission = "iam:role:grant" // 管理角色及发起授权变更；扩权仍须 MFA、双人审批与可委派权限校验。
+	// HGIAMRoleGrantDirect 单独控制无需第二人审批的授权；仅受控角色持有，仍需本人 MFA、禁止自授并检查可委派权限。
+	HGIAMRoleGrantDirect HGPermission = "iam:role:grant_direct" // 即时授予非超级管理员角色；不会替代普通授权申请。
 	// HGIAMApprovalApprove = "iam:approval:approve"：审批或拒绝他人申请时还必须同时拥有 HGIAMRoleGrant；不可自批。
 	HGIAMApprovalApprove         HGPermission = "iam:approval:approve"          // 裁决 IAM 扩权申请；需同时拥有角色管理权，且不能审批本人申请。
 	HGVideoSubmissionRead        HGPermission = "video:submission:read"         // 读取视频投稿；资源可见范围仍由业务层限制。
@@ -62,6 +64,7 @@ const (
 var hgPermissions = [...]HGPermission{
 	HGIAMRoleRead,
 	HGIAMRoleGrant,
+	HGIAMRoleGrantDirect,
 	HGIAMApprovalApprove,
 	HGVideoSubmissionRead,
 	HGVideoSubmissionCreate,

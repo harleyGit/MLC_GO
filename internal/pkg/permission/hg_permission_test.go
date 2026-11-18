@@ -11,7 +11,7 @@ import (
 func TestHGPermissionEnumMatchesMigrations(t *testing.T) {
 	hgExpected := make(map[string]bool)
 	hgPattern := regexp.MustCompile(`'([a-z][a-z0-9_]*:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*)'`)
-	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql"} {
+	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql", "000075_iam_direct_grant_permission.up.sql"} {
 		hgSQL, hgErr := os.ReadFile("../../../migrations/" + hgFile)
 		if hgErr != nil {
 			t.Fatal(hgErr)
@@ -38,6 +38,20 @@ func TestHGPermissionEnumMatchesMigrations(t *testing.T) {
 	hgCopy[0] = "changed"
 	if !HGIAMRoleRead.HGKnown() || HGPermission("changed").HGKnown() {
 		t.Fatal("返回字典副本改变了权限校验")
+	}
+}
+
+// 即时授权权限只引导给活动超级管理员，不能让所有原 iam:role:grant 持有人自动获得绕过审批的能力。
+func TestHGDirectGrantBootstrap(t *testing.T) {
+	hgSQL, err := os.ReadFile("../../../migrations/000075_iam_direct_grant_permission.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(hgSQL)
+	if !strings.Contains(text, "r.role_code='super_admin' AND r.status=1") ||
+		!strings.Contains(text, "p.permission_code='iam:role:grant_direct'") ||
+		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") {
+		t.Fatal("即时授权权限必须仅预置活动超管并推进策略版本")
 	}
 }
 

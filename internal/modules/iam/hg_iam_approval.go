@@ -236,7 +236,7 @@ func (s *HGService) DecideApproval(ctx context.Context, approver, requestID, otp
 			if p.RoleID == 0 || !hgValidText(p.UserID, 64) || (p.ExpiresAt != nil && !p.ExpiresAt.After(time.Now())) {
 				return ErrHGInvalid
 			}
-			err = s.repo.hgGrantTx(ctx, tx, applicant, approver, requestID, p.UserID, p.RoleID, p.ScopeType, p.ScopeID, p.ExpiresAt)
+			err = s.repo.hgGrantTx(ctx, tx, applicant, approver, requestID, "iam.binding.grant", p.UserID, p.RoleID, p.ScopeType, p.ScopeID, p.ExpiresAt)
 		case "role_permissions":
 			var p hgRolePermissionsApprovalPayload
 			if err = json.Unmarshal(payload, &p); err != nil {

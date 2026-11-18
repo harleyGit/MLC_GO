@@ -62,6 +62,26 @@ func (r *HGRepository) hgActiveAdmin(ctx context.Context, userID string) (bool, 
 	return one == 1, err
 }
 
+// hgGrantTargetUser 按用户业务唯一标识查询现存账号，不将手机号或管理员列表当作目标 ID。
+func (r *HGRepository) hgGrantTargetUser(ctx context.Context, userID string) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMGrantTargetUser, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return one == 1, err
+}
+
+// hgGrantIsSelf 使用数据库列排序规则确认两个业务 ID 是否指向同一用户，禁止大小写等别名自授。
+func (r *HGRepository) hgGrantIsSelf(ctx context.Context, actor, target string) (bool, error) {
+	var one int
+	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMGrantSelf, actor, target).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return one == 1, err
+}
+
 func (r *HGRepository) hgHasPermission(ctx context.Context, userID, permission, scopeType, scopeID string) (bool, error) {
 	// 业务身份和敏感写操作直查权威库；前者避免开户写热点，后者避免使用短时缓存作审批依据。
 	if strings.HasPrefix(permission, "video:submission:") || strings.HasPrefix(permission, "mall:product:") || strings.HasPrefix(permission, "mall:order:") ||
@@ -373,21 +393,35 @@ func (r *HGRepository) hgGrant(ctx context.Context, actor, requestID, userID str
 		return err
 	}
 	defer tx.Rollback()
-	if err = r.hgGrantTx(ctx, tx, actor, actor, requestID, userID, roleID, scopeType, scopeID, expires); err != nil {
+	if err = r.hgGrantTx(ctx, tx, actor, actor, requestID, "iam.binding.grant", userID, roleID, scopeType, scopeID, expires); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 // hgGrantTx 在调用方事务内复核角色权限并写绑定、版本和审计。
-func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor, auditActor, requestID, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time) error {
+func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor, auditActor, requestID, auditAction, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time) error {
 	var active int
-	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMManager, userID).Scan(&active)
+	targetSQL := SQLQueriesPackage.HGSelectIAMManager // 双人审批仍要求现有活动管理员。
+	if auditAction == "iam.binding.grant_direct" {
+		targetSQL = SQLQueriesPackage.HGSelectIAMGrantTargetUser // 即时授权按 users 唯一 ID 校验现存普通账号。
+	}
+	err := tx.QueryRowContext(ctx, targetSQL, userID).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrHGNotFound
 	}
 	if err != nil {
 		return err
+	}
+	if auditAction == "iam.binding.grant_direct" {
+		// 事务内复核自授，避免大小写/排序规则与 Go 字符串比较不同或目标并发变更。
+		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMGrantSelf, delegateActor, userID).Scan(&active)
+		if err == nil {
+			return ErrHGForbidden
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 	}
 	if scopeType != "global" {
 		var orgActive int
@@ -406,6 +440,9 @@ func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor,
 	}
 	if err != nil {
 		return err
+	}
+	if auditAction == "iam.binding.grant_direct" && roleCode == "super_admin" {
+		return ErrHGForbidden // 最高权限绑定必须走现有双人审批流程。
 	}
 	// 角色行锁与权限替换使用相同锁顺序，授权前复核权限集合，避免读取后发生扩权。
 	permissionRows, err := tx.QueryContext(ctx, SQLQueriesPackage.HGSelectIAMRolePermissions, roleID, 201)
@@ -474,7 +511,7 @@ func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor,
 	if err = hgBumpRevision(ctx, tx); err != nil {
 		return err
 	}
-	if err = hgAudit(ctx, tx, auditActor, "iam.binding.grant", "user", userID, requestID, map[string]any{"roleCode": roleCode, "scopeType": scopeType, "scopeId": scopeID, "applicant": delegateActor}); err != nil {
+	if err = hgAudit(ctx, tx, auditActor, auditAction, "user", userID, requestID, map[string]any{"roleCode": roleCode, "scopeType": scopeType, "scopeId": scopeID, "applicant": delegateActor}); err != nil {
 		return err
 	}
 	return nil

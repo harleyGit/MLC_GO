@@ -12,8 +12,9 @@
 | POST | `/roles/disable` | 停用没有有效绑定的自定义角色 |
 | GET | `/permissions/list?roleId=...` | 权限目录及角色已选权限 |
 | POST | `/roles/permissions` | 用 `roleId/permissions/mfaCode` 申请全量替换；返回 `approvalId/status=pending` |
-| GET | `/bindings/list?userId=...&cursor=0&pageSize=20` | 按精确管理员业务 ID 列出活动绑定 |
+| GET | `/bindings/list?userId=...&cursor=0&pageSize=20` | 按精确业务用户 ID 列出活动绑定 |
 | POST | `/bindings/grant` | 用 `userId/roleId/scopeType/scopeId/expiresAt/mfaCode` 申请授权；返回 `approvalId/status=pending` |
+| POST | `/bindings/grant-direct` | 受限即时授权：目标是现有 `users.user_id`（可为普通账号），提交角色、作用域及本人 `mfaCode`，成功返回 `granted=true`；不允许自授或直接授予 `super_admin`，独立审计 |
 | POST | `/bindings/revoke` | 按 `userId/bindingId` 精确撤销 |
 | POST | `/mfa/enroll` | 复核当前登录密码 `password`；一次性返回 `secret/otpauthUri`，禁止缓存 |
 | POST | `/mfa/confirm` | 用 6 位 `code` 验证并启用 TOTP |
@@ -30,6 +31,7 @@
 | 创建/更新/停用角色、授权申请与撤销、设置角色权限 | `HGIAMRoleGrant`（`iam:role:grant`） | 授权申请需本人已启用 MFA，部分变更须由另一位合格管理员审批；角色及可委派权限仍受业务校验 |
 | 本人 `/mfa/enroll`、`/mfa/confirm` | `HGIAMRoleGrant`（`iam:role:grant`） | enroll 复核当前登录密码、Redis 每人五分钟最多五次尝试及服务端 MFA 加密密钥；confirm 用六位 TOTP 验证并启用，不会赋予角色权限 |
 | `/approvals/approve`、`/approvals/reject` | `HGIAMRoleGrant` **和** `HGIAMApprovalApprove`（`iam:approval:approve`） | 本人 MFA 验证；不可审批自己的申请 |
+| `/bindings/grant-direct` | `HGIAMRoleGrant` **和** `HGIAMRoleGrantDirect`（`iam:role:grant_direct`） | 仅受控权限可即时授予他人非超管角色；操作者 MFA 消费、可委派权限复核、绑定、缓存版本与独立审计同事务完成。`scopeType` 是绑定字段，不属于角色定义 |
 
 开通方式：由获授权人员先核对目标账号的业务 `user_id`、活动管理员状态、IAM 全局角色绑定及角色权限。内置 `super_admin` 在迁移中预置权限，但仍以当前数据库的有效绑定为准；其他角色应按现有 MFA + 双人审批流程授予权限和绑定，不要修改代码中的枚举或关闭鉴权来放行。首次尚无 MFA 的管理员需要**先已有** `iam:role:grant`，才能通过 `/mfa/enroll` 绑定自己的因子。若绑定或权限缺失，须由已具备权限的其他管理员或受控引导流程处理，不能靠当前账号自助扩权。
 

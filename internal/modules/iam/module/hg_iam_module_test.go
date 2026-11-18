@@ -49,6 +49,29 @@ func TestHGPendingGrantRouteCatalogAndGuard(t *testing.T) {
 	}
 }
 
+// 即时授权路由须独立于双人审批入口，RouteSpec 与根 StripPrefix 的 Guard 权限保持一致。
+func TestHGDirectGrantRouteCatalogAndGuard(t *testing.T) {
+	var found bool
+	for _, item := range RouteCatalog() {
+		if item.Path == hgBasePath+"/bindings/grant-direct" && item.Method == http.MethodPost {
+			found = true
+			if !item.NeedAuth || len(item.Permissions) != 2 || item.Permissions[0] != HGPermissionPackage.HGIAMRoleGrant || item.Permissions[1] != HGPermissionPackage.HGIAMRoleGrantDirect {
+				t.Fatalf("即时授权路由权限不一致: %+v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("即时授权路由未注册")
+	}
+	root := http.NewServeMux()
+	root.Handle(hgBasePath+"/", http.StripPrefix(hgBasePath, (&HGModule{handler: IAMPackage.NewHGHandler(nil)}).Handler()))
+	response := httptest.NewRecorder()
+	root.ServeHTTP(response, httptest.NewRequest(http.MethodPost, hgBasePath+"/bindings/grant-direct", nil))
+	if response.Code == http.StatusNotFound {
+		t.Fatal("即时授权未进入根路由的 Guard")
+	}
+}
+
 // 根入口相同的 StripPrefix 链必须能把 IAM 路径送入 Guard；无 JWT 可拒绝，但不能返回路由 404。
 func TestHGIAMRouteReachableThroughStripPrefix(t *testing.T) {
 	module := &HGModule{handler: IAMPackage.NewHGHandler(nil)}

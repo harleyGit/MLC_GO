@@ -3,8 +3,12 @@ package SQLQueriesPackage
 // IAM 固定 SQL 集中于此。角色、绑定均按主键/唯一键点查；列表使用 id 游标和有界 LIMIT。
 const (
 	// 权限点查须使用 idx_iam_binding_user_scope、role_permissions 主键及 permission_code 唯一键；调用方失败时拒绝。
-	HGSelectIAMPermission     = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND p.permission_code=? LIMIT 1`
-	HGSelectIAMManager        = `SELECT 1 FROM admin_user WHERE user_id=? AND status=1 AND is_delete=0 LIMIT 1`
+	HGSelectIAMPermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND p.permission_code=? LIMIT 1`
+	HGSelectIAMManager    = `SELECT 1 FROM admin_user WHERE user_id=? AND status=1 AND is_delete=0 LIMIT 1`
+	// 即时授权可作用于现有普通账号；users.user_id 唯一键点查，不凭手机号或客户端声称的身份授予。
+	HGSelectIAMGrantTargetUser = `SELECT 1 FROM users WHERE user_id=? LIMIT 1`
+	// 自授判断必须使用 users.user_id 的实际数据库排序规则；同一账号仅大小写不同也不能通过。
+	HGSelectIAMGrantSelf      = `SELECT 1 FROM users WHERE user_id=? AND user_id=? LIMIT 1`
 	HGSelectIAMPolicyRevision = `SELECT revision FROM iam_policy_revision WHERE id=1`
 	HGBumpIAMPolicyRevision   = `UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1`
 	// 缓存只保存永不过期绑定的放行结果；有 expires_at 的临时授权仍查询权威库。
@@ -26,7 +30,7 @@ const (
 	// target_user_id 为生成列，旧申请由 JSON 自动派生；仅在迁移 000074 应用后可用，未迁移时请求失败而不降级为无界过滤。
 	HGSelectIAMPendingGrantsFirst = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) ORDER BY id DESC LIMIT ?`
 	HGSelectIAMPendingGrantsAfter = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) AND id<? ORDER BY id DESC LIMIT ?`
-	HGSelectIAMRoleVersion    = `SELECT version,built_in FROM iam_roles WHERE id=? AND status=1 LIMIT 1`
+	HGSelectIAMRoleVersion        = `SELECT version,built_in FROM iam_roles WHERE id=? AND status=1 LIMIT 1`
 	// 创作者身份在首次上传前按 users 唯一业务 ID 建立；业务权限不进入 Redis 授权缓存。
 	HGInsertIAMCreatorBinding = `INSERT IGNORE INTO iam_user_role_bindings(user_id,role_id,scope_type,scope_id,status,granted_by) SELECT u.user_id,r.id,'global','',1,'creator-onboarding' FROM users u JOIN iam_roles r ON r.role_code='creator' AND r.status=1 WHERE u.user_id=? LIMIT 1`
 	// 商家审核通过后同事务赋予业务身份，撤销/拒绝申请均不自动扩权。

@@ -4,6 +4,7 @@ import (
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
+	"database/sql"
 	"errors"
 	"regexp"
 	"strconv"
@@ -228,6 +229,68 @@ func (s *HGService) ListBindings(ctx context.Context, actor, userID string, curs
 
 // Grant 将一个活动角色授予现有管理员，非全局作用域必须先在 IAM 组织表登记。
 func (s *HGService) Grant(ctx context.Context, actor, requestID, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time) error {
+	if err := s.hgValidateGrant(ctx, actor, userID, roleID, scopeType, scopeID, expires, false); err != nil {
+		return err
+	}
+	return s.repo.hgGrant(ctx, actor, requestID, strings.TrimSpace(userID), roleID, strings.TrimSpace(scopeType), strings.TrimSpace(scopeID), expires)
+}
+
+// HGGrantDirect 仅让持有专门即时授权权限的管理员为他人授予非超管角色；MFA 和绑定在同一事务提交。
+func (s *HGService) HGGrantDirect(ctx context.Context, actor, requestID, otp, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time) error {
+	if actor == strings.TrimSpace(userID) {
+		return ErrHGForbidden
+	}
+	if !hgValidText(requestID, 64) {
+		return ErrHGInvalid
+	}
+	if err := s.hgCanManage(ctx, actor, true); err != nil {
+		return err
+	}
+	allowed, err := s.repo.hgHasPermission(ctx, actor, string(HGPermissionPackage.HGIAMRoleGrantDirect), "global", "")
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrHGForbidden
+	}
+	if err = s.hgValidateGrant(ctx, actor, userID, roleID, scopeType, scopeID, expires, true); err != nil {
+		return err
+	}
+	self, err := s.repo.hgGrantIsSelf(ctx, actor, strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	if self {
+		return ErrHGForbidden
+	}
+	if err = s.hgLimitMFA(ctx, actor); err != nil {
+		return err
+	}
+	// 与审批裁决保持相同的 MFA 先行、角色行锁后行顺序；失败回滚验证码消费与授权写入。
+	tx, err := s.repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var one int
+	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPermission, actor, "global", "", string(HGPermissionPackage.HGIAMRoleGrantDirect)).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrHGForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if err = s.hgConsumeMFATx(ctx, tx, actor, otp); err != nil {
+		return err
+	}
+	if err = s.repo.hgGrantTx(ctx, tx, actor, actor, requestID, "iam.binding.grant_direct", strings.TrimSpace(userID), roleID, strings.TrimSpace(scopeType), strings.TrimSpace(scopeID), expires); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// hgValidateGrant 复用作用域及权限委派检查；即时授权接受现有 users.user_id，旧授权保持管理员目标约束。
+func (s *HGService) hgValidateGrant(ctx context.Context, actor, userID string, roleID uint64, scopeType, scopeID string, expires *time.Time, allowUser bool) error {
 	if err := s.hgCanManage(ctx, actor, true); err != nil {
 		return err
 	}
@@ -256,7 +319,13 @@ func (s *HGService) Grant(ctx context.Context, actor, requestID, userID string, 
 	} else {
 		return ErrHGInvalid
 	}
-	active, err := s.repo.hgActiveAdmin(ctx, userID)
+	var active bool
+	var err error
+	if allowUser {
+		active, err = s.repo.hgGrantTargetUser(ctx, userID)
+	} else {
+		active, err = s.repo.hgActiveAdmin(ctx, userID)
+	}
 	if err != nil {
 		return err
 	}
@@ -270,7 +339,7 @@ func (s *HGService) Grant(ctx context.Context, actor, requestID, userID string, 
 	if err = s.hgCanDelegate(ctx, actor, permissions); err != nil {
 		return err
 	}
-	return s.repo.hgGrant(ctx, actor, requestID, userID, roleID, scopeType, scopeID, expires)
+	return nil
 }
 
 // Revoke 撤销精确绑定；超级管理员引导绑定受保护，需受控迁移处理。
