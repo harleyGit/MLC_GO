@@ -47,7 +47,10 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
+	var scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
 	if handler != nil {
+		batchGrant = handler.HGGrantDirectBatch
+		scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable = handler.HGListScopeTypes, handler.HGGetScopeType, handler.HGCreateScopeType, handler.HGUpdateScopeType, handler.HGDisableScopeType
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
 		bindings, pendingGrants, grant, revoke = handler.HGListBindings, handler.HGListPendingGrants, handler.HGGrant, handler.HGRevoke
 		directGrant = handler.HGGrantDirect
@@ -59,6 +62,11 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	// HGIAMRoleGrant="iam:role:grant"，HGIAMRoleGrantDirect="iam:role:grant_direct"，HGIAMApprovalApprove="iam:approval:approve"。
 	// 除 JWT 外，授权器还要求当前 user_id 为活动管理员，且有未过期的全局角色绑定及对应权限。
 	return []HGRouterPackage.RouteSpec{
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/list", true, "查询作用域类型", scopeList, HGPermissionPackage.HGIAMRoleRead),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/detail", true, "查询作用域类型详情", scopeGet, HGPermissionPackage.HGIAMRoleRead),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types", true, "创建作用域类型", scopeCreate, HGPermissionPackage.HGIAMRoleGrant),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types/update", true, "更新作用域类型", scopeUpdate, HGPermissionPackage.HGIAMRoleGrant),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types/disable", true, "停用作用域类型", scopeDisable, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/roles/list", true, "查询角色", list, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles", true, "创建角色", create, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/update", true, "更新角色", update, HGPermissionPackage.HGIAMRoleGrant),
@@ -67,6 +75,7 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/bindings/pending", true, "查询目标员工待审批角色", pendingGrants, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant", true, "授予员工角色", grant, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant-direct", true, "直接授予员工角色", directGrant, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/grant-direct-batch", true, "批量直接授予员工角色", batchGrant, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/bindings/revoke", true, "撤销员工角色", revoke, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/permissions/list", true, "查询权限目录", permissions, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/roles/permissions", true, "设置角色权限", setPermissions, HGPermissionPackage.HGIAMRoleGrant),

@@ -15,6 +15,12 @@
 | GET | `/bindings/list?userId=...&cursor=0&pageSize=20` | 按精确业务用户 ID 列出活动绑定 |
 | POST | `/bindings/grant` | 用 `userId/roleId/scopeType/scopeId/expiresAt/mfaCode` 申请授权；返回 `approvalId/status=pending` |
 | POST | `/bindings/grant-direct` | 受限即时授权：目标是现有 `users.user_id`（可为普通账号），提交角色、作用域及本人 `mfaCode`，成功返回 `granted=true`；不允许自授或直接授予 `super_admin`，独立审计 |
+| POST | `/bindings/grant-direct-batch` | 一次 MFA 提交 `userId/mfaCode/bindings[{roleId,scopeType,scopeId}]`；最多 12 项、4 个角色，所有项共用一个短事务；仅支持已登记的 `global/shop/org`，全部成功或全部回滚 |
+| GET | `/scope-types/list?cursor=0&pageSize=50` | 游标读取作用域字典，包含未启用的设计类型；用户授权页只选择启用的类型 |
+| GET | `/scope-types/detail?code=...` | 按稳定编码查询编辑页回填数据 |
+| POST | `/scope-types`、`/scope-types/update`、`/scope-types/disable` | 创建新类型时默认停用；仅可编辑名称与描述；停用有绑定的类型或 `global/shop/org` 时拒绝 |
+
+`000076` 迁移新增字典和授权表的 `scope_type` 索引，涉及大表 DDL，须在授权环境评估建索引时长与发布窗口。字典预置文档中的八种类型及旧 `org` 兼容编码；目前仅 `global/shop/org` 启用且经现有资源校验。`creator/organization/environment/crawler_project/content_channel/region` 未接入权威业务资源表与权限引擎，不得仅通过字典编辑启用。文档建议的 `iam_role_scope_types` 角色约束尚未纳入现有授权协议，不能把字典视为角色可授予作用域的证明。
 | POST | `/bindings/revoke` | 按 `userId/bindingId` 精确撤销 |
 | POST | `/mfa/enroll` | 复核当前登录密码 `password`；一次性返回 `secret/otpauthUri`，禁止缓存 |
 | POST | `/mfa/confirm` | 用 6 位 `code` 验证并启用 TOTP |
