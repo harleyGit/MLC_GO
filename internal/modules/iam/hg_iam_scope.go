@@ -16,7 +16,7 @@ type HGScopeType struct {
 	Name            string `json:"name"`            // 管理端显示名称。
 	Description     string `json:"description"`     // 类型业务用途说明。
 	RequiresScopeID bool   `json:"requiresScopeId"` // 是否需要具体已登记的业务资源 ID。
-	Status          int    `json:"status"`          // 1 可授权，0 未接入或已停用。
+	Status          int    `json:"status"`          // 1 字典启用、0 停用；实际授权还须接入资源校验和权限引擎。
 }
 
 func hgScanScope(row interface{ Scan(...any) error }) (HGScopeType, error) {
@@ -84,8 +84,8 @@ func (s *HGService) HGGetScopeType(ctx context.Context, actor, code string) (HGS
 	return item, err
 }
 
-// HGCreateScopeType 登记新类型元数据但默认停用；未接入业务资源校验和权限引擎前不得开放授权。
-func (s *HGService) HGCreateScopeType(ctx context.Context, actor, requestID, code, name, description string) error {
+// HGCreateScopeType 登记新类型元数据与字典状态；hgStatus 为 nil 时默认停用，启用不代替授权资源校验。
+func (s *HGService) HGCreateScopeType(ctx context.Context, actor, requestID, code, name, description string, hgStatus *int) error {
 	if err := s.hgCanManage(ctx, actor, true); err != nil {
 		return err
 	}
@@ -93,32 +93,47 @@ func (s *HGService) HGCreateScopeType(ctx context.Context, actor, requestID, cod
 	if !hgValidText(requestID, 64) || !hgRoleCodePattern.MatchString(code) || len(code) > 32 || !hgValidText(name, 64) || len([]rune(description)) > 255 {
 		return ErrHGInvalid
 	}
+	hgNextStatus := 0 // 旧客户端不传 status 时沿用默认停用。
+	if hgStatus != nil {
+		hgNextStatus = *hgStatus
+	}
+	if hgNextStatus != 0 && hgNextStatus != 1 {
+		return ErrHGInvalid
+	}
 	tx, err := s.repo.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMScopeType, code, name, description, true)
+	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMScopeType, code, name, description, true, hgNextStatus)
 	if hgDuplicate(err) {
 		return ErrHGConflict
 	}
 	if err != nil {
 		return err
 	}
-	if err = hgAudit(ctx, tx, actor, "iam.scope_type.create", "scope_type", code, requestID, map[string]any{"status": 0}); err != nil {
+	if err = hgAudit(ctx, tx, actor, "iam.scope_type.create", "scope_type", code, requestID, map[string]any{"status": hgNextStatus}); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// HGUpdateScopeType 只更新名称及描述；不允许后台改编码、scope_id 规则或激活未接通的类型。
-func (s *HGService) HGUpdateScopeType(ctx context.Context, actor, requestID, code, name, description string) error {
+// HGUpdateScopeType 更新名称、描述及字典状态；hgStatus 为 nil 时保留锁行读到的状态，停用复用引用保护。
+func (s *HGService) HGUpdateScopeType(ctx context.Context, actor, requestID, code, name, description string, hgStatus *int) error {
 	if err := s.hgCanManage(ctx, actor, true); err != nil {
 		return err
 	}
 	name, description = strings.TrimSpace(name), strings.TrimSpace(description)
 	if !hgValidText(requestID, 64) || !hgRoleCodePattern.MatchString(code) || len(code) > 32 || !hgValidText(name, 64) || len([]rune(description)) > 255 {
 		return ErrHGInvalid
+	}
+	if hgStatus != nil {
+		if *hgStatus != 0 && *hgStatus != 1 {
+			return ErrHGInvalid
+		}
+		if *hgStatus == 0 && hgCoreScopeType(code) {
+			return ErrHGForbidden
+		}
 	}
 	tx, err := s.repo.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -133,11 +148,20 @@ func (s *HGService) HGUpdateScopeType(ctx context.Context, actor, requestID, cod
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGUpdateIAMScopeType, name, description, code)
+	hgNextStatus := status // 未传状态时保留数据库值，避免旧客户端误停用。
+	if hgStatus != nil {
+		hgNextStatus = *hgStatus
+		if hgNextStatus == 0 {
+			if err = hgCheckScopeTypeUnreferenced(ctx, tx, code); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGUpdateIAMScopeType, name, description, hgNextStatus, code)
 	if err != nil {
 		return err
 	}
-	if err = hgAudit(ctx, tx, actor, "iam.scope_type.update", "scope_type", code, requestID, map[string]any{"name": name}); err != nil {
+	if err = hgAudit(ctx, tx, actor, "iam.scope_type.update", "scope_type", code, requestID, map[string]any{"name": name, "previousStatus": status, "status": hgNextStatus}); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -151,7 +175,7 @@ func (s *HGService) HGDisableScopeType(ctx context.Context, actor, requestID, co
 	if !hgValidText(requestID, 64) || !hgRoleCodePattern.MatchString(code) || len(code) > 32 {
 		return ErrHGInvalid
 	}
-	if code == "global" || code == "shop" || code == "org" {
+	if hgCoreScopeType(code) {
 		return ErrHGForbidden
 	}
 	tx, err := s.repo.db.BeginTx(ctx, nil)
@@ -170,12 +194,7 @@ func (s *HGService) HGDisableScopeType(ctx context.Context, actor, requestID, co
 	if status != 1 {
 		return ErrHGConflict
 	}
-	var one int
-	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMScopeBinding, code).Scan(&one)
-	if err == nil {
-		return ErrHGConflict
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err = hgCheckScopeTypeUnreferenced(ctx, tx, code); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, SQLQueriesPackage.HGDisableIAMScopeType, code)
@@ -193,4 +212,22 @@ func (s *HGService) HGDisableScopeType(ctx context.Context, actor, requestID, co
 		return err
 	}
 	return tx.Commit()
+}
+
+// hgCoreScopeType 标识当前核心授权类型；编辑与删除均不得将其停用。
+func hgCoreScopeType(hgCode string) bool {
+	return hgCode == "global" || hgCode == "shop" || hgCode == "org"
+}
+
+// hgCheckScopeTypeUnreferenced 在持有字典行锁的事务内检查任何历史绑定；查询失败不放行停用。
+func hgCheckScopeTypeUnreferenced(hgCtx context.Context, hgTx *sql.Tx, hgCode string) error {
+	var hgOne int
+	hgErr := hgTx.QueryRowContext(hgCtx, SQLQueriesPackage.HGSelectIAMScopeBinding, hgCode).Scan(&hgOne)
+	if hgErr == nil {
+		return ErrHGConflict
+	}
+	if errors.Is(hgErr, sql.ErrNoRows) {
+		return nil
+	}
+	return hgErr
 }

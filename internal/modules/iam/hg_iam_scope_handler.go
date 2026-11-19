@@ -11,6 +11,7 @@ type HGScopeTypeRequest struct {
 	Code        string `json:"code"`        // 唯一稳定编码。
 	Name        string `json:"name"`        // 中文显示名称。
 	Description string `json:"description"` // 业务用途。
+	Status      *int   `json:"status"`      // 1 启用、0 停用；省略或 null 时创建默认 0，编辑保留原值，停用接口忽略。
 }
 
 // HGListScopeTypes 返回有界字典列表，包含尚未启用的设计类型。
@@ -51,7 +52,7 @@ func (h *HGHandler) HGGetScopeType(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, item)
 }
 
-// HGCreateScopeType 创建默认停用的类型；不允许通过管理页面启用未知资源的授权。
+// HGCreateScopeType 创建类型及指定的字典状态；省略状态时默认停用。
 func (h *HGHandler) HGCreateScopeType(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {
@@ -61,14 +62,14 @@ func (h *HGHandler) HGCreateScopeType(w http.ResponseWriter, r *http.Request) {
 	if !hgDecode(w, r, &req) {
 		return
 	}
-	if err := h.service.HGCreateScopeType(r.Context(), actor, hgRequestID(r), req.Code, req.Name, req.Description); err != nil {
+	if err := h.service.HGCreateScopeType(r.Context(), actor, hgRequestID(r), req.Code, req.Name, req.Description, req.Status); err != nil {
 		hgHTTPError(w, r, err)
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, map[string]bool{"created": true})
 }
 
-// HGUpdateScopeType 不接受客户端指定状态或更改授权 ID 校验规则。
+// HGUpdateScopeType 更新名称、描述及可选状态；资源 ID 校验规则由服务端保持。
 func (h *HGHandler) HGUpdateScopeType(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {
@@ -78,7 +79,7 @@ func (h *HGHandler) HGUpdateScopeType(w http.ResponseWriter, r *http.Request) {
 	if !hgDecode(w, r, &req) {
 		return
 	}
-	if err := h.service.HGUpdateScopeType(r.Context(), actor, hgRequestID(r), req.Code, req.Name, req.Description); err != nil {
+	if err := h.service.HGUpdateScopeType(r.Context(), actor, hgRequestID(r), req.Code, req.Name, req.Description, req.Status); err != nil {
 		hgHTTPError(w, r, err)
 		return
 	}
