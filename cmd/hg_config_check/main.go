@@ -30,7 +30,7 @@ func main() {
 	// flag.Parse 必须在读取参数值前执行，否则始终只能得到默认值【在终端如脚本：xxx.sh --env=pre --config-dir=/xxx/config --check=mysql, 第三个参数在 -h、-help时才显示。】。
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
-	check := flag.String("check", "", "依赖检查：mysql、redis 或 clickhouse；为空时只输出非敏感地址")
+	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types 或 notification-counter-ready；为空时只输出非敏感地址")
 	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
@@ -74,6 +74,10 @@ func main() {
 		fmt.Println(redisConfig.Port)
 	case "mysql":
 		checkMySQL(mysqlConfig)
+	case "iam-scope-types":
+		if hgErr := hgCheckIAMScopeTypes(mysqlConfig); hgErr != nil {
+			exitWithError(hgErr)
+		}
 	case "migration-version":
 		// 只读schema_migrations，不执行DDL，不输出连接凭据。
 		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())

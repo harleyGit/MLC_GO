@@ -13,4 +13,6 @@ const (
 	HGSelectIAMScopeBinding = `SELECT 1 FROM iam_user_role_bindings WHERE scope_type=? LIMIT 1`
 	// 授权只接受活动且已接入权威资源校验的作用域；字典无法替代业务资源真实性验证。
 	HGSelectIAMActiveScopeType = `SELECT requires_scope_id FROM iam_scope_types WHERE scope_code=? AND status=1 LIMIT 1 FOR UPDATE`
+	// 运维只读诊断限定当前库的单个索引元数据；不扫描授权表数据，检查列顺序以确认迁移完整应用。
+	HGSelectIAMScopeTypeIndexColumns = `SELECT COALESCE(GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ','),'') FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='iam_user_role_bindings' AND INDEX_NAME='idx_iam_binding_scope_type'`
 )
