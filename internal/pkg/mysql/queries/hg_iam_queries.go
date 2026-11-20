@@ -3,7 +3,7 @@ package SQLQueriesPackage
 // IAM 固定 SQL 集中于此。角色、绑定均按主键/唯一键点查；列表使用 id 游标和有界 LIMIT。
 const (
 	// 权限点查须使用 idx_iam_binding_user_scope、role_permissions 主键及 permission_code 唯一键；调用方失败时拒绝。
-	HGSelectIAMPermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND p.permission_code=? LIMIT 1`
+	HGSelectIAMPermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id LEFT JOIN iam_binding_permission_limits lim ON lim.binding_id=b.id LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND allowp.permission_id=p.id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND p.permission_code=? AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) LIMIT 1`
 	HGSelectIAMManager    = `SELECT 1 FROM admin_user WHERE user_id=? AND status=1 AND is_delete=0 LIMIT 1`
 	// 即时授权可作用于现有普通账号；users.user_id 唯一键点查，不凭手机号或客户端声称的身份授予。
 	HGSelectIAMGrantTargetUser = `SELECT 1 FROM users WHERE user_id=? LIMIT 1`
@@ -12,12 +12,12 @@ const (
 	HGSelectIAMPolicyRevision = `SELECT revision FROM iam_policy_revision WHERE id=1`
 	// 当前用户有效授权投影：idx_iam_binding_user_scope 按 user_id 定位绑定，角色/权限表通过主键联查。
 	// 最多读取 1001 行，调用方超过 1000 行须拒绝而非截断授权；不使用 OFFSET。
-	HGSelectIAMAccessGrants = `SELECT r.role_code,p.permission_code,b.scope_type,b.scope_id,b.expires_at FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id,p.permission_code LIMIT 1001`
+	HGSelectIAMAccessGrants = `SELECT r.role_code,p.permission_code,b.scope_type,b.scope_id,b.expires_at FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id LEFT JOIN iam_binding_permission_limits lim ON lim.binding_id=b.id LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND allowp.permission_id=p.id WHERE b.user_id=? AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) ORDER BY b.id,p.permission_code LIMIT 1001`
 	HGBumpIAMPolicyRevision = `UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1`
 	// 缓存只保存永不过期绑定的放行结果；有 expires_at 的临时授权仍查询权威库。
-	HGSelectIAMStablePermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND b.expires_at IS NULL AND p.permission_code=? LIMIT 1`
+	HGSelectIAMStablePermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id LEFT JOIN iam_binding_permission_limits lim ON lim.binding_id=b.id LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND allowp.permission_id=p.id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND b.expires_at IS NULL AND p.permission_code=? AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) LIMIT 1`
 	// 管理端资产菜单仅需活动全局权限；依赖 user_scope 索引，LIMIT 防止权限目录异常膨胀。
-	HGSelectIAMAssetPermissions  = `SELECT DISTINCT p.permission_code FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type='global' AND b.scope_id='' AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND (p.permission_code LIKE 'asset:%' OR p.permission_code LIKE 'payment:recharge_sku:%') ORDER BY p.permission_code LIMIT 34`
+	HGSelectIAMAssetPermissions  = `SELECT DISTINCT p.permission_code FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id LEFT JOIN iam_binding_permission_limits lim ON lim.binding_id=b.id LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND allowp.permission_id=p.id WHERE b.user_id=? AND b.status=1 AND b.scope_type='global' AND b.scope_id='' AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) AND (p.permission_code LIKE 'asset:%' OR p.permission_code LIKE 'payment:recharge_sku:%') ORDER BY p.permission_code LIMIT 34`
 	HGSelectIAMPassword          = `SELECT password_hash,salt FROM users WHERE user_id=? LIMIT 1`
 	HGSelectIAMMFAFactor         = `SELECT secret_cipher,enabled,last_counter FROM iam_mfa_factors WHERE user_id=? FOR UPDATE`
 	HGInsertIAMMFAFactor         = `INSERT INTO iam_mfa_factors(user_id,secret_cipher,enabled,last_counter) VALUES(?,?,0,-1) ON DUPLICATE KEY UPDATE secret_cipher=IF(enabled=0,VALUES(secret_cipher),secret_cipher),updated_at=CURRENT_TIMESTAMP(3)`
@@ -49,12 +49,19 @@ const (
 	HGUpdateIAMRole                   = `UPDATE iam_roles SET role_name=?,description=?,version=version+1,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0`
 	HGDisableIAMRole                  = `UPDATE iam_roles SET status=0,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0 AND NOT EXISTS(SELECT 1 FROM iam_user_role_bindings WHERE role_id=? AND status=1 AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP(3)) LIMIT 1)`
 	// 员工绑定列表依赖 idx_iam_binding_user_page，精确 user_id 加 id 游标；已过期或停用角色不展示。
-	HGSelectIAMBindingsFirst = `SELECT b.id,b.user_id,b.role_id,r.role_code,b.scope_type,b.scope_id,b.expires_at FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 WHERE b.user_id=? AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id DESC LIMIT ?`
-	HGSelectIAMBindingsAfter = `SELECT b.id,b.user_id,b.role_id,r.role_code,b.scope_type,b.scope_id,b.expires_at FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 WHERE b.user_id=? AND b.status=1 AND b.id<? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id DESC LIMIT ?`
+	HGSelectIAMBindingsFirst = `SELECT b.id,b.user_id,b.role_id,r.role_code,b.scope_type,b.scope_id,b.expires_at,EXISTS(SELECT 1 FROM iam_binding_permission_limits lim WHERE lim.binding_id=b.id) FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 WHERE b.user_id=? AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id DESC LIMIT ?`
+	HGSelectIAMBindingsAfter = `SELECT b.id,b.user_id,b.role_id,r.role_code,b.scope_type,b.scope_id,b.expires_at,EXISTS(SELECT 1 FROM iam_binding_permission_limits lim WHERE lim.binding_id=b.id) FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 WHERE b.user_id=? AND b.status=1 AND b.id<? AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id DESC LIMIT ?`
 	HGSelectIAMBinding       = `SELECT id,CASE WHEN expires_at IS NOT NULL AND expires_at<=CURRENT_TIMESTAMP(3) THEN 0 ELSE status END FROM iam_user_role_bindings WHERE user_id=? AND role_id=? AND scope_type=? AND scope_id=? FOR UPDATE`
 	HGInsertIAMBinding       = `INSERT INTO iam_user_role_bindings(user_id,role_id,scope_type,scope_id,status,expires_at,granted_by) VALUES(?,?,?,?,1,?,?)`
 	HGReactivateIAMBinding   = `UPDATE iam_user_role_bindings SET status=1,expires_at=?,granted_by=?,revoked_at=NULL,updated_at=CURRENT_TIMESTAMP(3) WHERE id=?`
-	HGRevokeIAMBinding       = `UPDATE iam_user_role_bindings SET status=0,revoked_at=CURRENT_TIMESTAMP(3),updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND user_id=? AND status=1`
+	// 子集写入只用绑定唯一键或主键点查，role_permissions 通过角色主键有界读取；事务中角色行已被锁定。
+	HGSelectIAMBindingIDForLimit = `SELECT id FROM iam_user_role_bindings WHERE user_id=? AND role_id=? AND scope_type=? AND scope_id=? AND status=1 LIMIT 1`
+	HGInsertIAMBindingLimit      = `INSERT IGNORE INTO iam_binding_permission_limits(binding_id) VALUES(?)`
+	// 撤销后重新授权需清除旧子集；外键级联删除允许权限行，避免旧接口意外继承历史限制。
+	HGDeleteIAMBindingLimit   = `DELETE FROM iam_binding_permission_limits WHERE binding_id=?`
+	HGDeleteIAMBindingAllowed = `DELETE FROM iam_binding_allowed_permissions WHERE binding_id=?`
+	HGInsertIAMBindingAllowed = `INSERT INTO iam_binding_allowed_permissions(binding_id,permission_id) SELECT ?,id FROM iam_permissions WHERE permission_code=? LIMIT 1`
+	HGRevokeIAMBinding        = `UPDATE iam_user_role_bindings SET status=0,revoked_at=CURRENT_TIMESTAMP(3),updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND user_id=? AND status=1`
 	// 审计与授权变更同事务插入；审计表按 actor/target 时间索引查询，归档由独立任务负责。
 	HGInsertIAMAudit           = `INSERT INTO iam_audit_logs(actor_user_id,action,target_type,target_id,request_id,detail) VALUES(?,?,?,?,?,?)`
 	HGSelectIAMPermissions     = `SELECT permission_code,description FROM iam_permissions ORDER BY permission_code LIMIT ?`

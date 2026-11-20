@@ -103,7 +103,7 @@ func (h *HGHandler) HGDisableScopeType(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, map[string]bool{"disabled": true})
 }
 
-// HGGrantDirectBatch 一次 MFA 原子授权多个有界绑定；不接受权限编码或自行扩张的作用域类型。
+// HGGrantDirectBatch 一次 MFA 原子授权多个有界绑定；权限仅可收窄到角色现有权限子集，不接受自行扩张的作用域类型。
 func (h *HGHandler) HGGrantDirectBatch(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {

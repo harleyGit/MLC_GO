@@ -18,13 +18,14 @@ type HGRoleResponse struct {
 
 // HGBindingResponse 是 IAM 管理 API 的员工角色绑定 JSON 协议。
 type HGBindingResponse struct {
-	ID        string     `json:"id"`        // 绑定主键，十进制字符串。
-	UserID    string     `json:"userId"`    // 管理员业务用户 ID。
-	RoleID    string     `json:"roleId"`    // IAM 角色主键，十进制字符串。
-	RoleCode  string     `json:"roleCode"`  // 稳定角色编码。
-	ScopeType string     `json:"scopeType"` // global、shop 或 org。
-	ScopeID   string     `json:"scopeId"`   // 作用域标识。
-	ExpiresAt *time.Time `json:"expiresAt"` // 可空的 RFC3339 失效时间。
+	ID                 string     `json:"id"`                 // 绑定主键，十进制字符串。
+	UserID             string     `json:"userId"`             // 管理员业务用户 ID。
+	RoleID             string     `json:"roleId"`             // IAM 角色主键，十进制字符串。
+	RoleCode           string     `json:"roleCode"`           // 稳定角色编码。
+	ScopeType          string     `json:"scopeType"`          // global、shop 或 org。
+	ScopeID            string     `json:"scopeId"`            // 作用域标识。
+	ExpiresAt          *time.Time `json:"expiresAt"`          // 可空的 RFC3339 失效时间。
+	PermissionsLimited bool       `json:"permissionsLimited"` // 本绑定是否启用权限子集；true 时不能按角色全部权限展示。
 }
 
 // HGPendingGrantResponse 是按目标管理员查询待审批角色申请的只读 JSON 协议。
@@ -45,5 +46,5 @@ func hgRoleDTO(role HGRole) HGRoleResponse {
 }
 
 func hgBindingDTO(binding HGBinding) HGBindingResponse {
-	return HGBindingResponse{ID: strconv.FormatUint(binding.ID, 10), UserID: binding.UserID, RoleID: strconv.FormatUint(binding.RoleID, 10), RoleCode: binding.RoleCode, ScopeType: binding.ScopeType, ScopeID: binding.ScopeID, ExpiresAt: binding.ExpiresAt}
+	return HGBindingResponse{ID: strconv.FormatUint(binding.ID, 10), UserID: binding.UserID, RoleID: strconv.FormatUint(binding.RoleID, 10), RoleCode: binding.RoleCode, ScopeType: binding.ScopeType, ScopeID: binding.ScopeID, ExpiresAt: binding.ExpiresAt, PermissionsLimited: binding.PermissionsLimited}
 }

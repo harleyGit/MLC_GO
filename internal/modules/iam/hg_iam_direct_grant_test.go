@@ -126,3 +126,34 @@ func TestHGGrantDirectTransactionWritesBindingAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 撤销后由旧客户端重新授权必须清除历史绑定的权限子集，否则旧协议无法恢复默认完整角色权限。
+func TestHGGrantDirectReactivationClearsOldBindingLimit(t *testing.T) {
+	service, mock := hgTestService(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGrantTargetUser)).WithArgs("TARGET").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGrantSelf)).WithArgs("ACTOR", "TARGET").WillReturnRows(sqlmock.NewRows([]string{"1"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMActiveRoleCode)).WithArgs(uint64(7)).WillReturnRows(sqlmock.NewRows([]string{"role_code"}).AddRow("reviewer"))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMRolePermissions)).WithArgs(uint64(7), 201).WillReturnRows(sqlmock.NewRows([]string{"permission_code"}).AddRow("mall:product:create"))
+	hgExpectPermission(mock, "ACTOR", "global", "", "mall:product:create", true)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMBinding)).WithArgs("TARGET", uint64(7), "global", "").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(18, 0))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGReactivateIAMBinding)).WithArgs(nil, "ACTOR", uint64(18)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGDeleteIAMBindingLimit)).WithArgs(uint64(18)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGBumpIAMPolicyRevision)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMAudit)).WithArgs("ACTOR", "iam.binding.grant_direct", "user", "TARGET", "request-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(19, 1))
+	mock.ExpectCommit()
+	tx, err := service.repo.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.repo.hgGrantTx(context.Background(), tx, "ACTOR", "ACTOR", "request-1", "iam.binding.grant_direct", "TARGET", 7, "global", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

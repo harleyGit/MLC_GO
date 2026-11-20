@@ -35,13 +35,14 @@ type hgRoleRow struct {
 
 // hgBindingRow 仅承载 iam_user_role_bindings 的联查结果。
 type hgBindingRow struct {
-	id        uint64       // 数据库绑定主键。
-	userID    string       // 业务用户标识。
-	roleID    uint64       // 数据库角色主键。
-	roleCode  string       // 联查的角色编码。
-	scopeType string       // 数据库作用域类型。
-	scopeID   string       // 数据库作用域标识。
-	expiresAt sql.NullTime // 可空失效时间。
+	id                 uint64       // 数据库绑定主键。
+	userID             string       // 业务用户标识。
+	roleID             uint64       // 数据库角色主键。
+	roleCode           string       // 联查的角色编码。
+	scopeType          string       // 数据库作用域类型。
+	scopeID            string       // 数据库作用域标识。
+	expiresAt          sql.NullTime // 可空失效时间。
+	permissionsLimited bool         // 是否有绑定权限子集标记。
 }
 
 // NewHGRepository 创建 IAM 存储适配器。
@@ -368,10 +369,10 @@ func (r *HGRepository) hgBindings(ctx context.Context, userID string, cursor uin
 	items := make([]HGBinding, 0)
 	for rows.Next() {
 		var row hgBindingRow
-		if err = rows.Scan(&row.id, &row.userID, &row.roleID, &row.roleCode, &row.scopeType, &row.scopeID, &row.expiresAt); err != nil {
+		if err = rows.Scan(&row.id, &row.userID, &row.roleID, &row.roleCode, &row.scopeType, &row.scopeID, &row.expiresAt, &row.permissionsLimited); err != nil {
 			return nil, false, err
 		}
-		item := HGBinding{ID: row.id, UserID: row.userID, RoleID: row.roleID, RoleCode: row.roleCode, ScopeType: row.scopeType, ScopeID: row.scopeID}
+		item := HGBinding{ID: row.id, UserID: row.userID, RoleID: row.roleID, RoleCode: row.roleCode, ScopeType: row.scopeType, ScopeID: row.scopeID, PermissionsLimited: row.permissionsLimited}
 		if row.expiresAt.Valid {
 			item.ExpiresAt = &row.expiresAt.Time
 		}
@@ -499,6 +500,9 @@ func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor,
 			return ErrHGConflict
 		}
 		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGReactivateIAMBinding, expires, auditActor, existingID)
+		if err == nil {
+			_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGDeleteIAMBindingLimit, existingID)
+		}
 	} else {
 		_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMBinding, userID, roleID, scopeType, scopeID, expires, auditActor)
 	}

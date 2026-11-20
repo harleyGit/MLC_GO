@@ -28,13 +28,14 @@ type HGRole struct {
 
 // HGBinding 表示用户在一个确定作用域内的角色授权。
 type HGBinding struct {
-	ID        uint64     // 绑定主键。
-	UserID    string     // 现有 JWT 的业务用户 ID。
-	RoleID    uint64     // IAM 角色主键。
-	RoleCode  string     // 返回给管理端的角色编码。
-	ScopeType string     // global、shop 或 org。
-	ScopeID   string     // global 时为空，其余作用域的服务端标识。
-	ExpiresAt *time.Time // 可空的授权失效时间。
+	ID                 uint64     // 绑定主键。
+	UserID             string     // 现有 JWT 的业务用户 ID。
+	RoleID             uint64     // IAM 角色主键。
+	RoleCode           string     // 返回给管理端的角色编码。
+	ScopeType          string     // global、shop 或 org。
+	ScopeID            string     // global 时为空，其余作用域的服务端标识。
+	ExpiresAt          *time.Time // 可空的授权失效时间。
+	PermissionsLimited bool       // 此绑定是否启用独立权限子集；false 时继承当前角色全部权限。
 }
 
 // HGResource 是业务服务从可信存储读取的授权上下文，不能直接使用客户端属性填充。

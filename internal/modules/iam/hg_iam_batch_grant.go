@@ -11,11 +11,12 @@ import (
 	"strings"
 )
 
-// HGBatchGrantItem 是即时批量授权的单个绑定；每项仍只有一个角色和一个具体作用域。
+// HGBatchGrantItem 是即时批量授权的单个绑定；permissions 省略继承整个角色，显式空数组表示无权限。
 type HGBatchGrantItem struct {
-	RoleID    string `json:"roleId"`    // IAM 角色主键的十进制字符串。
-	ScopeType string `json:"scopeType"` // 字典中的已启用作用域编码。
-	ScopeID   string `json:"scopeId"`   // global 为空；shop 可用已审核商家 ID，org 必须已登记。
+	RoleID      string    `json:"roleId"`                // IAM 角色主键的十进制字符串。
+	ScopeType   string    `json:"scopeType"`             // 字典中的已启用作用域编码。
+	ScopeID     string    `json:"scopeId"`               // global 为空；shop 可用已审核商家 ID，org 必须已登记。
+	Permissions *[]string `json:"permissions,omitempty"` // 仅本绑定允许的角色权限子集；nil 兼容历史客户端，全选时仍显式保存集合。
 }
 
 // HGBatchGrantRequest 是一次 MFA 授予多个绑定的协议；最多 12 项，全部成功或全部回滚。
@@ -55,6 +56,18 @@ func (s *HGService) HGGrantDirectBatch(ctx context.Context, actor, requestID str
 	roles := make(map[uint64]struct{}, 4)
 	scopes := make(map[string]struct{}, 3)
 	for _, item := range req.Bindings {
+		if item.Permissions != nil {
+			if len(*item.Permissions) > 200 {
+				return ErrHGInvalid
+			}
+			codes := make(map[string]bool, len(*item.Permissions))
+			for _, code := range *item.Permissions {
+				if !hgValidText(code, 128) || strings.TrimSpace(code) != code || codes[code] {
+					return ErrHGInvalid
+				}
+				codes[code] = true
+			}
+		}
 		id, parseErr := strconv.ParseUint(item.RoleID, 10, 64)
 		if parseErr != nil || id == 0 || (item.ScopeType != "global" && item.ScopeType != "shop" && item.ScopeType != "org") {
 			return ErrHGInvalid
@@ -124,6 +137,67 @@ func (s *HGService) HGGrantDirectBatch(ctx context.Context, actor, requestID str
 		if err = s.repo.hgGrantTx(ctx, tx, actor, actor, requestID, "iam.binding.grant_direct", userID, id, item.ScopeType, strings.TrimSpace(item.ScopeID), nil); err != nil {
 			return err
 		}
+		if item.Permissions != nil {
+			if err = s.repo.hgSetBindingPermissionLimitTx(ctx, tx, actor, requestID, userID, id, item); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit()
+}
+
+// hgSetBindingPermissionLimitTx 在已锁定角色并写入绑定后验证权限子集；失败回滚绑定、MFA、缓存版本与审计。
+func (r *HGRepository) hgSetBindingPermissionLimitTx(ctx context.Context, tx *sql.Tx, actor, requestID, userID string, roleID uint64, item HGBatchGrantItem) error {
+	rows, err := tx.QueryContext(ctx, SQLQueriesPackage.HGSelectIAMRolePermissions, roleID, 201)
+	if err != nil {
+		return err
+	}
+	available := make(map[string]bool)
+	for rows.Next() {
+		var code string
+		if err = rows.Scan(&code); err != nil {
+			rows.Close()
+			return err
+		}
+		available[code] = true
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(available) > 200 {
+		return ErrHGForbidden
+	}
+	for _, code := range *item.Permissions {
+		if !available[code] {
+			return ErrHGInvalid
+		}
+	}
+	var bindingID uint64
+	if err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMBindingIDForLimit, userID, roleID, item.ScopeType, strings.TrimSpace(item.ScopeID)).Scan(&bindingID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMBindingLimit, bindingID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGDeleteIAMBindingAllowed, bindingID); err != nil {
+		return err
+	}
+	for _, code := range *item.Permissions {
+		result, insertErr := tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMBindingAllowed, bindingID, code)
+		if insertErr != nil {
+			return insertErr
+		}
+		affected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if affected != 1 {
+			return ErrHGInvalid
+		}
+	}
+	return hgAudit(ctx, tx, actor, "iam.binding.permissions_limit", "user", userID, requestID, map[string]any{
+		"bindingId": bindingID, "permissionCount": len(*item.Permissions), "permissions": *item.Permissions,
+	})
 }
