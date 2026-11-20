@@ -1,9 +1,12 @@
 
 - [kafka中Topic、Partition、Offset解读](#kafka中Topic、Partition、Offset解读)
 - [现有工程实战：从启动、接口入队，到消费完成](#四现有工程实战从启动接口入队到消费完成)
+- [kafka工程api接口的解读](#kafka工程api接口的解读)
+
+
 
 ***
-<br/><br/><br/>
+<br/><br/><br/><br/>
 ># <h2 id="kafka中Topic、Partition、Offset解读">kafka中Topic、Partition、Offset解读</h2>
 
 
@@ -181,7 +184,10 @@ event.KafkaOffset
 
 对于你的 Kafka + Go + MySQL 项目，推荐使用 EventID 做业务幂等，Topic + Partition + Offset 做 Kafka 消息定位和投递去重，两者结合更可靠。
 
----
+***
+<br/><br/><br/>
+># <h2 id="kafka工程api接口的解读">kafka工程api接口的解读</h2>
+
 
 ## 四、现有工程实战：从启动、接口入队，到消费完成
 

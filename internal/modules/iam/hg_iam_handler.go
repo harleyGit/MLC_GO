@@ -182,6 +182,64 @@ func hgID(value string) (uint64, error) {
 	return id, nil
 }
 
+// HGMeAccess 仅返回当前 JWT 用户的授权投影，不泄露其他账号的角色绑定。
+func (h *HGHandler) HGMeAccess(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	snapshot, err := h.service.AccessSnapshot(r.Context(), actor)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePackage.SuccessResult(w, r, snapshot)
+}
+
+// HGAuthorizeAccess 仅支持已接入可信资源读取的商品编辑预判；其余具体资源默认拒绝。
+func (h *HGHandler) HGAuthorizeAccess(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Permission string `json:"permission"` // 待预判的已登记权限码。
+		Resource   *struct {
+			Type string `json:"type"` // 资源类型，仅 product 已接入可信查询。
+			ID   string `json:"id"`   // 商品业务 ID；不接受客户端传入归属或状态。
+		} `json:"resource"` // nil 表示仅检查全局权限。
+	}
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if req.Resource != nil && (req.Resource.Type != "product" || req.Permission != "mall:product:update") {
+		HGResponsePackage.SuccessResult(w, r, map[string]any{"allowed": false, "reason_code": "RESOURCE_UNSUPPORTED", "message": "请使用业务资源接口获取操作权限"})
+		return
+	}
+	var decision HGDecision
+	var err error
+	if req.Resource != nil {
+		decision, err = h.service.HGAuthorizeProductUpdate(r.Context(), actor, req.Resource.ID)
+	} else {
+		decision, err = h.service.Authorize(r.Context(), actor, req.Permission, HGResource{ScopeType: "global"})
+	}
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if !decision.Allowed {
+		code, message := "PERMISSION_DENIED", "没有操作权限"
+		if decision.Reason == "资源状态不允许操作" {
+			code, message = "RESOURCE_LOCKED", "资源状态不允许操作"
+		}
+		HGResponsePackage.SuccessResult(w, r, map[string]any{"allowed": false, "reason_code": code, "message": message})
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"allowed": true, "reason_code": "", "message": ""})
+}
+
 // HGListRoles 读取活动角色游标页。
 func (h *HGHandler) HGListRoles(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)

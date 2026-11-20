@@ -10,7 +10,10 @@ const (
 	// 自授判断必须使用 users.user_id 的实际数据库排序规则；同一账号仅大小写不同也不能通过。
 	HGSelectIAMGrantSelf      = `SELECT 1 FROM users WHERE user_id=? AND user_id=? LIMIT 1`
 	HGSelectIAMPolicyRevision = `SELECT revision FROM iam_policy_revision WHERE id=1`
-	HGBumpIAMPolicyRevision   = `UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1`
+	// 当前用户有效授权投影：idx_iam_binding_user_scope 按 user_id 定位绑定，角色/权限表通过主键联查。
+	// 最多读取 1001 行，调用方超过 1000 行须拒绝而非截断授权；不使用 OFFSET。
+	HGSelectIAMAccessGrants = `SELECT r.role_code,p.permission_code,b.scope_type,b.scope_id,b.expires_at FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) ORDER BY b.id,p.permission_code LIMIT 1001`
+	HGBumpIAMPolicyRevision = `UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1`
 	// 缓存只保存永不过期绑定的放行结果；有 expires_at 的临时授权仍查询权威库。
 	HGSelectIAMStablePermission = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.status=1 JOIN iam_role_permissions rp ON rp.role_id=r.id JOIN iam_permissions p ON p.id=rp.permission_id WHERE b.user_id=? AND b.status=1 AND b.scope_type=? AND b.scope_id=? AND b.expires_at IS NULL AND p.permission_code=? LIMIT 1`
 	// 管理端资产菜单仅需活动全局权限；依赖 user_scope 索引，LIMIT 防止权限目录异常膨胀。

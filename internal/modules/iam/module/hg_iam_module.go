@@ -46,9 +46,11 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
+	var meAccess, authorizeAccess http.HandlerFunc
 	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	var scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
 	if handler != nil {
+		meAccess, authorizeAccess = handler.HGMeAccess, handler.HGAuthorizeAccess
 		batchGrant = handler.HGGrantDirectBatch
 		scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable = handler.HGListScopeTypes, handler.HGGetScopeType, handler.HGCreateScopeType, handler.HGUpdateScopeType, handler.HGDisableScopeType
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
@@ -62,6 +64,9 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	// HGIAMRoleGrant="iam:role:grant"，HGIAMRoleGrantDirect="iam:role:grant_direct"，HGIAMApprovalApprove="iam:approval:approve"。
 	// 除 JWT 外，授权器还要求当前 user_id 为活动管理员，且有未过期的全局角色绑定及对应权限。
 	return []HGRouterPackage.RouteSpec{
+		// 本人权限快照与全局权限预判仅要求 JWT；具体业务资源仍由业务 API 独立鉴权。
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/access", true, "获取本人授权快照", meAccess),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/authorize", true, "全局权限预判", authorizeAccess),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/list", true, "查询作用域类型", scopeList, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/detail", true, "查询作用域类型详情", scopeGet, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types", true, "创建作用域类型", scopeCreate, HGPermissionPackage.HGIAMRoleGrant),
