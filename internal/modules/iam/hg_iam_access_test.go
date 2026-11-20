@@ -34,11 +34,35 @@ func TestHGAuthorizeProductUpdateUsesTrustedState(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallProductAuthStateSQL)).WithArgs("P1").
 		WillReturnRows(sqlmock.NewRows(columns).AddRow("U1", "M1", 1, 1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPermission)).
+		WithArgs("U1", "shop", "M1", "mall:product:update").
+		WillReturnRows(sqlmock.NewRows([]string{"one"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPermission)).
 		WithArgs("U1", "global", "", "mall:product:update").
 		WillReturnRows(sqlmock.NewRows([]string{"one"}).AddRow(1))
 	decision, err = service.HGAuthorizeProductUpdate(context.Background(), "U1", "P1")
 	if err != nil || !decision.Allowed {
 		t.Fatalf("本人已上架商品和有效全局权限应通过预判: %+v %v", decision, err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallProductAuthStateSQL)).WithArgs("P1").
+		WillReturnRows(sqlmock.NewRows(columns).AddRow("U1", "M1", 1, 1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPermission)).
+		WithArgs("U1", "shop", "M1", "mall:product:update").
+		WillReturnRows(sqlmock.NewRows([]string{"one"}).AddRow(1))
+	decision, err = service.HGAuthorizeProductUpdate(context.Background(), "U1", "P1")
+	if err != nil || !decision.Allowed {
+		t.Fatalf("本人已上架商品的匹配店铺权限应通过预判: %+v %v", decision, err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallProductAuthStateSQL)).WithArgs("P1").
+		WillReturnRows(sqlmock.NewRows(columns).AddRow("U1", "M2", 1, 1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPermission)).
+		WithArgs("U1", "shop", "M2", "mall:product:update").
+		WillReturnRows(sqlmock.NewRows([]string{"one"}))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPermission)).
+		WithArgs("U1", "global", "", "mall:product:update").
+		WillReturnRows(sqlmock.NewRows([]string{"one"}))
+	decision, err = service.HGAuthorizeProductUpdate(context.Background(), "U1", "P1")
+	if err != nil || decision.Allowed {
+		t.Fatalf("其他店铺作用域不能授权当前商品: %+v %v", decision, err)
 	}
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGMallProductAuthStateSQL)).WithArgs("P1").
 		WillReturnError(errors.New("数据库不可用"))

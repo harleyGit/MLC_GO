@@ -163,6 +163,9 @@ func hgHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGMFAKeyUnavailable):
 		status, message = http.StatusServiceUnavailable, "MFA 服务暂不可用"
 		code = HGResponsePackage.InternalError.Code
+	case errors.Is(err, ErrHGScopeNotFound):
+		status, message = http.StatusNotFound, "作用域不存在或未生效"
+		code = HGResponsePackage.InvalidParam.Code
 	case errors.Is(err, ErrHGNotFound):
 		status, message = http.StatusNotFound, "目标不存在"
 		code = HGResponsePackage.InvalidParam.Code

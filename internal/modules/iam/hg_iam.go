@@ -11,6 +11,7 @@ var (
 	ErrHGForbidden         = errors.New("无 IAM 管理权限")
 	ErrHGMFAKeyUnavailable = errors.New("IAM MFA 加密密钥不可用")
 	ErrHGNotFound          = errors.New("IAM 记录不存在")
+	ErrHGScopeNotFound     = errors.New("IAM 作用域不存在或未生效")
 	ErrHGConflict          = errors.New("IAM 记录冲突")
 )
 

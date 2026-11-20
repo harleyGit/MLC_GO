@@ -424,13 +424,13 @@ func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor,
 		}
 	}
 	if scopeType != "global" {
-		var orgActive int
-		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMOrganization, scopeID, scopeType).Scan(&orgActive)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHGNotFound
-		}
+		var scopeActive bool
+		scopeActive, err = hgTrustedScope(ctx, tx, scopeType, scopeID)
 		if err != nil {
 			return err
+		}
+		if !scopeActive {
+			return ErrHGScopeNotFound
 		}
 	}
 	var roleCode string
@@ -548,8 +548,27 @@ func (r *HGRepository) hgRevoke(ctx context.Context, actor, requestID, userID st
 }
 
 func (r *HGRepository) hgOrganization(ctx context.Context, scopeType, scopeID string) (bool, error) {
+	return hgTrustedScope(ctx, r.db, scopeType, scopeID)
+}
+
+// hgTrustedScope 在预校验和提交事务中复用同一判断，缩短审核状态变更造成的窗口；
+// 此查询不锁商家行，授权提交后的商家撤销仍须由最终业务接口复核资格。
+// 不查询普通用户或客户端声明的 owner；只按唯一 merchant_id 查已审核商家。
+func hgTrustedScope(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, scopeType, scopeID string) (bool, error) {
 	var one int
-	err := r.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMOrganization, scopeID, scopeType).Scan(&one)
+	err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMOrganization, scopeID, scopeType).Scan(&one)
+	if err == nil {
+		return one == 1, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) || scopeType != "shop" {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	err = db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMApprovedShopScope, scopeID).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

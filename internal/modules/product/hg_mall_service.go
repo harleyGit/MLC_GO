@@ -82,7 +82,8 @@ func (s *HGService) hgAuthorizeOwnProductAction(ctx context.Context, user, produ
 	} else if state.MerchantStatus == 1 && state.ProductStatus == 1 && state.ReviewStatus == 1 {
 		status = "published"
 	}
-	decision, err := s.iam.Authorize(ctx, user, string(HGPermissionPackage.HGMallProductUpdate), IAMPackage.HGResource{ScopeType: "global", OwnerID: state.OwnerID, RequireOwner: true, Status: status, AllowedStatuses: allowedStatuses})
+	// 商家 ID 来自权威商品状态，非客户端提交；全局权限仍由 IAM 的回退分支兼容。
+	decision, err := s.iam.Authorize(ctx, user, string(HGPermissionPackage.HGMallProductUpdate), IAMPackage.HGResource{ScopeType: "shop", ScopeID: state.MerchantID, OwnerID: state.OwnerID, RequireOwner: true, Status: status, AllowedStatuses: allowedStatuses})
 	if err != nil {
 		return err
 	}

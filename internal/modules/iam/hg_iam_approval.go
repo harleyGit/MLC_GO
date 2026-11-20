@@ -100,7 +100,7 @@ func (s *HGService) RequestGrant(ctx context.Context, actor, requestID, otp stri
 			return "", err
 		}
 		if !active {
-			return "", ErrHGNotFound
+			return "", ErrHGScopeNotFound
 		}
 	} else {
 		return "", ErrHGInvalid

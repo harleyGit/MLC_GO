@@ -63,4 +63,7 @@ const (
 	HGBumpIAMRoleVersion       = `UPDATE iam_roles SET version=version+1,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0`
 	HGInsertIAMRolePermission  = `INSERT INTO iam_role_permissions(role_id,permission_id) SELECT ?,id FROM iam_permissions WHERE permission_code=? LIMIT 1`
 	HGSelectIAMOrganization    = `SELECT 1 FROM iam_organizations WHERE id=? AND org_type=? AND status=1 LIMIT 1`
+	// uk_mall_merchant_id 唯一点查；仅审核通过的真实商家可作为未登记 shop 的授权作用域。
+	// IAM 已登记作用域优先沿用旧协议，回退查询不写入表，也不把客户端 ID 当可信登记。
+	HGSelectIAMApprovedShopScope = `SELECT 1 FROM mall_merchant WHERE merchant_id=? AND status=1 LIMIT 1`
 )

@@ -34,7 +34,7 @@ func (s *HGService) HGAuthorizeProductUpdate(ctx context.Context, userID, produc
 		return HGDecision{Reason: "资源状态不允许操作"}, nil
 	}
 	return s.Authorize(ctx, userID, string(HGPermissionPackage.HGMallProductUpdate),
-		HGResource{ScopeType: "global", OwnerID: owner, RequireOwner: true, Status: "published", AllowedStatuses: []string{"published"}})
+		HGResource{ScopeType: "shop", ScopeID: merchantID, OwnerID: owner, RequireOwner: true, Status: "published", AllowedStatuses: []string{"published"}})
 }
 
 // HGAccessGrant 是 Web 权限快照中的单条有效授权，权限与绑定作用域不可拆开合并。

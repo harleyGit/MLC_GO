@@ -15,7 +15,7 @@ import (
 type HGBatchGrantItem struct {
 	RoleID    string `json:"roleId"`    // IAM 角色主键的十进制字符串。
 	ScopeType string `json:"scopeType"` // 字典中的已启用作用域编码。
-	ScopeID   string `json:"scopeId"`   // global 为空；shop/org 为已登记的 ID。
+	ScopeID   string `json:"scopeId"`   // global 为空；shop 可用已审核商家 ID，org 必须已登记。
 }
 
 // HGBatchGrantRequest 是一次 MFA 授予多个绑定的协议；最多 12 项，全部成功或全部回滚。

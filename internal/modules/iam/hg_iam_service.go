@@ -314,7 +314,7 @@ func (s *HGService) hgValidateGrant(ctx context.Context, actor, userID string, r
 			return err
 		}
 		if !active {
-			return ErrHGNotFound
+			return ErrHGScopeNotFound
 		}
 	} else {
 		return ErrHGInvalid
@@ -385,5 +385,5 @@ func (s *HGService) SetRolePermissions(ctx context.Context, actor, requestID str
 
 // IsDenied 供 HTTP 层区分业务拒绝和依赖失败。
 func IsDenied(err error) bool {
-	return errors.Is(err, ErrHGForbidden) || errors.Is(err, ErrHGInvalid) || errors.Is(err, ErrHGNotFound) || errors.Is(err, ErrHGConflict)
+	return errors.Is(err, ErrHGForbidden) || errors.Is(err, ErrHGInvalid) || errors.Is(err, ErrHGNotFound) || errors.Is(err, ErrHGScopeNotFound) || errors.Is(err, ErrHGConflict)
 }
