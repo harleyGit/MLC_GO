@@ -13,14 +13,18 @@ import (
 
 // HGModule 将站内通知、偏好、受权限约束的管理视图分别挂载；不承载 IM 私信。
 type HGModule struct {
-	base       string                            // 路由前缀，仅限下述三类协议入口。
-	handler    *NotificationPackage.HGHandler    // 复用同一通知业务实例。
-	authorizer HGRouterPackage.HGRouteAuthorizer // 管理入口 IAM 校验器。
+	base            string                                 // 路由前缀，仅限下述三类协议入口。
+	handler         *NotificationPackage.HGHandler         // 复用同一通知业务实例。
+	templateHandler *NotificationPackage.HGTemplateHandler // 独立管理端模板事务入口。
+	authorizer      HGRouterPackage.HGRouteAuthorizer      // 管理入口 IAM 校验器。
 }
 
 func (m *HGModule) Name() string     { return "notification" }
 func (m *HGModule) BasePath() string { return m.base }
 func (m *HGModule) Handler() http.Handler {
+	if m.base == "/api/v1/admin/notification" {
+		return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, hgTemplateRoutes(m.templateHandler))
+	}
 	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, hgRoutes(m.base, m.handler))
 }
 
@@ -31,6 +35,10 @@ func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, authorize
 	for _, base := range []string{"/api/v1/notifications", "/api/v1/notification", "/admin/v1/notification"} {
 		HGHandlerPackage.RegisterModule(&HGModule{base: base, handler: handler, authorizer: authorizer})
 	}
+	HGHandlerPackage.RegisterModule(&HGModule{
+		base: "/api/v1/admin/notification", templateHandler: NotificationPackage.HGNewTemplateHandler(NotificationPackage.HGNewTemplateRepository(sqlManager.GetSQLDB())),
+		authorizer: authorizer,
+	})
 	return service
 }
 
@@ -45,7 +53,24 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 	for _, base := range []string{"/api/v1/notifications", "/api/v1/notification", "/admin/v1/notification"} {
 		items = append(items, HGRouterPackage.BuildRouteCatalogItems(hgRoutes(base, nil))...)
 	}
+	items = append(items, HGRouterPackage.BuildRouteCatalogItems(hgTemplateRoutes(nil))...)
 	return items
+}
+
+// hgTemplateRoutes 按 HTTP 方法区分读写，路由 IAM 校验先于业务 handler。
+func hgTemplateRoutes(h *NotificationPackage.HGTemplateHandler) []HGRouterPackage.RouteSpec {
+	const base = "/api/v1/admin/notification"
+	var list, detail, create, update, remove http.HandlerFunc
+	if h != nil {
+		list, detail, create, update, remove = h.HGList, h.HGDetail, h.HGCreate, h.HGUpdate, h.HGDelete
+	}
+	return []HGRouterPackage.RouteSpec{
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates", true, "游标查询通知模板", list, HGPermissionPackage.HGNotificationTemplateRead),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates/detail", true, "通知模板最新版本详情", detail, HGPermissionPackage.HGNotificationTemplateRead),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates", true, "创建通知模板草稿", create, HGPermissionPackage.HGNotificationTemplateCreate),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPut, base, "/templates/update", true, "按版本编辑通知模板", update, HGPermissionPackage.HGNotificationTemplateUpdate),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/delete", true, "按版本软删除通知模板草稿", remove, HGPermissionPackage.HGNotificationTemplateDelete),
+	}
 }
 
 func hgRoutes(base string, h *NotificationPackage.HGHandler) []HGRouterPackage.RouteSpec {

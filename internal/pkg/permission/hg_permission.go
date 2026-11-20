@@ -57,6 +57,10 @@ const (
 	HGNotificationChannelRead    HGPermission = "notification:channel:read"     // 查看站内信与未接供应商渠道的真实可用状态。
 	HGNotificationDeliveryRead   HGPermission = "notification:delivery:read"    // 查看站内通知投递记录，不包括私信内容。
 	HGNotificationChannelSend    HGPermission = "notification:channel:send"     // 仅向本人发送有界站内试通知，不是运营群发。
+	HGNotificationTemplateRead   HGPermission = "notification:template:read"    // 查询通知模板草稿；不允许发送。
+	HGNotificationTemplateCreate HGPermission = "notification:template:create"  // 创建模板草稿。
+	HGNotificationTemplateUpdate HGPermission = "notification:template:update"  // 生成新草稿版本，禁止覆盖历史版本。
+	HGNotificationTemplateDelete HGPermission = "notification:template:delete"  // 仅软删除未发布模板。
 	HGMediaInventoryRead         HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
 )
 
@@ -104,6 +108,10 @@ var hgPermissions = [...]HGPermission{
 	HGNotificationChannelRead,
 	HGNotificationDeliveryRead,
 	HGNotificationChannelSend,
+	HGNotificationTemplateRead,
+	HGNotificationTemplateCreate,
+	HGNotificationTemplateUpdate,
+	HGNotificationTemplateDelete,
 	HGMediaInventoryRead,
 }
 
