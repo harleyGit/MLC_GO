@@ -4,11 +4,11 @@
 
 IAM 页面只在首次连接时调用 `/api/v1/iam/me/realtime` 获取绑定 `sid` 的代理票据（最长七天，不是 Centrifugo 连接 JWT）；SDK 不再用 `getToken` 定期调用此接口。Centrifugo 必须按 `deployments/im/hg_centrifugo.example.json` 配置 **client connect proxy**，通过独立 `MLC_IM_RPC_PROXY_SECRET` 静态请求头访问受控网络中的 `/internal/im/centrifugo/iam-connect`；网关每次无 JWT 重连回查 Redis 会话及强制下线状态，失败时拒绝连接。管理员主动退出调用 JWT 保护的 `POST /api/v1/iam/me/logout`，先删除当前 `sid`，再按 `iam/<user>/<sid>` 精确断开该会话的 Socket；其他设备不受影响。网关不可用时前端明确提示远端断开未确认，不把本地退出误报成远端撤销。模板未发布时使用受控纯文本兜底，仍先幂等写入消息中心的系统通知，再发布当前权威快照。若未升级网关代理配置，不得上线新的无 JWT IAM 客户端：它会拒绝连接。
 
-**当前验收阻塞**：本机 debug 网关的 connect proxy 已能接受有效会话；随机会话验收中，服务端主动 `disconnect` 已连接用户连续两次在 5 秒预算内失败，不能声称“主动退出后旧连接立即失效”。撤销的 `sid` 在重连时会被代理拒绝，但已连接 Socket 的立即断开、前端真实账号退出与通知显示尚未验收；不得在此问题解决前按强撤销能力上线。
+**本机 debug 强撤销验收已通过**：`MLC_IAM_PROXY_ACCEPTANCE=1` 的隔离测试创建随机、90 秒 TTL 的两条同用户 Redis 登录会话，经 JWT 鉴权的 `HGLogoutRealtime` 撤销其中一个会话；确认旧 Socket 被网关立即关闭、旧 access token 和旧连接票据都被拒绝、另一会话仍保留并能收到本人频道发布。此前断连 API 超时与验收脚本没有像浏览器 SDK 一样持续读取 WebSocket 有关；调整测试持续读取后通过。角色模板存在/缺失的通知落库与快照推送已有 SQL mock 测试，消息中心收到 IAM 通知事件后补拉的前端用例通过。上述验收使用临时会话和测试替身，**不是**实际账号、浏览器页面或 pre/prod 网关验收；实际账号角色变更还需明确隔离测试用户和角色 ID。
 
 `MLC_IM_REALTIME_ENABLED=true` 在 debug 维持原 IM 聊天/媒体配置；在 pre/prod **只**启动 IAM 本人 Centrifugo 频道和事务性投递工作者，不启动聊天 Kafka 消费、设备投递、媒体、通话或网关 RPC 代理。pre/prod 的 `MLC_IM_MEDIA_ENABLED` / `MLC_IM_CALL_ENABLED` 必须保持 false。未显式启用现有实时开关时，`/api/v1/iam/me/access` 保持一分钟快照复核；不要声称所有环境均已取消轮询。
 
-开启前由部署方先在目标库执行并核对 `000079_iam_access_delivery`（debug 已验收，不等于 pre/prod 已迁移），按需发布双渠道 `iam.role.updated` 模板，配置独立网关 API URL/Key、代理签名密钥和浏览器 WebSocket URL，并确认网关已有 `im` 命名空间、仅服务端发布且客户端只能通过受保护的 connect proxy 自动订阅 `im:iam:<userID>`。服务端角色变更事务不依赖网关在线；通知和快照工作任务失败留在 MySQL 重试，断线后 `/api/v1/iam/me/sync` 补偿。服务端业务授权始终从权威数据校验，前端 IndexedDB 不参与鉴权。旧版 debug 随机测试频道曾验证 JWT 自动订阅、网关发布和 WebSocket 收到事件，**不等于新版 connect proxy 已验收**；pre/prod 网关、数据库和实际账号通知尚未验收，部署时需逐环境核验连接、权限撤销、消息中心和监控。
+开启前由部署方先在目标库执行并核对 `000079_iam_access_delivery`（debug 已验收，不等于 pre/prod 已迁移），按需发布双渠道 `iam.role.updated` 模板，配置独立网关 API URL/Key、代理签名密钥和浏览器 WebSocket URL，并确认网关已有 `im` 命名空间、仅服务端发布且客户端只能通过受保护的 connect proxy 自动订阅 `im:iam:<userID>`。服务端角色变更事务不依赖网关在线；通知和快照工作任务失败留在 MySQL 重试，断线后 `/api/v1/iam/me/sync` 补偿。服务端业务授权始终从权威数据校验，前端 IndexedDB 不参与鉴权。本机 debug 随机会话已验证新版 connect proxy、服务端登出、Socket 断开、旧票据重连拒绝和跨会话隔离；**pre/prod 网关、数据库和实际账号通知尚未验收**，部署时需逐环境核验连接、权限撤销、消息中心和监控。
 
 依据 `/Users/ganghuang/Desktop/IM-消息.md`，在现有 `internal/modules/im` 增量实现单聊实时指针投递、私有媒体和 LiveKit 单聊呼叫。**代码接入不等于完整单聊 IM 已上线，也没有千万连接/亿级容量证据。** 本机 debug 已启动隔离存储、ClamAV、Centrifugo 和仅覆盖裸露类别的本地审核模型，私有配置中实时与媒体已显式开启（须重启原 VS Code debug 进程后生效）；聊天扩展默认关闭，pre/prod 只允许显式启用下述 IAM 本人频道，不开放聊天扩展。
 
