@@ -17,7 +17,9 @@ var hgPermissionCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*:[a-z][a-z0-9_
 
 // HGService 对管理端做默认拒绝鉴权，业务授权直接读取 MySQL 权威数据。
 type HGService struct {
-	repo *HGRepository // IAM 权威存储；失败时不放行。
+	repo        *HGRepository   // IAM 权威存储；失败时不放行。
+	realtime    HGRealtimeGrant // 可选用户实时通道，仅服务端签发订阅 token。
+	realtimeURL string          // 客户端已有 Centrifugo 网关端点；未启用时为空。
 }
 
 // NewHGService 注入 IAM Repository。

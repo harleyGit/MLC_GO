@@ -12,6 +12,7 @@ import (
 	CrawlerRuntimePackage "MLC_GO/internal/modules/crawler/runtime"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	CrawlerSpiderPackage "MLC_GO/internal/modules/crawler/spider"
+	IAMPackage "MLC_GO/internal/modules/iam"
 	IAMModulePackage "MLC_GO/internal/modules/iam/module"
 	IMModulePackage "MLC_GO/internal/modules/im/module"
 	"MLC_GO/internal/modules/mallcny"
@@ -484,10 +485,10 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册运维管理模块
 	opsComponents := OpsModulePackage.RegisterModules(redisService, sqlManager)
 	// 注册 IAM 管理模块，复用应用的 JWT 与 MySQL 连接。
-	IAMModulePackage.RegisterHGModule(sqlManager, redisService)
+	iamService := IAMModulePackage.RegisterHGModule(sqlManager, redisService)
 	// 通知是独立收件箱业务，绝不复用视频弹幕的实时广播与存储。
-	NotificationModulePackage.HGRegisterModules(sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager))
-	// IM 扩展默认关闭；启用时使用独立 topic、设备网关、私有媒体和呼叫状态机。
+	notificationService := NotificationModulePackage.HGRegisterModules(sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager))
+	// debug 可启用完整 IM 扩展；pre/prod 显式开启实时开关时只启用 IAM 本人频道。
 	imKafkaConfig, _, imKafkaErr := ConfigPackage.GetKafkaConfig()
 	if imKafkaErr != nil {
 		return nil, fmt.Errorf("IM 业务事件 topic 未配置: %w", imKafkaErr)
@@ -502,8 +503,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 			imRuntime.Close()
 		}
 	}()
-	// 没有隔离设施联调证据，保持 pre/prod 不注册。
-	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug {
+	// 非 debug 显式开启现有 IM 实时开关时仅注册 IAM 本人频道，不开放聊天扩展。
+	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug || imFeatureConfig.IAMOnly {
 		imRuntime, err = IMModulePackage.HGRegisterConfigured(sqlManager.GetSQLDB(), imKafkaConfig.Business.Topics[0], imFeatureConfig, imKafkaConfig.Business)
 		if err != nil {
 			if videoDanmakuComponents.Realtime != nil {
@@ -528,6 +529,11 @@ func buildMLCApplication() (*MLCApplication, error) {
 			HGLoggerPackage.CloseLogger()
 			return nil, fmt.Errorf("IM 扩展初始化失败: %w", err)
 		}
+	}
+	if imRuntime != nil {
+		imRuntime.HGEnableIAMDelivery(iamService,
+			IAMPackage.HGNewAccessDelivery(sqlManager.GetSQLDB(), iamService, notificationService, imRuntime.HGIAMGateway()),
+			imFeatureConfig.WebSocketURL)
 	}
 	// 读取爬虫任务配置
 	crawlerTaskConfig, err := ConfigPackage.GetCrawlerTaskConfig()

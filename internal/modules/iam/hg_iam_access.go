@@ -68,8 +68,11 @@ func (s *HGService) AccessSnapshot(ctx context.Context, userID string) (HGAccess
 	}
 	defer rows.Close()
 	seenRoles := make(map[string]bool)
-	// 短期快照限制撤权后的前端展示窗口；实际写操作继续直查 MySQL。
+	// 仅在实时通道可用时取消一分钟复核；旧环境保持短期快照的默认拒绝语义。
 	result.ExpiresAt = time.Now().UTC().Add(time.Minute)
+	if s.realtime != nil {
+		result.ExpiresAt = time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
+	}
 	for rows.Next() {
 		var role string
 		var grant HGAccessGrant

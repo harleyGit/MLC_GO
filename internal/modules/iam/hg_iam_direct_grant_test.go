@@ -111,6 +111,7 @@ func TestHGGrantDirectTransactionWritesBindingAndAudit(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMBinding)).WithArgs("TARGET", uint64(7), "shop", "shop-1", nil, "ACTOR").WillReturnResult(sqlmock.NewResult(18, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGBumpIAMPolicyRevision)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMAudit)).WithArgs("ACTOR", "iam.binding.grant_direct", "user", "TARGET", "request-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(19, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMDeliveryJob)).WithArgs("user", "TARGET", "reviewer").WillReturnResult(sqlmock.NewResult(20, 1))
 	mock.ExpectCommit()
 	tx, err := service.repo.db.Begin()
 	if err != nil {
@@ -142,6 +143,7 @@ func TestHGGrantDirectReactivationClearsOldBindingLimit(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGDeleteIAMBindingLimit)).WithArgs(uint64(18)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGBumpIAMPolicyRevision)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMAudit)).WithArgs("ACTOR", "iam.binding.grant_direct", "user", "TARGET", "request-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(19, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMDeliveryJob)).WithArgs("user", "TARGET", "reviewer").WillReturnResult(sqlmock.NewResult(20, 1))
 	mock.ExpectCommit()
 	tx, err := service.repo.db.Begin()
 	if err != nil {

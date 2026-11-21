@@ -105,6 +105,8 @@ func TestHGGrantTxApprovedMerchantWritesBinding(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGBumpIAMPolicyRevision)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMAudit)).
 		WithArgs("ACTOR", "iam.binding.grant_direct", "user", "TARGET", "request-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(19, 1))
+	mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGInsertIAMDeliveryJob)).
+		WithArgs("user", "TARGET", "operator").WillReturnResult(sqlmock.NewResult(20, 1))
 	mock.ExpectCommit()
 	tx, err := service.repo.db.Begin()
 	if err != nil {

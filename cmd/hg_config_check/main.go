@@ -1,6 +1,7 @@
 package main
 
 import (
+	NotificationPackage "MLC_GO/internal/modules/notification"
 	ClickHouse "MLC_GO/internal/pkg/clickhouse"
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
@@ -30,7 +31,7 @@ func main() {
 	// flag.Parse 必须在读取参数值前执行，否则始终只能得到默认值【在终端如脚本：xxx.sh --env=pre --config-dir=/xxx/config --check=mysql, 第三个参数在 -h、-help时才显示。】。
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
-	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types 或 notification-counter-ready；为空时只输出非敏感地址")
+	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types、iam-role-template 或 notification-counter-ready；为空时只输出非敏感地址")
 	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
@@ -93,6 +94,31 @@ func main() {
 			exitWithError(hgErr)
 		}
 		fmt.Printf("migration_version=%d dirty=%t\n", hgVersion, hgDirty)
+	case "iam-role-template":
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(fmt.Errorf("角色模板状态检查不可用"))
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		var latest uint32
+		var published sql.NullInt64
+		var status string
+		var realtime bool
+		hgErr = hgDB.QueryRowContext(hgCtx, SQLQueriesPackage.HGIAMRoleTemplateStateSQL).Scan(&latest, &published, &status, &realtime)
+		if hgErr == sql.ErrNoRows {
+			fmt.Println("iam_role_template_exists=false")
+			return
+		}
+		if hgErr != nil {
+			exitWithError(fmt.Errorf("角色模板状态检查失败"))
+		}
+		var title, body string
+		var schema []byte
+		hgErr = hgDB.QueryRowContext(hgCtx, SQLQueriesPackage.HGIAMRoleTemplateDraftSQL).Scan(&title, &body, &schema)
+		hgValid := hgErr == nil && NotificationPackage.HGValidateRolePublished(title, body, schema, []byte(`["in_app","realtime"]`)) == nil
+		fmt.Printf("iam_role_template_exists=true latest_version=%d published_version=%d status=%s latest_realtime=%t publishable_with_realtime=%t\n", latest, published.Int64, status, realtime, hgValid)
 	case "notification-counter-ready":
 		// 只读验证新投影是否具备完整基线；不查询用户数据，不输出数据库凭据。
 		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())

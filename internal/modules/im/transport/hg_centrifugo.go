@@ -64,6 +64,35 @@ func (g *HGCentrifugo) HGPublish(ctx context.Context, device string, payload jso
 	return nil
 }
 
+// HGUserToken 为服务端认证的业务用户自动订阅 IAM 私有频道；前端无法指定其他用户频道。
+func (g *HGCentrifugo) HGUserToken(userID string) (string, error) {
+	now := time.Now()
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "iam/" + userID, "iss": "mlc-im", "aud": "centrifugo", "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
+		"channels": []string{HGAccessChannel(userID)},
+	}).SignedString(g.secret)
+}
+
+// HGAccessChannel 复用网关已部署的 im 命名空间；iam: 前缀与 32 位十六进制设备频道互斥。
+func HGAccessChannel(userID string) string { return "im:iam:" + userID }
+
+// HGPublishUser 仅接受服务端从权威 IAM 读取的权限快照，网关确认不是设备 ACK，断线由本人同步补偿。
+func (g *HGCentrifugo) HGPublishUser(ctx context.Context, userID string, payload json.RawMessage) error {
+	pipe := g.sdk.Pipe()
+	if err := pipe.AddPublish(HGAccessChannel(userID), payload); err != nil {
+		return fmt.Errorf("IAM 实时发布参数无效")
+	}
+	result, err := g.sdk.SendPipe(ctx, pipe)
+	if err != nil || len(result) != 1 || result[0].Error != nil {
+		return fmt.Errorf("IAM 实时网关未确认发布")
+	}
+	var publication map[string]any
+	if json.Unmarshal(result[0].Result, &publication) != nil || publication == nil {
+		return fmt.Errorf("IAM 实时网关未确认发布")
+	}
+	return nil
+}
+
 // hgCentrifugoTransport 保持原网关凭据头及 64KiB 响应上限，不让 SDK 回显外部正文。
 type hgCentrifugoTransport struct{ base http.RoundTripper }
 

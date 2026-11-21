@@ -35,7 +35,9 @@ type HGTemplate struct {
 }
 
 // HGTemplateRepository 只管理模板表，不触碰既有收件箱及通知投递链。
-type HGTemplateRepository struct{ db *sql.DB /* 复用工程共享 MySQL 连接池，不由模板仓储关闭。 */ }
+type HGTemplateRepository struct {
+	db *sql.DB /* 复用工程共享 MySQL 连接池，不由模板仓储关闭。 */
+}
 
 // HGNewTemplateRepository 使用既有 MySQL 连接池。
 func HGNewTemplateRepository(db *sql.DB) *HGTemplateRepository { return &HGTemplateRepository{db: db} }
@@ -171,6 +173,51 @@ func (repo *HGTemplateRepository) HGDelete(ctx context.Context, id uint64, expec
 	}
 	if _, err = tx.ExecContext(ctx, queries.HGNotificationTemplateDeleteSQL, user, id); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+// HGPublish 仅发布已经持久化的 iam.role.updated 版本；锁定主表防止编辑/删除覆盖版本选择。
+func (repo *HGTemplateRepository) HGPublish(ctx context.Context, id uint64, expected uint32, user string) error {
+	tx, err := repo.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version uint32
+	var status, code string
+	err = tx.QueryRowContext(ctx, queries.HGNotificationTemplatePublishLockSQL, id).Scan(&version, &status, &code)
+	if errors.Is(err, sql.ErrNoRows) || status == "deleted" {
+		return HGErrTemplateMissing
+	}
+	if err != nil {
+		return err
+	}
+	if code != "iam.role.updated" || version != expected {
+		return HGErrTemplateConflict
+	}
+	var title, body string
+	var schema, channels []byte
+	err = tx.QueryRowContext(ctx, queries.HGNotificationTemplatePublishVersionSQL, id, version).Scan(&title, &body, &schema, &channels)
+	if err != nil {
+		return err
+	}
+	if err = hgValidateRolePublish(title, body, schema, channels); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, queries.HGNotificationTemplatePublishVersionUpdateSQL, id, version); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, queries.HGNotificationTemplatePublishSQL, version, user, id, version)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return HGErrTemplateConflict
 	}
 	return tx.Commit()
 }

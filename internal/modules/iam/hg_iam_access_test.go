@@ -121,3 +121,28 @@ func TestHGAccessSnapshotRejectsOverflow(t *testing.T) {
 		t.Fatal("超出上限不能返回截断授权")
 	}
 }
+
+type hgTestRealtimeGrant struct{}
+
+func (hgTestRealtimeGrant) HGUserToken(string) (string, error) { return "fixture", nil }
+
+func TestHGAccessSnapshotRealtimeDisablesMinutePolling(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := NewHGService(NewHGRepository(db))
+	service.HGWithRealtime(hgTestRealtimeGrant{}, "ws://127.0.0.1:8000/connection/websocket")
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPolicyRevision)).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMAccessGrants)).WithArgs("U1").
+		WillReturnRows(sqlmock.NewRows([]string{"role_code", "permission_code", "scope_type", "scope_id", "expires_at"}))
+	snapshot, err := service.AccessSnapshot(context.Background(), "U1")
+	if err != nil || snapshot.ExpiresAt.Year() != 2099 {
+		t.Fatalf("已启用私有 IM 通道时不应每分钟刷新: %+v %v", snapshot, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

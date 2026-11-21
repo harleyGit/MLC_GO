@@ -167,7 +167,9 @@ func hgTemplateDBError(err error) error {
 }
 
 // HGTemplateHandler 将管理端模板 CRUD 映射到受 IAM 权限保护的事务仓储。
-type HGTemplateHandler struct{ repo *HGTemplateRepository /* 负责受限的模板增删改查事务。 */ }
+type HGTemplateHandler struct {
+	repo *HGTemplateRepository /* 负责受限的模板增删改查事务。 */
+}
 
 // HGNewTemplateHandler 复用共享连接池。
 func HGNewTemplateHandler(repo *HGTemplateRepository) *HGTemplateHandler {
@@ -324,4 +326,31 @@ func (handler *HGTemplateHandler) HGDelete(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, map[string]bool{"deleted": true})
+}
+
+// HGPublish 仅允许拥有模板更新权限的管理员发布角色变更通知的当前已保存版本。
+func (handler *HGTemplateHandler) HGPublish(w http.ResponseWriter, r *http.Request) {
+	id, err := hgTemplatePathID(r)
+	if err != nil {
+		hgTemplateFail(w, r, err)
+		return
+	}
+	user, err := hgTemplateUser(r)
+	var request struct {
+		Version uint32 `json:"version"` // 期望发布版本，零值或过期版本拒绝。
+	}
+	if err == nil {
+		err = hgTemplateBody(w, r, &request)
+	}
+	if err == nil && request.Version == 0 {
+		err = HGErrInvalid
+	}
+	if err == nil {
+		err = handler.repo.HGPublish(r.Context(), id, request.Version, user)
+	}
+	if err != nil {
+		hgTemplateFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"id": hgTemplateID(id), "published_version": request.Version, "status": "published"})
 }

@@ -197,6 +197,9 @@ func (r *HGRepository) hgEnsureBusinessRole(ctx context.Context, userID, query s
 		return err
 	}
 	if n == 1 {
+		if err = hgBumpRevision(ctx, tx); err != nil {
+			return err
+		}
 		if err = hgAudit(ctx, tx, userID, "iam.business_role.onboard", "user", userID, "onboard", map[string]any{}); err != nil {
 			return err
 		}
@@ -256,6 +259,34 @@ func hgAudit(ctx context.Context, tx *sql.Tx, actor, action, targetType, targetI
 		return err
 	}
 	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMAudit, actor, action, targetType, targetID, requestID, data)
+	if err != nil {
+		return err
+	}
+	// 与审计同一事务持久化变更：网络故障或进程退出不丢失通知任务。
+	hgTarget := ""
+	switch action {
+	case "iam.binding.grant", "iam.binding.grant_direct", "iam.binding.revoke", "iam.business_role.onboard":
+		if targetType == "user" {
+			hgTarget = "user"
+		}
+	case "iam.role.update", "iam.role.permissions", "iam.role.disable":
+		if targetType == "role" {
+			hgTarget = "role"
+		}
+	}
+	if hgTarget == "" {
+		return nil
+	}
+	hgName := ""
+	if fields, ok := detail.(map[string]any); ok {
+		if name, ok := fields["name"].(string); ok {
+			hgName = name
+		}
+		if name, ok := fields["roleCode"].(string); ok {
+			hgName = name
+		}
+	}
+	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMDeliveryJob, hgTarget, targetID, hgName)
 	return err
 }
 
@@ -319,6 +350,9 @@ func (r *HGRepository) hgUpdateRole(ctx context.Context, actor, requestID string
 	}
 	if n == 0 {
 		return HGRole{}, ErrHGConflict
+	}
+	if err = hgBumpRevision(ctx, tx); err != nil {
+		return HGRole{}, err
 	}
 	if err = hgAudit(ctx, tx, actor, "iam.role.update", "role", strconv.FormatUint(id, 10), requestID, map[string]any{"name": name}); err != nil {
 		return HGRole{}, err

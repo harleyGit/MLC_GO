@@ -14,6 +14,7 @@ import (
 // HGConfig 由现有环境加载机制注入；外部能力默认关闭，凭据只读服务端环境变量。
 type HGConfig struct {
 	Realtime         bool   // 实时消费和后台重试开关。
+	IAMOnly          bool   // 非 debug 显式启用实时开关时仅提供 IAM 本人频道，不启动未验收的聊天能力。
 	Media            bool   // 私有媒体开关，依赖审核器。
 	Calls            bool   // LiveKit 单聊呼叫开关。
 	Topic            string // 独立 IM topic，不能与现有业务 topic 共用。
@@ -36,7 +37,7 @@ type HGConfig struct {
 	livekitSecret    string // LiveKit API Secret。
 }
 
-// HGLoadConfig 只做静态校验；pre/prod 仍不可启用，外部设施验收后需单独评审解除门禁。
+// HGLoadConfig 只做静态校验；非 debug 复用现有实时开关，但仅注册 IAM 私有频道。
 func HGLoadConfig() (HGConfig, error) {
 	var cfg HGConfig
 	for name, target := range map[string]*bool{"MLC_IM_REALTIME_ENABLED": &cfg.Realtime, "MLC_IM_MEDIA_ENABLED": &cfg.Media, "MLC_IM_CALL_ENABLED": &cfg.Calls} {
@@ -54,18 +55,21 @@ func HGLoadConfig() (HGConfig, error) {
 	if !cfg.Realtime {
 		return cfg, nil
 	}
-	if Config.GetEnv() != Config.EnvDebug {
-		return cfg, fmt.Errorf("IM 扩展仅允许隔离 debug 配置，pre/prod 尚未验收")
+	cfg.IAMOnly = Config.GetEnv() != Config.EnvDebug
+	if cfg.IAMOnly && (cfg.Media || cfg.Calls) {
+		return cfg, fmt.Errorf("pre/prod 的媒体和通话尚未验收，只允许 IAM 本人频道")
 	}
-	cfg.Topic = os.Getenv("MLC_IM_TOPIC")
-	cfg.Group = os.Getenv("MLC_IM_CONSUMER_GROUP")
-	if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,248}$`).MatchString(cfg.Topic) || cfg.Group == "" || len(cfg.Group) > 200 {
-		return cfg, fmt.Errorf("IM 专用 topic 和消费组必须显式配置")
+	if !cfg.IAMOnly {
+		cfg.Topic = os.Getenv("MLC_IM_TOPIC")
+		cfg.Group = os.Getenv("MLC_IM_CONSUMER_GROUP")
+		if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,248}$`).MatchString(cfg.Topic) || cfg.Group == "" || len(cfg.Group) > 200 {
+			return cfg, fmt.Errorf("IM 专用 topic 和消费组必须显式配置")
+		}
+		cfg.rpcProxySecret = os.Getenv("MLC_IM_RPC_PROXY_SECRET")
 	}
 	cfg.centrifugoURL = os.Getenv("MLC_IM_CENTRIFUGO_API_URL")
 	cfg.centrifugoKey = os.Getenv("MLC_IM_CENTRIFUGO_API_KEY")
 	cfg.centrifugoSecret = os.Getenv("MLC_IM_CENTRIFUGO_TOKEN_SECRET")
-	cfg.rpcProxySecret = os.Getenv("MLC_IM_RPC_PROXY_SECRET")
 	cfg.WebSocketURL = os.Getenv("MLC_IM_CENTRIFUGO_WS_URL")
 	if err := hgWebSocketURL(cfg.WebSocketURL); err != nil {
 		return cfg, err
@@ -76,7 +80,7 @@ func HGLoadConfig() (HGConfig, error) {
 	if len(cfg.centrifugoKey) < 16 || len(cfg.centrifugoSecret) < 32 {
 		return cfg, fmt.Errorf("Centrifugo 独立密钥缺失")
 	}
-	if len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey {
+	if !cfg.IAMOnly && (len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey) {
 		return cfg, fmt.Errorf("IM RPC 代理密钥缺失或与网关密钥共用：请在本机运行环境设置独立的 MLC_IM_RPC_PROXY_SECRET，并同步至 Centrifugo 服务端 RPC 代理固定请求头")
 	}
 	if cfg.Media {

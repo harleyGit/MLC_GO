@@ -1,6 +1,12 @@
 # IM 后端接入与当前验收边界
 
-依据 `/Users/ganghuang/Desktop/IM-消息.md`，在现有 `internal/modules/im` 增量实现单聊实时指针投递、私有媒体和 LiveKit 单聊呼叫。**代码接入不等于完整单聊 IM 已上线，也没有千万连接/亿级容量证据。** 本机 debug 已启动隔离存储、ClamAV、Centrifugo 和仅覆盖裸露类别的本地审核模型，私有配置中实时与媒体已显式开启（须重启原 VS Code debug 进程后生效）；默认关闭，pre/prod 仍不注册 IM。
+## IAM 本人频道（独立于聊天扩展）
+
+`MLC_IM_REALTIME_ENABLED=true` 在 debug 维持原 IM 聊天/媒体配置；在 pre/prod **只**启动 IAM 本人 Centrifugo 频道和事务性投递工作者，不启动聊天 Kafka 消费、设备投递、媒体、通话或网关 RPC 代理。pre/prod 的 `MLC_IM_MEDIA_ENABLED` / `MLC_IM_CALL_ENABLED` 必须保持 false。未显式启用现有实时开关时，`/api/v1/iam/me/access` 保持一分钟快照复核；不要声称所有环境均已取消轮询。
+
+开启前由部署方先在目标库执行并核对 `000079_iam_access_delivery`（debug 已验收，不等于 pre/prod 已迁移），发布双渠道 `iam.role.updated` 模板，配置独立网关 API URL/Key、连接 JWT 密钥和浏览器 WebSocket URL，并确认网关已有 `im` 命名空间、仅服务端发布且客户端只通过 JWT 自动订阅 `im:iam:<userID>`。服务端角色变更事务不依赖网关在线；通知和快照工作任务失败留在 MySQL 重试，断线后 `/api/v1/iam/me/sync` 补偿。服务端业务授权始终从权威数据校验，前端 IndexedDB 不参与鉴权。debug 随机测试频道已验证 JWT 自动订阅、网关发布和 WebSocket 收到事件；**pre/prod 网关、数据库和实际账号通知尚未验收**，部署时需逐环境核验连接、权限撤销、消息中心和监控。
+
+依据 `/Users/ganghuang/Desktop/IM-消息.md`，在现有 `internal/modules/im` 增量实现单聊实时指针投递、私有媒体和 LiveKit 单聊呼叫。**代码接入不等于完整单聊 IM 已上线，也没有千万连接/亿级容量证据。** 本机 debug 已启动隔离存储、ClamAV、Centrifugo 和仅覆盖裸露类别的本地审核模型，私有配置中实时与媒体已显式开启（须重启原 VS Code debug 进程后生效）；聊天扩展默认关闭，pre/prod 只允许显式启用下述 IAM 本人频道，不开放聊天扩展。
 
 ## 代码与数据边界
 

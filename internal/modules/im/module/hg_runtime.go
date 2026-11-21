@@ -3,6 +3,7 @@ package module
 import (
 	IMConsumer "MLC_GO/internal/consumer/im"
 	KafkaRuntime "MLC_GO/internal/infrastructure/kafka"
+	IAM "MLC_GO/internal/modules/iam"
 	IM "MLC_GO/internal/modules/im"
 	"MLC_GO/internal/modules/im/transport"
 	Config "MLC_GO/internal/pkg/config"
@@ -25,6 +26,8 @@ type HGRuntime struct {
 	reviewer       *transport.HGReviewer        // 审核服务连接池。
 	livekit        *transport.HGLiveKit         // 通话控制连接池。
 	realtime       *IM.HGRealtime               // 设备投递任务。
+	iamOnly        bool                         // 非 debug 仅运行 IAM 投递，不注册聊天或 Kafka 消费。
+	iamDelivery    *IAM.HGAccessDelivery        // IAM 授权变更的有界站内与实时投递任务。
 	media          *IM.HGPrivateMedia           // 可选审核任务。
 	calls          *IM.HGCalls                  // 可选呼叫超时/清理任务。
 	client         *kgo.Client                  // IM 独立 Kafka 消费组。
@@ -37,7 +40,7 @@ type HGRuntime struct {
 	started        bool                         // 未启动时 Ready 失败。
 	closed         bool                         // 与 Start 互斥，防止 Close 后启动后台任务。
 	consumerErr    error                        // 消费循环异常退出，不自动清除。
-	workerErrors   map[string]error             // 固定三个后台任务的最近错误，恢复后清除。
+	workerErrors   map[string]error             // 固定任务的最近错误，恢复后清除。
 	workerFailures map[string]uint64            // 固定低基数任务失败计数。
 	rpc            http.Handler                 // 仅管理面挂载的受保护网关代理。
 }
@@ -47,6 +50,16 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 	if !cfg.Realtime {
 		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)), db)
 		return nil, nil
+	}
+	if cfg.IAMOnly {
+		r := &HGRuntime{iamOnly: true, workerErrors: make(map[string]error), workerFailures: make(map[string]uint64)}
+		var err error
+		r.gateway, err = transport.HGNewCentrifugo(cfg.centrifugoURL, cfg.centrifugoKey, cfg.centrifugoSecret)
+		if err != nil {
+			return nil, err
+		}
+		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)), db)
+		return r, nil
 	}
 	for _, topic := range cluster.Topics {
 		if topic == cfg.Topic {
@@ -123,17 +136,22 @@ func (r *HGRuntime) Start() {
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancel = cancel
 		r.started = true
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
-			err := KafkaRuntime.RunDomainEventConsumerWithLagObserver(ctx, r.client, "business", r.observer, IMConsumer.HGNewConsumer(r.realtime))
-			if ctx.Err() == nil {
-				r.mu.Lock()
-				r.consumerErr = fmt.Errorf("IM 消费循环停止: %v", err)
-				r.mu.Unlock()
-			}
-		}()
-		r.hgWorker(ctx, "delivery", r.realtime.HGDispatchOnce)
+		if !r.iamOnly {
+			r.wg.Add(1)
+			go func() {
+				defer r.wg.Done()
+				err := KafkaRuntime.RunDomainEventConsumerWithLagObserver(ctx, r.client, "business", r.observer, IMConsumer.HGNewConsumer(r.realtime))
+				if ctx.Err() == nil {
+					r.mu.Lock()
+					r.consumerErr = fmt.Errorf("IM 消费循环停止: %v", err)
+					r.mu.Unlock()
+				}
+			}()
+			r.hgWorker(ctx, "delivery", r.realtime.HGDispatchOnce)
+		}
+		if r.iamDelivery != nil {
+			r.hgWorker(ctx, "iam", r.iamDelivery.HGDispatchOnce)
+		}
 		if r.media != nil {
 			r.hgWorker(ctx, "media", r.media.HGReviewOnce)
 		}
@@ -188,7 +206,7 @@ func (r *HGRuntime) Ready() error {
 	if r.consumerErr != nil {
 		return r.consumerErr
 	}
-	for _, name := range []string{"delivery", "media", "calls"} {
+	for _, name := range []string{"delivery", "media", "calls", "iam"} {
 		if r.workerErrors[name] != nil {
 			return fmt.Errorf("IM %s 后台异常", name)
 		}
@@ -200,13 +218,32 @@ func (r *HGRuntime) HGWritePrometheusMetrics(w io.Writer) {
 	if r == nil {
 		return
 	}
-	r.realtime.HGWriteMetrics(w)
+	if r.realtime != nil {
+		r.realtime.HGWriteMetrics(w)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	fmt.Fprintln(w, "# TYPE mlc_im_worker_failures_total counter")
-	for _, name := range []string{"delivery", "media", "calls"} {
+	for _, name := range []string{"delivery", "media", "calls", "iam"} {
 		fmt.Fprintf(w, "mlc_im_worker_failures_total{worker=%q} %d\n", name, r.workerFailures[name])
 	}
+}
+
+// HGEnableIAMDelivery 在 Start 之前共享经配置校验的网关和投递生命周期。
+func (r *HGRuntime) HGEnableIAMDelivery(service *IAM.HGService, notices *IAM.HGAccessDelivery, url string) {
+	if r == nil || r.gateway == nil {
+		return
+	}
+	service.HGWithRealtime(r.gateway, url)
+	r.iamDelivery = notices
+}
+
+// HGIAMGateway 返回仅供可信 IAM 任务使用的已配置网关，不向 HTTP 客户端暴露。
+func (r *HGRuntime) HGIAMGateway() *transport.HGCentrifugo {
+	if r == nil {
+		return nil
+	}
+	return r.gateway
 }
 
 // HGMountDebugRPC 仅供本机 debug Docker 网关回调；独立密钥与设备凭据仍在 RPC 入口校验。

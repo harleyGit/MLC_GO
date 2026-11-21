@@ -200,6 +200,28 @@ func (h *HGHandler) HGMeAccess(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, snapshot)
 }
 
+// HGRealtimeToken 按当前 JWT 签发本人私有频道短期凭据；没有 IM 能力时明确返回 503。
+func (h *HGHandler) HGRealtimeToken(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	if h.service.realtime == nil || h.service.realtimeURL == "" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		return
+	}
+	token, err := h.service.realtime.HGUserToken(actor)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePackage.SuccessResult(w, r, map[string]string{
+		"channel": "im:iam:" + actor, "token": token, "url": h.service.realtimeURL,
+	})
+}
+
 // HGAuthorizeAccess 仅支持已接入可信资源读取的商品编辑预判；其余具体资源默认拒绝。
 func (h *HGHandler) HGAuthorizeAccess(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)

@@ -60,9 +60,10 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 // hgTemplateRoutes 按 HTTP 方法区分读写，路由 IAM 校验先于业务 handler。
 func hgTemplateRoutes(h *NotificationPackage.HGTemplateHandler) []HGRouterPackage.RouteSpec {
 	const base = "/api/v1/admin/notification"
-	var list, detail, create, update, remove http.HandlerFunc
+	var list, detail, create, update, remove, publish http.HandlerFunc
 	if h != nil {
 		list, detail, create, update, remove = h.HGList, h.HGDetail, h.HGCreate, h.HGUpdate, h.HGDelete
+		publish = h.HGPublish
 	}
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates", true, "游标查询通知模板", list, HGPermissionPackage.HGNotificationTemplateRead),
@@ -70,6 +71,7 @@ func hgTemplateRoutes(h *NotificationPackage.HGTemplateHandler) []HGRouterPackag
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates", true, "创建通知模板草稿", create, HGPermissionPackage.HGNotificationTemplateCreate),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPut, base, "/templates/update", true, "按版本编辑通知模板", update, HGPermissionPackage.HGNotificationTemplateUpdate),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/delete", true, "按版本软删除通知模板草稿", remove, HGPermissionPackage.HGNotificationTemplateDelete),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish", true, "发布角色更新通知的当前版本", publish, HGPermissionPackage.HGNotificationTemplateUpdate),
 	}
 }
 
