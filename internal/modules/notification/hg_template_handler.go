@@ -15,7 +15,8 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-var hgTemplateCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_.]{1,99}$`)
+// 模板编码按数据库 ascii_bin 唯一键区分大小写；仅扩大 ASCII 字母大小写范围，不开放空格、中文或 URL 字符。
+var hgTemplateCodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.]{1,99}$`)
 var hgVariableNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 var hgActionParamPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9_]{0,63}$`)
 var hgPlaceholderPattern = regexp.MustCompile(`\{\{([a-z][a-z0-9_]*)\}\}`)

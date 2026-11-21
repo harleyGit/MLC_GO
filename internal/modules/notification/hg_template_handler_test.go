@@ -52,3 +52,32 @@ func TestHGValidateTemplateForm(t *testing.T) {
 		t.Fatalf("更新现有模板应允许: %v", err)
 	}
 }
+
+func TestHGValidateTemplateFormUppercaseCode(t *testing.T) {
+	for _, code := range []string{"SMS_001", "Sms_001", "sms_001"} {
+		t.Run(code, func(t *testing.T) {
+			form := hgValidTemplateForm()
+			form.TemplateCode = code
+			form.ActionType = "none"
+			form.ActionConfig = json.RawMessage(`{}`)
+			if err := HGValidateTemplateForm(&form, true); err != nil {
+				t.Fatalf("模板编码 %q 应允许创建: %v", code, err)
+			}
+		})
+	}
+	for _, code := range []string{"1SMS", "_SMS", "SMS-001", "短信_001", "S"} {
+		t.Run("拒绝"+code, func(t *testing.T) {
+			form := hgValidTemplateForm()
+			form.TemplateCode = code
+			if err := HGValidateTemplateForm(&form, true); err == nil {
+				t.Fatalf("模板编码 %q 应拒绝", code)
+			}
+		})
+	}
+	form := hgValidTemplateForm()
+	form.TemplateCode = "SMS_001"
+	form.ActionType = "none"
+	if err := HGValidateTemplateForm(&form, true); err == nil {
+		t.Fatal("无跳转仍须拒绝非空 route_name")
+	}
+}
