@@ -1,8 +1,11 @@
 package iam
 
+import "context"
+
 // HGRealtimeGrant 使用独立 IM 网关连接密钥签发本人私有频道；服务端不接受客户端指定频道。
 type HGRealtimeGrant interface {
-	HGUserToken(string) (string, error)
+	HGIAMGrant(string, string) (string, error)
+	HGDisconnectIAMSession(context.Context, string, string) error
 }
 
 // HGWithRealtime 必须在 HTTP 服务器启动前注入，不在请求期间改写配置。

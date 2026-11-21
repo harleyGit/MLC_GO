@@ -124,7 +124,11 @@ func TestHGAccessSnapshotRejectsOverflow(t *testing.T) {
 
 type hgTestRealtimeGrant struct{}
 
-func (hgTestRealtimeGrant) HGUserToken(string) (string, error) { return "fixture", nil }
+func (hgTestRealtimeGrant) HGUserToken(string) (string, error)        { return "fixture", nil }
+func (hgTestRealtimeGrant) HGIAMGrant(string, string) (string, error) { return "fixture", nil }
+func (hgTestRealtimeGrant) HGDisconnectIAMSession(context.Context, string, string) error {
+	return nil
+}
 
 func TestHGAccessSnapshotRealtimeDisablesMinutePolling(t *testing.T) {
 	db, mock, err := sqlmock.New()

@@ -43,6 +43,7 @@ type HGRuntime struct {
 	workerErrors   map[string]error             // 固定任务的最近错误，恢复后清除。
 	workerFailures map[string]uint64            // 固定低基数任务失败计数。
 	rpc            http.Handler                 // 仅管理面挂载的受保护网关代理。
+	iamConnect     http.Handler                 // 本人频道连接代理，必须逐次校验 Redis 登录会话。
 }
 
 // HGRegisterConfigured 创建默认关闭或显式配置的 IM 模块，不启动任务、不执行迁移。
@@ -58,6 +59,7 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 		if err != nil {
 			return nil, err
 		}
+		r.iamConnect = hgIAMConnectHandler(r.gateway, cfg.rpcProxySecret)
 		hgRegisterHandler(IM.HGNewHandler(IM.HGNewService(db, legacyTopic, nil).HGWithSessionRedis(PersistenceRedisPackage.RDB)), db)
 		return r, nil
 	}
@@ -83,6 +85,7 @@ func HGRegisterConfigured(db *sql.DB, legacyTopic string, cfg HGConfig, cluster 
 	if err != nil {
 		return nil, err
 	}
+	r.iamConnect = hgIAMConnectHandler(r.gateway, cfg.rpcProxySecret)
 	if cfg.Media {
 		r.storage, err = transport.HGNewSeaweedFS(cfg.s3URL, cfg.s3Region, cfg.s3Bucket, cfg.s3Key, cfg.s3Secret)
 		if err != nil {
@@ -252,12 +255,18 @@ func (r *HGRuntime) HGMountDebugRPC(mux *http.ServeMux) {
 	if r != nil && r.rpc != nil && Config.GetEnv() == Config.EnvDebug {
 		mux.Handle("POST /internal/im/centrifugo/rpc", r.rpc)
 	}
+	if r != nil && r.iamConnect != nil && Config.GetEnv() == Config.EnvDebug {
+		mux.Handle("POST /internal/im/centrifugo/iam-connect", r.iamConnect)
+	}
 }
 
 // HGMountManagement 注册验签的服务器回调；管理端口只允许受控网络访问。
 func (r *HGRuntime) HGMountManagement(mux *http.ServeMux) {
 	if r != nil && r.rpc != nil {
 		mux.Handle("POST /internal/im/centrifugo/rpc", r.rpc)
+	}
+	if r != nil && r.iamConnect != nil {
+		mux.Handle("POST /internal/im/centrifugo/iam-connect", r.iamConnect)
 	}
 	if r != nil && r.calls != nil {
 		mux.HandleFunc("POST /internal/im/livekit/webhook", r.calls.HGWebhookHandler)

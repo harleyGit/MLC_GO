@@ -76,6 +76,47 @@ func (g *HGCentrifugo) HGUserToken(userID string) (string, error) {
 // HGAccessChannel 复用网关已部署的 im 命名空间；iam: 前缀与 32 位十六进制设备频道互斥。
 func HGAccessChannel(userID string) string { return "im:iam:" + userID }
 
+// HGIAMGrant 只供网关 connect proxy 校验；它不是 Centrifugo 连接 JWT，
+// 单次获取后可用于重连，实际生效仍依赖服务端逐次校验登录会话。
+func (g *HGCentrifugo) HGIAMGrant(userID, sessionID string) (string, error) {
+	if userID == "" || len(sessionID) != 32 {
+		return "", fmt.Errorf("IAM 登录会话无效")
+	}
+	now := time.Now()
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": userID, "sid": sessionID, "iss": "mlc-iam-proxy", "aud": "mlc-im-iam",
+		"iat": now.Unix(), "exp": now.Add(7 * 24 * time.Hour).Unix(),
+	}).SignedString(g.secret)
+}
+
+// HGVerifyIAMGrant 只验签和协议字段；调用方必须再次查权威登录会话是否仍有效。
+func (g *HGCentrifugo) HGVerifyIAMGrant(raw string) (string, string, error) {
+	claims := jwt.MapClaims{}
+	token, err := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}),
+		jwt.WithIssuer("mlc-iam-proxy"), jwt.WithAudience("mlc-im-iam"), jwt.WithExpirationRequired()).
+		ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) { return g.secret, nil })
+	if err != nil || !token.Valid {
+		return "", "", fmt.Errorf("IAM 连接凭据无效")
+	}
+	user, _ := claims["sub"].(string)
+	sid, _ := claims["sid"].(string)
+	if user == "" || len(sid) != 32 {
+		return "", "", fmt.Errorf("IAM 连接会话无效")
+	}
+	return user, sid, nil
+}
+
+// HGDisconnectIAMSession 精确断开此登录会话的 Socket，其他设备的本人频道不受影响。
+func (g *HGCentrifugo) HGDisconnectIAMSession(ctx context.Context, userID, sessionID string) error {
+	if userID == "" || len(sessionID) != 32 {
+		return fmt.Errorf("IAM 登录会话无效")
+	}
+	if err := g.sdk.Disconnect(ctx, "iam/"+userID+"/"+sessionID); err != nil {
+		return fmt.Errorf("IAM 网关断开连接失败（%T）", err)
+	}
+	return nil
+}
+
 // HGPublishUser 仅接受服务端从权威 IAM 读取的权限快照，网关确认不是设备 ACK，断线由本人同步补偿。
 func (g *HGCentrifugo) HGPublishUser(ctx context.Context, userID string, payload json.RawMessage) error {
 	pipe := g.sdk.Pipe()

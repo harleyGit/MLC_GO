@@ -1,7 +1,10 @@
 package iam
 
 import (
+	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePackage "MLC_GO/internal/response"
 	"crypto/rand"
 	"encoding/hex"
@@ -200,7 +203,7 @@ func (h *HGHandler) HGMeAccess(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, snapshot)
 }
 
-// HGRealtimeToken 按当前 JWT 签发本人私有频道短期凭据；没有 IM 能力时明确返回 503。
+// HGRealtimeToken 签发绑定当前登录会话的网关代理凭据；每次重连由网关回查会话，无需续签 HTTP。
 func (h *HGHandler) HGRealtimeToken(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {
@@ -211,7 +214,13 @@ func (h *HGHandler) HGRealtimeToken(w http.ResponseWriter, r *http.Request) {
 		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
 		return
 	}
-	token, err := h.service.realtime.HGUserToken(actor)
+	claims, valid := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
+	if !valid || claims.SessionID == "" || claims.UserID != actor {
+		w.WriteHeader(http.StatusUnauthorized)
+		HGResponsePackage.FailTokenInvalid(w, r, "登录会话无效")
+		return
+	}
+	token, err := h.service.realtime.HGIAMGrant(actor, claims.SessionID)
 	if err != nil {
 		hgHTTPError(w, r, err)
 		return
@@ -220,6 +229,34 @@ func (h *HGHandler) HGRealtimeToken(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, map[string]string{
 		"channel": "im:iam:" + actor, "token": token, "url": h.service.realtimeURL,
 	})
+}
+
+// HGLogoutRealtime 先撤销当前 sid，再断开对应 Socket；服务端失败时不声称远端连接已关闭。
+func (h *HGHandler) HGLogoutRealtime(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	claims, valid := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
+	if !valid || claims.UserID != actor || claims.SessionID == "" || h.service.realtime == nil ||
+		PersistenceRedisPackage.RDB == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		return
+	}
+	key := PersistenceRedisPackage.HGAuthSessionKey + actor + ":" + claims.SessionID
+	if err := PersistenceRedisPackage.RDB.Del(r.Context(), key).Err(); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		return
+	}
+	if err := h.service.realtime.HGDisconnectIAMSession(r.Context(), actor, claims.SessionID); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"revoked": true})
 }
 
 // HGAuthorizeAccess 仅支持已接入可信资源读取的商品编辑预判；其余具体资源默认拒绝。

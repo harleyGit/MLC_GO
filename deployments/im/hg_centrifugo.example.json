@@ -4,6 +4,18 @@
     "token": {
       "issuer": "mlc-im",
       "audience": "centrifugo"
+    },
+    "proxy": {
+      "connect": {
+        "enabled": true,
+        "endpoint": "http://127.0.0.1:9091/internal/im/centrifugo/iam-connect",
+        "timeout": "3s",
+        "http": {
+          "static_headers": {
+            "X-IM-RPC-Secret": "REPLACE_WITH_EXISTING_IM_RPC_PROXY_SECRET"
+          }
+        }
+      }
     }
   },
   "engine": {

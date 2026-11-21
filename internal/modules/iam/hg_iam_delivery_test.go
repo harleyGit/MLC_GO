@@ -17,8 +17,8 @@ type hgTestPublisher struct {
 	payload json.RawMessage // 网关收到的协议原文，仅供断言，不含真实身份或凭据。
 }
 
-// 模板未发布时不发送无文案通知，也不能把授权变更任务标记完成。
-func TestHGAccessDeliveryRetriesWithoutPublishedTemplate(t *testing.T) {
+// 模板未发布时使用受控纯文本兜底，通知仍需落库后推送权限快照。
+func TestHGAccessDeliveryFallbackWithoutPublishedTemplate(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -35,10 +35,26 @@ func TestHGAccessDeliveryRetriesWithoutPublishedTemplate(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), uint64(12)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGNotificationRolePublishedSQL)).WillReturnError(sql.ErrNoRows)
-	mock.ExpectExec(regexp.QuoteMeta(SQL.HGRetryIAMDeliveryJob)).
-		WithArgs(uint64(12), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := worker.HGDispatchOnce(context.Background()); err == nil || publisher.user != "" {
-		t.Fatal("模板未发布时不能确认任务或投递权限")
+	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGUserDeliveryName)).WithArgs("reviewer").
+		WillReturnRows(sqlmock.NewRows([]string{"role_name"}).AddRow("审核员"))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(SQL.HGNotificationLedgerInsertSQL)).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "U1", "system").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGNotificationCounterReadySQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"ready"}).AddRow(false))
+	mock.ExpectExec(regexp.QuoteMeta(SQL.HGNotificationInsertSQL)).
+		WithArgs(sqlmock.AnyArg(), "U1", "system", "角色权限已更新", "您的角色 审核员 权限已更新，请重新查看当前权限。", "", "").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGSelectIAMPolicyRevision)).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(42))
+	mock.ExpectQuery(regexp.QuoteMeta(SQL.HGSelectIAMAccessGrants)).WithArgs("U1").
+		WillReturnRows(sqlmock.NewRows([]string{"role", "permission", "scope_type", "scope_id", "expires_at"}))
+	mock.ExpectExec(regexp.QuoteMeta(SQL.HGFinishIAMDeliveryJob)).
+		WithArgs("U1", "done", uint64(12), sqlmock.AnyArg(), "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := worker.HGDispatchOnce(context.Background()); err != nil || publisher.user != "U1" {
+		t.Fatalf("模板缺失时仍应通知并更新本人权限: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

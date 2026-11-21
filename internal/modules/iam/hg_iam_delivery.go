@@ -153,6 +153,10 @@ func (worker *HGAccessDelivery) hgTemplate(ctx context.Context) (string, string,
 	var title, body string
 	var schema, channels []byte
 	err := worker.db.QueryRowContext(ctx, SQL.HGNotificationRolePublishedSQL).Scan(&title, &body, &schema, &channels)
+	if errors.Is(err, sql.ErrNoRows) {
+		// 未配置模板不能阻塞权限撤销；使用受控纯文本兜底，仍先幂等落库再推送。
+		return "角色权限已更新", "您的角色 {{role_name}} 权限已更新，请重新查看当前权限。", nil
+	}
 	if err != nil {
 		return "", "", err
 	}

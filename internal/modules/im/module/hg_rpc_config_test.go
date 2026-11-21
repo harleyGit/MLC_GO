@@ -43,7 +43,7 @@ func TestHGLoadConfigPreIAMOnly(t *testing.T) {
 	t.Setenv("MLC_IM_CALL_ENABLED", "false")
 	t.Setenv("MLC_IM_TOPIC", "")
 	t.Setenv("MLC_IM_CONSUMER_GROUP", "")
-	t.Setenv("MLC_IM_RPC_PROXY_SECRET", "")
+	t.Setenv("MLC_IM_RPC_PROXY_SECRET", strings.Repeat("c", 48))
 	t.Setenv("MLC_IM_CENTRIFUGO_API_URL", "https://gateway.example.com")
 	t.Setenv("MLC_IM_CENTRIFUGO_API_KEY", strings.Repeat("a", 24))
 	t.Setenv("MLC_IM_CENTRIFUGO_TOKEN_SECRET", strings.Repeat("b", 48))

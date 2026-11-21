@@ -47,12 +47,13 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 }
 
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
-	var meAccess, authorizeAccess, realtimeToken http.HandlerFunc
+	var meAccess, authorizeAccess, realtimeToken, logoutRealtime http.HandlerFunc
 	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	var scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
 	if handler != nil {
 		meAccess, authorizeAccess = handler.HGMeAccess, handler.HGAuthorizeAccess
 		realtimeToken = handler.HGRealtimeToken
+		logoutRealtime = handler.HGLogoutRealtime
 		batchGrant = handler.HGGrantDirectBatch
 		scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable = handler.HGListScopeTypes, handler.HGGetScopeType, handler.HGCreateScopeType, handler.HGUpdateScopeType, handler.HGDisableScopeType
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
@@ -70,6 +71,7 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/access", true, "获取本人授权快照", meAccess),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/sync", true, "实时重连同步本人授权快照", meAccess),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/realtime", true, "签发本人 IAM 实时频道凭据", realtimeToken),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/logout", true, "撤销当前登录会话并断开本人实时频道", logoutRealtime),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/authorize", true, "全局权限预判", authorizeAccess),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/list", true, "查询作用域类型", scopeList, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/detail", true, "查询作用域类型详情", scopeGet, HGPermissionPackage.HGIAMRoleRead),

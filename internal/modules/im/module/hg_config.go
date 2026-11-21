@@ -70,6 +70,7 @@ func HGLoadConfig() (HGConfig, error) {
 	cfg.centrifugoURL = os.Getenv("MLC_IM_CENTRIFUGO_API_URL")
 	cfg.centrifugoKey = os.Getenv("MLC_IM_CENTRIFUGO_API_KEY")
 	cfg.centrifugoSecret = os.Getenv("MLC_IM_CENTRIFUGO_TOKEN_SECRET")
+	cfg.rpcProxySecret = os.Getenv("MLC_IM_RPC_PROXY_SECRET")
 	cfg.WebSocketURL = os.Getenv("MLC_IM_CENTRIFUGO_WS_URL")
 	if err := hgWebSocketURL(cfg.WebSocketURL); err != nil {
 		return cfg, err
@@ -80,7 +81,7 @@ func HGLoadConfig() (HGConfig, error) {
 	if len(cfg.centrifugoKey) < 16 || len(cfg.centrifugoSecret) < 32 {
 		return cfg, fmt.Errorf("Centrifugo 独立密钥缺失")
 	}
-	if !cfg.IAMOnly && (len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey) {
+	if len(cfg.rpcProxySecret) < 32 || cfg.rpcProxySecret == cfg.centrifugoSecret || cfg.rpcProxySecret == cfg.centrifugoKey {
 		return cfg, fmt.Errorf("IM RPC 代理密钥缺失或与网关密钥共用：请在本机运行环境设置独立的 MLC_IM_RPC_PROXY_SECRET，并同步至 Centrifugo 服务端 RPC 代理固定请求头")
 	}
 	if cfg.Media {
