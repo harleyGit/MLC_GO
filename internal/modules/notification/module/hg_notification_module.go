@@ -4,6 +4,7 @@ import (
 	HGHandlerPackage "MLC_GO/internal/handler"
 	IAMPackage "MLC_GO/internal/modules/iam"
 	NotificationPackage "MLC_GO/internal/modules/notification"
+	SendPackage "MLC_GO/internal/modules/notification/send"
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	HGRouterPackage "MLC_GO/internal/pkg/hg_router"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
@@ -16,6 +17,7 @@ type HGModule struct {
 	base            string                                 // 路由前缀，仅限下述三类协议入口。
 	handler         *NotificationPackage.HGHandler         // 复用同一通知业务实例。
 	templateHandler *NotificationPackage.HGTemplateHandler // 独立管理端模板事务入口。
+	sendHandler     *SendPackage.HGHandler                 // 独立管理端发送与双人发布入口。
 	authorizer      HGRouterPackage.HGRouteAuthorizer      // 管理入口 IAM 校验器。
 }
 
@@ -23,7 +25,7 @@ func (m *HGModule) Name() string     { return "notification" }
 func (m *HGModule) BasePath() string { return m.base }
 func (m *HGModule) Handler() http.Handler {
 	if m.base == "/api/v1/admin/notification" {
-		return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, hgTemplateRoutes(m.templateHandler))
+		return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, append(hgTemplateRoutes(m.templateHandler), hgSendRoutes(m.sendHandler)...))
 	}
 	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, hgRoutes(m.base, m.handler))
 }
@@ -37,7 +39,8 @@ func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, authorize
 	}
 	HGHandlerPackage.RegisterModule(&HGModule{
 		base: "/api/v1/admin/notification", templateHandler: NotificationPackage.HGNewTemplateHandler(NotificationPackage.HGNewTemplateRepository(sqlManager.GetSQLDB())),
-		authorizer: authorizer,
+		sendHandler: SendPackage.HGNewHandler(SendPackage.HGNewRepository(sqlManager.GetSQLDB())),
+		authorizer:  authorizer,
 	})
 	return service
 }
@@ -54,7 +57,22 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 		items = append(items, HGRouterPackage.BuildRouteCatalogItems(hgRoutes(base, nil))...)
 	}
 	items = append(items, HGRouterPackage.BuildRouteCatalogItems(hgTemplateRoutes(nil))...)
+	items = append(items, HGRouterPackage.BuildRouteCatalogItems(hgSendRoutes(nil))...)
 	return items
+}
+
+func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
+	const base = "/api/v1/admin/notification"
+	var publish, create, detail, cancel http.HandlerFunc
+	if h != nil {
+		publish, create, detail, cancel = h.HGPublish, h.HGCreate, h.HGDetail, h.HGCancel
+	}
+	return []HGRouterPackage.RouteSpec{
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish-send", true, "双人复核发布站内模板", publish, HGPermissionPackage.HGNotificationTemplatePublish),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks", true, "创建有界站内发送任务", create, HGPermissionPackage.HGNotificationSendCreate),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/detail", true, "查询本人发送任务进度", detail, HGPermissionPackage.HGNotificationSendRead),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks/cancel", true, "取消本人未完成发送任务", cancel, HGPermissionPackage.HGNotificationSendCancel),
+	}
 }
 
 // hgTemplateRoutes 按 HTTP 方法区分读写，路由 IAM 校验先于业务 handler。

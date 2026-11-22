@@ -18,6 +18,7 @@ import (
 	"MLC_GO/internal/modules/mallcny"
 	MediaModulePackage "MLC_GO/internal/modules/media"
 	NotificationModulePackage "MLC_GO/internal/modules/notification/module"
+	NotificationSendPackage "MLC_GO/internal/modules/notification/send"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
 	OpsRepositoryPackage "MLC_GO/internal/modules/ops/repository"
 	OpsTaskPackage "MLC_GO/internal/modules/ops/task"
@@ -105,6 +106,7 @@ type MLCApplication struct {
 	crawlerManager          *CrawlerSpiderPackage.HGManager
 	crawlerTaskScheduler    *CrawlerRuntimePackage.HGTaskScheduler
 	mediaRuntime            *MediaModulePackage.HGRuntime
+	notificationWorker      *NotificationSendPackage.HGWorker // 有界站内发送工作者，关闭时先于 MySQL。
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -750,6 +752,8 @@ func buildMLCApplication() (*MLCApplication, error) {
 
 	imRuntime.Start()
 	mediaRuntime.HGStart()
+	notificationWorker := NotificationSendPackage.HGNewWorker(NotificationSendPackage.HGNewRepository(sqlManager.GetSQLDB()), notificationService)
+	notificationWorker.HGStart()
 	if imRuntime != nil {
 		previousKafkaCloser := kafkaCloser
 		kafkaCloser = func() {
@@ -788,6 +792,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		crawlerManager:          crawlerManager,
 		crawlerTaskScheduler:    crawlerTaskScheduler,
 		mediaRuntime:            mediaRuntime,
+		notificationWorker:      notificationWorker,
 	}, nil
 }
 
@@ -966,6 +971,9 @@ func (app *MLCApplication) Close() {
 		return
 	}
 	// 先停止并等待后台 worker，避免数据库和 Redis 关闭后仍有投影或消息处理。
+	if app.notificationWorker != nil {
+		app.notificationWorker.Close()
+	}
 	if app.mediaRuntime != nil {
 		app.mediaRuntime.Close()
 	}

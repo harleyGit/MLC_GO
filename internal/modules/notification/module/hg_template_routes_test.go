@@ -42,3 +42,22 @@ func TestHGTemplateDetailGuardPath(t *testing.T) {
 		t.Fatalf("模板详情未进入精确路径 Guard: %d", response.Code)
 	}
 }
+
+func TestHGSendRoutesRequireSeparateIAM(t *testing.T) {
+	expected := map[string]permission.HGPermission{
+		"POST /templates/publish-send": permission.HGNotificationTemplatePublish,
+		"POST /send-tasks":             permission.HGNotificationSendCreate,
+		"GET /send-tasks/detail":       permission.HGNotificationSendRead,
+		"POST /send-tasks/cancel":      permission.HGNotificationSendCancel,
+	}
+	for _, route := range hgSendRoutes(nil) {
+		key := route.Method + " " + route.SubPath
+		if !route.NeedAuth || len(route.Permissions) != 1 || route.Permissions[0] != expected[key] || route.Handler != nil {
+			t.Fatalf("发送路由权限配置错误: %s", key)
+		}
+		delete(expected, key)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("缺少发送路由: %v", expected)
+	}
+}

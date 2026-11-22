@@ -18,50 +18,54 @@ const (
 	// HGIAMRoleGrantDirect 单独控制无需第二人审批的授权；仅受控角色持有，仍需本人 MFA、禁止自授并检查可委派权限。
 	HGIAMRoleGrantDirect HGPermission = "iam:role:grant_direct" // 即时授予非超级管理员角色；不会替代普通授权申请。
 	// HGIAMApprovalApprove = "iam:approval:approve"：审批或拒绝他人申请时还必须同时拥有 HGIAMRoleGrant；不可自批。
-	HGIAMApprovalApprove         HGPermission = "iam:approval:approve"          // 裁决 IAM 扩权申请；需同时拥有角色管理权，且不能审批本人申请。
-	HGVideoSubmissionRead        HGPermission = "video:submission:read"         // 读取视频投稿；资源可见范围仍由业务层限制。
-	HGVideoSubmissionCreate      HGPermission = "video:submission:create"       // 创建本人视频投稿；首次创作者身份由现有业务流程建立。
-	HGVideoSubmissionUpdate      HGPermission = "video:submission:update"       // 修改本人草稿或允许编辑的投稿；继续校验归属和稿件状态。
-	HGMallProductCreate          HGPermission = "mall:product:create"           // 创建商品草稿；要求商家审核通过并校验商品归属。
-	HGMallProductUpdate          HGPermission = "mall:product:update"           // 编辑、归档或补充本人商品；继续执行业务状态及审核流程。
-	HGMallProductPublish         HGPermission = "mall:product:publish"          // 商品发布能力；枚举声明不替代业务审核与上架条件。
-	HGMallMerchantReview         HGPermission = "mall:merchant:review"          // 现有商城统一审核入口权限，覆盖商家、商品、补图和编辑审核。
-	HGMallProductReview          HGPermission = "mall:product:review"           // 独立商品审核权限码；当前统一审核入口仍使用 HGMallMerchantReview。
-	HGMallOrderRead              HGPermission = "mall:order:read"               // 读取本人店铺订单；不能跨店读取订单或买家隐私。
-	HGMallOrderShip              HGPermission = "mall:order:ship"               // 为本人店铺订单填写物流并发货；要求订单状态允许发货。
-	HGCrawlerTaskRead            HGPermission = "crawler:task:read"             // 读取持久化采集任务及关联内容。
-	HGCrawlerTaskWrite           HGPermission = "crawler:task:write"            // 创建或保存采集任务；不单独授予运行能力。
-	HGCrawlerTaskRun             HGPermission = "crawler:task:run"              // 调试采集请求或运行任务；保存并运行还需 HGCrawlerTaskWrite。
-	HGCrawlerTaskExecute         HGPermission = "crawler:task:execute"          // 保留早期采集执行权限码；不自动等价于当前 HGCrawlerTaskRun。
-	HGOpsMetricsRead             HGPermission = "ops:metrics:read"              // 读取运维指标；不等价于资产链路查询或部署执行权限。
-	HGOpsRBACManage              HGPermission = "ops:rbac:manage"               // 旧 RBAC 兼容权限码；不能恢复已返回 410 的旧角色管理入口。
-	HGOpsMenuRead                HGPermission = "ops:menu:read"                 // 读取运维菜单配置。
-	HGOpsMenuWrite               HGPermission = "ops:menu:write"                // 创建或管理运维菜单配置。
-	HGOpsFileRead                HGPermission = "ops:file:read"                 // 读取运维文件列表；不授予上传能力。
-	HGOpsFileWrite               HGPermission = "ops:file:write"                // 通过运维接口上传文件；文件类型和大小校验仍由业务层执行。
-	HGOpsBilibiliTagRead         HGPermission = "ops:bilibili_tag:read"         // 读取 Bilibili 动画标签管理配置。
-	HGOpsBilibiliTagWrite        HGPermission = "ops:bilibili_tag:write"        // 创建、更新或删除 Bilibili 动画标签配置。
-	HGUserDirectoryRead          HGPermission = "user:directory:read"           // 查询平台用户目录；查询本人资料不需要该管理权限。
-	HGUserDirectoryWrite         HGPermission = "user:directory:write"          // 修改其他用户的资料或安全字段；本人更新无需此权限。
-	HGUserDirectoryDelete        HGPermission = "user:directory:delete"         // 物理删除无关联账号；不能通过编辑权限获得。
-	HGAssetCoinBalanceRead       HGPermission = "asset:coin_balance:read"       // 查询目标用户的硬币权威余额。
-	HGAssetCoinTransactionRead   HGPermission = "asset:coin_transaction:read"   // 查询目标用户的硬币资产流水。
-	HGAssetCoinGrant             HGPermission = "asset:coin:grant"              // 人工赠币；继续执行限流、幂等和审计约束。
-	HGAssetCoinRefund            HGPermission = "asset:coin:refund"             // 按原扣款记录退款；不允许无关联交易退款。
-	HGAssetCoinCorrectionRequest HGPermission = "asset:coin_correction:request" // 申请及查询硬币资产修正；不能自行审批或应用修正。
-	HGAssetCoinCorrectionApprove HGPermission = "asset:coin_correction:approve" // 审批硬币资产修正；审批并应用还需 HGAssetCoinCorrectionApply。
-	HGAssetCoinCorrectionApply   HGPermission = "asset:coin_correction:apply"   // 应用已批准的硬币修正；不能替代双人审批。
-	HGAssetPipelineRead          HGPermission = "asset:pipeline:read"           // 查询资产投影链路及检查点状态。
-	HGPaymentRechargeSKURead     HGPermission = "payment:recharge_sku:read"     // 读取管理端充值档位，包括管理所需状态信息。
-	HGPaymentRechargeSKUWrite    HGPermission = "payment:recharge_sku:write"    // 创建、更新或删除充值档位；不授予支付或余额修改能力。
-	HGNotificationChannelRead    HGPermission = "notification:channel:read"     // 查看站内信与未接供应商渠道的真实可用状态。
-	HGNotificationDeliveryRead   HGPermission = "notification:delivery:read"    // 查看站内通知投递记录，不包括私信内容。
-	HGNotificationChannelSend    HGPermission = "notification:channel:send"     // 仅向本人发送有界站内试通知，不是运营群发。
-	HGNotificationTemplateRead   HGPermission = "notification:template:read"    // 查询通知模板草稿；不允许发送。
-	HGNotificationTemplateCreate HGPermission = "notification:template:create"  // 创建模板草稿。
-	HGNotificationTemplateUpdate HGPermission = "notification:template:update"  // 生成新草稿版本，禁止覆盖历史版本。
-	HGNotificationTemplateDelete HGPermission = "notification:template:delete"  // 仅软删除未发布模板。
-	HGMediaInventoryRead         HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
+	HGIAMApprovalApprove          HGPermission = "iam:approval:approve"          // 裁决 IAM 扩权申请；需同时拥有角色管理权，且不能审批本人申请。
+	HGVideoSubmissionRead         HGPermission = "video:submission:read"         // 读取视频投稿；资源可见范围仍由业务层限制。
+	HGVideoSubmissionCreate       HGPermission = "video:submission:create"       // 创建本人视频投稿；首次创作者身份由现有业务流程建立。
+	HGVideoSubmissionUpdate       HGPermission = "video:submission:update"       // 修改本人草稿或允许编辑的投稿；继续校验归属和稿件状态。
+	HGMallProductCreate           HGPermission = "mall:product:create"           // 创建商品草稿；要求商家审核通过并校验商品归属。
+	HGMallProductUpdate           HGPermission = "mall:product:update"           // 编辑、归档或补充本人商品；继续执行业务状态及审核流程。
+	HGMallProductPublish          HGPermission = "mall:product:publish"          // 商品发布能力；枚举声明不替代业务审核与上架条件。
+	HGMallMerchantReview          HGPermission = "mall:merchant:review"          // 现有商城统一审核入口权限，覆盖商家、商品、补图和编辑审核。
+	HGMallProductReview           HGPermission = "mall:product:review"           // 独立商品审核权限码；当前统一审核入口仍使用 HGMallMerchantReview。
+	HGMallOrderRead               HGPermission = "mall:order:read"               // 读取本人店铺订单；不能跨店读取订单或买家隐私。
+	HGMallOrderShip               HGPermission = "mall:order:ship"               // 为本人店铺订单填写物流并发货；要求订单状态允许发货。
+	HGCrawlerTaskRead             HGPermission = "crawler:task:read"             // 读取持久化采集任务及关联内容。
+	HGCrawlerTaskWrite            HGPermission = "crawler:task:write"            // 创建或保存采集任务；不单独授予运行能力。
+	HGCrawlerTaskRun              HGPermission = "crawler:task:run"              // 调试采集请求或运行任务；保存并运行还需 HGCrawlerTaskWrite。
+	HGCrawlerTaskExecute          HGPermission = "crawler:task:execute"          // 保留早期采集执行权限码；不自动等价于当前 HGCrawlerTaskRun。
+	HGOpsMetricsRead              HGPermission = "ops:metrics:read"              // 读取运维指标；不等价于资产链路查询或部署执行权限。
+	HGOpsRBACManage               HGPermission = "ops:rbac:manage"               // 旧 RBAC 兼容权限码；不能恢复已返回 410 的旧角色管理入口。
+	HGOpsMenuRead                 HGPermission = "ops:menu:read"                 // 读取运维菜单配置。
+	HGOpsMenuWrite                HGPermission = "ops:menu:write"                // 创建或管理运维菜单配置。
+	HGOpsFileRead                 HGPermission = "ops:file:read"                 // 读取运维文件列表；不授予上传能力。
+	HGOpsFileWrite                HGPermission = "ops:file:write"                // 通过运维接口上传文件；文件类型和大小校验仍由业务层执行。
+	HGOpsBilibiliTagRead          HGPermission = "ops:bilibili_tag:read"         // 读取 Bilibili 动画标签管理配置。
+	HGOpsBilibiliTagWrite         HGPermission = "ops:bilibili_tag:write"        // 创建、更新或删除 Bilibili 动画标签配置。
+	HGUserDirectoryRead           HGPermission = "user:directory:read"           // 查询平台用户目录；查询本人资料不需要该管理权限。
+	HGUserDirectoryWrite          HGPermission = "user:directory:write"          // 修改其他用户的资料或安全字段；本人更新无需此权限。
+	HGUserDirectoryDelete         HGPermission = "user:directory:delete"         // 物理删除无关联账号；不能通过编辑权限获得。
+	HGAssetCoinBalanceRead        HGPermission = "asset:coin_balance:read"       // 查询目标用户的硬币权威余额。
+	HGAssetCoinTransactionRead    HGPermission = "asset:coin_transaction:read"   // 查询目标用户的硬币资产流水。
+	HGAssetCoinGrant              HGPermission = "asset:coin:grant"              // 人工赠币；继续执行限流、幂等和审计约束。
+	HGAssetCoinRefund             HGPermission = "asset:coin:refund"             // 按原扣款记录退款；不允许无关联交易退款。
+	HGAssetCoinCorrectionRequest  HGPermission = "asset:coin_correction:request" // 申请及查询硬币资产修正；不能自行审批或应用修正。
+	HGAssetCoinCorrectionApprove  HGPermission = "asset:coin_correction:approve" // 审批硬币资产修正；审批并应用还需 HGAssetCoinCorrectionApply。
+	HGAssetCoinCorrectionApply    HGPermission = "asset:coin_correction:apply"   // 应用已批准的硬币修正；不能替代双人审批。
+	HGAssetPipelineRead           HGPermission = "asset:pipeline:read"           // 查询资产投影链路及检查点状态。
+	HGPaymentRechargeSKURead      HGPermission = "payment:recharge_sku:read"     // 读取管理端充值档位，包括管理所需状态信息。
+	HGPaymentRechargeSKUWrite     HGPermission = "payment:recharge_sku:write"    // 创建、更新或删除充值档位；不授予支付或余额修改能力。
+	HGNotificationChannelRead     HGPermission = "notification:channel:read"     // 查看站内信与未接供应商渠道的真实可用状态。
+	HGNotificationDeliveryRead    HGPermission = "notification:delivery:read"    // 查看站内通知投递记录，不包括私信内容。
+	HGNotificationChannelSend     HGPermission = "notification:channel:send"     // 仅向本人发送有界站内试通知，不是运营群发。
+	HGNotificationTemplateRead    HGPermission = "notification:template:read"    // 查询通知模板草稿；不允许发送。
+	HGNotificationTemplateCreate  HGPermission = "notification:template:create"  // 创建模板草稿。
+	HGNotificationTemplateUpdate  HGPermission = "notification:template:update"  // 生成新草稿版本，禁止覆盖历史版本。
+	HGNotificationTemplateDelete  HGPermission = "notification:template:delete"  // 仅软删除未发布模板。
+	HGNotificationTemplatePublish HGPermission = "notification:template:publish" // 双人复核后发布运营站内模板。
+	HGNotificationSendCreate      HGPermission = "notification:send:create"      // 创建有界指定用户站内发送任务。
+	HGNotificationSendRead        HGPermission = "notification:send:read"        // 查询本人创建的任务。
+	HGNotificationSendCancel      HGPermission = "notification:send:cancel"      // 取消本人尚未完成的任务。
+	HGMediaInventoryRead          HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
 )
 
 // hgPermissions 是编译期权限字典；新增权限须同步受控迁移，不在路由注册时写库。
@@ -112,6 +116,10 @@ var hgPermissions = [...]HGPermission{
 	HGNotificationTemplateCreate,
 	HGNotificationTemplateUpdate,
 	HGNotificationTemplateDelete,
+	HGNotificationTemplatePublish,
+	HGNotificationSendCreate,
+	HGNotificationSendRead,
+	HGNotificationSendCancel,
 	HGMediaInventoryRead,
 }
 
