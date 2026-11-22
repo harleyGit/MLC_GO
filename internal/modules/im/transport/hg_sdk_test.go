@@ -53,6 +53,38 @@ func TestHGCentrifugoSDKPublishConfirmsAndBoundsResponse(t *testing.T) {
 	}
 }
 
+// 通知提示复用既有会话鉴权的本人频道，不得将通知正文广播到设备或公共频道。
+func TestHGCentrifugoUserNotificationHintUsesPrivateChannel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api" || r.Header.Get("X-API-Key") != strings.Repeat("k", 16) {
+			t.Error("网关 API 鉴权不匹配")
+		}
+		var command struct {
+			Method string `json:"method"` // Centrifugo 发布方法。
+			Params struct {
+				Channel string          `json:"channel"` // 仅服务端选择的本人频道。
+				Data    json.RawMessage `json:"data"`    // 不含用户或通知正文的提示。
+			} `json:"params"`
+		}
+		if json.NewDecoder(r.Body).Decode(&command) != nil || command.Method != "publish" ||
+			command.Params.Channel != HGAccessChannel("user-1") ||
+			string(command.Params.Data) != `{"event_type":"notification.inbox.updated.v1","category":"marketing"}` {
+			t.Error("通知提示没有走既有本人私有频道")
+		}
+		_, _ = w.Write([]byte(`{"result":{}}`))
+	}))
+	defer server.Close()
+	gateway, err := HGNewCentrifugo(server.URL, strings.Repeat("k", 16), strings.Repeat("s", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.HGClose()
+	if err := gateway.HGPublishUser(context.Background(), "user-1",
+		json.RawMessage(`{"event_type":"notification.inbox.updated.v1","category":"marketing"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHGLiveKitSDKJoinTokenHasMinimalGrant(t *testing.T) {
 	secret := strings.Repeat("s", 32)
 	client, err := HGNewLiveKit("http://127.0.0.1:7880", "fixture", secret)

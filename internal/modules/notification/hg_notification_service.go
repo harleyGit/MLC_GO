@@ -33,11 +33,26 @@ func hgDefaultPreferences() HGPreferences {
 	}
 }
 
-// HGService 仅处理站内通知；IM 消息必须走独立的会话、序列号与媒体授权链路。
-type HGService struct{ repo *HGRepository }
+// HGService 仅处理站内通知；实时消息只是可丢失的本人收件箱提示，不是 IM 私信。
+type HGService struct {
+	repo  *HGRepository        // 站内通知权威存储。
+	hints *HGNotificationHints // 可选实时提示器；只在应用装配期间绑定。
+}
 
 // HGNewService 构建通知业务层，供可信事件生产者调用 HGDeliver。
-func HGNewService(repo *HGRepository) *HGService { return &HGService{repo: repo} }
+func HGNewService(repo *HGRepository, hints ...*HGNotificationHints) *HGService {
+	service := &HGService{repo: repo}
+	if len(hints) > 0 {
+		service.hints = hints[0]
+	}
+	return service
+}
+
+// HGWithHints 仅供启动装配时将共享提示器绑定到通知 HTTP 服务；启动后不再改动。
+func (service *HGService) HGWithHints(hints *HGNotificationHints) *HGService {
+	service.hints = hints
+	return service
+}
 
 // HGDeliver 以稳定事件 ID 幂等生成纯文本通知；外部事件生产者须保证源事务与事件发布一致。
 func (service *HGService) HGDeliver(ctx context.Context, eventID, receiver string, notice HGNotice) error {
@@ -54,7 +69,12 @@ func (service *HGService) HGDeliver(ctx context.Context, eventID, receiver strin
 			return service.repo.HGIgnore(ctx, eventID, receiver, notice.Category)
 		}
 	}
-	return service.repo.HGDeliver(ctx, eventID, receiver, notice)
+	inserted, err := service.repo.hgDeliverCount(ctx, eventID, receiver, notice)
+	if err == nil && inserted && service.hints != nil {
+		// 网关不可用不能回滚已提交的收件箱，也不能让 Kafka 重试把一次入箱算两次。
+		service.hints.HGNotify(ctx, receiver, notice.Category)
+	}
+	return err
 }
 
 func hgASCII(value string) bool {

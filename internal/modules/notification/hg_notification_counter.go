@@ -37,41 +37,44 @@ func hgNotificationCounterReady(ctx context.Context, tx *sql.Tx) (bool, error) {
 }
 
 // hgDeliverCount 在单事务内登记永久事件墓碑、写入收件箱并增加计数；重复事件不再次入箱。
-func (repo *HGRepository) hgDeliverCount(ctx context.Context, eventID, user string, notice HGNotice) error {
+func (repo *HGRepository) hgDeliverCount(ctx context.Context, eventID, user string, notice HGNotice) (bool, error) {
 	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, SQLQueriesPackage.HGNotificationLedgerInsertSQL, hgNotificationArchiveShard(user), eventID, user, notice.Category)
 	if hgNotificationDuplicate(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	ready, err := hgNotificationCounterReady(ctx, tx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	result, err := tx.ExecContext(ctx, SQLQueriesPackage.HGNotificationInsertSQL, eventID, user, notice.Category, notice.Title, notice.Content, notice.TargetType, notice.TargetID)
 	if hgNotificationDuplicate(err) {
 		// 升级前老通知已存在但 ledger 尚未回填；保留新登记的去重键，不重复增加计数。
-		return tx.Commit()
+		return false, tx.Commit()
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if ready {
 		id, idErr := result.LastInsertId()
 		if idErr != nil || id <= 0 {
-			return fmt.Errorf("无法取得通知主键: %w", idErr)
+			return false, fmt.Errorf("无法取得通知主键: %w", idErr)
 		}
 		if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGNotificationCounterIncreaseSQL, user, notice.Category, id%hgNotificationCountShards); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type hgNotificationCountKey struct {

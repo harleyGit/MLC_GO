@@ -93,7 +93,7 @@ func initKafkaIfConfigured() (kafkaCloser, error) {
                                          ▼
                           返回统一 Close() + Consumer
 */
-func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager) (kafkaCloser, kafkaReadyChecker, error) {
+func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisService, sqlManager *PersistenceSQLPackage.HGSQLManager, hints ...*NotificationPackage.HGNotificationHints) (kafkaCloser, kafkaReadyChecker, error) {
 	producerCloser, err := hgInitKafkaIfConfigured(HGKafkaPackage.HGInitKafka)
 	if err != nil || producerCloser == nil {
 		return producerCloser, nil, err
@@ -196,7 +196,7 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 			topic = cfg.Business.Topics[0]
 		}
 		runtimeDeps.InteractionStore = VideoInteractionRepositoryPackage.NewRepositoryWithTopic(sqlManager.GetSQLDB(), topic)
-		runtimeDeps.NotificationService = NotificationPackage.HGNewService(NotificationPackage.HGNewRepository(sqlManager.GetSQLDB()))
+		runtimeDeps.NotificationService = NotificationPackage.HGNewService(NotificationPackage.HGNewRepository(sqlManager.GetSQLDB()), hints...)
 		if cfg.Business.Consumers.NotificationSend.Enabled {
 			runtimeDeps.NotificationSendWorker = NotificationSendPackage.HGNewWorker(
 				NotificationSendPackage.HGNewRepository(sqlManager.GetSQLDB()), runtimeDeps.NotificationService)

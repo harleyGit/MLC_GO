@@ -268,13 +268,26 @@ func TestHGCreateBackpressureDoesNotInsert(t *testing.T) {
 	}
 }
 
+type hgSendHintPublisher struct {
+	user    string          // 仅测试用户的本人频道目标。
+	payload json.RawMessage // 网关收到的分类提示，无通知正文。
+}
+
+func (publisher *hgSendHintPublisher) HGPublishUser(_ context.Context, user string, payload json.RawMessage) error {
+	publisher.user, publisher.payload = user, payload
+	return nil
+}
+
 func TestHGDispatchOncePersistsBeforeAdvancing(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	worker := HGNewWorker(HGNewRepository(db), notification.HGNewService(notification.HGNewRepository(db)))
+	hints := notification.HGNewHints()
+	publisher := new(hgSendHintPublisher)
+	hints.HGUsePublisher(publisher)
+	worker := HGNewWorker(HGNewRepository(db), notification.HGNewService(notification.HGNewRepository(db), hints))
 	mock.ExpectBegin()
 	// ready 与过期租约会公平轮换；两条索引查询均必须只选择一行并锁定。
 	mock.ExpectQuery(`SELECT id,template_id,template_version,audience,variables,next_index,attempts`).
@@ -304,6 +317,14 @@ func TestHGDispatchOncePersistsBeforeAdvancing(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := worker.HGDispatchOnce(context.Background()); err != nil {
 		t.Fatalf("已持久化站内通知后应推进任务: %v", err)
+	}
+	var hint struct {
+		EventType string `json:"event_type"` // 仅供 Web 判断需要补拉收件箱。
+		Category  string `json:"category"`   // 提示的分类，不包含已读数。
+	}
+	if err := json.Unmarshal(publisher.payload, &hint); err != nil || publisher.user != "user_1" ||
+		hint.EventType != "notification.inbox.updated.v1" || hint.Category != "system" {
+		t.Fatalf("任务完成后须向本人发送无正文分类提示: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

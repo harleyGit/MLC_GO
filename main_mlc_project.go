@@ -17,6 +17,7 @@ import (
 	IMModulePackage "MLC_GO/internal/modules/im/module"
 	"MLC_GO/internal/modules/mallcny"
 	MediaModulePackage "MLC_GO/internal/modules/media"
+	NotificationPackage "MLC_GO/internal/modules/notification"
 	NotificationModulePackage "MLC_GO/internal/modules/notification/module"
 	NotificationSendPackage "MLC_GO/internal/modules/notification/send"
 	OpsModulePackage "MLC_GO/internal/modules/ops/module"
@@ -262,11 +263,13 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
+	// Kafka 消费与业务 HTTP 共用一套提示器；网关初始化前仍先保证权威通知入箱。
+	notificationHints := NotificationPackage.HGNewHints()
 
 	// ⑤ Kafka 是启动必需依赖：配置缺失、静态校验失败或 broker Ping 失败都会中止应用构建。
 	// Kafka 主要负责：业务事件 -> Kafka -> 异步消费 -> 其他业务, 比如：用户点赞 -> 产生 LikeEvent -> -> Kafka -> 统计服务 -> Redis / ClickHouse
 	// kafkaCloser 负责关闭 Kafka； kafkaRuntime 检查Kafka 当前运行状态 / Ready 检查能力。
-	kafkaCloser, kafkaRuntime, err := initKafkaWithDependencies(redisService, sqlManager)
+	kafkaCloser, kafkaRuntime, err := initKafkaWithDependencies(redisService, sqlManager, notificationHints)
 	if err != nil {
 		logHG.ErrFInfo("Kafka初始化失败: %v", err)
 		// Kafka 排在 Redis/MySQL 之后初始化；一旦 Kafka 配置或网络不可用，必须回滚前置资源。
@@ -501,7 +504,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	notificationKafkaEnabled := imKafkaConfig.Business.Consumers.NotificationSend.Enabled
 	notificationService := NotificationModulePackage.HGRegisterModules(
 		sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager),
-		imKafkaConfig.Business.Consumers.NotificationSend.NewTasksEnabled)
+		imKafkaConfig.Business.Consumers.NotificationSend.NewTasksEnabled).HGWithHints(notificationHints)
 	var imRuntime *IMModulePackage.HGRuntime
 	imRuntimeOwned := false
 	defer func() {
@@ -537,6 +540,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 		}
 	}
 	if imRuntime != nil {
+		notificationHints.HGUsePublisher(imRuntime.HGIAMGateway())
 		imRuntime.HGEnableIAMDelivery(iamService,
 			IAMPackage.HGNewAccessDelivery(sqlManager.GetSQLDB(), iamService, notificationService, imRuntime.HGIAMGateway()),
 			imFeatureConfig.WebSocketURL)

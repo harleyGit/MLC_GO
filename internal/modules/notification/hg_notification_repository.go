@@ -131,7 +131,8 @@ func (repo *HGRepository) HGSavePreferences(ctx context.Context, user string, pr
 
 // HGDeliver 由可信业务调用，eventID 必须稳定；唯一键实现同一事件同用户同分类的幂等。
 func (repo *HGRepository) HGDeliver(ctx context.Context, eventID, user string, notice HGNotice) error {
-	return repo.hgDeliverCount(ctx, eventID, user, notice)
+	_, err := repo.hgDeliverCount(ctx, eventID, user, notice)
+	return err
 }
 
 // HGDeliveries 运维按主键游标读取最近的站内成功记录，不宣称外部渠道已投递。

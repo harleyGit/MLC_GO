@@ -117,7 +117,7 @@ func (g *HGCentrifugo) HGDisconnectIAMSession(ctx context.Context, userID, sessi
 	return nil
 }
 
-// HGPublishUser 仅接受服务端从权威 IAM 读取的权限快照，网关确认不是设备 ACK，断线由本人同步补偿。
+// HGPublishUser 发布服务端选择的本人频道事件（权限快照或无正文通知提示）；网关确认不是设备 ACK。
 func (g *HGCentrifugo) HGPublishUser(ctx context.Context, userID string, payload json.RawMessage) error {
 	pipe := g.sdk.Pipe()
 	if err := pipe.AddPublish(HGAccessChannel(userID), payload); err != nil {
