@@ -1,6 +1,5 @@
-USE HG_MLC_DB;
-
 -- 六类新作用域仅登记 IAM 资源，不自动改变业务 API 的鉴权规则；业务端须传入服务端权威 ID。
+-- 使用迁移连接所选数据库；禁止 USE 固定库名，否则隔离验收可能误写其他环境。
 -- 候选页使用 (scope_type,status,id) 游标；授权点查使用唯一键，不以客户端输入推断资源。
 CREATE TABLE iam_scope_resources (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '候选列表游标主键',
