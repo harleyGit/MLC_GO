@@ -238,6 +238,25 @@ func (handler *HGTemplateHandler) HGList(w http.ResponseWriter, r *http.Request)
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
 }
 
+// HGPublishedList 提供发布版游标快照；最新草稿存在时仍返回不可变发布版供发送。
+func (handler *HGTemplateHandler) HGPublishedList(w http.ResponseWriter, r *http.Request) {
+	cursor := uint64(math.MaxInt64)
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		value, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || value == 0 || value > math.MaxInt64 {
+			hgTemplateFail(w, r, HGErrInvalid)
+			return
+		}
+		cursor = value
+	}
+	items, next, err := handler.repo.HGPublishedPage(r.Context(), cursor)
+	if err != nil {
+		hgTemplateFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
+}
+
 // HGDetail 查询数据库当前版本，供编辑回填，不能只使用列表缓存。
 func (handler *HGTemplateHandler) HGDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := hgTemplatePathID(r)

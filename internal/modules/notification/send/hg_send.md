@@ -1,6 +1,6 @@
 # 有界站内模板发送（第一阶段）
 
-复用 `notification_templates`/`notification_template_versions`、既有用户收件箱和事件去重账本；新增 `notification_send_tasks` 持久任务。发布前由发布系统先部署 `migrations/000083_notification_send_tasks.up.sql`，再启动新版本服务。仓库内不自动执行迁移或真实发送。
+复用 `notification_templates`/`notification_template_versions`、既有用户收件箱和事件去重账本；新增 `notification_send_tasks` 持久任务。发布前由发布系统按序部署 `migrations/000083_notification_send_tasks.up.sql`、`migrations/000084_notification_send_read_indexes.up.sql`，再启动新版本服务。仓库内不自动执行迁移或真实发送。
 
 ## 操作
 
@@ -18,6 +18,8 @@
    ```
 
 4. `GET /api/v1/admin/notification/send-tasks/detail?id=<taskId>` 查询本人任务；`POST /api/v1/admin/notification/send-tasks/cancel?id=<taskId>` 取消尚未处理的用户。回执 `pending` 只表示已保存任务；`processed` 包含营销偏好拒收，不等于实际送达或阅读。
+
+`GET /api/v1/admin/notification/templates/published?cursor=<id>` 返回当前已发布版本快照（每页 20 条）；创建新草稿不会替换发送内容。`GET /api/v1/admin/notification/send-tasks?cursor=<id>` 返回本人任务倒序游标记录（每页 20 条），不包含接收人和变量。两者依赖 `migrations/000084_notification_send_read_indexes.up.sql` 的排序索引；必须先在发布流程执行 `000083`、`000084` 再启动提供这些接口的新服务版本。
 
 发布/创建/读取/取消使用独立 IAM 权限；迁移只向活动 `super_admin` 预置权限。接收人 ID 必须已存在，每个任务最多 100 人；同一管理员最多 20 个未完成任务。接收人按排序固定快照，任务绑定不可变版本；重用同一请求键但变更负载返回冲突。
 

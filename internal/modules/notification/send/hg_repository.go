@@ -255,6 +255,37 @@ func (repo *HGRepository) HGDetail(ctx context.Context, id uint64, creator strin
 	return task, nil
 }
 
+// HGMinePage 仅列出创建人自己的任务，返回稳定倒序主键游标；不暴露变量或接收人。
+func (repo *HGRepository) HGMinePage(ctx context.Context, creator string, cursor uint64) ([]HGTask, string, error) {
+	if !hgUserID.MatchString(creator) || cursor == 0 || cursor > math.MaxInt64 {
+		return nil, "", HGErrInvalid
+	}
+	rows, err := repo.db.QueryContext(ctx, queries.HGNotificationSendMinePageSQL, creator, cursor, 21)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	items := make([]HGTask, 0, 21)
+	for rows.Next() {
+		var item HGTask
+		var taskID, templateID uint64
+		if err := rows.Scan(&taskID, &templateID, &item.TemplateVersion, &item.Status,
+			&item.Processed, &item.Attempts, &item.CreatedAt, &item.Total); err != nil {
+			return nil, "", err
+		}
+		item.ID, item.TemplateID = strconv.FormatUint(taskID, 10), strconv.FormatUint(templateID, 10)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(items) > 20 {
+		items = items[:20]
+		return items, items[len(items)-1].ID, nil
+	}
+	return items, "", nil
+}
+
 // HGCancel 仅创建者能取消自己的未完成任务；已落库站内通知不撤回。
 func (repo *HGRepository) HGCancel(ctx context.Context, id uint64, creator string) error {
 	result, err := repo.db.ExecContext(ctx, queries.HGNotificationSendCancelSQL, id, creator)

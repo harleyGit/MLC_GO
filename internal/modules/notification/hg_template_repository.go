@@ -90,6 +90,31 @@ func (repo *HGTemplateRepository) HGPage(ctx context.Context, cursor uint64, pag
 	return items, "", nil
 }
 
+// HGPublishedPage 读取当前已发布版本快照，不将编辑中的新草稿误作可发送内容。
+func (repo *HGTemplateRepository) HGPublishedPage(ctx context.Context, cursor uint64) ([]HGTemplate, string, error) {
+	rows, err := repo.db.QueryContext(ctx, queries.HGNotificationSendPublishedPageSQL, cursor, 21)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	items := make([]HGTemplate, 0, 21)
+	for rows.Next() {
+		item, err := hgScanTemplate(rows)
+		if err != nil {
+			return nil, "", err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(items) > 20 {
+		items = items[:20]
+		return items, items[len(items)-1].ID, nil
+	}
+	return items, "", nil
+}
+
 // HGDetail 按主键读取最新版本快照，已删除记录不可见。
 func (repo *HGTemplateRepository) HGDetail(ctx context.Context, id uint64) (HGTemplate, error) {
 	item, err := hgScanTemplate(repo.db.QueryRowContext(ctx, queries.HGNotificationTemplateDetailSQL, id))

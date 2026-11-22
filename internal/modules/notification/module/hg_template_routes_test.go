@@ -12,12 +12,13 @@ import (
 func TestHGTemplateRoutesRequireIAM(t *testing.T) {
 	routes := hgTemplateRoutes(nil)
 	expected := map[string]permission.HGPermission{
-		http.MethodGet + " /templates":          permission.HGNotificationTemplateRead,
-		http.MethodGet + " /templates/detail":   permission.HGNotificationTemplateRead,
-		http.MethodPost + " /templates":         permission.HGNotificationTemplateCreate,
-		http.MethodPut + " /templates/update":   permission.HGNotificationTemplateUpdate,
-		http.MethodPost + " /templates/delete":  permission.HGNotificationTemplateDelete,
-		http.MethodPost + " /templates/publish": permission.HGNotificationTemplateUpdate,
+		http.MethodGet + " /templates":           permission.HGNotificationTemplateRead,
+		http.MethodGet + " /templates/published": permission.HGNotificationTemplateRead,
+		http.MethodGet + " /templates/detail":    permission.HGNotificationTemplateRead,
+		http.MethodPost + " /templates":          permission.HGNotificationTemplateCreate,
+		http.MethodPut + " /templates/update":    permission.HGNotificationTemplateUpdate,
+		http.MethodPost + " /templates/delete":   permission.HGNotificationTemplateDelete,
+		http.MethodPost + " /templates/publish":  permission.HGNotificationTemplateUpdate,
 	}
 	if len(routes) != len(expected) {
 		t.Fatalf("路由数不匹配: %d", len(routes))
@@ -47,6 +48,7 @@ func TestHGSendRoutesRequireSeparateIAM(t *testing.T) {
 	expected := map[string]permission.HGPermission{
 		"POST /templates/publish-send": permission.HGNotificationTemplatePublish,
 		"POST /send-tasks":             permission.HGNotificationSendCreate,
+		"GET /send-tasks":              permission.HGNotificationSendRead,
 		"GET /send-tasks/detail":       permission.HGNotificationSendRead,
 		"POST /send-tasks/cancel":      permission.HGNotificationSendCancel,
 	}

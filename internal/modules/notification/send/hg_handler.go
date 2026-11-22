@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 )
 
 // HGHandler 将 IAM 路由的管理请求映射到双人发布及有界任务，身份始终取可信 JWT。
@@ -121,6 +123,30 @@ func (handler *HGHandler) HGDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.SuccessResult(w, r, task)
+}
+
+// HGMineList 仅按当前登录管理员与主键游标分页查询本人任务。
+func (handler *HGHandler) HGMineList(w http.ResponseWriter, r *http.Request) {
+	user, err := hgActor(r)
+	cursor := uint64(math.MaxInt64)
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		value, parseErr := strconv.ParseUint(raw, 10, 64)
+		if parseErr != nil || value == 0 || value > math.MaxInt64 {
+			hgFail(w, r, HGErrInvalid)
+			return
+		}
+		cursor = value
+	}
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	items, next, err := handler.repo.HGMinePage(r.Context(), user, cursor)
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	response.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
 }
 
 // HGCancel 只阻止未执行用户；并发中的一次已成功落库投递不承诺撤回。

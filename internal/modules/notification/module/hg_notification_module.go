@@ -63,13 +63,15 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 
 func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	const base = "/api/v1/admin/notification"
-	var publish, create, detail, cancel http.HandlerFunc
+	var publish, create, list, detail, cancel http.HandlerFunc
 	if h != nil {
 		publish, create, detail, cancel = h.HGPublish, h.HGCreate, h.HGDetail, h.HGCancel
+		list = h.HGMineList
 	}
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish-send", true, "双人复核发布站内模板", publish, HGPermissionPackage.HGNotificationTemplatePublish),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks", true, "创建有界站内发送任务", create, HGPermissionPackage.HGNotificationSendCreate),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks", true, "按游标查询本人发送任务", list, HGPermissionPackage.HGNotificationSendRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/detail", true, "查询本人发送任务进度", detail, HGPermissionPackage.HGNotificationSendRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks/cancel", true, "取消本人未完成发送任务", cancel, HGPermissionPackage.HGNotificationSendCancel),
 	}
@@ -78,13 +80,15 @@ func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
 // hgTemplateRoutes 按 HTTP 方法区分读写，路由 IAM 校验先于业务 handler。
 func hgTemplateRoutes(h *NotificationPackage.HGTemplateHandler) []HGRouterPackage.RouteSpec {
 	const base = "/api/v1/admin/notification"
-	var list, detail, create, update, remove, publish http.HandlerFunc
+	var list, published, detail, create, update, remove, publish http.HandlerFunc
 	if h != nil {
 		list, detail, create, update, remove = h.HGList, h.HGDetail, h.HGCreate, h.HGUpdate, h.HGDelete
+		published = h.HGPublishedList
 		publish = h.HGPublish
 	}
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates", true, "游标查询通知模板", list, HGPermissionPackage.HGNotificationTemplateRead),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates/published", true, "游标查询当前已发布模板版本", published, HGPermissionPackage.HGNotificationTemplateRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/templates/detail", true, "通知模板最新版本详情", detail, HGPermissionPackage.HGNotificationTemplateRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates", true, "创建通知模板草稿", create, HGPermissionPackage.HGNotificationTemplateCreate),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPut, base, "/templates/update", true, "按版本编辑通知模板", update, HGPermissionPackage.HGNotificationTemplateUpdate),

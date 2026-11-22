@@ -10,9 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-sql-driver/mysql"
@@ -283,5 +286,68 @@ func TestHGDispatchOnceReplaySkipsDuplicateInbox(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHGMinePageOnlyCreatorAndBoundedCursor(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows := sqlmock.NewRows([]string{"id", "template_id", "version", "status", "next_index", "attempts", "created_at", "total"})
+	for id := 30; id >= 10; id-- {
+		rows.AddRow(id, 7, 2, "pending", 0, 0, time.Now().UTC(), 2)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendMinePageSQL)).
+		WithArgs("ADMIN", uint64(31), 21).WillReturnRows(rows)
+	items, next, err := HGNewRepository(db).HGMinePage(context.Background(), "ADMIN", 31)
+	if err != nil || len(items) != 20 || items[0].ID != "30" || next != "11" {
+		t.Fatalf("本人任务游标错误: %d %q %v", len(items), next, err)
+	}
+	if _, _, err := HGNewRepository(db).HGMinePage(context.Background(), "bad user", 31); !errors.Is(err, HGErrInvalid) {
+		t.Fatalf("非法身份必须拒绝: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGPublishedPageUsesPublishedSnapshotNotLatestDraft(t *testing.T) {
+	if !strings.Contains(queries.HGNotificationSendPublishedPageSQL, "v.version=t.published_version") ||
+		!strings.Contains(queries.HGNotificationSendPublishedPageSQL, "v.status='published'") {
+		t.Fatal("发布版查询不得读取最新草稿")
+	}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// 模拟主表 latest=3、published=2；查询必须使用已发布版本快照。
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishedPageSQL)).
+		WithArgs(uint64(50), 21).WillReturnRows(sqlmock.NewRows([]string{
+		"id", "template_code", "name", "category", "status", "version", "published_version",
+		"title_template", "body_template", "variables_schema", "action_type", "action_config", "channels", "priority", "locale",
+	}).AddRow(7, "maintenance", "已审核名称", "system", "published", 2, 2,
+		"已审核标题", "已审核正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`), 2, "zh-CN"))
+	items, next, err := notification.HGNewTemplateRepository(db).HGPublishedPage(context.Background(), 50)
+	if err != nil || next != "" || len(items) != 1 || items[0].Version != 2 ||
+		items[0].TitleTemplate != "已审核标题" || items[0].Name != "已审核名称" {
+		t.Fatalf("必须返回发布版不可变快照: %+v %q %v", items, next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGMineListRejectsUntrustedIdentityAndInvalidCursor(t *testing.T) {
+	handler := HGNewHandler(nil) // 非法输入必须在任何数据库访问之前拒绝。
+	for _, target := range []string{"/send-tasks", "/send-tasks?cursor=0", "/send-tasks?cursor=invalid"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		handler.HGMineList(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("未认证或非法游标必须拒绝: %s %d", target, response.Code)
+		}
 	}
 }

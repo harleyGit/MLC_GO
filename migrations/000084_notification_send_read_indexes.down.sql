@@ -1,0 +1,2 @@
+ALTER TABLE notification_templates DROP KEY idx_notification_template_published;
+ALTER TABLE notification_send_tasks DROP KEY idx_notification_send_mine;

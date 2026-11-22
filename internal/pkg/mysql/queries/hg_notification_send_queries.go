@@ -29,6 +29,18 @@ const HGNotificationSendPendingLimitSQL = `SELECT COUNT(*) FROM (SELECT id FROM 
 const HGNotificationSendDetailSQL = `SELECT id,template_id,template_version,audience,status,next_index,attempts,created_at FROM notification_send_tasks WHERE id=? AND created_by=?`
 const HGNotificationSendCancelSQL = `UPDATE notification_send_tasks SET status='cancelled' WHERE id=? AND created_by=? AND status IN ('pending','leased')`
 
+// HGNotificationSendMinePageSQL 本人任务按 (created_by,id) 索引倒序游标分页；一次至多取 21 行，
+// 不做跨管理员扫描或无界 COUNT；索引由 000084 迁移补齐，未迁移前不要开放该入口。
+const HGNotificationSendMinePageSQL = `SELECT id,template_id,template_version,status,next_index,attempts,created_at,JSON_LENGTH(audience)
+FROM notification_send_tasks WHERE created_by=? AND id<? ORDER BY id DESC LIMIT ?`
+
+// HGNotificationSendPublishedPageSQL 只读取当前发布版本的快照，不能从最新草稿选择标题、变量或渠道。
+// 按 000084 的 (status,id) 索引顺序游标分页，每页最多 21 行；版本表走 (template_id,version) 唯一索引。
+const HGNotificationSendPublishedPageSQL = `SELECT t.id,t.template_code,v.name,v.category,t.status,v.version,t.published_version,
+v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale
+FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.published_version AND v.status='published'
+WHERE t.status='published' AND t.id<? ORDER BY t.id DESC LIMIT ?`
+
 // 两条候选查询分别走 ready 与 lease 索引；SKIP LOCKED 保证多 Pod 并行抢占且不在事务内投递。
 const HGNotificationSendClaimReadySQL = `SELECT id,template_id,template_version,audience,variables,next_index,attempts
 FROM notification_send_tasks WHERE status='pending' AND next_retry_at<=UTC_TIMESTAMP(3) ORDER BY next_retry_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`
@@ -42,6 +54,7 @@ const HGNotificationSendCorruptSQL = `UPDATE notification_send_tasks SET status=
 // 一次最多 100 个主键候选；users.user_id 唯一索引，禁止扫描用户目录做分群。
 // 查询片段由固定占位符拼接，用户 ID 始终通过参数绑定。
 const HGNotificationSendUsersPrefixSQL = `SELECT user_id FROM users WHERE user_id IN (`
+
 // 投递时按唯一 user_id 再确认用户仍存在；不可把创建时的身份快照当作永久可达凭据。
 const HGNotificationSendUserExistsSQL = `SELECT 1 FROM users WHERE user_id=? LIMIT 1`
 
