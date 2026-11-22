@@ -128,7 +128,7 @@ func (s *HGPrivateMedia) HGInitUpload(ctx context.Context, user string, cmd HGUp
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"mediaId": hex.EncodeToString(id[:]), "uploadUrl": link, "method": "PUT", "expiresIn": 600, "headers": map[string]string{"Content-Type": cmd.MIME, "x-amz-acl": "private"}, "size": cmd.Size}, nil
+	return map[string]any{"mediaId": hex.EncodeToString(id[:]), "uploadUrl": link, "method": "PUT", "expiresIn": 600, "headers": map[string]string{"Content-Type": cmd.MIME}, "size": cmd.Size}, nil
 }
 
 // HGCompleteUpload 仅接受上传完成声明，不代表通过审核；过期上传不得重新延长凭证。

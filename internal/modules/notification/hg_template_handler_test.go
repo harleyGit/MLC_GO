@@ -2,6 +2,9 @@ package notification
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +82,22 @@ func TestHGValidateTemplateFormUppercaseCode(t *testing.T) {
 	form.ActionType = "none"
 	if err := HGValidateTemplateForm(&form, true); err == nil {
 		t.Fatal("无跳转仍须拒绝非空 route_name")
+	}
+}
+
+// 完整复核管理端提交体的解码与校验；不调用仓储或发送通知。
+func TestHGTemplateCreateSMSPayload(t *testing.T) {
+	const body = `{"name":"MLC登录验证码","category":"security","title_template":"MLC验证码发送","body_template":"【MLC平台】您的验证码是{{code}}，1分钟内有效，请勿泄漏","variables_schema":{"code":{"type":"string","required":true,"max_length":64,"description":"接收通知的用户昵称"}},"action_type":"none","action_config":{},"channels":["in_app","realtime"],"priority":2,"locale":"zh-CN","version":0,"template_code":"SMS_001"}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/notification/templates", strings.NewReader(body))
+	var form HGTemplateForm
+	if err := hgTemplateBody(recorder, request, &form); err != nil {
+		t.Fatalf("完整请求体解码失败: %v", err)
+	}
+	if form.Version != 0 {
+		t.Fatalf("创建请求版本应为零: %d", form.Version)
+	}
+	if err := HGValidateTemplateForm(&form, true); err != nil {
+		t.Fatalf("完整请求体应通过模板校验: %v", err)
 	}
 }

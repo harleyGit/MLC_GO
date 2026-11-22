@@ -41,6 +41,40 @@
       //"stopOnEntry": true //“启动调试”按钮后程序就立即暂停在入口（main函数），可以立即 Evaluate 表达式
     },
     {
+      // 仅限本机通知模板调试；显式关闭整个 IM 媒体能力，不启动也不绕过审核器。
+      "name": "MLC_GO Debug（通知模板主服务）",
+      "presentation": { "hidden": true },
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "dlvFlags": ["--check-go-version=false"],
+      "buildFlags": "-tags=production",
+      "program": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "--version=true",
+        "--port=8081",
+        "--data-path=/data/nsq",
+        "--log-level=debug",
+        "--tcp-port=4150",
+        "--verbose",
+        "-gen"
+      ],
+      "env": {
+        "GOPATH": "${env:GOPATH}",
+        "MY_ENV": "debug",
+        "SERVER_ENV": "debug",
+        "MLC_CONFIG_DIR": "${workspaceFolder}/config",
+        "MLC_IM_MEDIA_ENABLED": "false",
+        "CRAWLER_BILIBILI_ENABLED": "false",
+        "CRAWLER_VIDEO_PIPELINE_ENABLED": "true",
+        "MLC_WALLET_DEBUG_PAYMENT_ENABLED": "false",
+        "KAFKA_REQUIRED": "false"
+      },
+      "showLog": true,
+      "console": "integratedTerminal"
+    },
+    {
       // 8080 主服务已运行时可单独选择此项；无 --help，直接启动 8090 管理 API 和周期 worker。
       "name": "🕷️ Launch hg_crawler Debug",
       "presentation": { "group": "MLC", "order": 2 },
@@ -223,9 +257,17 @@
   ],
   "compounds": [
     {
+      // 通知模板调试优先展示；选择后明确关闭整个 IM 媒体功能而非绕过审核。
+      "name": "🔔 Launch MLC_GO Debug（通知模板；IM 媒体关闭）",
+      "presentation": { "group": "MLC", "order": 1 },
+      "configurations": ["MLC_GO Debug（通知模板主服务）"],
+      "preLaunchTask": "ensure-debug-notification-services",
+      "stopAll": true
+    },
+    {
       // 只调试主服务；审核进程与 crawler 已运行则复用，缺失才由前置任务启动。
       "name": "🧪 Launch MLC_GO Debug",
-      "presentation": { "group": "MLC", "order": 1 },
+      "presentation": { "group": "MLC", "order": 2 },
       "configurations": ["MLC_GO Debug（主服务进程）"],
       "preLaunchTask": "ensure-debug-services",
       "stopAll": true

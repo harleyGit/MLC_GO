@@ -71,6 +71,9 @@ hg_ensure() {
         fi
         if ! kill -0 "${pid}" 2>/dev/null; then
             echo "[ERROR] ${kind} 启动失败，请查看 ${HG_RUNTIME}/${kind}.log" >&2
+            if [[ "${kind}" == "review" ]]; then
+                echo "[HINT] 仅调试通知模板时，请在 VS Code 调试配置下拉框选择「🔔 Launch MLC_GO Debug（通知模板；IM 媒体关闭）」；完整调试仍需恢复审核依赖。" >&2
+            fi
             return 1
         fi
         sleep 1
@@ -93,6 +96,7 @@ case "${hg_media}" in
             echo "[ERROR] 审核服务监听与 Go 审核地址不一致" >&2
             exit 1
         fi
+        python3 "${HG_ROOT}/scripts/ensure_debug_im_storage.py"
         hg_ensure review "${hg_port}" "http://${hg_listen}/readyz" ./cmd/hg_im_review hg-im-review-debug
         ;;
     false|0|"") echo "[INFO] IM 媒体未启用，跳过审核器" ;;

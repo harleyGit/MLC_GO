@@ -29,6 +29,27 @@
       "problemMatcher": []
     },
     {
+      // 通知模板本机调试保留 crawler，但完整关闭 IM 媒体，审核器不可用时不尝试绕过审核。
+      "label": "ensure-debug-notification-services",
+      "dependsOn": ["ensure-debug-deps", "ensure-debug-notification-aux"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "ensure-debug-notification-aux",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/ensure_debug_aux.sh",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "SERVER_ENV": "debug",
+          "MLC_IM_MEDIA_ENABLED": "false"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
       "label": "ensure-debug-aux",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/ensure_debug_aux.sh",

@@ -96,7 +96,8 @@ func (s *HGSeaweedFS) HGSignRead(key string) (string, error) {
 	return s.hgSign(http.MethodGet, key, "", 0, 15*time.Second)
 }
 
-// hgSignObject 在封存写入时额外签名 If-None-Match；部署前须实测存储是否真正执行条件写入。
+// hgSignObject 在封存写入时额外签名 If-None-Match；存储身份禁止 WriteAcp，
+// S3 默认私有，且必须拒绝未签名的 x-amz-acl 注入；部署前须实测条件写入。
 func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl time.Duration, createOnly bool) (string, error) {
 	if !hgObjectKey.MatchString(key) || ttl <= 0 || ttl > 10*time.Minute {
 		return "", fmt.Errorf("私有对象签名参数错误")
@@ -119,11 +120,11 @@ func (s *HGSeaweedFS) hgSignObject(method, key, mime string, size int64, ttl tim
 	headers := "host"
 	canonical := "host:" + u.Host + "\n"
 	if method == http.MethodPut {
-		headers = "content-length;content-type;host;x-amz-acl"
-		canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\nx-amz-acl:private\n"
+		headers = "content-length;content-type;host"
+		canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\n"
 		if createOnly {
-			headers = "content-length;content-type;host;if-none-match;x-amz-acl"
-			canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\nif-none-match:*\nx-amz-acl:private\n"
+			headers = "content-length;content-type;host;if-none-match"
+			canonical = "content-length:" + strconv.FormatInt(size, 10) + "\ncontent-type:" + mime + "\nhost:" + u.Host + "\nif-none-match:*\n"
 		}
 	}
 	q := url.Values{"X-Amz-Algorithm": {"AWS4-HMAC-SHA256"}, "X-Amz-Credential": {s.key + "/" + scope}, "X-Amz-Date": {stamp}, "X-Amz-Expires": {strconv.FormatInt(int64(ttl/time.Second), 10)}, "X-Amz-SignedHeaders": {headers}}
@@ -186,7 +187,6 @@ func (s *HGSeaweedFS) HGReviewSeal(ctx context.Context, key, mime string, size i
 	req.ContentLength = size
 	req.Header.Set("Content-Type", mime)
 	req.Header.Set("If-None-Match", "*")
-	req.Header.Set("x-amz-acl", "private")
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("封存请求失败")
