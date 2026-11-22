@@ -16,6 +16,7 @@ import (
 	CrawlerRepositoryPackage "MLC_GO/internal/modules/crawler/repository"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	NotificationPackage "MLC_GO/internal/modules/notification"
+	NotificationSendPackage "MLC_GO/internal/modules/notification/send"
 	VideoInteractionRepositoryPackage "MLC_GO/internal/modules/video_interaction/repository"
 	"MLC_GO/internal/outbox"
 	ClickHousePackage "MLC_GO/internal/pkg/clickhouse"
@@ -196,6 +197,10 @@ func initKafkaWithDependencies(redisService *PersistenceRedisPackage.RedisServic
 		}
 		runtimeDeps.InteractionStore = VideoInteractionRepositoryPackage.NewRepositoryWithTopic(sqlManager.GetSQLDB(), topic)
 		runtimeDeps.NotificationService = NotificationPackage.HGNewService(NotificationPackage.HGNewRepository(sqlManager.GetSQLDB()))
+		if cfg.Business.Consumers.NotificationSend.Enabled {
+			runtimeDeps.NotificationSendWorker = NotificationSendPackage.HGNewWorker(
+				NotificationSendPackage.HGNewRepository(sqlManager.GetSQLDB()), runtimeDeps.NotificationService)
+		}
 	}
 	if statisticConfig.ReconcileEnabled {
 		runtimeDeps.StatisticReconcileConfig = StatisticConsumerPackage.HGReconcileConfig{Generation: statisticConfig.RedisGeneration, ShardCount: statisticConfig.RedisShardCount, Timeout: statisticConfig.ReconcileTimeout}

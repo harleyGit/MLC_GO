@@ -8,11 +8,13 @@ import (
 	FeedConsumerPackage "MLC_GO/internal/consumer/feed"
 	InteractionConsumerPackage "MLC_GO/internal/consumer/interaction"
 	NotificationConsumerPackage "MLC_GO/internal/consumer/notification"
+	NotificationSendConsumerPackage "MLC_GO/internal/consumer/notification_send"
 	SearchConsumerPackage "MLC_GO/internal/consumer/search"
 	StatisticConsumerPackage "MLC_GO/internal/consumer/statistic"
 	CrawlerEventPackage "MLC_GO/internal/events/crawler"
 	CrawlerServicePackage "MLC_GO/internal/modules/crawler/service"
 	NotificationPackage "MLC_GO/internal/modules/notification"
+	NotificationSendPackage "MLC_GO/internal/modules/notification/send"
 	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"context"
 	"fmt"
@@ -53,7 +55,8 @@ type RuntimeDependencies struct {
 	StatisticReconcileConfig   StatisticConsumerPackage.HGReconcileConfig
 	StatisticReconcileInterval time.Duration
 	InteractionStore           InteractionConsumerPackage.EventStore
-	NotificationService        *NotificationPackage.HGService // 通知存储必须先迁移后启用。
+	NotificationService        *NotificationPackage.HGService    // 通知存储必须先迁移后启用。
+	NotificationSendWorker     *NotificationSendPackage.HGWorker // Kafka 任务只处理匹配代次，不启动 MySQL 轮询。
 	DanmakuStore               DanmakuConsumerPackage.HistoryStore
 	DanmakuRecent              DanmakuConsumerPackage.RecentProjector
 	CrawlerStore               CrawlerConsumerPackage.HGStore           // 采集阶段权威存储与Outbox。
@@ -164,6 +167,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		runtime.Close()
 		return nil, fmt.Errorf("通知消费者缺少 MySQL 服务")
 	}
+	if cfg.Consumers.NotificationSend.Enabled && deps.NotificationSendWorker == nil {
+		runtime.Close()
+		return nil, fmt.Errorf("通知发送 Kafka 消费者缺少权威任务工作者")
+	}
 	if cfg.Consumers.Danmaku.Enabled && (deps.DanmakuStore == nil || deps.DanmakuRecent == nil) {
 		runtime.Close()
 		return nil, fmt.Errorf("danmaku history store and recent projector cannot be nil")
@@ -206,6 +213,8 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		// InteractionConsumerPackage.NewConsumer 它是创建一个 Interaction 业务处理器，负责处理点赞、关注等事件。
 		{name: "interaction", config: cfg.Consumers.Interaction, handler: InteractionConsumerPackage.NewConsumer(deps.InteractionStore), implemented: true},
 		{name: "notification", config: cfg.Consumers.Notification, handler: NotificationConsumerPackage.HGNewConsumer(deps.NotificationService), implemented: true},
+		{name: "notification_send", config: cfg.Consumers.NotificationSend,
+			handler: NotificationSendConsumerPackage.HGNewConsumer(deps.NotificationSendWorker), implemented: true},
 		{name: "danmaku", config: cfg.Consumers.Danmaku, handler: DanmakuConsumerPackage.NewConsumer(deps.DanmakuStore, deps.DanmakuRecent), implemented: true},
 		{name: "crawler_fetch", config: cfg.Consumers.CrawlerFetch, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGDiscovered, deps.CrawlerStore, deps.CrawlerHTTP, nil), implemented: true},
 		{name: "crawler_clean", config: cfg.Consumers.CrawlerClean, handler: CrawlerConsumerPackage.NewHGStageConsumer(CrawlerEventPackage.HGRaw, deps.CrawlerStore, nil, nil), implemented: true},
@@ -246,6 +255,10 @@ func NewRuntime(parent context.Context, cfg HGKafkaPackage.HGClusterConfig, deps
 		if err != nil {
 			runtime.Close()
 			return nil, fmt.Errorf("build %s kafka consumer: %w", spec.name, err)
+		}
+		if spec.name == "notification_send" {
+			// 新消费组必须重放专用 topic 中可能早于启动发布的任务；MySQL 代次与游标负责跳过过期事件。
+			opts = append(opts, kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
 		}
 		// 6.创建 LagObserver：监控 Kafka 消息积压，这里的 Lag 指 Kafka 消费积压量。
 		/*

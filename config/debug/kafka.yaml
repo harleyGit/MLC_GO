@@ -39,6 +39,15 @@ kafka:
         enabled: false
         group_id: mlc-go-debug-notification
         client_id: mlc-go-debug-notification
+      notification_send:
+        # 000086 和专用 topic 就绪且验收前保持关闭；不得订阅 mlc.domain.events。
+        enabled: false
+        # 灰度消费专用测试任务时仍不切换所有管理员新任务；全量切换需独立确认。
+        new_tasks_enabled: false
+        group_id: mlc-go-debug-notification-send
+        client_id: mlc-go-debug-notification-send
+        topics:
+          - mlc.notification.send.ready.v1
       danmaku:
         enabled: false
         group_id: mlc-go-debug-danmaku-history

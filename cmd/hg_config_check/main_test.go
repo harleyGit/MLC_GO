@@ -4,6 +4,7 @@ import (
 	ConfigPackage "MLC_GO/internal/pkg/config"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"context"
+	"database/sql"
 	"errors"
 	"regexp"
 	"testing"
@@ -73,5 +74,48 @@ func TestHGCheckNotificationSendSchemaReadFailure(t *testing.T) {
 		WillReturnError(errors.New("连接异常"))
 	if err := hgCheckNotificationSendSchema(context.Background(), db); err == nil || err.Error() != "通知发送结构检查不可用" {
 		t.Fatalf("不应泄露底层连接信息: %v", err)
+	}
+}
+
+func TestHGCheckNotificationKafkaSchema(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGNotificationKafkaSchemaColumnsSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGNotificationKafkaSchemaIndexesSQL)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	if err := hgCheckNotificationKafkaSchema(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCheckNotificationKafkaQueriesNeverWrites(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	for _, query := range []string{
+		SQLQueriesPackage.HGNotificationKafkaReadySQL,
+		SQLQueriesPackage.HGNotificationKafkaQueuedExpiredSQL,
+		SQLQueriesPackage.HGNotificationKafkaLeasedExpiredSQL,
+	} {
+		mock.ExpectQuery(regexp.QuoteMeta(query)).WillReturnError(sql.ErrNoRows)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGNotificationKafkaClaimSQL)).
+		WithArgs(0, 0, 0).WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+	if err := hgCheckNotificationKafkaQueries(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

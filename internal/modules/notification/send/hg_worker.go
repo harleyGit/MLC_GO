@@ -1,6 +1,7 @@
 package send
 
 import (
+	notificationevents "MLC_GO/internal/events/notification"
 	notification "MLC_GO/internal/modules/notification"
 	"MLC_GO/internal/pkg/logHG"
 	queries "MLC_GO/internal/pkg/mysql/queries"
@@ -18,14 +19,16 @@ import (
 )
 
 type hgJob struct {
-	id       uint64            // 任务主键。
-	template uint64            // 创建时选择的模板主键。
-	version  uint32            // 已发布的不可变版本号。
-	users    []string          // 有界接收人数组。
-	vars     map[string]string // 共享字符串变量。
-	index    int               // 下一位接收人的下标。
-	attempts uint8             // 当前接收人的连续失败次数。
-	token    string            // 当前工作者的独占租约。
+	id         uint64            // 任务主键。
+	template   uint64            // 创建时选择的模板主键。
+	version    uint32            // 已发布的不可变版本号。
+	users      []string          // 有界接收人数组。
+	vars       map[string]string // 共享字符串变量。
+	index      int               // 下一位接收人的下标。
+	attempts   uint8             // 当前接收人的连续失败次数。
+	token      string            // 当前工作者的独占租约。
+	mode       string            // mysql/kafka；只影响租约回执 SQL，不改变业务通知 ID。
+	generation uint64            // Kafka 当前分发代次；MySQL 模式为零。
 }
 
 // HGWorker 从 MySQL 持久队列串行取单个接收人；每 Pod 最多一个工作协程，不在事务内投递。
@@ -112,6 +115,7 @@ func (worker *HGWorker) hgClaim(ctx context.Context) (*hgJob, error) {
 		return nil, err
 	}
 	job.token = hex.EncodeToString(nonce[:])
+	job.mode = "mysql"
 	if _, err = tx.ExecContext(ctx, queries.HGNotificationSendLeaseSQL, job.token, job.id); err != nil {
 		return nil, err
 	}
@@ -135,8 +139,13 @@ func (worker *HGWorker) hgFinish(ctx context.Context, job *hgJob, delivered bool
 		if job.index+1 == len(job.users) {
 			status = "done"
 		}
-		result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationSendAdvanceSQL,
-			job.index+1, status, job.id, job.token, job.index)
+		if job.mode == "kafka" {
+			result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationKafkaAdvanceSQL,
+				job.index+1, status, job.id, job.token, job.generation, job.index)
+		} else {
+			result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationSendAdvanceSQL,
+				job.index+1, status, job.id, job.token, job.index)
+		}
 	} else {
 		next := job.attempts + 1
 		status := "pending"
@@ -144,8 +153,13 @@ func (worker *HGWorker) hgFinish(ctx context.Context, job *hgJob, delivered bool
 			status = "failed" // 永久失败等待人工排查，不无限重试。
 		}
 		delay := 1 << min(int(next), 5)
-		result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationSendRetrySQL,
-			status, next, delay, job.id, job.token, job.index)
+		if job.mode == "kafka" {
+			result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationKafkaRetrySQL,
+				status, next, delay, job.id, job.token, job.generation, job.index)
+		} else {
+			result, err = worker.repo.db.ExecContext(ctx, queries.HGNotificationSendRetrySQL,
+				status, next, delay, job.id, job.token, job.index)
+		}
 	}
 	if err != nil {
 		return err
@@ -165,6 +179,12 @@ func (worker *HGWorker) HGDispatchOnce(ctx context.Context) error {
 	if err != nil || job == nil {
 		return err
 	}
+	_, err = worker.hgProcessJob(ctx, job)
+	return err
+}
+
+// hgProcessJob 返回是否已持久化任务回执；Kafka 只在状态回执成功后提交当前 offset。
+func (worker *HGWorker) hgProcessJob(ctx context.Context, job *hgJob) (bool, error) {
 	version, err := hgScanVersion(worker.repo.db.QueryRowContext(ctx, queries.HGNotificationSendBoundVersionSQL, job.version, job.template))
 	if err == nil {
 		var notice notification.HGNotice
@@ -181,9 +201,31 @@ func (worker *HGWorker) HGDispatchOnce(ctx context.Context) error {
 	}
 	if err != nil {
 		if finishErr := worker.hgFinish(ctx, job, false); finishErr != nil {
-			return finishErr
+			return false, finishErr
 		}
+		return true, err
+	}
+	if err := worker.hgFinish(ctx, job, true); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// HGDispatchReady 只消费单一 Kafka 代次；业务失败已登记重试后提交 offset，DB 回执失败则保持重放。
+func (worker *HGWorker) HGDispatchReady(ctx context.Context, event notificationevents.HGSendReadyEvent) error {
+	if worker == nil || worker.repo == nil || worker.repo.db == nil || worker.notices == nil {
+		return errors.New("通知发送依赖未就绪")
+	}
+	if err := event.HGValidate(); err != nil {
 		return err
 	}
-	return worker.hgFinish(ctx, job, true)
+	job, err := worker.hgClaimReady(ctx, event)
+	if err != nil || job == nil {
+		return err
+	}
+	recorded, err := worker.hgProcessJob(ctx, job)
+	if recorded {
+		return nil
+	}
+	return err
 }

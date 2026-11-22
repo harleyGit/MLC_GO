@@ -35,25 +35,27 @@ type HGKafkaClusterConfig struct {
 
 // HGConsumerConfig 定义一个独立消费组。
 type HGConsumerConfig struct {
-	Enabled  bool     `yaml:"enabled" mapstructure:"enabled"`
-	GroupID  string   `yaml:"group_id" mapstructure:"group_id"`
-	ClientID string   `yaml:"client_id" mapstructure:"client_id"`
-	Topics   []string `yaml:"topics" mapstructure:"topics"`
+	Enabled         bool     `yaml:"enabled" mapstructure:"enabled"`
+	GroupID         string   `yaml:"group_id" mapstructure:"group_id"`
+	ClientID        string   `yaml:"client_id" mapstructure:"client_id"`
+	Topics          []string `yaml:"topics" mapstructure:"topics"`
+	NewTasksEnabled bool     `yaml:"new_tasks_enabled" mapstructure:"new_tasks_enabled"` // 仅 notification_send 使用：显式允许管理入口创建 Kafka 任务；默认 false。
 }
 
 // HGConsumerGroupConfigs 为各读模型分配独立消费位点。
 type HGConsumerGroupConfigs struct {
-	Feed           HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
-	Search         HGConsumerConfig `yaml:"search" mapstructure:"search"`
-	Statistic      HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
-	Audit          HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
-	Interaction    HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
-	Notification   HGConsumerConfig `yaml:"notification" mapstructure:"notification"` // 已提交业务事件的站内信消费组。
-	Danmaku        HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
-	CrawlerFetch   HGConsumerConfig `yaml:"crawler_fetch" mapstructure:"crawler_fetch"`     // 详情抓取独立消费组。
-	CrawlerClean   HGConsumerConfig `yaml:"crawler_clean" mapstructure:"crawler_clean"`     // 原始详情清洗消费组。
-	CrawlerStore   HGConsumerConfig `yaml:"crawler_store" mapstructure:"crawler_store"`     // MySQL持久化消费组。
-	CrawlerHistory HGConsumerConfig `yaml:"crawler_history" mapstructure:"crawler_history"` // ClickHouse历史投影消费组。
+	Feed             HGConsumerConfig `yaml:"feed" mapstructure:"feed"`
+	Search           HGConsumerConfig `yaml:"search" mapstructure:"search"`
+	Statistic        HGConsumerConfig `yaml:"statistic" mapstructure:"statistic"`
+	Audit            HGConsumerConfig `yaml:"audit" mapstructure:"audit"`
+	Interaction      HGConsumerConfig `yaml:"interaction" mapstructure:"interaction"`
+	Notification     HGConsumerConfig `yaml:"notification" mapstructure:"notification"`           // 已提交业务事件的站内信消费组。
+	NotificationSend HGConsumerConfig `yaml:"notification_send" mapstructure:"notification_send"` // 专用任务 topic；不订阅关注事件。
+	Danmaku          HGConsumerConfig `yaml:"danmaku" mapstructure:"danmaku"`
+	CrawlerFetch     HGConsumerConfig `yaml:"crawler_fetch" mapstructure:"crawler_fetch"`     // 详情抓取独立消费组。
+	CrawlerClean     HGConsumerConfig `yaml:"crawler_clean" mapstructure:"crawler_clean"`     // 原始详情清洗消费组。
+	CrawlerStore     HGConsumerConfig `yaml:"crawler_store" mapstructure:"crawler_store"`     // MySQL持久化消费组。
+	CrawlerHistory   HGConsumerConfig `yaml:"crawler_history" mapstructure:"crawler_history"` // ClickHouse历史投影消费组。
 }
 
 // HGClusterConfig 是单个 Kafka 集群的最小生产配置。
@@ -121,17 +123,18 @@ func hgNormalizeConsumerGroups(groups HGConsumerGroupConfigs) HGConsumerGroupCon
 		return cfg
 	}
 	return HGConsumerGroupConfigs{
-		Feed:           normalize(groups.Feed),
-		Search:         normalize(groups.Search),
-		Statistic:      normalize(groups.Statistic),
-		Audit:          normalize(groups.Audit),
-		Interaction:    normalize(groups.Interaction),
-		Notification:   normalize(groups.Notification),
-		Danmaku:        normalize(groups.Danmaku),
-		CrawlerFetch:   normalize(groups.CrawlerFetch),
-		CrawlerClean:   normalize(groups.CrawlerClean),
-		CrawlerStore:   normalize(groups.CrawlerStore),
-		CrawlerHistory: normalize(groups.CrawlerHistory),
+		Feed:             normalize(groups.Feed),
+		Search:           normalize(groups.Search),
+		Statistic:        normalize(groups.Statistic),
+		Audit:            normalize(groups.Audit),
+		Interaction:      normalize(groups.Interaction),
+		Notification:     normalize(groups.Notification),
+		NotificationSend: normalize(groups.NotificationSend),
+		Danmaku:          normalize(groups.Danmaku),
+		CrawlerFetch:     normalize(groups.CrawlerFetch),
+		CrawlerClean:     normalize(groups.CrawlerClean),
+		CrawlerStore:     normalize(groups.CrawlerStore),
+		CrawlerHistory:   normalize(groups.CrawlerHistory),
 	}
 }
 

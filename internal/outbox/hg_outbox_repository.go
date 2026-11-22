@@ -73,16 +73,29 @@ func (r *Repository) Save(ctx context.Context, event events.DomainEvent) error {
 // SaveTx 在业务事务内写入 Outbox。
 // 这是 Outbox Pattern 的关键点：业务数据和事件记录共用同一个 commit。
 func (r *Repository) SaveTx(ctx context.Context, tx *sql.Tx, event events.DomainEvent) error {
+	_, err := r.SaveTxID(ctx, tx, event)
+	return err
+}
+
+// SaveTxID 在同一事务返回 Outbox 行 ID，供权威任务检查该代次是否仍在投递中；不改变已有 SaveTx 协议。
+func (r *Repository) SaveTxID(ctx context.Context, tx *sql.Tx, event events.DomainEvent) (int64, error) {
+	if r == nil || tx == nil || r.topic == "" {
+		return 0, fmt.Errorf("outbox 事务或 topic 未就绪")
+	}
 	// 由调用方传入业务事务 tx，保证业务数据和 outbox 事件一起提交或一起回滚。
 	envelope, err := events.NewEnvelope(event)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	payload, err := json.Marshal(envelope)
 	if err != nil {
-		return fmt.Errorf("marshal outbox envelope: %w", err)
+		return 0, fmt.Errorf("marshal outbox envelope: %w", err)
 	}
-	return r.SaveEnvelopeExec(ctx, tx, envelope, payload)
+	result, err := tx.ExecContext(ctx, SQLQueriesPackage.InsertOutboxEventSQL, envelope.EventID, envelope.EventName, envelope.EventKey, r.topic, payload)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
 }
 
 type sqlExecer interface {

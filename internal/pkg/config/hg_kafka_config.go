@@ -82,6 +82,7 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		{name: "audit", cfg: groups.Audit},
 		{name: "interaction", cfg: groups.Interaction},
 		{name: "notification", cfg: groups.Notification},
+		{name: "notification_send", cfg: groups.NotificationSend},
 		{name: "danmaku", cfg: groups.Danmaku},
 		{name: "crawler_fetch", cfg: groups.CrawlerFetch},
 		{name: "crawler_clean", cfg: groups.CrawlerClean},
@@ -91,7 +92,7 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 	seen := make(map[string]string, len(configs))
 	for _, item := range configs {
 		// 新消费组可在旧配置中缺席；仅启用时强制提供独立 group_id，兼容已有启动配置。
-		if (strings.HasPrefix(item.name, "crawler_") || item.name == "notification") && !item.cfg.Enabled && item.cfg.GroupID == "" {
+		if (strings.HasPrefix(item.name, "crawler_") || item.name == "notification" || item.name == "notification_send") && !item.cfg.Enabled && item.cfg.GroupID == "" {
 			continue
 		}
 		item.cfg.GroupID = strings.TrimSpace(item.cfg.GroupID)
@@ -104,6 +105,13 @@ func validateKafkaConsumerGroups(groups HGKafkaPackage.HGConsumerGroupConfigs) e
 		seen[item.cfg.GroupID] = item.name
 		if item.name == "danmaku" && item.cfg.Enabled && len(item.cfg.Topics) == 0 {
 			return fmt.Errorf("consumer %s topics 不能为空", item.name)
+		}
+		if item.name == "notification_send" && item.cfg.Enabled &&
+			(len(item.cfg.Topics) != 1 || item.cfg.Topics[0] != "mlc.notification.send.ready.v1") {
+			return fmt.Errorf("notification_send 消费组必须只订阅专用通知发送 topic")
+		}
+		if item.name == "notification_send" && item.cfg.NewTasksEnabled && !item.cfg.Enabled {
+			return fmt.Errorf("notification_send 未启用时不得创建 Kafka 任务")
 		}
 	}
 	return nil

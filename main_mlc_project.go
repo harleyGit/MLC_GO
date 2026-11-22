@@ -89,24 +89,25 @@ const (
 // 2. 容器/K8s 发布时会发送 SIGTERM，应用需要先停止接新流量，再释放连接池。
 // 3. 把资源放到一个应用对象里，启动失败和关闭失败都能集中处理，便于维护和测试。
 type MLCApplication struct {
-	server                  *http.Server
-	managementServer        *http.Server
-	redisService            *PersistenceRedisPackage.RedisService
-	sqlManager              *PersistenceSQLPackage.HGSQLManager
-	kafkaCloser             kafkaCloser
-	kafkaRuntime            kafkaReadyChecker
-	interactionReprojector  *VideoInteractionTaskPackage.HGReprojector
-	coinJobs                *CoinTaskPackage.HGJobs
-	mallExpiry              *product.HGExpiryWorker
-	mallCNYExpiry           *mallcny.HGExpiryWorker  // debug 沙箱有界超时与退款补偿，须先于 MySQL 池关闭。
-	commerceExpiry          *commerce.HGExpiryWorker // 仅显式 debug 开启的生产 CNY 预占释放；须先于 MySQL 关闭。
-	correctionRecovery      *OpsTaskPackage.HGCorrectionRecovery
-	videoCommentMaintenance *VideoCommentTaskPackage.HGVideoCommentMaintenance
-	videoDanmakuRealtime    *VideoDanmakuRealtimePackage.Server
-	crawlerManager          *CrawlerSpiderPackage.HGManager
-	crawlerTaskScheduler    *CrawlerRuntimePackage.HGTaskScheduler
-	mediaRuntime            *MediaModulePackage.HGRuntime
-	notificationWorker      *NotificationSendPackage.HGWorker // 有界站内发送工作者，关闭时先于 MySQL。
+	server                     *http.Server
+	managementServer           *http.Server
+	redisService               *PersistenceRedisPackage.RedisService
+	sqlManager                 *PersistenceSQLPackage.HGSQLManager
+	kafkaCloser                kafkaCloser
+	kafkaRuntime               kafkaReadyChecker
+	interactionReprojector     *VideoInteractionTaskPackage.HGReprojector
+	coinJobs                   *CoinTaskPackage.HGJobs
+	mallExpiry                 *product.HGExpiryWorker
+	mallCNYExpiry              *mallcny.HGExpiryWorker  // debug 沙箱有界超时与退款补偿，须先于 MySQL 池关闭。
+	commerceExpiry             *commerce.HGExpiryWorker // 仅显式 debug 开启的生产 CNY 预占释放；须先于 MySQL 关闭。
+	correctionRecovery         *OpsTaskPackage.HGCorrectionRecovery
+	videoCommentMaintenance    *VideoCommentTaskPackage.HGVideoCommentMaintenance
+	videoDanmakuRealtime       *VideoDanmakuRealtimePackage.Server
+	crawlerManager             *CrawlerSpiderPackage.HGManager
+	crawlerTaskScheduler       *CrawlerRuntimePackage.HGTaskScheduler
+	mediaRuntime               *MediaModulePackage.HGRuntime
+	notificationWorker         *NotificationSendPackage.HGWorker         // 有界站内发送工作者，关闭时先于 MySQL。
+	notificationKafkaScheduler *NotificationSendPackage.HGKafkaScheduler // 仅在专用 Kafka 消费组开启后排队。
 }
 
 // mlc_main 是 MLC_GO 工程入口，负责配置加载、依赖构建与 HTTP 服务启动。
@@ -489,7 +490,6 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// 注册 IAM 管理模块，复用应用的 JWT 与 MySQL 连接。
 	iamService := IAMModulePackage.RegisterHGModule(sqlManager, redisService)
 	// 通知是独立收件箱业务，绝不复用视频弹幕的实时广播与存储。
-	notificationService := NotificationModulePackage.HGRegisterModules(sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager))
 	// debug 可启用完整 IM 扩展；pre/prod 显式开启实时开关时只启用 IAM 本人频道。
 	imKafkaConfig, _, imKafkaErr := ConfigPackage.GetKafkaConfig()
 	if imKafkaErr != nil {
@@ -498,6 +498,10 @@ func buildMLCApplication() (*MLCApplication, error) {
 	if len(imKafkaConfig.Business.Topics) == 0 {
 		return nil, fmt.Errorf("IM 业务事件 topic 不能为空")
 	}
+	notificationKafkaEnabled := imKafkaConfig.Business.Consumers.NotificationSend.Enabled
+	notificationService := NotificationModulePackage.HGRegisterModules(
+		sqlManager, NotificationModulePackage.HGNewAuthorizer(sqlManager),
+		imKafkaConfig.Business.Consumers.NotificationSend.NewTasksEnabled)
 	var imRuntime *IMModulePackage.HGRuntime
 	imRuntimeOwned := false
 	defer func() {
@@ -754,6 +758,12 @@ func buildMLCApplication() (*MLCApplication, error) {
 	mediaRuntime.HGStart()
 	notificationWorker := NotificationSendPackage.HGNewWorker(NotificationSendPackage.HGNewRepository(sqlManager.GetSQLDB()), notificationService)
 	notificationWorker.HGStart()
+	var notificationKafkaScheduler *NotificationSendPackage.HGKafkaScheduler
+	if notificationKafkaEnabled {
+		notificationKafkaScheduler = NotificationSendPackage.HGNewKafkaScheduler(
+			NotificationSendPackage.HGNewRepository(sqlManager.GetSQLDB()))
+		notificationKafkaScheduler.HGStart()
+	}
 	if imRuntime != nil {
 		previousKafkaCloser := kafkaCloser
 		kafkaCloser = func() {
@@ -786,13 +796,14 @@ func buildMLCApplication() (*MLCApplication, error) {
 			}
 			return commerce.HGStartExpiryWorker(commerce.HGNewOrderStore(sqlManager.GetSQLDB()))
 		}(),
-		correctionRecovery:      correctionRecovery,
-		videoCommentMaintenance: videoCommentComponents.Maintenance,
-		videoDanmakuRealtime:    videoDanmakuComponents.Realtime,
-		crawlerManager:          crawlerManager,
-		crawlerTaskScheduler:    crawlerTaskScheduler,
-		mediaRuntime:            mediaRuntime,
-		notificationWorker:      notificationWorker,
+		correctionRecovery:         correctionRecovery,
+		videoCommentMaintenance:    videoCommentComponents.Maintenance,
+		videoDanmakuRealtime:       videoDanmakuComponents.Realtime,
+		crawlerManager:             crawlerManager,
+		crawlerTaskScheduler:       crawlerTaskScheduler,
+		mediaRuntime:               mediaRuntime,
+		notificationWorker:         notificationWorker,
+		notificationKafkaScheduler: notificationKafkaScheduler,
 	}, nil
 }
 
@@ -973,6 +984,9 @@ func (app *MLCApplication) Close() {
 	// 先停止并等待后台 worker，避免数据库和 Redis 关闭后仍有投影或消息处理。
 	if app.notificationWorker != nil {
 		app.notificationWorker.Close()
+	}
+	if app.notificationKafkaScheduler != nil {
+		app.notificationKafkaScheduler.Close()
 	}
 	if app.mediaRuntime != nil {
 		app.mediaRuntime.Close()

@@ -2,7 +2,7 @@
 
 隔离环境验收步骤与 Kafka / 实时推送的待确认边界见 [`hg_rollout_plan.md`](hg_rollout_plan.md)；这份计划不表示新增链路已接通。
 
-复用 `notification_templates`/`notification_template_versions`、既有用户收件箱和事件去重账本；新增 `notification_send_tasks` 持久任务。发布前由发布系统按序部署 `migrations/000083_notification_send_tasks.up.sql`、`migrations/000084_notification_send_read_indexes.up.sql`、`migrations/000085_notification_send_approval.up.sql`，再启动新版本服务。仓库内不自动执行迁移或真实发送。
+复用 `notification_templates`/`notification_template_versions`、既有用户收件箱和事件去重账本；新增 `notification_send_tasks` 持久任务。发布前由发布系统按序部署 `migrations/000083_notification_send_tasks.up.sql`、`migrations/000084_notification_send_read_indexes.up.sql`、`migrations/000085_notification_send_approval.up.sql` 和 `migrations/000086_notification_send_kafka_mode.up.sql`，再启动新版本服务。Kafka 专用消费组在 debug 配置中仍为关闭状态，不能把迁移完成当作 Kafka 发送已验收。
 
 ## 操作
 
@@ -31,4 +31,4 @@
 
 每 Pod 单工作协程，每秒至多处理一名接收人。MySQL `FOR UPDATE SKIP LOCKED` 短租约负责多 Pod 抢占，超时由其他工作者恢复；既有 `(event_id, receiver_id, category)` 永久去重账本保证重复租约不会产生重复入箱。失败按 2–32 秒退避，连续 5 次变为 `failed` 并保留现场，需人工审核后制定补偿；取消只阻止后续处理，不撤回已落库消息。运营模板发布及新任务创建、审批、取消与审计记录分别同事务提交，记录操作者、版本、服务端 context 请求 ID 与直连 IP（不信任客户端请求头或代理转发头）；模板发布审计另记录审核时快照的 SHA-256。旧任务没有回填审计；后台逐人重试没有 HTTP 请求 ID，也尚未写入此审核审计表。`000085` 回退只能在所有 `pending_approval` 已处理、且明确接受删除审批审计数据时由发布流程执行。
 
-这是**明确用户 + 可定时 + 纯站内通知**的有界闭环，不提供群组/全站、Kafka Outbox 消费、短信、邮件、Centrifugo 实时推送或自动 DLQ 重放；这些能力须分别设计分片、频道鉴权、重试审计及容量压测后上线。收件箱仍使用既有单表索引，不能以此推断千万级吞吐或延迟指标。任务记录包含用户 ID 与通知变量，需按生产数据保留/删除策略控制访问和清理，不能盲目删表以免丢失幂等依据。已发布版本哈希只绑定模板，不绑定每次任务填写的变量，仍需隔离环境和发布审批验收。
+这是**明确用户 + 可定时 + 纯站内通知**的有界闭环。Kafka 模式已具备任务级隔离、到期 Outbox 与代次消费的受控代码，但专用消费组仍关闭，尚未完成独立 topic、真实投递与故障恢复验收；不能把它称为已可用。仍不提供群组/全站、短信、邮件、Centrifugo 实时推送或自动 DLQ 重放；这些能力须分别设计分片、频道鉴权、重试审计及容量压测后上线。收件箱仍使用既有单表索引，不能以此推断千万级吞吐或延迟指标。任务记录包含用户 ID 与通知变量，需按生产数据保留/删除策略控制访问和清理，不能盲目删表以免丢失幂等依据。已发布版本哈希只绑定模板，不绑定每次任务填写的变量，仍需隔离环境和发布审批验收。

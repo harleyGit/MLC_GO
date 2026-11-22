@@ -31,7 +31,7 @@ func main() {
 	// flag.Parse 必须在读取参数值前执行，否则始终只能得到默认值【在终端如脚本：xxx.sh --env=pre --config-dir=/xxx/config --check=mysql, 第三个参数在 -h、-help时才显示。】。
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
-	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types、iam-role-template、notification-counter-ready 或 notification-send-schema；为空时只输出非敏感地址")
+	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types、iam-role-template、notification-counter-ready、notification-send-schema、notification-send-kafka-schema 或 notification-send-kafka-queries；为空时只输出非敏感地址")
 	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
@@ -145,6 +145,30 @@ func main() {
 			exitWithError(hgErr)
 		}
 		fmt.Println("notification_send_schema_ready=true")
+	case "notification-send-kafka-schema":
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(fmt.Errorf("通知 Kafka 结构检查不可用"))
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		if hgErr = hgCheckNotificationKafkaSchema(hgCtx, hgDB); hgErr != nil {
+			exitWithError(hgErr)
+		}
+		fmt.Println("notification_send_kafka_schema_ready=true")
+	case "notification-send-kafka-queries":
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(fmt.Errorf("通知 Kafka SQL 检查不可用"))
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		if hgErr = hgCheckNotificationKafkaQueries(hgCtx, hgDB); hgErr != nil {
+			exitWithError(hgErr)
+		}
+		fmt.Println("notification_send_kafka_queries_ready=true")
 	case "redis":
 		checkRedis(redisConfig)
 	case "clickhouse":
@@ -172,6 +196,52 @@ func hgCheckNotificationSendSchema(ctx context.Context, db *sql.DB) error {
 		if found != check.want {
 			return fmt.Errorf("通知发送结构未就绪")
 		}
+	}
+	return nil
+}
+
+// hgCheckNotificationKafkaSchema 只核对 000086 所需的列与索引，不查询接收人和通知正文。
+func hgCheckNotificationKafkaSchema(ctx context.Context, db *sql.DB) error {
+	for _, check := range []struct {
+		query string
+		want  int
+	}{
+		{SQLQueriesPackage.HGNotificationKafkaSchemaColumnsSQL, 3},
+		{SQLQueriesPackage.HGNotificationKafkaSchemaIndexesSQL, 2},
+	} {
+		var found int
+		if err := db.QueryRowContext(ctx, check.query).Scan(&found); err != nil || found != check.want {
+			return fmt.Errorf("通知 Kafka 结构未就绪")
+		}
+	}
+	return nil
+}
+
+// hgCheckNotificationKafkaQueries 在短事务中仅验证真实 MySQL 的索引查询与行锁语法，绝不更新数据。
+func hgCheckNotificationKafkaQueries(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return fmt.Errorf("通知 Kafka SQL 检查不可用")
+	}
+	defer tx.Rollback()
+	for _, query := range []string{
+		SQLQueriesPackage.HGNotificationKafkaReadySQL,
+		SQLQueriesPackage.HGNotificationKafkaQueuedExpiredSQL,
+		SQLQueriesPackage.HGNotificationKafkaLeasedExpiredSQL,
+	} {
+		var id, generation uint64
+		var next, total int
+		if err := tx.QueryRowContext(ctx, query).Scan(&id, &next, &generation, &total); err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("通知 Kafka SQL 检查失败")
+		}
+	}
+	var template uint64
+	var version uint32
+	var audience, variables []byte
+	var index, attempts int
+	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGNotificationKafkaClaimSQL, 0, 0, 0).
+		Scan(&template, &version, &audience, &variables, &index, &attempts); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("通知 Kafka 领取 SQL 检查失败")
 	}
 	return nil
 }

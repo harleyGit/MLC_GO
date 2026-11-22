@@ -15,8 +15,9 @@
 
 - 现有 `hg_kafka_application.go` 已运行 `outbox` dispatcher；`internal/consumer/notification` 目前仅处理已提交的关注事件。不能只向现有 topic 写 `notification.send.requested`：旧消费者会忽略它，并可能提交 offset。若新旧 MySQL 工作者与 Kafka 消费者同时执行同一个任务，即使收件箱去重，取消、失败次数和进度也会有两个竞争来源。
 - **已选定的目标是 Kafka 发送，但切换前 MySQL 工作者继续是唯一权威发送者。**下一阶段应加任务级 `delivery_mode`（旧任务默认 `mysql`）与代次：MySQL 认领 SQL 只看 `mysql`，Kafka 定时扫描器只看 `kafka`；两端都以任务行原子校验模式、代次、游标和租约。新任务改用 Kafka 前，先灰度启动独立消费者并只处理专用测试任务。停用 Kafka 时禁止新建 Kafka 任务，但已有 Kafka 任务要继续消费至终态或明确补偿，不得简单改回 MySQL 形成双路径。
+- 专用组的 `enabled` 与管理入口的 `new_tasks_enabled` 分离，两个开关在 debug 默认都是 `false`。灰度只开前者并通过隔离测试程序创建专用 Kafka 任务，不得把“消费者已运行”误认为“所有新管理任务可切换”；全量新任务切换须单独确认，关闭组前先核对现存 `kafka` 非终态任务。
 - Kafka topic 应独立于已有关注通知消费 topic；Outbox 与任务状态在同一事务提交，每个到期游标发出不含 PII 的 `notification.send.ready.v1` 事件（`taskId`、`nextIndex`、`generation`，按 task ID 分区）。调度器发出事件时把任务状态设为已排队，过期未认领须重新发**新代次**；重复/旧代次事件不得推进新任务游标。消费成功（包括去重入箱）后再推进任务状态，数据库写入失败不得提交 offset。消息体中不复制受众或变量，收件箱仍按 `(event_id,receiver_id,category)` 的稳定业务 event ID 去重。
-- 需分别测到期任务、重复 Kafka 事件、取消竞争、消费超时后再认领、Outbox 已投递但数据库回执失败、DLQ 与消费者重启；当前事件包仅定义最小协议，**尚无 Kafka 任务调度器、消费者或切换开关**。不创建 topic、不修改生产消费组、不把 Kafka 发送标成已就绪。
+- 需分别测到期任务、重复 Kafka 事件、取消竞争、消费超时后再认领、Outbox 已投递但数据库回执失败、DLQ 与消费者重启；代码已有独立事件、调度器和关闭的消费组，但尚未通过真实投递/故障恢复验收。`000086` 必须先于引用 `delivery_mode` 的应用部署，且在专用 topic 创建并确认副本数/ISR 前，不得打开 Kafka 模式。`outbox_event` 仍为 pending 的代次不会因排队超时而无限重写 Outbox；若出站进入 dead，则任务保留 queued 待人工核对 Kafka 实际发布与补偿，不自动改回 MySQL，以免重复或丢失。不能把测试通过等同生产容量。
 - 实时是消息中心的有损提示，不是权威投递。现有 `HGCentrifugo.HGPublishUser` 服务的是 `im:iam:<user>` 权限快照频道；通知不能复用 IAM 事件语义，也不能把正文或接收人清单广播给其他用户。建议使用仅当前认证用户可订阅的独立通知频道、独立授权与事件类型，只推通知 ID / 未读数变化提示；客户端连接和重连后按既有收件箱 API 补齐，丢失实时事件不丢消息。
 - 若要求入箱后可靠地产生实时提示，需在 `HGDeliver` 的**同一 MySQL 事务**写出站事件，随后由受控消费者向 Centrifugo 发布；直接在事务外调用网关只能做到尽力而为。事件出站、订阅授权、存储保留与取消后行为会触及公共模块及安全边界，须单独确认方案与回退方式。
 

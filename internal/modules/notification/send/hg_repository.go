@@ -37,7 +37,7 @@ type HGTask struct {
 	ID              string     `json:"taskId"`                // 十进制任务 ID。
 	TemplateID      string     `json:"templateId"`            // 模板主键。
 	TemplateVersion uint32     `json:"templateVersion"`       // 创建任务时绑定的不可变版本。
-	Status          string     `json:"status"`                // pending_approval/pending/leased/done/failed/cancelled。
+	Status          string     `json:"status"`                // pending_approval/pending/queued/leased/done/failed/cancelled。
 	Total           int        `json:"total"`                 // 原始接收人数，最多 100。
 	Processed       int        `json:"processed"`             // 已处理人数；营销偏好拒收也计入，不代表实际入箱。
 	Attempts        uint8      `json:"attempts"`              // 当前用户的连续失败次数。
@@ -47,7 +47,8 @@ type HGTask struct {
 
 // HGRepository 使用共享数据库保存事务任务与租约；不接触网络或另建连接池。
 type HGRepository struct {
-	db *sql.DB // 不持有连接池关闭权。
+	db   *sql.DB // 不持有连接池关闭权。
+	mode string  // 创建新任务的固定模式；现有任务模式始终以数据库记录为准。
 }
 
 // HGAuditContext 是经 HTTP 入口收紧的请求追踪元数据；直连 IP 不替代可信代理 IP。
@@ -72,7 +73,10 @@ func hgAuditContext(values []HGAuditContext) (HGAuditContext, error) {
 }
 
 // HGNewRepository 复用已有 MySQL 与站内通知权威存储。
-func HGNewRepository(db *sql.DB) *HGRepository { return &HGRepository{db: db} }
+func HGNewRepository(db *sql.DB) *HGRepository { return &HGRepository{db: db, mode: "mysql"} }
+
+// HGNewKafkaRepository 仅供已验证专用 Kafka 消费组和调度器可用的服务端配置使用。
+func HGNewKafkaRepository(db *sql.DB) *HGRepository { return &HGRepository{db: db, mode: "kafka"} }
 
 func hgID(raw string) (uint64, error) {
 	id, err := strconv.ParseUint(raw, 10, 64)
@@ -278,10 +282,18 @@ func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator strin
 		if scheduled != nil {
 			when = scheduled.UTC()
 		}
-		result, err = tx.ExecContext(ctx, queries.HGNotificationSendScheduledInsertSQL,
+		insert := queries.HGNotificationSendScheduledInsertSQL
+		if repo.mode == "kafka" {
+			insert = queries.HGNotificationKafkaScheduledInsertSQL
+		}
+		result, err = tx.ExecContext(ctx, insert,
 			requestID, hashText, id, cmd.TemplateVersion, audience, variables, creator, when, when)
 	} else {
-		result, err = tx.ExecContext(ctx, queries.HGNotificationSendInsertSQL,
+		insert := queries.HGNotificationSendInsertSQL
+		if repo.mode == "kafka" {
+			insert = queries.HGNotificationKafkaInsertSQL
+		}
+		result, err = tx.ExecContext(ctx, insert,
 			requestID, hashText, id, cmd.TemplateVersion, audience, variables, creator)
 	}
 	if err != nil {
@@ -396,7 +408,7 @@ func (repo *HGRepository) HGCancel(ctx context.Context, id uint64, creator strin
 		}
 		return err
 	}
-	if status != "pending" && status != "leased" && status != "pending_approval" {
+	if status != "pending" && status != "queued" && status != "leased" && status != "pending_approval" {
 		return HGErrConflict
 	}
 	result, err := tx.ExecContext(ctx, queries.HGNotificationSendCancelSQL, id, creator)

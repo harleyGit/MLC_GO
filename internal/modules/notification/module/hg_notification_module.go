@@ -30,16 +30,20 @@ func (m *HGModule) Handler() http.Handler {
 	return HGRouterPackage.NewRouteGroup(HGRouterPackage.RouteGroupConfig{BasePath: m.base, AuthMiddleware: UserJWTMiddlewarePackage.AuthMiddleware, Authorizer: m.authorizer}, hgRoutes(m.base, m.handler))
 }
 
-// HGRegisterModules 注入共享连接池与 IAM；生产者可通过返回的 Service 调用可信站内投递。
-func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, authorizer HGRouterPackage.HGRouteAuthorizer) *NotificationPackage.HGService {
+// HGRegisterModules 注入共享连接池与 IAM；Kafka 开关只由服务端配置决定，不接受客户端切换投递模式。
+func HGRegisterModules(sqlManager *PersistenceSQLPackage.HGSQLManager, authorizer HGRouterPackage.HGRouteAuthorizer, kafkaMode ...bool) *NotificationPackage.HGService {
 	service := NotificationPackage.HGNewService(NotificationPackage.HGNewRepository(sqlManager.GetSQLDB()))
 	handler := NotificationPackage.HGNewHandler(service)
 	for _, base := range []string{"/api/v1/notifications", "/api/v1/notification", "/admin/v1/notification"} {
 		HGHandlerPackage.RegisterModule(&HGModule{base: base, handler: handler, authorizer: authorizer})
 	}
+	sendRepo := SendPackage.HGNewRepository(sqlManager.GetSQLDB())
+	if len(kafkaMode) > 0 && kafkaMode[0] {
+		sendRepo = SendPackage.HGNewKafkaRepository(sqlManager.GetSQLDB())
+	}
 	HGHandlerPackage.RegisterModule(&HGModule{
 		base: "/api/v1/admin/notification", templateHandler: NotificationPackage.HGNewTemplateHandler(NotificationPackage.HGNewTemplateRepository(sqlManager.GetSQLDB())),
-		sendHandler: SendPackage.HGNewHandler(SendPackage.HGNewRepository(sqlManager.GetSQLDB())),
+		sendHandler: SendPackage.HGNewHandler(sendRepo),
 		authorizer:  authorizer,
 	})
 	return service

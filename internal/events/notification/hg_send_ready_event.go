@@ -11,6 +11,9 @@ import (
 // HGSendReadyEventName 是独立发送 topic 的事件名；旧 notification 消费组不可将它当作可提交的投递事件。
 const HGSendReadyEventName = "notification.send.ready.v1"
 
+// HGSendReadyTopic 是专用任务 topic；旧关注通知消费组不得订阅此 topic。
+const HGSendReadyTopic = "mlc.notification.send.ready.v1"
+
 // HGSendReadyEvent 只传递已持久化任务的游标与代次，不携带用户 ID、文案或变量。
 // 消费方必须按任务主键、游标与代次在 MySQL 原子校验所有权；Kafka 事件不是授权或收件人快照。
 type HGSendReadyEvent struct {

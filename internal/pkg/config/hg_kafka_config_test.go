@@ -1,6 +1,7 @@
 package ConfigPackage
 
 import (
+	HGKafkaPackage "MLC_GO/internal/pkg/kafka"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -9,6 +10,37 @@ import (
 
 	"github.com/spf13/viper"
 )
+
+func TestHGNotificationSendConsumerRequiresDedicatedTopic(t *testing.T) {
+	groups := HGKafkaPackage.HGConsumerGroupConfigs{
+		Feed:        HGKafkaPackage.HGConsumerConfig{GroupID: "feed"},
+		Search:      HGKafkaPackage.HGConsumerConfig{GroupID: "search"},
+		Statistic:   HGKafkaPackage.HGConsumerConfig{GroupID: "statistic"},
+		Audit:       HGKafkaPackage.HGConsumerConfig{GroupID: "audit"},
+		Interaction: HGKafkaPackage.HGConsumerConfig{GroupID: "interaction"},
+		Danmaku:     HGKafkaPackage.HGConsumerConfig{GroupID: "danmaku"},
+		NotificationSend: HGKafkaPackage.HGConsumerConfig{
+			Enabled: true, GroupID: "notify-send", Topics: []string{"mlc.domain.events"},
+		},
+	}
+	if err := validateKafkaConsumerGroups(groups); err == nil {
+		t.Fatal("不能订阅旧业务事件 topic 并跳过通知任务")
+	}
+	groups.NotificationSend.Topics = []string{"mlc.notification.send.ready.v1"}
+	if err := validateKafkaConsumerGroups(groups); err != nil {
+		t.Fatalf("独立消费组应被允许: %v", err)
+	}
+	groups.NotificationSend.GroupID = groups.Interaction.GroupID
+	if err := validateKafkaConsumerGroups(groups); err == nil {
+		t.Fatal("消费者组 ID 不得复用")
+	}
+	groups.NotificationSend.GroupID = "notify-send"
+	groups.NotificationSend.Enabled = false
+	groups.NotificationSend.NewTasksEnabled = true
+	if err := validateKafkaConsumerGroups(groups); err == nil {
+		t.Fatal("关闭消费组时不得切换新任务到 Kafka")
+	}
+}
 
 func TestGetKafkaConfigRejectsEmptyBusinessBrokers(t *testing.T) {
 	viper.Reset()
