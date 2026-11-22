@@ -63,10 +63,11 @@ func HGRouteCatalog() []HGRouterPackage.RouteCatalogItem {
 
 func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	const base = "/api/v1/admin/notification"
-	var publish, create, list, detail, cancel http.HandlerFunc
+	var publish, create, list, detail, cancel, review, reviewDetail, approve http.HandlerFunc
 	if h != nil {
 		publish, create, detail, cancel = h.HGPublish, h.HGCreate, h.HGDetail, h.HGCancel
 		list = h.HGMineList
+		review, reviewDetail, approve = h.HGReviewList, h.HGReviewDetail, h.HGApprove
 	}
 	return []HGRouterPackage.RouteSpec{
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish-send", true, "双人复核发布站内模板", publish, HGPermissionPackage.HGNotificationTemplatePublish),
@@ -74,6 +75,9 @@ func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks", true, "按游标查询本人发送任务", list, HGPermissionPackage.HGNotificationSendRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/detail", true, "查询本人发送任务进度", detail, HGPermissionPackage.HGNotificationSendRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks/cancel", true, "取消本人未完成发送任务", cancel, HGPermissionPackage.HGNotificationSendCancel),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/review", true, "查询他人待审批发送任务", review, HGPermissionPackage.HGNotificationSendApprove),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/review/detail", true, "复核待审批任务文案", reviewDetail, HGPermissionPackage.HGNotificationSendApprove),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks/approve", true, "双人审批有界发送任务", approve, HGPermissionPackage.HGNotificationSendApprove),
 	}
 }
 

@@ -46,11 +46,14 @@ func TestHGTemplateDetailGuardPath(t *testing.T) {
 
 func TestHGSendRoutesRequireSeparateIAM(t *testing.T) {
 	expected := map[string]permission.HGPermission{
-		"POST /templates/publish-send": permission.HGNotificationTemplatePublish,
-		"POST /send-tasks":             permission.HGNotificationSendCreate,
-		"GET /send-tasks":              permission.HGNotificationSendRead,
-		"GET /send-tasks/detail":       permission.HGNotificationSendRead,
-		"POST /send-tasks/cancel":      permission.HGNotificationSendCancel,
+		"POST /templates/publish-send":  permission.HGNotificationTemplatePublish,
+		"POST /send-tasks":              permission.HGNotificationSendCreate,
+		"GET /send-tasks":               permission.HGNotificationSendRead,
+		"GET /send-tasks/detail":        permission.HGNotificationSendRead,
+		"POST /send-tasks/cancel":       permission.HGNotificationSendCancel,
+		"GET /send-tasks/review":        permission.HGNotificationSendApprove,
+		"GET /send-tasks/review/detail": permission.HGNotificationSendApprove,
+		"POST /send-tasks/approve":      permission.HGNotificationSendApprove,
 	}
 	for _, route := range hgSendRoutes(nil) {
 		key := route.Method + " " + route.SubPath

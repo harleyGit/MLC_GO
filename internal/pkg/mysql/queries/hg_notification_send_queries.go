@@ -17,21 +17,41 @@ const HGNotificationSendPublishLockSQL = `SELECT t.latest_version,t.status,t.tem
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.latest_version
 WHERE t.id=? FOR UPDATE`
 const HGNotificationSendPublishVersionSQL = `UPDATE notification_template_versions SET status='published' WHERE template_id=? AND version=? AND status='draft'`
+const HGNotificationTemplateAuditSQL = `INSERT INTO notification_template_audit(template_id,template_version,action,actor_id,request_id,source_ip,content_hash) VALUES (?,?,?,?,?,?,?)`
 
 const HGNotificationSendInsertSQL = `INSERT INTO notification_send_tasks(request_id,request_hash,template_id,template_version,audience,variables,created_by,next_retry_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`
+
+// 营销类任务必须经另一管理员审批；定时任务使用 UTC 到期时间且审批前不可被工作者领取。
+const HGNotificationSendScheduledInsertSQL = `INSERT INTO notification_send_tasks(request_id,request_hash,template_id,template_version,audience,variables,created_by,status,scheduled_at,next_retry_at) VALUES (?,?,?,?,?,?,?,'pending_approval',?,COALESCE(?,UTC_TIMESTAMP(3)))`
 const HGNotificationSendByRequestSQL = `SELECT id,request_hash FROM notification_send_tasks WHERE request_id=?`
 
 // 创建时串行化同一管理员的短事务，不让并发请求同时越过未完成任务上限；依赖 admin_user.idx_user_id。
 const HGNotificationSendAdminLockSQL = `SELECT id FROM admin_user WHERE user_id=? AND status=1 AND is_delete=0 ORDER BY id LIMIT 1 FOR UPDATE`
 
 // 限量子查询只触碰至多 20 条 idx_notification_send_creator 索引记录，不能用无界 COUNT。
-const HGNotificationSendPendingLimitSQL = `SELECT COUNT(*) FROM (SELECT id FROM notification_send_tasks WHERE created_by=? AND status IN ('pending','leased') LIMIT 20) AS pending_tasks`
-const HGNotificationSendDetailSQL = `SELECT id,template_id,template_version,audience,status,next_index,attempts,created_at FROM notification_send_tasks WHERE id=? AND created_by=?`
-const HGNotificationSendCancelSQL = `UPDATE notification_send_tasks SET status='cancelled' WHERE id=? AND created_by=? AND status IN ('pending','leased')`
+const HGNotificationSendPendingLimitSQL = `SELECT COUNT(*) FROM (SELECT id FROM notification_send_tasks WHERE created_by=? AND status IN ('pending','leased','pending_approval') LIMIT 20) AS pending_tasks`
+const HGNotificationSendDetailSQL = `SELECT id,template_id,template_version,audience,status,next_index,attempts,created_at,scheduled_at FROM notification_send_tasks WHERE id=? AND created_by=?`
+const HGNotificationSendCancelSQL = `UPDATE notification_send_tasks SET status='cancelled' WHERE id=? AND created_by=? AND status IN ('pending','leased','pending_approval')`
+
+// 审批候选按 (status,id) 倒序有界读取；不读取接收人清单或变量，审核详情须再按主键读取。
+const HGNotificationSendReviewPageSQL = `SELECT id,template_id,template_version,status,next_index,attempts,created_at,JSON_LENGTH(audience)
+FROM notification_send_tasks WHERE status='pending_approval' AND id<? AND created_by<>? ORDER BY id DESC LIMIT ?`
+const HGNotificationSendApproveLockSQL = `SELECT created_by,template_id,template_version,scheduled_at FROM notification_send_tasks WHERE id=? AND status='pending_approval' FOR UPDATE`
+const HGNotificationSendApproveSQL = `UPDATE notification_send_tasks SET status='pending',approved_by=?,approved_at=UTC_TIMESTAMP(3),next_retry_at=GREATEST(COALESCE(scheduled_at,UTC_TIMESTAMP(3)),UTC_TIMESTAMP(3)) WHERE id=? AND status='pending_approval'`
+const HGNotificationSendAuditSQL = `INSERT INTO notification_send_audit(task_id,action,actor_id,template_version,request_id,source_ip) VALUES (?,?,?,?,?,?)`
+
+// 取消前锁定本人任务以在同一事务保存状态和审计；按主键精确定位。
+const HGNotificationSendCancelLockSQL = `SELECT template_version,status FROM notification_send_tasks WHERE id=? AND created_by=? FOR UPDATE`
+
+// 审核详情只包含已发布不可变版本和接收人数，不泄露用户列表或变量。
+const HGNotificationSendReviewDetailSQL = `SELECT t.id,t.template_id,t.template_version,t.status,JSON_LENGTH(t.audience),t.created_at,
+v.category,v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,t.variables,t.scheduled_at
+FROM notification_send_tasks t JOIN notification_template_versions v ON v.template_id=t.template_id AND v.version=t.template_version
+WHERE t.id=? AND t.status='pending_approval' AND t.created_by<>? AND v.status='published'`
 
 // HGNotificationSendMinePageSQL 本人任务按 (created_by,id) 索引倒序游标分页；一次至多取 21 行，
 // 不做跨管理员扫描或无界 COUNT；索引由 000084 迁移补齐，未迁移前不要开放该入口。
-const HGNotificationSendMinePageSQL = `SELECT id,template_id,template_version,status,next_index,attempts,created_at,JSON_LENGTH(audience)
+const HGNotificationSendMinePageSQL = `SELECT id,template_id,template_version,status,next_index,attempts,created_at,JSON_LENGTH(audience),scheduled_at
 FROM notification_send_tasks WHERE created_by=? AND id<? ORDER BY id DESC LIMIT ?`
 
 // HGNotificationSendPublishedPageSQL 只读取当前发布版本的快照，不能从最新草稿选择标题、变量或渠道。

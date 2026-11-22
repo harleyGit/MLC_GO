@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -21,29 +23,52 @@ import (
 var hgUserID = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 var hgRequestID = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
 
-// HGCommand 是运维发送协议；仅支持至多 100 名明确用户的立即站内发送。
+// HGCommand 是运维发送协议；最多 100 名明确用户，定时任务或营销任务须独立审批。
 type HGCommand struct {
 	TemplateID      string            `json:"templateId"`      // 十进制模板主键。
 	TemplateVersion uint32            `json:"templateVersion"` // 当前发布版版本号。
 	UserIDs         []string          `json:"userIds"`         // 明确指定的 1-100 个用户 ID。
 	Variables       map[string]string `json:"variables"`       // 全体接收人共享的字符串变量。
+	ScheduledAt     string            `json:"scheduledAt"`     // 可选 RFC3339 UTC 时间；非空时进入审批状态，最长 30 天。
 }
 
 // HGTask 是任务回执；pending 表示已持久化，不代表已送达。
 type HGTask struct {
-	ID              string    `json:"taskId"`          // 十进制任务 ID。
-	TemplateID      string    `json:"templateId"`      // 模板主键。
-	TemplateVersion uint32    `json:"templateVersion"` // 创建任务时绑定的不可变版本。
-	Status          string    `json:"status"`          // pending/leased/done/failed/cancelled。
-	Total           int       `json:"total"`           // 原始接收人数，最多 100。
-	Processed       int       `json:"processed"`       // 已处理人数；营销偏好拒收也计入，不代表实际入箱。
-	Attempts        uint8     `json:"attempts"`        // 当前用户的连续失败次数。
-	CreatedAt       time.Time `json:"createdAt"`       // 数据库保存的创建时间。
+	ID              string     `json:"taskId"`                // 十进制任务 ID。
+	TemplateID      string     `json:"templateId"`            // 模板主键。
+	TemplateVersion uint32     `json:"templateVersion"`       // 创建任务时绑定的不可变版本。
+	Status          string     `json:"status"`                // pending_approval/pending/leased/done/failed/cancelled。
+	Total           int        `json:"total"`                 // 原始接收人数，最多 100。
+	Processed       int        `json:"processed"`             // 已处理人数；营销偏好拒收也计入，不代表实际入箱。
+	Attempts        uint8      `json:"attempts"`              // 当前用户的连续失败次数。
+	CreatedAt       time.Time  `json:"createdAt"`             // 数据库保存的创建时间。
+	ScheduledAt     *time.Time `json:"scheduledAt,omitempty"` // 计划投递 UTC 时间；nil 表示立即发送。
 }
 
 // HGRepository 使用共享数据库保存事务任务与租约；不接触网络或另建连接池。
 type HGRepository struct {
 	db *sql.DB // 不持有连接池关闭权。
+}
+
+// HGAuditContext 是经 HTTP 入口收紧的请求追踪元数据；直连 IP 不替代可信代理 IP。
+type HGAuditContext struct {
+	RequestID string // 1–128 位受控 ASCII；内部调用留空。
+	SourceIP  string // net.ParseIP 后的直连地址；内部调用留空。
+}
+
+func hgAuditContext(values []HGAuditContext) (HGAuditContext, error) {
+	if len(values) > 1 {
+		return HGAuditContext{}, HGErrInvalid
+	}
+	if len(values) == 0 {
+		return HGAuditContext{}, nil
+	}
+	item := values[0]
+	if (item.RequestID != "" && !hgRequestID.MatchString(item.RequestID)) ||
+		(item.SourceIP != "" && (len(item.SourceIP) > 45 || net.ParseIP(item.SourceIP) == nil)) {
+		return HGAuditContext{}, HGErrInvalid
+	}
+	return item, nil
 }
 
 // HGNewRepository 复用已有 MySQL 与站内通知权威存储。
@@ -64,7 +89,11 @@ func hgScanVersion(row interface{ Scan(...any) error }) (HGVersion, error) {
 }
 
 // HGPublish 以版本锁与双人复核保护可发送模板；不改变 iam.role.updated 的既有发布入口。
-func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint32, reviewer string) error {
+func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint32, reviewer string, audit ...HGAuditContext) error {
+	meta, err := hgAuditContext(audit)
+	if err != nil {
+		return err
+	}
 	tx, err := repo.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -101,6 +130,15 @@ func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint
 	if n, _ := result.RowsAffected(); n != 1 {
 		return HGErrConflict
 	}
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	hash := sha256.Sum256(payload)
+	if _, err = tx.ExecContext(ctx, queries.HGNotificationTemplateAuditSQL,
+		id, version, "published", reviewer, meta.RequestID, meta.SourceIP, hex.EncodeToString(hash[:])); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -132,15 +170,33 @@ func hgPrepare(cmd *HGCommand) (uint64, []byte, []byte, error) {
 }
 
 // HGCreate 在一个短事务里验证已发布版与接收人并插入持久任务；唯一请求键防并发重复提交。
-func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator string, cmd HGCommand) (string, error) {
+func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator string, cmd HGCommand, audit ...HGAuditContext) (string, error) {
 	if !hgRequestID.MatchString(requestID) || !hgUserID.MatchString(creator) {
 		return "", HGErrInvalid
+	}
+	meta, err := hgAuditContext(audit)
+	if err != nil {
+		return "", err
 	}
 	id, audience, variables, err := hgPrepare(&cmd)
 	if err != nil {
 		return "", err
 	}
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d:%s:%s", creator, id, cmd.TemplateVersion, audience, variables)))
+	var scheduled *time.Time
+	if cmd.ScheduledAt != "" {
+		value, parseErr := time.Parse(time.RFC3339Nano, cmd.ScheduledAt)
+		if parseErr != nil || !strings.HasSuffix(cmd.ScheduledAt, "Z") || value.Nanosecond()%1e6 != 0 {
+			return "", HGErrInvalid
+		}
+		value = value.UTC()
+		scheduled = &value
+	}
+	// 保留现有即时任务的哈希协议；定时请求包含精确时间避免相同请求键更改时刻。
+	hashInput := fmt.Sprintf("%s:%d:%d:%s:%s", creator, id, cmd.TemplateVersion, audience, variables)
+	if scheduled != nil {
+		hashInput += ":scheduled:" + scheduled.Format(time.RFC3339Nano)
+	}
+	hash := sha256.Sum256([]byte(hashInput))
 	hashText := hex.EncodeToString(hash[:])
 	var existing uint64
 	var priorHash string
@@ -153,6 +209,12 @@ func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator strin
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
+	}
+	if scheduled != nil {
+		now := time.Now().UTC()
+		if !scheduled.After(now) || scheduled.After(now.Add(30*24*time.Hour)) {
+			return "", HGErrInvalid
+		}
 	}
 	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -209,7 +271,19 @@ func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator strin
 	if pending >= 20 {
 		return "", HGErrBusy
 	}
-	result, err := tx.ExecContext(ctx, queries.HGNotificationSendInsertSQL, requestID, hashText, id, cmd.TemplateVersion, audience, variables, creator)
+	var result sql.Result
+	if scheduled != nil || v.Category == "marketing" {
+		// MySQL 时间字段由连接配置按现有 UTC 约定写入，不将客户端时区当作本地时区。
+		var when any
+		if scheduled != nil {
+			when = scheduled.UTC()
+		}
+		result, err = tx.ExecContext(ctx, queries.HGNotificationSendScheduledInsertSQL,
+			requestID, hashText, id, cmd.TemplateVersion, audience, variables, creator, when, when)
+	} else {
+		result, err = tx.ExecContext(ctx, queries.HGNotificationSendInsertSQL,
+			requestID, hashText, id, cmd.TemplateVersion, audience, variables, creator)
+	}
 	if err != nil {
 		var mysqlErr *mysql.MySQLError
 		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
@@ -228,6 +302,10 @@ func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator strin
 	if err != nil {
 		return "", err
 	}
+	if _, err := tx.ExecContext(ctx, queries.HGNotificationSendAuditSQL, taskID, "created", creator, cmd.TemplateVersion,
+		meta.RequestID, meta.SourceIP); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}
@@ -238,9 +316,10 @@ func (repo *HGRepository) HGCreate(ctx context.Context, requestID, creator strin
 func (repo *HGRepository) HGDetail(ctx context.Context, id uint64, creator string) (HGTask, error) {
 	var task HGTask
 	var raw []byte
+	var scheduled sql.NullTime
 	var taskID, templateID uint64
 	err := repo.db.QueryRowContext(ctx, queries.HGNotificationSendDetailSQL, id, creator).Scan(
-		&taskID, &templateID, &task.TemplateVersion, &raw, &task.Status, &task.Processed, &task.Attempts, &task.CreatedAt)
+		&taskID, &templateID, &task.TemplateVersion, &raw, &task.Status, &task.Processed, &task.Attempts, &task.CreatedAt, &scheduled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return task, HGErrMissing
 	}
@@ -252,6 +331,10 @@ func (repo *HGRepository) HGDetail(ctx context.Context, id uint64, creator strin
 		return task, err
 	}
 	task.ID, task.TemplateID, task.Total = strconv.FormatUint(taskID, 10), strconv.FormatUint(templateID, 10), len(users)
+	if scheduled.Valid {
+		at := scheduled.Time.UTC()
+		task.ScheduledAt = &at
+	}
 	return task, nil
 }
 
@@ -269,9 +352,14 @@ func (repo *HGRepository) HGMinePage(ctx context.Context, creator string, cursor
 	for rows.Next() {
 		var item HGTask
 		var taskID, templateID uint64
+		var scheduled sql.NullTime
 		if err := rows.Scan(&taskID, &templateID, &item.TemplateVersion, &item.Status,
-			&item.Processed, &item.Attempts, &item.CreatedAt, &item.Total); err != nil {
+			&item.Processed, &item.Attempts, &item.CreatedAt, &item.Total, &scheduled); err != nil {
 			return nil, "", err
+		}
+		if scheduled.Valid {
+			at := scheduled.Time.UTC()
+			item.ScheduledAt = &at
 		}
 		item.ID, item.TemplateID = strconv.FormatUint(taskID, 10), strconv.FormatUint(templateID, 10)
 		items = append(items, item)
@@ -287,13 +375,40 @@ func (repo *HGRepository) HGMinePage(ctx context.Context, creator string, cursor
 }
 
 // HGCancel 仅创建者能取消自己的未完成任务；已落库站内通知不撤回。
-func (repo *HGRepository) HGCancel(ctx context.Context, id uint64, creator string) error {
-	result, err := repo.db.ExecContext(ctx, queries.HGNotificationSendCancelSQL, id, creator)
+func (repo *HGRepository) HGCancel(ctx context.Context, id uint64, creator string, audit ...HGAuditContext) error {
+	if !hgUserID.MatchString(creator) || id == 0 {
+		return HGErrInvalid
+	}
+	meta, err := hgAuditContext(audit)
+	if err != nil {
+		return err
+	}
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version uint32
+	var status string
+	if err := tx.QueryRowContext(ctx, queries.HGNotificationSendCancelLockSQL, id, creator).Scan(&version, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGErrMissing
+		}
+		return err
+	}
+	if status != "pending" && status != "leased" && status != "pending_approval" {
+		return HGErrConflict
+	}
+	result, err := tx.ExecContext(ctx, queries.HGNotificationSendCancelSQL, id, creator)
 	if err != nil {
 		return err
 	}
 	if n, _ := result.RowsAffected(); n != 1 {
 		return HGErrConflict
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, queries.HGNotificationSendAuditSQL, id, "cancelled", creator, version,
+		meta.RequestID, meta.SourceIP); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

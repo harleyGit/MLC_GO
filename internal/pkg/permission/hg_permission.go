@@ -65,6 +65,7 @@ const (
 	HGNotificationSendCreate      HGPermission = "notification:send:create"      // 创建有界指定用户站内发送任务。
 	HGNotificationSendRead        HGPermission = "notification:send:read"        // 查询本人创建的任务。
 	HGNotificationSendCancel      HGPermission = "notification:send:cancel"      // 取消本人尚未完成的任务。
+	HGNotificationSendApprove     HGPermission = "notification:send:approve"     // 审批另一位管理员的定时或营销任务。
 	HGMediaInventoryRead          HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
 )
 
@@ -120,6 +121,7 @@ var hgPermissions = [...]HGPermission{
 	HGNotificationSendCreate,
 	HGNotificationSendRead,
 	HGNotificationSendCancel,
+	HGNotificationSendApprove,
 	HGMediaInventoryRead,
 }
 

@@ -2,11 +2,13 @@ package send
 
 import (
 	contextpkg "MLC_GO/internal/pkg/hg_context"
+	utilspkg "MLC_GO/internal/pkg/utils"
 	response "MLC_GO/internal/response"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 )
@@ -56,6 +58,22 @@ func hgActor(r *http.Request) (string, error) {
 	return user, nil
 }
 
+func hgRequestAudit(r *http.Request) HGAuditContext {
+	meta := HGAuditContext{}
+	// 只记录网关注入的服务端追踪 ID，不信任客户端自行传入的请求头。
+	if id := utilspkg.GetTID(r.Context()); hgRequestID.MatchString(id) {
+		meta.RequestID = id
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		meta.SourceIP = ip.String()
+	}
+	return meta
+}
+
 // HGPublish 发布经过另一位管理员复核的当前站内模板版本。
 func (handler *HGHandler) HGPublish(w http.ResponseWriter, r *http.Request) {
 	user, err := hgActor(r)
@@ -73,7 +91,7 @@ func (handler *HGHandler) HGPublish(w http.ResponseWriter, r *http.Request) {
 		err = HGErrInvalid
 	}
 	if err == nil {
-		err = handler.repo.HGPublish(r.Context(), id, request.Version, user)
+		err = handler.repo.HGPublish(r.Context(), id, request.Version, user, hgRequestAudit(r))
 	}
 	if err != nil {
 		hgFail(w, r, err)
@@ -91,7 +109,7 @@ func (handler *HGHandler) HGCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	if err == nil {
-		id, err = handler.repo.HGCreate(r.Context(), r.Header.Get("Idempotency-Key"), user, cmd)
+		id, err = handler.repo.HGCreate(r.Context(), r.Header.Get("Idempotency-Key"), user, cmd, hgRequestAudit(r))
 	}
 	if err != nil {
 		hgFail(w, r, err)
@@ -149,6 +167,67 @@ func (handler *HGHandler) HGMineList(w http.ResponseWriter, r *http.Request) {
 	response.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
 }
 
+// HGReviewList 仅供持有独立审批权限的管理员读取其他创建人的待审任务。
+func (handler *HGHandler) HGReviewList(w http.ResponseWriter, r *http.Request) {
+	user, err := hgActor(r)
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	cursor := uint64(math.MaxInt64)
+	if raw := r.URL.Query().Get("cursor"); raw != "" {
+		cursor, err = hgID(raw)
+		if err != nil {
+			hgFail(w, r, err)
+			return
+		}
+	}
+	items, next, err := handler.repo.HGReviewPage(r.Context(), user, cursor)
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	response.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
+}
+
+// HGReviewDetail 返回待审模板原文，审核人不能查询接收人列表或个人变量。
+func (handler *HGHandler) HGReviewDetail(w http.ResponseWriter, r *http.Request) {
+	user, err := hgActor(r)
+	id, idErr := hgID(r.URL.Query().Get("id"))
+	if err == nil {
+		err = idErr
+	}
+	var item HGReview
+	if err == nil {
+		item, err = handler.repo.HGReviewDetail(r.Context(), id, user)
+	}
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	response.SuccessResult(w, r, item)
+}
+
+// HGApprove 审批另一名管理员的任务；已创建任务的发送时间不可由审批人修改。
+func (handler *HGHandler) HGApprove(w http.ResponseWriter, r *http.Request) {
+	user, err := hgActor(r)
+	id, idErr := hgID(r.URL.Query().Get("id"))
+	if err == nil {
+		err = idErr
+	}
+	if err == nil {
+		err = hgBody(w, r, &struct{}{})
+	}
+	if err == nil {
+		err = handler.repo.HGApprove(r.Context(), id, user, hgRequestAudit(r))
+	}
+	if err != nil {
+		hgFail(w, r, err)
+		return
+	}
+	response.SuccessResult(w, r, map[string]bool{"approved": true})
+}
+
 // HGCancel 只阻止未执行用户；并发中的一次已成功落库投递不承诺撤回。
 func (handler *HGHandler) HGCancel(w http.ResponseWriter, r *http.Request) {
 	user, err := hgActor(r)
@@ -157,7 +236,7 @@ func (handler *HGHandler) HGCancel(w http.ResponseWriter, r *http.Request) {
 		err = idErr
 	}
 	if err == nil {
-		err = handler.repo.HGCancel(r.Context(), id, user)
+		err = handler.repo.HGCancel(r.Context(), id, user, hgRequestAudit(r))
 	}
 	if err != nil {
 		hgFail(w, r, err)

@@ -3,6 +3,7 @@ package send
 import (
 	notification "MLC_GO/internal/modules/notification"
 	queries "MLC_GO/internal/pkg/mysql/queries"
+	utilspkg "MLC_GO/internal/pkg/utils"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -26,6 +27,22 @@ func hgVersion() HGVersion {
 		Category: "system", Title: "维护 {{name}}", Body: "您好 {{name}}，维护将在 {{when}} 开始。",
 		Schema: json.RawMessage(`{"name":{"type":"string","required":true,"max_length":8},"when":{"type":"string","required":true,"max_length":32}}`),
 		Action: "none", Config: json.RawMessage(`{}`), Channels: json.RawMessage(`["in_app"]`),
+	}
+}
+
+func TestHGRequestAuditIgnoresForgedHeader(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/notification/send-tasks", nil)
+	request.Header.Set("X-Request-ID", "forged-identifier")
+	request.Header.Set("X-Forwarded-For", "203.0.113.10")
+	request.RemoteAddr = "192.0.2.15:1234"
+	meta := hgRequestAudit(request)
+	if meta.RequestID != "" || meta.SourceIP != "192.0.2.15" {
+		t.Fatalf("不可相信请求头: %+v", meta)
+	}
+	request = request.WithContext(utilspkg.InjectTID(request.Context(), "server-trace"))
+	meta = hgRequestAudit(request)
+	if meta.RequestID != "server-trace" || meta.SourceIP != "192.0.2.15" {
+		t.Fatalf("应保留中间件注入的追踪 ID 与直连 IP: %+v", meta)
 	}
 }
 
@@ -141,9 +158,47 @@ func TestHGPublishOtherReviewer(t *testing.T) {
 		WithArgs(uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplatePublishSQL)).
 		WithArgs(uint32(2), "REVIEWER", uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
+	version := HGVersion{
+		Category: "system", Title: "标题", Body: "正文", Schema: json.RawMessage(`{}`),
+		Action: "none", Config: json.RawMessage(`{}`), Channels: json.RawMessage(`["in_app"]`),
+	}
+	content, err := json.Marshal(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(content)
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplateAuditSQL)).
+		WithArgs(uint64(7), uint32(2), "published", "REVIEWER", "", "", hex.EncodeToString(hash[:])).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	if err := HGNewRepository(db).HGPublish(context.Background(), 7, 2, "REVIEWER"); err != nil {
 		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGPublishAuditFailureRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs(uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "author", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", "AUTHOR", "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendPublishVersionSQL)).
+		WithArgs(uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplatePublishSQL)).
+		WithArgs(uint32(2), "REVIEWER", uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplateAuditSQL)).
+		WithArgs(uint64(7), uint32(2), "published", "REVIEWER", "", "", sqlmock.AnyArg()).
+		WillReturnError(errors.New("审计不可用"))
+	mock.ExpectRollback()
+	if err := HGNewRepository(db).HGPublish(context.Background(), 7, 2, "REVIEWER"); err == nil {
+		t.Fatal("模板审计失败不得发布")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -173,6 +228,8 @@ func TestHGCreateTaskTransactional(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendInsertSQL)).
 		WithArgs("req-1", sqlmock.AnyArg(), uint64(7), uint32(2), []byte(`["user_1","user_2"]`), sqlmock.AnyArg(), "ADMIN").
 		WillReturnResult(sqlmock.NewResult(55, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(int64(55), "created", "ADMIN", uint32(2), "", "").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	id, err := repo.HGCreate(context.Background(), "req-1", "ADMIN", cmd)
 	if err != nil || id != "55" {
@@ -295,9 +352,9 @@ func TestHGMinePageOnlyCreatorAndBoundedCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	rows := sqlmock.NewRows([]string{"id", "template_id", "version", "status", "next_index", "attempts", "created_at", "total"})
+	rows := sqlmock.NewRows([]string{"id", "template_id", "version", "status", "next_index", "attempts", "created_at", "total", "scheduled_at"})
 	for id := 30; id >= 10; id-- {
-		rows.AddRow(id, 7, 2, "pending", 0, 0, time.Now().UTC(), 2)
+		rows.AddRow(id, 7, 2, "pending", 0, 0, time.Now().UTC(), 2, nil)
 	}
 	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendMinePageSQL)).
 		WithArgs("ADMIN", uint64(31), 21).WillReturnRows(rows)
@@ -349,5 +406,194 @@ func TestHGMineListRejectsUntrustedIdentityAndInvalidCursor(t *testing.T) {
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("未认证或非法游标必须拒绝: %s %d", target, response.Code)
 		}
+	}
+}
+
+func TestHGScheduledTaskRequiresApprovalAndAudit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	when := time.Now().UTC().Add(time.Hour).Truncate(time.Millisecond)
+	cmd := HGCommand{
+		TemplateID: "7", TemplateVersion: 2, UserIDs: []string{"user_1"},
+		Variables:   map[string]string{"name": "用户A", "when": "02:00"},
+		ScheduledAt: when.Format(time.RFC3339Nano),
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendByRequestSQL)).WithArgs("schedule-1").WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendTemplateSQL)).WithArgs(uint32(2), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow("system", "维护 {{name}}", "您好 {{name}}，维护将在 {{when}} 开始.",
+				[]byte(hgVersion().Schema), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendUsersPrefixSQL)).WithArgs("user_1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user_1"))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendAdminLockSQL)).WithArgs("ADMIN").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPendingLimitSQL)).WithArgs("ADMIN").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendScheduledInsertSQL)).
+		WithArgs("schedule-1", sqlmock.AnyArg(), uint64(7), uint32(2),
+			[]byte(`["user_1"]`), sqlmock.AnyArg(), "ADMIN", when, when).
+		WillReturnResult(sqlmock.NewResult(55, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(int64(55), "created", "ADMIN", uint32(2), "", "").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if _, err := HGNewRepository(db).HGCreate(context.Background(), "schedule-1", "ADMIN", cmd); err != nil {
+		t.Fatalf("定时任务应等待审批: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGApproveRejectsSelfAndKeepsTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendApproveLockSQL)).WithArgs(uint64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"creator", "template", "version", "scheduled"}).
+			AddRow("AUTHOR", 7, 2, nil))
+	mock.ExpectRollback()
+	if err := HGNewRepository(db).HGApprove(context.Background(), 12, "AUTHOR"); !errors.Is(err, HGErrConflict) {
+		t.Fatalf("不得自审: %v", err)
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendApproveLockSQL)).WithArgs(uint64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"creator", "template", "version", "scheduled"}).
+			AddRow("AUTHOR", 7, 2, nil))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendBoundVersionSQL)).WithArgs(uint32(2), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow("system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendApproveSQL)).
+		WithArgs("REVIEWER", uint64(12)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(uint64(12), "approved", "REVIEWER", uint32(2), "", "").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if err := HGNewRepository(db).HGApprove(context.Background(), 12, "REVIEWER"); err != nil {
+		t.Fatalf("他人审批应原子提交: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGApproveAuditFailureRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendApproveLockSQL)).WithArgs(uint64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"creator", "template", "version", "scheduled"}).
+			AddRow("AUTHOR", 7, 2, nil))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendBoundVersionSQL)).WithArgs(uint32(2), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow("system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendApproveSQL)).
+		WithArgs("REVIEWER", uint64(12)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(uint64(12), "approved", "REVIEWER", uint32(2), "", "").
+		WillReturnError(errors.New("审计不可用"))
+	mock.ExpectRollback()
+	if err := HGNewRepository(db).HGApprove(context.Background(), 12, "REVIEWER"); err == nil {
+		t.Fatal("审批审计失败不得放行任务")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGCancelWritesAuditAtomically(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendCancelLockSQL)).
+		WithArgs(uint64(12), "AUTHOR").
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status"}).AddRow(2, "pending_approval"))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendCancelSQL)).
+		WithArgs(uint64(12), "AUTHOR").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(uint64(12), "cancelled", "AUTHOR", uint32(2), "", "").
+		WillReturnError(errors.New("审计写入失败"))
+	mock.ExpectRollback()
+	if err := HGNewRepository(db).HGCancel(context.Background(), 12, "AUTHOR"); err == nil {
+		t.Fatal("审计失败必须回滚取消")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGReviewDetailRendersBoundVariablesWithoutRecipientIDs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendReviewDetailSQL)).
+		WithArgs(uint64(12), "REVIEWER").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "template_id", "version", "status", "total", "created_at", "category",
+			"title", "body", "schema", "action", "config", "channels", "variables", "scheduled"}).
+			AddRow(12, 7, 2, "pending_approval", 2, time.Now().UTC(), "system",
+				"维护 {{name}}", "您好 {{name}}，维护将在 {{when}} 开始。",
+				[]byte(hgVersion().Schema), "none", []byte(`{}`), []byte(`["in_app"]`),
+				[]byte(`{"name":"用户A","when":"02:00"}`), nil))
+	review, err := HGNewRepository(db).HGReviewDetail(context.Background(), 12, "REVIEWER")
+	if err != nil || review.Title != "维护 用户A" || review.Total != 2 ||
+		!strings.Contains(review.Body, "02:00") {
+		t.Fatalf("必须使用权威版本与变量渲染: %+v %v", review, err)
+	}
+	payload, err := json.Marshal(review)
+	if err != nil || strings.Contains(string(payload), "user_") || strings.Contains(string(payload), "variables") {
+		t.Fatalf("不得公开接收用户或原始变量: %s %v", payload, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGMarketingImmediateMustBeReviewed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cmd := HGCommand{TemplateID: "7", TemplateVersion: 2, UserIDs: []string{"user_1"},
+		Variables: map[string]string{"name": "用户A", "when": "02:00"}}
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendByRequestSQL)).
+		WithArgs("marketing-1").WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendTemplateSQL)).
+		WithArgs(uint32(2), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow("marketing", "维护 {{name}}", "您好 {{name}}，维护将在 {{when}} 开始。",
+				[]byte(hgVersion().Schema), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendUsersPrefixSQL)).
+		WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user_1"))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendAdminLockSQL)).
+		WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPendingLimitSQL)).
+		WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendScheduledInsertSQL)).
+		WithArgs("marketing-1", sqlmock.AnyArg(), uint64(7), uint32(2),
+			[]byte(`["user_1"]`), sqlmock.AnyArg(), "ADMIN", nil, nil).
+		WillReturnResult(sqlmock.NewResult(19, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendAuditSQL)).
+		WithArgs(int64(19), "created", "ADMIN", uint32(2), "", "").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if _, err := HGNewRepository(db).HGCreate(context.Background(), "marketing-1", "ADMIN", cmd); err != nil {
+		t.Fatalf("营销通知必须先持久化为待审: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
