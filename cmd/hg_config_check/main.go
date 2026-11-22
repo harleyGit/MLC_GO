@@ -31,7 +31,7 @@ func main() {
 	// flag.Parse 必须在读取参数值前执行，否则始终只能得到默认值【在终端如脚本：xxx.sh --env=pre --config-dir=/xxx/config --check=mysql, 第三个参数在 -h、-help时才显示。】。
 	env := flag.String("env", "debug", "运行环境：debug、pre、prod")
 	configDir := flag.String("config-dir", "./config", "配置根目录")
-	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types、iam-role-template 或 notification-counter-ready；为空时只输出非敏感地址")
+	check := flag.String("check", "", "只读检查：mysql、redis、clickhouse、migration-version、iam-scope-types、iam-role-template、notification-counter-ready 或 notification-send-schema；为空时只输出非敏感地址")
 	migrationsDir := flag.String("migrations-dir", "", "执行该目录中的 MySQL migrations；为空时不迁移")
 
 	// flag.Parse() 和 flag.String() 属于 Go 标准库 flag 包，主要作用是：解析命令行参数，让 Go 程序启动时可以通过命令行传入配置
@@ -133,6 +133,18 @@ func main() {
 			exitWithError(hgErr)
 		}
 		fmt.Printf("notification_counter_ready=%t\n", hgReady)
+	case "notification-send-schema":
+		hgDB, hgErr := sql.Open("mysql", (&mysql.Config{User: mysqlConfig.User, Passwd: mysqlConfig.Password, Net: "tcp", Addr: net.JoinHostPort(mysqlConfig.Host, mysqlConfig.Port), DBName: mysqlConfig.Database}).FormatDSN())
+		if hgErr != nil {
+			exitWithError(fmt.Errorf("通知发送结构检查不可用"))
+		}
+		defer hgDB.Close()
+		hgCtx, hgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer hgCancel()
+		if hgErr = hgCheckNotificationSendSchema(hgCtx, hgDB); hgErr != nil {
+			exitWithError(hgErr)
+		}
+		fmt.Println("notification_send_schema_ready=true")
 	case "redis":
 		checkRedis(redisConfig)
 	case "clickhouse":
@@ -140,6 +152,28 @@ func main() {
 	default:
 		exitWithError(fmt.Errorf("不支持的检查类型 %q", *check))
 	}
+}
+
+// hgCheckNotificationSendSchema 只读校验新版本依赖的结构；无误后仍需隔离环境功能验收。
+func hgCheckNotificationSendSchema(ctx context.Context, db *sql.DB) error {
+	for _, check := range []struct {
+		query string
+		want  int
+	}{
+		{SQLQueriesPackage.HGNotificationSendSchemaColumnsSQL, 3},
+		{SQLQueriesPackage.HGNotificationSendSchemaIndexesSQL, 3},
+		{SQLQueriesPackage.HGNotificationSendSchemaAuditTablesSQL, 2},
+		{SQLQueriesPackage.HGNotificationSendSchemaPermissionSQL, 1},
+	} {
+		var found int
+		if err := db.QueryRowContext(ctx, check.query).Scan(&found); err != nil {
+			return fmt.Errorf("通知发送结构检查不可用")
+		}
+		if found != check.want {
+			return fmt.Errorf("通知发送结构未就绪")
+		}
+	}
+	return nil
 }
 
 // hgCheckClickHouse 复用主服务连接配置与 SELECT 1 探活，不输出认证信息或连接串。

@@ -1,5 +1,7 @@
 # 有界站内模板发送与双人任务审批
 
+隔离环境验收步骤与 Kafka / 实时推送的待确认边界见 [`hg_rollout_plan.md`](hg_rollout_plan.md)；这份计划不表示新增链路已接通。
+
 复用 `notification_templates`/`notification_template_versions`、既有用户收件箱和事件去重账本；新增 `notification_send_tasks` 持久任务。发布前由发布系统按序部署 `migrations/000083_notification_send_tasks.up.sql`、`migrations/000084_notification_send_read_indexes.up.sql`、`migrations/000085_notification_send_approval.up.sql`，再启动新版本服务。仓库内不自动执行迁移或真实发送。
 
 ## 操作

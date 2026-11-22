@@ -2,6 +2,16 @@ package SQLQueriesPackage
 
 import "strings"
 
+// 000083-000085 上线只读校验：仅统计当前 schema 的列/索引/表和权限元数据，不扫描任务或审计数据。
+const HGNotificationSendSchemaColumnsSQL = `SELECT COUNT(*) FROM information_schema.columns
+WHERE table_schema=DATABASE() AND table_name='notification_send_tasks' AND column_name IN ('scheduled_at','approved_by','approved_at')`
+const HGNotificationSendSchemaIndexesSQL = `SELECT COUNT(DISTINCT CONCAT(table_name,'/',index_name)) FROM information_schema.statistics
+WHERE table_schema=DATABASE() AND ((table_name='notification_send_tasks' AND index_name IN ('idx_notification_send_mine','idx_notification_send_review'))
+OR (table_name='notification_templates' AND index_name='idx_notification_template_published'))`
+const HGNotificationSendSchemaAuditTablesSQL = `SELECT COUNT(*) FROM information_schema.tables
+WHERE table_schema=DATABASE() AND table_name IN ('notification_send_audit','notification_template_audit')`
+const HGNotificationSendSchemaPermissionSQL = `SELECT COUNT(*) FROM iam_permissions WHERE permission_code='notification:send:approve'`
+
 // HGNotificationSendTemplateSQL 按主键及版本唯一键查询已发布的不可变版本；不允许最新草稿代替发布版。
 const HGNotificationSendTemplateSQL = `SELECT v.category,v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=?
