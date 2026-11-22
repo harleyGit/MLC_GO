@@ -49,7 +49,7 @@ func RouteCatalog() []HGRouterPackage.RouteCatalogItem {
 func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	var meAccess, authorizeAccess, realtimeToken, logoutRealtime http.HandlerFunc
 	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
-	var scopeList, scopeResources, scopeResourceCreate, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
+	var scopeList, scopeResources, scopeResourceCreate, businessScopeCreate, businessScopeDisable, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
 	if handler != nil {
 		meAccess, authorizeAccess = handler.HGMeAccess, handler.HGAuthorizeAccess
 		realtimeToken = handler.HGRealtimeToken
@@ -58,6 +58,8 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		scopeList, scopeGet, scopeCreate, scopeUpdate, scopeDisable = handler.HGListScopeTypes, handler.HGGetScopeType, handler.HGCreateScopeType, handler.HGUpdateScopeType, handler.HGDisableScopeType
 		scopeResources = handler.HGListScopeResources
 		scopeResourceCreate = handler.HGCreateScopeResource
+		businessScopeCreate = handler.HGCreateBusinessScope
+		businessScopeDisable = handler.HGDisableBusinessScope
 		list, create, update, disable = handler.HGListRoles, handler.HGCreateRole, handler.HGUpdateRole, handler.HGDisableRole
 		bindings, pendingGrants, grant, revoke = handler.HGListBindings, handler.HGListPendingGrants, handler.HGGrant, handler.HGRevoke
 		directGrant = handler.HGGrantDirect
@@ -78,6 +80,8 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/list", true, "查询作用域类型", scopeList, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-resources/list", true, "查询授权作用域候选资源", scopeResources, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-resources", true, "登记 IAM 作用域候选资源", scopeResourceCreate, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/business-scopes", true, "建立权威业务实体及同 ID 的 IAM 资源", businessScopeCreate, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/business-scopes/disable", true, "停用权威业务实体及授权候选", businessScopeDisable, HGPermissionPackage.HGIAMRoleGrant, HGPermissionPackage.HGIAMRoleGrantDirect),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/scope-types/detail", true, "查询作用域类型详情", scopeGet, HGPermissionPackage.HGIAMRoleRead),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types", true, "创建作用域类型", scopeCreate, HGPermissionPackage.HGIAMRoleGrant),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/scope-types/update", true, "更新作用域类型", scopeUpdate, HGPermissionPackage.HGIAMRoleGrant),

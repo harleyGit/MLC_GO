@@ -18,7 +18,7 @@ type HGScopeResource struct {
 	Name string `json:"name"` // 资源名称，仅作选项标签；空值可由前端展示 ID。
 }
 
-// hgRegisteredScopeType 仅包含已定义但尚无业务权威实体的六类作用域；不得把任意字典项直接启用为可授权资源。
+// hgRegisteredScopeType 仅包含六类受支持的业务作用域；历史 IAM 占位 ID 仍须经过权威实体及状态复核。
 func hgRegisteredScopeType(scopeType string) bool {
 	switch scopeType {
 	case "creator", "organization", "environment", "crawler_project", "content_channel", "region":
@@ -109,7 +109,7 @@ func (s *HGService) HGCreateScopeResource(ctx context.Context, actor, requestID,
 	return item, nil
 }
 
-// HGListScopeResources 查询受支持作用域的有界候选页；不替代最终授权时的资源状态复核。
+// HGListScopeResources 查询受支持作用域的有界候选页；六类业务候选必须有权威实体且启用，最终授权仍需复核。
 // shop 游标先遍历登记组织 (r:ID)，再遍历审核商家 (m:主键)；org 以组织 ID 为准。
 func (s *HGService) HGListScopeResources(ctx context.Context, actor, scopeType, cursor string, limit int) ([]HGScopeResource, string, bool, error) {
 	if err := s.hgCanRegisterScopeResource(ctx, actor); err != nil {

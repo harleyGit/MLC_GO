@@ -12,6 +12,47 @@ type HGCreateScopeResourceRequest struct {
 	Name      string `json:"name"`      // 资源显示名称；1-128 字符，不能作为业务权威实体证明。
 }
 
+// HGCreateBusinessScope 从权威用户/组织验证归属后，原子建立业务实体和 IAM 资源；不转换历史占位记录。
+func (h *HGHandler) HGCreateBusinessScope(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGBusinessScopeCreate
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	item, err := h.service.HGCreateBusinessScope(r.Context(), actor, hgRequestID(r), req)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, item)
+}
+
+// HGDisableBusinessScopeRequest 是按类型和不可变业务 ID 停用单项资源的协议；不接受客户端自报所有者或状态。
+type HGDisableBusinessScopeRequest struct {
+	ScopeType string `json:"scopeType"` // 六类可管理的权威业务类型。
+	ScopeID   string `json:"scopeId"`   // 创建接口返回的 ID，不使用名称或区域代码。
+}
+
+// HGDisableBusinessScope 同事务停用业务实体和授权候选；已有绑定保留用于审计但不能继续执行业务权限。
+func (h *HGHandler) HGDisableBusinessScope(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGDisableBusinessScopeRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	if err := h.service.HGDisableBusinessScope(r.Context(), actor, hgRequestID(r), req.ScopeType, req.ScopeID); err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]bool{"disabled": true})
+}
+
 // HGCreateScopeResource 以服务器生成的 ID 登记可授权候选；业务操作仍需另行接入实际资源鉴权。
 func (h *HGHandler) HGCreateScopeResource(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)

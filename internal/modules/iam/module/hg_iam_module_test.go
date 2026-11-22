@@ -77,7 +77,9 @@ func TestHGScopeResourceRoutePermissions(t *testing.T) {
 	found := 0
 	for _, item := range RouteCatalog() {
 		if (item.Path != hgBasePath+"/scope-resources/list" || item.Method != http.MethodGet) &&
-			(item.Path != hgBasePath+"/scope-resources" || item.Method != http.MethodPost) {
+			(item.Path != hgBasePath+"/scope-resources" || item.Method != http.MethodPost) &&
+			(item.Path != hgBasePath+"/business-scopes" || item.Method != http.MethodPost) &&
+			(item.Path != hgBasePath+"/business-scopes/disable" || item.Method != http.MethodPost) {
 			continue
 		}
 		if !item.NeedAuth || len(item.Permissions) != 2 ||
@@ -87,8 +89,15 @@ func TestHGScopeResourceRoutePermissions(t *testing.T) {
 		}
 		found++
 	}
-	if found != 2 {
-		t.Fatalf("候选资源读取与登记路由须同时注册: got %d", found)
+	if found != 4 {
+		t.Fatalf("候选资源读取、占位登记与业务实体创建/停用路由须同时注册: got %d", found)
+	}
+	root := http.NewServeMux()
+	root.Handle(hgBasePath+"/", http.StripPrefix(hgBasePath, (&HGModule{handler: IAMPackage.NewHGHandler(nil)}).Handler()))
+	response := httptest.NewRecorder()
+	root.ServeHTTP(response, httptest.NewRequest(http.MethodPost, hgBasePath+"/business-scopes", nil))
+	if response.Code == http.StatusNotFound {
+		t.Fatal("业务实体创建接口未通过根路由 Guard")
 	}
 }
 
