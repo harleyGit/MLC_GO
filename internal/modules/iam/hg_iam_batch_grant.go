@@ -69,12 +69,12 @@ func (s *HGService) HGGrantDirectBatch(ctx context.Context, actor, requestID str
 			}
 		}
 		id, parseErr := strconv.ParseUint(item.RoleID, 10, 64)
-		if parseErr != nil || id == 0 || (item.ScopeType != "global" && item.ScopeType != "shop" && item.ScopeType != "org") {
+		if parseErr != nil || id == 0 || (item.ScopeType != "global" && item.ScopeType != "shop" && item.ScopeType != "org" && !hgRegisteredScopeType(item.ScopeType)) {
 			return ErrHGInvalid
 		}
 		roles[id] = struct{}{}
 		scopes[item.ScopeType] = struct{}{}
-		if len(roles) > 4 || len(scopes) > 3 {
+		if len(roles) > 4 || len(scopes) > 9 {
 			return ErrHGInvalid
 		}
 		scopeID := strings.TrimSpace(item.ScopeID)

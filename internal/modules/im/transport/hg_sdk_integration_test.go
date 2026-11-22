@@ -48,7 +48,7 @@ func TestHGSDKDebugProtocols(t *testing.T) {
 	if os.Getenv("SERVER_ENV") != "debug" {
 		t.Fatal("SDK 协议实测仅允许 SERVER_ENV=debug")
 	}
-	configDir, err := filepath.Abs("../../../config")
+	configDir, err := filepath.Abs("../../../../config")
 	if err != nil {
 		t.Fatal("无法定位仓库 debug 配置目录")
 	}
@@ -118,7 +118,6 @@ func TestHGSDKDebugProtocols(t *testing.T) {
 		}
 		req.ContentLength = int64(len(body))
 		req.Header.Set("Content-Type", "text/plain")
-		req.Header.Set("x-amz-acl", "private")
 		// 即使上传返回非 2xx 也尝试清理，避免不确定提交后的残留。
 		uploaded = true
 		resp, err := storage.client.Do(req)

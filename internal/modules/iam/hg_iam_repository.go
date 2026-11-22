@@ -596,6 +596,13 @@ func hgTrustedScope(ctx context.Context, db interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, scopeType, scopeID string) (bool, error) {
 	var one int
+	if hgRegisteredScopeType(scopeType) {
+		err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMScopeResourceActive, scopeType, scopeID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return one == 1, err
+	}
 	err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMOrganization, scopeID, scopeType).Scan(&one)
 	if err == nil {
 		return one == 1, nil

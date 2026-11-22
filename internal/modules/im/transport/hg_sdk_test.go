@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +105,34 @@ func TestHGSeaweedFSSDKGetPresignIsPrivateAndBounded(t *testing.T) {
 	}
 	if _, err = storage.HGSignRead("quarantine/" + strings.Repeat("a", 32)); err == nil {
 		t.Fatal("不得为隔离区或客户端自选对象签发读取凭据")
+	}
+}
+
+func TestHGSeaweedFSPutPresignDoesNotRequireACL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.Header.Get("x-amz-acl") != "" ||
+			r.Header.Get("If-None-Match") != "*" || r.ContentLength != 1 {
+			t.Error("封存请求不得携带 ACL，且必须绑定创建条件及长度")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	storage, err := HGNewSeaweedFS(server.URL, "us-east-1", "im-private", "fixture", strings.Repeat("s", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.HGClose()
+	key := strings.Repeat("a", 32)
+	link, err := storage.HGUploadURL("quarantine/"+key, "text/plain", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(link)
+	if err != nil || parsed.Query().Get("X-Amz-SignedHeaders") != "content-length;content-type;host" {
+		t.Fatal("上传签名必须绑定长度与内容类型，不得要求 ACL")
+	}
+	created, err := storage.HGReviewSeal(context.Background(), "sealed/"+key, "text/plain", 1, strings.NewReader("a"))
+	if err != nil || !created {
+		t.Fatalf("封存请求未按无 ACL 协议发送: %v", err)
 	}
 }

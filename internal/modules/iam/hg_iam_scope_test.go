@@ -47,7 +47,7 @@ func TestHGGrantDirectBatchRejectsUnverifiedScope(t *testing.T) {
 	hgExpectPermission(mock, "ACTOR", "global", "", "iam:role:grant", true)
 	hgExpectPermission(mock, "ACTOR", "global", "", "iam:role:grant_direct", true)
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGrantSelf)).WithArgs("ACTOR", "TARGET").WillReturnRows(sqlmock.NewRows([]string{"one"}))
-	err := service.HGGrantDirectBatch(context.Background(), "ACTOR", "request-1", HGBatchGrantRequest{UserID: "TARGET", Bindings: []HGBatchGrantItem{{RoleID: "7", ScopeType: "environment", ScopeID: "production"}}})
+	err := service.HGGrantDirectBatch(context.Background(), "ACTOR", "request-1", HGBatchGrantRequest{UserID: "TARGET", Bindings: []HGBatchGrantItem{{RoleID: "7", ScopeType: "unregistered", ScopeID: "production"}}})
 	if !errors.Is(err, ErrHGInvalid) {
 		t.Fatalf("未校验资源的类型不得授予: %v", err)
 	}

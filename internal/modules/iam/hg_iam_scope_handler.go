@@ -6,6 +6,49 @@ import (
 	"strconv"
 )
 
+// HGCreateScopeResourceRequest 是六类 IAM 占位资源登记协议；不接受客户端自选 ID、owner 或状态。
+type HGCreateScopeResourceRequest struct {
+	ScopeType string `json:"scopeType"` // 六类已接入 IAM 登记的作用域编码，不能使用 global/shop/org。
+	Name      string `json:"name"`      // 资源显示名称；1-128 字符，不能作为业务权威实体证明。
+}
+
+// HGCreateScopeResource 以服务器生成的 ID 登记可授权候选；业务操作仍需另行接入实际资源鉴权。
+func (h *HGHandler) HGCreateScopeResource(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	var req HGCreateScopeResourceRequest
+	if !hgDecode(w, r, &req) {
+		return
+	}
+	item, err := h.service.HGCreateScopeResource(r.Context(), actor, hgRequestID(r), req.ScopeType, req.Name)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, item)
+}
+
+// HGListScopeResources 返回已启用 org 或已审核 shop 的游标页，供即时授权选择具体 scopeId。
+func (h *HGHandler) HGListScopeResources(w http.ResponseWriter, r *http.Request) {
+	actor, ok := hgActor(w, r)
+	if !ok {
+		return
+	}
+	limit, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if r.URL.Query().Get("pageSize") != "" && err != nil {
+		hgHTTPError(w, r, ErrHGInvalid)
+		return
+	}
+	items, next, more, err := h.service.HGListScopeResources(r.Context(), actor, r.URL.Query().Get("scopeType"), r.URL.Query().Get("cursor"), limit)
+	if err != nil {
+		hgHTTPError(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next, "hasMore": more})
+}
+
 // HGScopeTypeRequest 是类型登记/编辑/停用协议；编码只在创建时可设，其他字段由服务端强制约束。
 type HGScopeTypeRequest struct {
 	Code        string `json:"code"`        // 唯一稳定编码。

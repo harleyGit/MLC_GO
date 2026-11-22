@@ -72,6 +72,26 @@ func TestHGDirectGrantRouteCatalogAndGuard(t *testing.T) {
 	}
 }
 
+// 候选资源目录仅供持有即时授权权限的管理员读取，不暴露给仅可查看角色的用户。
+func TestHGScopeResourceRoutePermissions(t *testing.T) {
+	found := 0
+	for _, item := range RouteCatalog() {
+		if (item.Path != hgBasePath+"/scope-resources/list" || item.Method != http.MethodGet) &&
+			(item.Path != hgBasePath+"/scope-resources" || item.Method != http.MethodPost) {
+			continue
+		}
+		if !item.NeedAuth || len(item.Permissions) != 2 ||
+			item.Permissions[0] != HGPermissionPackage.HGIAMRoleGrant ||
+			item.Permissions[1] != HGPermissionPackage.HGIAMRoleGrantDirect {
+			t.Fatalf("候选资源路由权限不正确: %+v", item)
+		}
+		found++
+	}
+	if found != 2 {
+		t.Fatalf("候选资源读取与登记路由须同时注册: got %d", found)
+	}
+}
+
 // 根入口相同的 StripPrefix 链必须能把 IAM 路径送入 Guard；无 JWT 可拒绝，但不能返回路由 404。
 func TestHGIAMRouteReachableThroughStripPrefix(t *testing.T) {
 	module := &HGModule{handler: IAMPackage.NewHGHandler(nil)}

@@ -77,7 +77,7 @@ func (s *HGService) Authorize(ctx context.Context, userID, permission string, re
 	if s == nil || s.repo == nil || !hgValidText(userID, 64) || !hgPermissionCodePattern.MatchString(permission) {
 		return deny, ErrHGInvalid
 	}
-	if resource.ScopeType != "" && resource.ScopeType != "global" && resource.ScopeType != "shop" && resource.ScopeType != "org" {
+	if resource.ScopeType != "" && resource.ScopeType != "global" && resource.ScopeType != "shop" && resource.ScopeType != "org" && !hgRegisteredScopeType(resource.ScopeType) {
 		return deny, ErrHGInvalid
 	}
 	if resource.ScopeType == "global" && resource.ScopeID != "" {
@@ -101,6 +101,15 @@ func (s *HGService) Authorize(ctx context.Context, userID, permission string, re
 	if resource.ScopeType != "" && resource.ScopeType != "global" {
 		if !hgValidText(resource.ScopeID, 64) {
 			return deny, ErrHGInvalid
+		}
+		if hgRegisteredScopeType(resource.ScopeType) {
+			active, err := s.repo.hgOrganization(ctx, resource.ScopeType, resource.ScopeID)
+			if err != nil {
+				return deny, err
+			}
+			if !active {
+				return deny, ErrHGScopeNotFound
+			}
 		}
 		allowed, err := s.repo.hgHasPermission(ctx, userID, permission, resource.ScopeType, resource.ScopeID)
 		if err != nil {
@@ -307,7 +316,7 @@ func (s *HGService) hgValidateGrant(ctx context.Context, actor, userID string, r
 		if scopeID != "" {
 			return ErrHGInvalid
 		}
-	} else if scopeType == "shop" || scopeType == "org" {
+	} else if scopeType == "shop" || scopeType == "org" || hgRegisteredScopeType(scopeType) {
 		if !hgValidText(scopeID, 64) {
 			return ErrHGInvalid
 		}

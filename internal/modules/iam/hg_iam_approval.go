@@ -91,7 +91,7 @@ func (s *HGService) RequestGrant(ctx context.Context, actor, requestID, otp stri
 		if p.ScopeID != "" {
 			return "", ErrHGInvalid
 		}
-	} else if p.ScopeType == "shop" || p.ScopeType == "org" {
+	} else if p.ScopeType == "shop" || p.ScopeType == "org" || hgRegisteredScopeType(p.ScopeType) {
 		if !hgValidText(p.ScopeID, 64) {
 			return "", ErrHGInvalid
 		}
