@@ -7,7 +7,7 @@
 ## 操作
 
 1. 使用已有 `POST /api/v1/admin/notification/templates` 创建模板草稿（字段沿用既有 `snake_case` 协议）；当前仅支持纯文本和字符串变量。运营发送仅接受 `system` 或 `marketing` 类别、`channels:["in_app"]`、`action_type:"none"`；不能填写验证码、密码、令牌等敏感正文。
-2. **另一名**持有 `notification:template:publish` 权限的管理员请求 `POST /api/v1/admin/notification/templates/publish-send?id=<templateId>`，正文 `{"version":1}`。原有 `/templates/publish` 仍只处理 `iam.role.updated`。
+2. 持有 `notification:template:publish` 权限的管理员请求 `POST /api/v1/admin/notification/templates/publish-send?id=<templateId>`，正文 `{"version":1}`。通常须由**另一名**管理员复核；持有效全局 `super_admin` 角色绑定且该绑定含发布权限的管理员可以发布本人创建的版本，服务端核对身份与绑定并将自审单独记为 `published_self` 审计动作。其他角色仍不得自审。原有 `/templates/publish` 仍只处理 `iam.role.updated`。
 3. 持有 `notification:send:create` 权限的管理员请求 `POST /api/v1/admin/notification/send-tasks`，携带 `Idempotency-Key`（1–128 ASCII 字符）及：
 
    ```json
@@ -29,6 +29,6 @@
 
 ## 边界与恢复
 
-每 Pod 单工作协程，每秒至多处理一名接收人。MySQL `FOR UPDATE SKIP LOCKED` 短租约负责多 Pod 抢占，超时由其他工作者恢复；既有 `(event_id, receiver_id, category)` 永久去重账本保证重复租约不会产生重复入箱。失败按 2–32 秒退避，连续 5 次变为 `failed` 并保留现场，需人工审核后制定补偿；取消只阻止后续处理，不撤回已落库消息。运营模板发布及新任务创建、审批、取消与审计记录分别同事务提交，记录操作者、版本、服务端 context 请求 ID 与直连 IP（不信任客户端请求头或代理转发头）；模板发布审计另记录审核时快照的 SHA-256。旧任务没有回填审计；后台逐人重试没有 HTTP 请求 ID，也尚未写入此审核审计表。`000085` 回退只能在所有 `pending_approval` 已处理、且明确接受删除审批审计数据时由发布流程执行。
+每 Pod 单工作协程，每秒至多处理一名接收人。MySQL `FOR UPDATE SKIP LOCKED` 短租约负责多 Pod 抢占，超时由其他工作者恢复；既有 `(event_id, receiver_id, category)` 永久去重账本保证重复租约不会产生重复入箱。失败按 2–32 秒退避，连续 5 次变为 `failed` 并保留现场，需人工审核后制定补偿；取消只阻止后续处理，不撤回已落库消息。运营模板发布及新任务创建、审批、取消与审计记录分别同事务提交，记录操作者、版本、服务端 context 请求 ID 与直连 IP（不信任客户端请求头或代理转发头）；模板发布审计另记录审核时快照的 SHA-256，并以 `published_self` / `published` 区分自审和双人复核。旧任务没有回填审计；后台逐人重试没有 HTTP 请求 ID，也尚未写入此审核审计表。`000085` 回退只能在所有 `pending_approval` 已处理、且明确接受删除审批审计数据时由发布流程执行。
 
 这是**明确用户 + 可定时 + 纯站内通知**的有界闭环。Kafka 模式已具备任务级隔离、到期 Outbox 与代次消费的受控代码，但专用消费组仍关闭，尚未完成独立 topic、真实投递与故障恢复验收；不能把它称为已可用。站内信首次入箱提交后，在现有 `MLC_IM_REALTIME_ENABLED` 启用且会话绑定的本人 `im:iam:<user>` 频道可用时发送 `notification.inbox.updated.v1` 分类提示；不包含正文、接收人或已读回执。网关故障不回滚入箱，也不重试 Socket；Web 首次打开、重连后按本人 HTTP 收件箱补齐。未提供群组/全站、短信、邮件、实时必达或自动 DLQ 重放。收件箱仍使用既有单表索引，不能以此推断千万级吞吐或延迟指标。任务记录包含用户 ID 与通知变量，需按生产数据保留/删除策略控制访问和清理，不能盲目删表以免丢失幂等依据。已发布版本哈希只绑定模板，不绑定每次任务填写的变量，仍需隔离环境和发布审批验收。

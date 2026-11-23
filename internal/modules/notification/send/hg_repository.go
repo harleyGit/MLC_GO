@@ -92,7 +92,7 @@ func hgScanVersion(row interface{ Scan(...any) error }) (HGVersion, error) {
 	return v, err
 }
 
-// HGPublish 以版本锁与双人复核保护可发送模板；不改变 iam.role.updated 的既有发布入口。
+// HGPublish 锁定当前版本；仅有效全局 super_admin 可自审，其余管理员仍需另一人复核。
 func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint32, reviewer string, audit ...HGAuditContext) error {
 	meta, err := hgAuditContext(audit)
 	if err != nil {
@@ -104,18 +104,31 @@ func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint
 	}
 	defer tx.Rollback()
 	var latest uint32
-	var status, code, author string
+	var status, code string
+	var hgSelfReview bool
 	var v HGVersion
-	err = tx.QueryRowContext(ctx, queries.HGNotificationSendPublishLockSQL, id).Scan(
-		&latest, &status, &code, &author, &v.Category, &v.Title, &v.Body, &v.Schema, &v.Action, &v.Config, &v.Channels)
+	err = tx.QueryRowContext(ctx, queries.HGNotificationSendPublishLockSQL, reviewer, id).Scan(
+		&latest, &status, &code, &hgSelfReview, &v.Category, &v.Title, &v.Body, &v.Schema, &v.Action, &v.Config, &v.Channels)
 	if errors.Is(err, sql.ErrNoRows) {
 		return HGErrMissing
 	}
 	if err != nil {
 		return err
 	}
-	if latest != version || code == "iam.role.updated" || status == "deleted" || author == reviewer || reviewer == "" {
+	if latest != version || code == "iam.role.updated" || status == "deleted" || reviewer == "" {
 		return HGErrConflict
+	}
+	hgAuditAction := "published"
+	if hgSelfReview {
+		var hgAllowed int
+		err = tx.QueryRowContext(ctx, queries.HGNotificationSendSelfPublishSuperAdminSQL, reviewer).Scan(&hgAllowed)
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		hgAuditAction = "published_self"
 	}
 	if err := HGValidateVersion(v); err != nil {
 		return err
@@ -140,7 +153,7 @@ func (repo *HGRepository) HGPublish(ctx context.Context, id uint64, version uint
 	}
 	hash := sha256.Sum256(payload)
 	if _, err = tx.ExecContext(ctx, queries.HGNotificationTemplateAuditSQL,
-		id, version, "published", reviewer, meta.RequestID, meta.SourceIP, hex.EncodeToString(hash[:])); err != nil {
+		id, version, hgAuditAction, reviewer, meta.RequestID, meta.SourceIP, hex.EncodeToString(hash[:])); err != nil {
 		return err
 	}
 	return tx.Commit()

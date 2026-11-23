@@ -74,7 +74,7 @@ func hgSendRoutes(h *SendPackage.HGHandler) []HGRouterPackage.RouteSpec {
 		review, reviewDetail, approve = h.HGReviewList, h.HGReviewDetail, h.HGApprove
 	}
 	return []HGRouterPackage.RouteSpec{
-		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish-send", true, "双人复核发布站内模板", publish, HGPermissionPackage.HGNotificationTemplatePublish),
+		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/templates/publish-send", true, "复核发布站内模板（超级管理员可自审）", publish, HGPermissionPackage.HGNotificationTemplatePublish),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodPost, base, "/send-tasks", true, "创建有界站内发送任务", create, HGPermissionPackage.HGNotificationSendCreate),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks", true, "按游标查询本人发送任务", list, HGPermissionPackage.HGNotificationSendRead),
 		HGRouterPackage.NewRouteSpec("notification", http.MethodGet, base, "/send-tasks/detail", true, "查询本人发送任务进度", detail, HGPermissionPackage.HGNotificationSendRead),

@@ -30,10 +30,22 @@ const HGNotificationSendBoundVersionSQL = `SELECT v.category,v.title_template,v.
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=?
 WHERE t.id=? AND t.status='published' AND v.status='published'`
 
-// HGNotificationSendPublishSQL 锁定模板主键后仅发布当前草稿；创建者不得作为复核人。
-const HGNotificationSendPublishLockSQL = `SELECT t.latest_version,t.status,t.template_code,v.created_by,v.category,v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels
+// HGNotificationSendPublishLockSQL 锁定当前版本；作者比较沿用数据库用户 ID 排序规则，避免大小写变体绕过自审检查。
+const HGNotificationSendPublishLockSQL = `SELECT t.latest_version,t.status,t.template_code,v.created_by=?,v.category,v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.latest_version
 WHERE t.id=? FOR UPDATE`
+
+// HGNotificationSendSelfPublishSuperAdminSQL 仅核对当前用户有效的全局 super_admin 绑定及此绑定的发布权限；
+// 依赖 idx_iam_binding_user_scope、角色/权限主键及 permission_code 唯一键，受限授权不能借其他角色绕过双人复核。
+const HGNotificationSendSelfPublishSuperAdminSQL = `SELECT 1 FROM iam_user_role_bindings b
+JOIN iam_roles r ON r.id=b.role_id AND r.status=1 AND r.role_code='super_admin'
+JOIN iam_role_permissions rp ON rp.role_id=r.id
+JOIN iam_permissions p ON p.id=rp.permission_id AND p.permission_code='notification:template:publish'
+LEFT JOIN iam_binding_permission_limits lim ON lim.binding_id=b.id
+LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND allowp.permission_id=p.id
+WHERE b.user_id=? AND b.status=1 AND b.scope_type='global' AND b.scope_id=''
+AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3))
+AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) LIMIT 1`
 const HGNotificationSendPublishVersionSQL = `UPDATE notification_template_versions SET status='published' WHERE template_id=? AND version=? AND status='draft'`
 const HGNotificationTemplateAuditSQL = `INSERT INTO notification_template_audit(template_id,template_version,action,actor_id,request_id,source_ip,content_hash) VALUES (?,?,?,?,?,?,?)`
 

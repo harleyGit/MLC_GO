@@ -74,7 +74,7 @@ func hgRequestAudit(r *http.Request) HGAuditContext {
 	return meta
 }
 
-// HGPublish 发布经过另一位管理员复核的当前站内模板版本。
+// HGPublish 发布站内模板；仅活动全局超级管理员可发布本人创建的版本。
 func (handler *HGHandler) HGPublish(w http.ResponseWriter, r *http.Request) {
 	user, err := hgActor(r)
 	id, idErr := hgID(r.URL.Query().Get("id"))

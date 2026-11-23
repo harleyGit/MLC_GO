@@ -132,12 +132,67 @@ func TestHGPublishRejectsSelfReview(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs(uint64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "author", "category", "title", "body", "schema", "action", "config", "channels"}).
-			AddRow(2, "draft", "system_notice", "ADMIN", "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs("ADMIN", uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "self_review", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", true, "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendSelfPublishSuperAdminSQL)).WithArgs("ADMIN").
+		WillReturnRows(sqlmock.NewRows([]string{"allowed"}))
 	mock.ExpectRollback()
 	if err := HGNewRepository(db).HGPublish(context.Background(), 7, 2, "ADMIN"); !errors.Is(err, HGErrConflict) {
-		t.Fatalf("作者不得自行发布: %v", err)
+		t.Fatalf("没有活动全局超级管理员发布授权的作者不得自行发布: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGPublishSelfSuperAdmin(t *testing.T) {
+	// 作者大小写变体的等价性由数据库按用户 ID 排序规则判断，不能回退到 Go 字符串比较。
+	if !strings.Contains(queries.HGNotificationSendPublishLockSQL, "v.created_by=?") {
+		t.Fatal("自审判断必须使用数据库用户 ID 比较规则")
+	}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs("admin", uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "self_review", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", true, "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendSelfPublishSuperAdminSQL)).WithArgs("admin").
+		WillReturnRows(sqlmock.NewRows([]string{"allowed"}).AddRow(1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendPublishVersionSQL)).
+		WithArgs(uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplatePublishSQL)).
+		WithArgs(uint32(2), "admin", uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplateAuditSQL)).
+		WithArgs(uint64(7), uint32(2), "published_self", "admin", "", "", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	if err := HGNewRepository(db).HGPublish(context.Background(), 7, 2, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGPublishSelfRoleLookupFailureRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs("ADMIN", uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "self_review", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", true, "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendSelfPublishSuperAdminSQL)).WithArgs("ADMIN").
+		WillReturnError(errors.New("授权存储不可用"))
+	mock.ExpectRollback()
+	if err := HGNewRepository(db).HGPublish(context.Background(), 7, 2, "ADMIN"); err == nil || errors.Is(err, HGErrConflict) {
+		t.Fatalf("授权查询失败必须失败关闭，不能伪装为资格冲突: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -151,9 +206,9 @@ func TestHGPublishOtherReviewer(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs(uint64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "author", "category", "title", "body", "schema", "action", "config", "channels"}).
-			AddRow(2, "draft", "system_notice", "AUTHOR", "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs("REVIEWER", uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "self_review", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", false, "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendPublishVersionSQL)).
 		WithArgs(uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplatePublishSQL)).
@@ -186,9 +241,9 @@ func TestHGPublishAuditFailureRollsBack(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs(uint64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "author", "category", "title", "body", "schema", "action", "config", "channels"}).
-			AddRow(2, "draft", "system_notice", "AUTHOR", "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishLockSQL)).WithArgs("REVIEWER", uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"version", "status", "code", "self_review", "category", "title", "body", "schema", "action", "config", "channels"}).
+			AddRow(2, "draft", "system_notice", false, "system", "标题", "正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`)))
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationSendPublishVersionSQL)).
 		WithArgs(uint64(7), uint32(2)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(queries.HGNotificationTemplatePublishSQL)).
