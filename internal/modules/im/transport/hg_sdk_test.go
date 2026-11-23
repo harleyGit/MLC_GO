@@ -53,7 +53,44 @@ func TestHGCentrifugoSDKPublishConfirmsAndBoundsResponse(t *testing.T) {
 	}
 }
 
-// 通知提示复用既有会话鉴权的本人频道，不得将通知正文广播到设备或公共频道。
+// 用户业务频道兼容既有 IAM 协议，设备私信继续走独立频道。
+func TestHGBusinessChannelIsolatedFromDevice(t *testing.T) {
+	user := "user-1"
+	if HGBusinessChannel(user) != "im:iam:"+user ||
+		HGAccessChannel(user) != HGBusinessChannel(user) ||
+		HGBusinessChannel(user) == HGDeviceChannel(user) ||
+		HGBusinessChannel(user) == HGBusinessChannel("user-2") {
+		t.Fatal("业务频道必须兼容现有 IAM 用户频道且隔离私信设备与其他用户")
+	}
+}
+
+// 服务端签发的用户频道票据仅携带本人业务频道，绝不混入设备私信频道。
+func TestHGBusinessTokenHasOnlyUserChannel(t *testing.T) {
+	secret := strings.Repeat("s", 48)
+	gateway, err := HGNewCentrifugo("http://127.0.0.1:18000", strings.Repeat("k", 16), secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.HGClose()
+	raw, err := gateway.HGUserToken("user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := jwt.MapClaims{}
+	parsed, err := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) {
+		return []byte(secret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer("mlc-im"), jwt.WithAudience("centrifugo"))
+	if err != nil || !parsed.Valid {
+		t.Fatalf("业务频道票据无效: %v", err)
+	}
+	channels, ok := claims["channels"].([]any)
+	if !ok || len(channels) != 1 || channels[0] != HGBusinessChannel("user-1") ||
+		claims["sub"] != "iam/user-1" {
+		t.Fatal("用户业务连接的频道或身份不符合现有协议")
+	}
+}
+
+// 通知提示复用既有会话鉴权的本人业务频道，不得将通知正文广播到设备或公共频道。
 func TestHGCentrifugoUserNotificationHintUsesPrivateChannel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api" || r.Header.Get("X-API-Key") != strings.Repeat("k", 16) {
@@ -67,7 +104,7 @@ func TestHGCentrifugoUserNotificationHintUsesPrivateChannel(t *testing.T) {
 			} `json:"params"`
 		}
 		if json.NewDecoder(r.Body).Decode(&command) != nil || command.Method != "publish" ||
-			command.Params.Channel != HGAccessChannel("user-1") ||
+			command.Params.Channel != HGBusinessChannel("user-1") ||
 			string(command.Params.Data) != `{"event_type":"notification.inbox.updated.v1","category":"marketing"}` {
 			t.Error("通知提示没有走既有本人私有频道")
 		}

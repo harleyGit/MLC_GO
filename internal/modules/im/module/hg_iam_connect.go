@@ -46,7 +46,7 @@ func hgIAMConnectHandler(gateway *transport.HGCentrifugo, secret string) http.Ha
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
-			"user": "iam/" + user + "/" + session, "channels": []string{transport.HGAccessChannel(user)},
+			"user": "iam/" + user + "/" + session, "channels": []string{transport.HGBusinessChannel(user)},
 		}})
 	})
 }

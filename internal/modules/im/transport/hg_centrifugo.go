@@ -64,17 +64,21 @@ func (g *HGCentrifugo) HGPublish(ctx context.Context, device string, payload jso
 	return nil
 }
 
-// HGUserToken 为服务端认证的业务用户自动订阅 IAM 私有频道；前端无法指定其他用户频道。
+// HGUserToken 为服务端认证的业务用户自动订阅私有业务频道；前端无法指定其他用户频道。
 func (g *HGCentrifugo) HGUserToken(userID string) (string, error) {
 	now := time.Now()
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub": "iam/" + userID, "iss": "mlc-im", "aud": "centrifugo", "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
-		"channels": []string{HGAccessChannel(userID)},
+		"channels": []string{HGBusinessChannel(userID)},
 	}).SignedString(g.secret)
 }
 
-// HGAccessChannel 复用网关已部署的 im 命名空间；iam: 前缀与 32 位十六进制设备频道互斥。
-func HGAccessChannel(userID string) string { return "im:iam:" + userID }
+// HGBusinessChannel 是网关已部署的用户私有业务频道；iam 前缀为兼容既有协议保留。
+// IAM 授权变更、站内通知及后续无正文业务提示共用此频道，与设备私信频道隔离。
+func HGBusinessChannel(userID string) string { return "im:iam:" + userID }
+
+// HGAccessChannel 保留旧名称供现有发布者与测试使用，不能创建第二条用户频道。
+func HGAccessChannel(userID string) string { return HGBusinessChannel(userID) }
 
 // HGIAMGrant 只供网关 connect proxy 校验；它不是 Centrifugo 连接 JWT，
 // 单次获取后可用于重连，实际生效仍依赖服务端逐次校验登录会话。
@@ -117,10 +121,10 @@ func (g *HGCentrifugo) HGDisconnectIAMSession(ctx context.Context, userID, sessi
 	return nil
 }
 
-// HGPublishUser 发布服务端选择的本人频道事件（权限快照或无正文通知提示）；网关确认不是设备 ACK。
+// HGPublishUser 发布服务端选择的本人业务频道事件（权限快照或无正文通知提示）；网关确认不是设备 ACK。
 func (g *HGCentrifugo) HGPublishUser(ctx context.Context, userID string, payload json.RawMessage) error {
 	pipe := g.sdk.Pipe()
-	if err := pipe.AddPublish(HGAccessChannel(userID), payload); err != nil {
+	if err := pipe.AddPublish(HGBusinessChannel(userID), payload); err != nil {
 		return fmt.Errorf("IAM 实时发布参数无效")
 	}
 	result, err := g.sdk.SendPipe(ctx, pipe)
