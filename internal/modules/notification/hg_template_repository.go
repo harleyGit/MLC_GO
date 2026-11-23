@@ -3,7 +3,9 @@ package notification
 import (
 	queries "MLC_GO/internal/pkg/mysql/queries"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -17,21 +19,22 @@ var (
 
 // HGTemplate 表示管理端模板及其最新不可变草稿快照；ID 以字符串传输以避免 JS 精度丢失。
 type HGTemplate struct {
-	ID               string          `json:"id"`                // 数据库主键十进制字符串；空值不合法。
-	TemplateCode     string          `json:"template_code"`     // 全局唯一业务编码；创建后不可改。
-	Name             string          `json:"name"`              // 最新版本的展示名称；不能为空。
-	Category         string          `json:"category"`          // 固定分类枚举。
-	Status           string          `json:"status"`            // 模板主表状态；删除记录不对管理列表展示。
-	Version          uint32          `json:"version"`           // 最新版本号，更新与删除须携带以防覆盖。
-	PublishedVersion *uint32         `json:"published_version"` // 已发布版本；nil 表示从未发布。
-	TitleTemplate    string          `json:"title_template"`    // 纯文本标题，允许受控变量。
-	BodyTemplate     string          `json:"body_template"`     // 纯文本正文，不执行 HTML。
-	VariablesSchema  json.RawMessage `json:"variables_schema"`  // JSON 变量声明；默认空对象。
-	ActionType       string          `json:"action_type"`       // 受控跳转类型，none 表示无跳转。
-	ActionConfig     json.RawMessage `json:"action_config"`     // 受控路由参数；默认空对象。
-	Channels         json.RawMessage `json:"channels"`          // 发送渠道 JSON 数组，不代表发送已接入。
-	Priority         uint8           `json:"priority"`          // 优先级 1-3，缺省 2。
-	Locale           string          `json:"locale"`            // 语言区域，当前仅 zh-CN。
+	ID                string          `json:"id"`                 // 数据库主键十进制字符串；空值不合法。
+	TemplateCode      string          `json:"template_code"`      // 全局唯一业务编码；创建后不可改。
+	Name              string          `json:"name"`               // 最新版本的展示名称；不能为空。
+	Category          string          `json:"category"`           // 固定分类枚举。
+	Status            string          `json:"status"`             // 模板主表状态；删除记录不对管理列表展示。
+	Version           uint32          `json:"version"`            // 最新版本号，更新与删除须携带以防覆盖。
+	PublishedVersion  *uint32         `json:"published_version"`  // 已发布版本；nil 表示从未发布。
+	PublicationStatus string          `json:"publication_status"` // 当前快照的版本状态：draft、published 或 published_general；不代表已发送。
+	TitleTemplate     string          `json:"title_template"`     // 纯文本标题，允许受控变量。
+	BodyTemplate      string          `json:"body_template"`      // 纯文本正文，不执行 HTML。
+	VariablesSchema   json.RawMessage `json:"variables_schema"`   // JSON 变量声明；默认空对象。
+	ActionType        string          `json:"action_type"`        // 受控跳转类型，none 表示无跳转。
+	ActionConfig      json.RawMessage `json:"action_config"`      // 受控路由参数；默认空对象。
+	Channels          json.RawMessage `json:"channels"`           // 发送渠道 JSON 数组，不代表发送已接入。
+	Priority          uint8           `json:"priority"`           // 优先级 1-3，缺省 2。
+	Locale            string          `json:"locale"`             // 语言区域，当前仅 zh-CN。
 }
 
 // HGTemplateRepository 只管理模板表，不触碰既有收件箱及通知投递链。
@@ -49,7 +52,7 @@ func hgScanTemplate(rows interface{ Scan(...any) error }) (HGTemplate, error) {
 	var published sql.NullInt64
 	var schema, config, channels []byte
 	err := rows.Scan(&id, &item.TemplateCode, &item.Name, &item.Category, &item.Status, &version, &published,
-		&item.TitleTemplate, &item.BodyTemplate, &schema, &item.ActionType, &config, &channels, &item.Priority, &item.Locale)
+		&item.TitleTemplate, &item.BodyTemplate, &schema, &item.ActionType, &config, &channels, &item.Priority, &item.Locale, &item.PublicationStatus)
 	if err != nil {
 		return item, err
 	}
@@ -90,7 +93,7 @@ func (repo *HGTemplateRepository) HGPage(ctx context.Context, cursor uint64, pag
 	return items, "", nil
 }
 
-// HGPublishedPage 读取当前已发布版本快照，不将编辑中的新草稿误作可发送内容。
+// HGPublishedPage 读取通用或站内已发布快照；版本状态明确标出发送资格，不能使用最新草稿。
 func (repo *HGTemplateRepository) HGPublishedPage(ctx context.Context, cursor uint64) ([]HGTemplate, string, error) {
 	rows, err := repo.db.QueryContext(ctx, queries.HGNotificationSendPublishedPageSQL, cursor, 21)
 	if err != nil {
@@ -113,6 +116,85 @@ func (repo *HGTemplateRepository) HGPublishedPage(ctx context.Context, cursor ui
 		return items, items[len(items)-1].ID, nil
 	}
 	return items, "", nil
+}
+
+// HGAuditContext 是管理端通用发布的审计元数据；RequestID 仅接受服务端 trace，SourceIP 是直连 IP，可为空。
+type HGAuditContext struct {
+	RequestID string // 服务端追踪 ID，空字符串表示本次无有效 trace。
+	SourceIP  string // 直连 IP，空字符串表示 RemoteAddr 不能解析为 IP。
+}
+
+// HGPublishGeneral 仅公开当前不可变草稿供未来业务读取；不赋予站内任务发送资格或变更角色专用发布路径。
+func (repo *HGTemplateRepository) HGPublishGeneral(ctx context.Context, id uint64, expected uint32, user string, audit HGAuditContext) error {
+	tx, err := repo.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version uint32
+	var status, code string
+	var hgSelfReview bool
+	err = tx.QueryRowContext(ctx, queries.HGNotificationTemplateGeneralPublishLockSQL, user, id).Scan(&version, &status, &code, &hgSelfReview)
+	if errors.Is(err, sql.ErrNoRows) || status == "deleted" {
+		return HGErrTemplateMissing
+	}
+	if err != nil {
+		return err
+	}
+	if user == "" || expected == 0 || version != expected || code == "iam.role.updated" {
+		return HGErrTemplateConflict
+	}
+	hgAction := "published_general"
+	if hgSelfReview {
+		var hgAllowed int
+		err = tx.QueryRowContext(ctx, queries.HGNotificationSendSelfPublishSuperAdminSQL, user).Scan(&hgAllowed)
+		if errors.Is(err, sql.ErrNoRows) {
+			return HGErrTemplateConflict
+		}
+		if err != nil {
+			return err
+		}
+		hgAction = "published_general_self"
+	}
+	item, err := hgScanTemplate(tx.QueryRowContext(ctx, queries.HGNotificationTemplateDetailSQL, id))
+	if err != nil {
+		return err
+	}
+	if item.PublicationStatus != "draft" {
+		return HGErrTemplateConflict
+	}
+	// 只哈希已保存的版本内容；不将主表状态、历史发布指针等可变元数据混入发布快照。
+	hgContent, err := json.Marshal([]any{item.TemplateCode, item.Name, item.Category, item.TitleTemplate,
+		item.BodyTemplate, item.VariablesSchema, item.ActionType, item.ActionConfig, item.Channels, item.Priority, item.Locale})
+	if err != nil {
+		return err
+	}
+	hgHash := sha256.Sum256(hgContent)
+	result, err := tx.ExecContext(ctx, queries.HGNotificationTemplateGeneralVersionUpdateSQL, id, version)
+	if err != nil {
+		return err
+	}
+	if affected, scanErr := result.RowsAffected(); scanErr != nil || affected != 1 {
+		if scanErr != nil {
+			return scanErr
+		}
+		return HGErrTemplateConflict
+	}
+	result, err = tx.ExecContext(ctx, queries.HGNotificationTemplatePublishSQL, version, user, id, version)
+	if err != nil {
+		return err
+	}
+	if affected, scanErr := result.RowsAffected(); scanErr != nil || affected != 1 {
+		if scanErr != nil {
+			return scanErr
+		}
+		return HGErrTemplateConflict
+	}
+	if _, err = tx.ExecContext(ctx, queries.HGNotificationTemplateAuditSQL,
+		id, version, hgAction, user, audit.RequestID, audit.SourceIP, hex.EncodeToString(hgHash[:])); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // HGDetail 按主键读取最新版本快照，已删除记录不可见。

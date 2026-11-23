@@ -46,7 +46,9 @@ LEFT JOIN iam_binding_allowed_permissions allowp ON allowp.binding_id=b.id AND a
 WHERE b.user_id=? AND b.status=1 AND b.scope_type='global' AND b.scope_id=''
 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3))
 AND (lim.binding_id IS NULL OR allowp.binding_id IS NOT NULL) LIMIT 1`
-const HGNotificationSendPublishVersionSQL = `UPDATE notification_template_versions SET status='published' WHERE template_id=? AND version=? AND status='draft'`
+
+// 通用发布版必须再经站内发送专用校验/复核，才可升级为发送版；绝不因通用发布自动可发送。
+const HGNotificationSendPublishVersionSQL = `UPDATE notification_template_versions SET status='published' WHERE template_id=? AND version=? AND status IN ('draft','published_general')`
 const HGNotificationTemplateAuditSQL = `INSERT INTO notification_template_audit(template_id,template_version,action,actor_id,request_id,source_ip,content_hash) VALUES (?,?,?,?,?,?,?)`
 
 const HGNotificationSendInsertSQL = `INSERT INTO notification_send_tasks(request_id,request_hash,template_id,template_version,audience,variables,created_by,next_retry_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`
@@ -86,11 +88,11 @@ WHERE t.id=? AND t.status='pending_approval' AND t.created_by<>? AND v.status='p
 const HGNotificationSendMinePageSQL = `SELECT id,template_id,template_version,status,next_index,attempts,created_at,JSON_LENGTH(audience),scheduled_at
 FROM notification_send_tasks WHERE created_by=? AND id<? ORDER BY id DESC LIMIT ?`
 
-// HGNotificationSendPublishedPageSQL 只读取当前发布版本的快照，不能从最新草稿选择标题、变量或渠道。
+// HGNotificationSendPublishedPageSQL 只读取当前发布版快照；通用发布版必须携带版本状态供客户端拒绝发送。
 // 按 000084 的 (status,id) 索引顺序游标分页，每页最多 21 行；版本表走 (template_id,version) 唯一索引。
 const HGNotificationSendPublishedPageSQL = `SELECT t.id,t.template_code,v.name,v.category,t.status,v.version,t.published_version,
-v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale
-FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.published_version AND v.status='published'
+ v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale,v.status
+FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.published_version AND v.status IN ('published','published_general')
 WHERE t.status='published' AND t.id<? ORDER BY t.id DESC LIMIT ?`
 
 // 000086 模式隔离后的 MySQL 工作队列；FORCE INDEX 防止 Kafka pending 积压拖慢老路径。

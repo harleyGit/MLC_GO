@@ -2,11 +2,13 @@ package notification
 
 import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
+	HGUtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePackage "MLC_GO/internal/response"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -20,6 +22,7 @@ var hgTemplateCodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.]{1,99}$`)
 var hgVariableNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 var hgActionParamPattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9_]{0,63}$`)
 var hgPlaceholderPattern = regexp.MustCompile(`\{\{([a-z][a-z0-9_]*)\}\}`)
+var hgTemplateAuditIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
 var hgTemplateCategories = map[string]bool{"system": true, "security": true, "transaction": true, "content": true, "social": true, "announcement": true, "marketing": true}
 var hgActionTypes = map[string]bool{"none": true, "order_detail": true, "security_center": true, "announcement_detail": true, "video_detail": true, "product_detail": true}
 
@@ -219,6 +222,22 @@ func hgTemplateUser(r *http.Request) (string, error) {
 	return id, nil
 }
 
+// hgTemplateAudit 仅记录服务端 trace 和真实直连 IP，不信任请求头中的身份、来源或代理地址。
+func hgTemplateAudit(r *http.Request) HGAuditContext {
+	var audit HGAuditContext
+	if id := HGUtilsPackage.GetTID(r.Context()); hgTemplateAuditIDPattern.MatchString(id) {
+		audit.RequestID = id
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		audit.SourceIP = ip.String()
+	}
+	return audit
+}
+
 // HGList 返回最多 20 条模板最新版本；游标保持字符串协议。
 func (handler *HGTemplateHandler) HGList(w http.ResponseWriter, r *http.Request) {
 	cursor := uint64(math.MaxInt64)
@@ -238,7 +257,7 @@ func (handler *HGTemplateHandler) HGList(w http.ResponseWriter, r *http.Request)
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "nextCursor": next})
 }
 
-// HGPublishedList 提供发布版游标快照；最新草稿存在时仍返回不可变发布版供发送。
+// HGPublishedList 提供通用及发送发布版的不可变快照；发送资格由 publication_status 单独标识。
 func (handler *HGTemplateHandler) HGPublishedList(w http.ResponseWriter, r *http.Request) {
 	cursor := uint64(math.MaxInt64)
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
@@ -373,4 +392,33 @@ func (handler *HGTemplateHandler) HGPublish(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"id": hgTemplateID(id), "published_version": request.Version, "status": "published"})
+}
+
+// HGPublishGeneral 只将保存过的当前草稿标为通用发布，供将来业务读取；不允许直接进入运营发送。
+func (handler *HGTemplateHandler) HGPublishGeneral(w http.ResponseWriter, r *http.Request) {
+	id, err := hgTemplatePathID(r)
+	if err != nil {
+		hgTemplateFail(w, r, err)
+		return
+	}
+	user, err := hgTemplateUser(r)
+	var request struct {
+		Version uint32 `json:"version"` // 期望的最新草稿版本；零值和并发编辑后的旧版本拒绝。
+	}
+	if err == nil {
+		err = hgTemplateBody(w, r, &request)
+	}
+	if err == nil && request.Version == 0 {
+		err = HGErrInvalid
+	}
+	if err == nil {
+		err = handler.repo.HGPublishGeneral(r.Context(), id, request.Version, user, hgTemplateAudit(r))
+	}
+	if err != nil {
+		hgTemplateFail(w, r, err)
+		return
+	}
+	HGResponsePackage.SuccessResult(w, r, map[string]any{
+		"id": hgTemplateID(id), "published_version": request.Version, "status": "published", "publication_status": "published_general",
+	})
 }

@@ -6,8 +6,10 @@
 
 ## 操作
 
+通用模板可在创建草稿后通过 `POST /api/v1/admin/notification/templates/publish-general?id=<templateId>` 携带 `{"version":1}` 发布：要求 `notification:template:publish` 全局权限、当前保存版本和另一名复核人；只有具备有效全局 `super_admin` 绑定且该绑定具有发布权限的管理员可自审。角色更新模板 `iam.role.updated` 仍只能走原专用发布接口。通用发布将版本标记为 `published_general`，发布后可从 `/templates/published` 取得不可变快照及 `publication_status`；**不会触发投递，且不能用于运营站内发送任务**。同一模板原有站内发送版若被后续通用发布替换，新任务不再可选择旧版，须再经过 `/publish-send` 审核；已创建任务仍绑定历史发送版执行。只有未来业务显式接入且按编码查询发布版、核验分类/变量/渠道后，才会消费此快照；当前没有按编码读取的公开业务接口。此前版本的公开站内发送入口不变。
+
 1. 使用已有 `POST /api/v1/admin/notification/templates` 创建模板草稿（字段沿用既有 `snake_case` 协议）；当前仅支持纯文本和字符串变量。运营发送仅接受 `system` 或 `marketing` 类别、`channels:["in_app"]`、`action_type:"none"`；不能填写验证码、密码、令牌等敏感正文。
-2. 持有 `notification:template:publish` 权限的管理员请求 `POST /api/v1/admin/notification/templates/publish-send?id=<templateId>`，正文 `{"version":1}`。通常须由**另一名**管理员复核；持有效全局 `super_admin` 角色绑定且该绑定含发布权限的管理员可以发布本人创建的版本，服务端核对身份与绑定并将自审单独记为 `published_self` 审计动作。其他角色仍不得自审。原有 `/templates/publish` 仍只处理 `iam.role.updated`。
+2. 持有 `notification:template:publish` 权限的管理员请求 `POST /api/v1/admin/notification/templates/publish-send?id=<templateId>`，正文 `{"version":1}`。通常须由**另一名**管理员复核；持有效全局 `super_admin` 角色绑定且该绑定含发布权限的管理员可以发布本人创建的版本，服务端核对身份与绑定并将自审单独记为 `published_self` 审计动作。其他角色仍不得自审。此前通用发布的当前版本也须再次通过站内发送校验与复核，升级为 `published` 才可供发送。原有 `/templates/publish` 仍只处理 `iam.role.updated`。
 3. 持有 `notification:send:create` 权限的管理员请求 `POST /api/v1/admin/notification/send-tasks`，携带 `Idempotency-Key`（1–128 ASCII 字符）及：
 
    ```json
@@ -23,7 +25,7 @@
 
 定时发送可在创建体添加 `"scheduledAt":"2026-11-23T02:00:00.000Z"`（UTC，毫秒精度，未来 30 天内）。定时任务与营销类即时任务均先进入 `pending_approval`，不由 Worker 领取；另一名有 `notification:send:approve` 权限的管理员通过 `GET /api/v1/admin/notification/send-tasks/review` 查询待审任务，`GET /api/v1/admin/notification/send-tasks/review/detail?id=<id>` 核对服务端渲染后的文案，`POST /api/v1/admin/notification/send-tasks/approve?id=<id>` 提交 `{}` 放行。审批不修改计划时间；取消可阻止尚未投递的接收人。本人任务列表与详情可查看 `scheduledAt`；未批准的任务不投递。
 
-`GET /api/v1/admin/notification/templates/published?cursor=<id>` 返回当前已发布版本快照（每页 20 条）；创建新草稿不会替换发送内容。`GET /api/v1/admin/notification/send-tasks?cursor=<id>` 返回本人任务倒序游标记录（每页 20 条），不包含接收人和变量。两者依赖 `migrations/000084_notification_send_read_indexes.up.sql` 的排序索引；必须先在发布流程执行 `000083`、`000084` 再启动提供这些接口的新服务版本。
+`GET /api/v1/admin/notification/templates/published?cursor=<id>` 返回当前已发布版本快照（每页 20 条），`publication_status` 区分通用版 `published_general` 与专用版 `published`；创建新草稿不会替换发布内容。旧客户端即便把通用发布版误当作发送选项，服务端发送任务仍以版本状态 `published` 拒绝。`GET /api/v1/admin/notification/send-tasks?cursor=<id>` 返回本人任务倒序游标记录（每页 20 条），不包含接收人和变量。两者依赖 `migrations/000084_notification_send_read_indexes.up.sql` 的排序索引；通用发布审计依赖既有 `000085` 的 `notification_template_audit`，必须先在发布流程执行相关迁移再启动提供这些接口的新服务版本。
 
 发布/创建/读取/取消使用独立 IAM 权限；迁移只向活动 `super_admin` 预置权限。接收人 ID 必须已存在，每个任务最多 100 人；同一管理员最多 20 个未完成任务。接收人按排序固定快照，任务绑定不可变版本；重用同一请求键但变更负载返回冲突。
 

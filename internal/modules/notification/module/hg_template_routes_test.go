@@ -12,13 +12,14 @@ import (
 func TestHGTemplateRoutesRequireIAM(t *testing.T) {
 	routes := hgTemplateRoutes(nil)
 	expected := map[string]permission.HGPermission{
-		http.MethodGet + " /templates":           permission.HGNotificationTemplateRead,
-		http.MethodGet + " /templates/published": permission.HGNotificationTemplateRead,
-		http.MethodGet + " /templates/detail":    permission.HGNotificationTemplateRead,
-		http.MethodPost + " /templates":          permission.HGNotificationTemplateCreate,
-		http.MethodPut + " /templates/update":    permission.HGNotificationTemplateUpdate,
-		http.MethodPost + " /templates/delete":   permission.HGNotificationTemplateDelete,
-		http.MethodPost + " /templates/publish":  permission.HGNotificationTemplateUpdate,
+		http.MethodGet + " /templates":                  permission.HGNotificationTemplateRead,
+		http.MethodGet + " /templates/published":        permission.HGNotificationTemplateRead,
+		http.MethodGet + " /templates/detail":           permission.HGNotificationTemplateRead,
+		http.MethodPost + " /templates":                 permission.HGNotificationTemplateCreate,
+		http.MethodPut + " /templates/update":           permission.HGNotificationTemplateUpdate,
+		http.MethodPost + " /templates/delete":          permission.HGNotificationTemplateDelete,
+		http.MethodPost + " /templates/publish":         permission.HGNotificationTemplateUpdate,
+		http.MethodPost + " /templates/publish-general": permission.HGNotificationTemplatePublish,
 	}
 	if len(routes) != len(expected) {
 		t.Fatalf("路由数不匹配: %d", len(routes))
@@ -44,6 +45,18 @@ func TestHGTemplateDetailGuardPath(t *testing.T) {
 	}
 }
 
+// 通用发布使用独立写路径，必须与路由目录和 API Guard 同步，不能误落到站内发送或角色专用发布。
+func TestHGTemplatePublishGeneralGuardPath(t *testing.T) {
+	const base = "/api/v1/admin/notification"
+	group := router.NewRouteGroup(router.RouteGroupConfig{BasePath: base}, hgTemplateRoutes(nil))
+	request := httptest.NewRequest(http.MethodPost, base+"/templates/publish-general?id=1", nil)
+	request.URL.Path = "/templates/publish-general"
+	response := httptest.NewRecorder()
+	group.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("通用发布未进入精确路径 Guard: %d", response.Code)
+	}
+}
 func TestHGSendRoutesRequireSeparateIAM(t *testing.T) {
 	expected := map[string]permission.HGPermission{
 		"POST /templates/publish-send":  permission.HGNotificationTemplatePublish,

@@ -448,7 +448,10 @@ func TestHGMinePageOnlyCreatorAndBoundedCursor(t *testing.T) {
 
 func TestHGPublishedPageUsesPublishedSnapshotNotLatestDraft(t *testing.T) {
 	if !strings.Contains(queries.HGNotificationSendPublishedPageSQL, "v.version=t.published_version") ||
-		!strings.Contains(queries.HGNotificationSendPublishedPageSQL, "v.status='published'") {
+		!strings.Contains(queries.HGNotificationSendPublishedPageSQL, "'published_general'") ||
+		!strings.Contains(queries.HGNotificationSendTemplateSQL, "v.status='published'") ||
+		!strings.Contains(queries.HGNotificationSendBoundVersionSQL, "v.status='published'") ||
+		!strings.Contains(queries.HGNotificationSendPublishVersionSQL, "status IN ('draft','published_general')") {
 		t.Fatal("发布版查询不得读取最新草稿")
 	}
 	db, mock, err := sqlmock.New()
@@ -460,13 +463,41 @@ func TestHGPublishedPageUsesPublishedSnapshotNotLatestDraft(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendPublishedPageSQL)).
 		WithArgs(uint64(50), 21).WillReturnRows(sqlmock.NewRows([]string{
 		"id", "template_code", "name", "category", "status", "version", "published_version",
-		"title_template", "body_template", "variables_schema", "action_type", "action_config", "channels", "priority", "locale",
+		"title_template", "body_template", "variables_schema", "action_type", "action_config", "channels", "priority", "locale", "publication_status",
 	}).AddRow(7, "maintenance", "已审核名称", "system", "published", 2, 2,
-		"已审核标题", "已审核正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`), 2, "zh-CN"))
+		"已审核标题", "已审核正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app"]`), 2, "zh-CN", "published").
+		AddRow(6, "security.code", "通用验证码", "security", "published", 1, 1,
+			"验证标题", "验证正文", []byte(`{}`), "none", []byte(`{}`), []byte(`["in_app","realtime"]`), 2, "zh-CN", "published_general"))
 	items, next, err := notification.HGNewTemplateRepository(db).HGPublishedPage(context.Background(), 50)
-	if err != nil || next != "" || len(items) != 1 || items[0].Version != 2 ||
-		items[0].TitleTemplate != "已审核标题" || items[0].Name != "已审核名称" {
+	if err != nil || next != "" || len(items) != 2 || items[0].Version != 2 ||
+		items[0].TitleTemplate != "已审核标题" || items[0].Name != "已审核名称" ||
+		items[0].PublicationStatus != "published" || items[1].PublicationStatus != "published_general" {
 		t.Fatalf("必须返回发布版不可变快照: %+v %q %v", items, next, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGGeneralPublishedVersionCannotCreateSendTask(t *testing.T) {
+	if !strings.Contains(queries.HGNotificationSendTemplateSQL, "v.status='published'") {
+		t.Fatal("通用发布版不得满足发送任务的版本状态")
+	}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendByRequestSQL)).WithArgs("req-general-only").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "request_hash"}))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(queries.HGNotificationSendTemplateSQL)).WithArgs(uint32(1), uint64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"category", "title", "body", "schema", "action", "config", "channels"}))
+	mock.ExpectRollback()
+	_, err = HGNewRepository(db).HGCreate(context.Background(), "req-general-only", "ADMIN",
+		HGCommand{TemplateID: "7", TemplateVersion: 1, UserIDs: []string{"user_1"}, Variables: map[string]string{}})
+	if !errors.Is(err, HGErrMissing) {
+		t.Fatalf("通用发布版不得创建发送任务: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -2,13 +2,13 @@ package SQLQueriesPackage
 
 // HGNotificationTemplatePageSQL 按主键倒序游标读取至多 21 条；只依赖主键索引，不做深 OFFSET 或全表计数。
 const HGNotificationTemplatePageSQL = `SELECT t.id,t.template_code,t.name,t.category,t.status,t.latest_version,t.published_version,
-v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale
+	v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale,v.status
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.latest_version
 WHERE t.id<? AND t.status<>'deleted' ORDER BY t.id DESC LIMIT ?`
 
 // HGNotificationTemplateDetailSQL 按主键与版本唯一键读取一条；已删除模板不可再编辑或回填。
 const HGNotificationTemplateDetailSQL = `SELECT t.id,t.template_code,t.name,t.category,t.status,t.latest_version,t.published_version,
-v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale
+	v.title_template,v.body_template,v.variables_schema,v.action_type,v.action_config,v.channels,v.priority,v.locale,v.status
 FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.latest_version
 WHERE t.id=? AND t.status<>'deleted'`
 
@@ -25,6 +25,15 @@ const HGNotificationTemplatePublishSQL = `UPDATE notification_templates SET publ
 const HGNotificationTemplatePublishLockSQL = `SELECT latest_version,status,template_code FROM notification_templates WHERE id=? FOR UPDATE`
 const HGNotificationTemplatePublishVersionSQL = `SELECT title_template,body_template,variables_schema,channels FROM notification_template_versions WHERE template_id=? AND version=?`
 const HGNotificationTemplatePublishVersionUpdateSQL = `UPDATE notification_template_versions SET status='published' WHERE template_id=? AND version=?`
+
+// HGNotificationTemplateGeneralPublishLockSQL 单模板行锁串行化编辑与发布；作者用数据库用户 ID 排序规则比较。
+const HGNotificationTemplateGeneralPublishLockSQL = `SELECT t.latest_version,t.status,t.template_code,v.created_by=?
+FROM notification_templates t JOIN notification_template_versions v ON v.template_id=t.id AND v.version=t.latest_version
+WHERE t.id=? FOR UPDATE`
+
+// HGNotificationTemplateGeneralVersionUpdateSQL 仅把最新草稿标为通用发布版，不获得站内发送资格。
+const HGNotificationTemplateGeneralVersionUpdateSQL = `UPDATE notification_template_versions
+SET status='published_general' WHERE template_id=? AND version=? AND status='draft'`
 
 // HGNotificationRolePublishedSQL 通过 template_code 唯一索引与版本唯一索引取得已发布角色通知；不得使用最新草稿发送。
 const HGNotificationRolePublishedSQL = `SELECT v.title_template,v.body_template,v.variables_schema,v.channels
