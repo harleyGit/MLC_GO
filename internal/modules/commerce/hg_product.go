@@ -29,13 +29,19 @@ var (
 	ErrHGConflict               = errors.New("商品版本或状态冲突")
 )
 
+const (
+	hgMallCoinParentCategoryID = "VIRT-0013"     // 已启用的普通类目父节点；不存在或层级已满时不返回虚拟入口。
+	hgMallCoinCategoryID       = "MALL-COIN-ALL" // 仅导航使用，不写入 commerce_category 或商品表。
+)
+
 // HGCategory 是服务端管理的普通类目；管理员可见父子节点，商家仅可见普通叶子节点。
 type HGCategory struct {
-	ID       string `json:"categoryId"` // 类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
-	ParentID string `json:"parentId"`   // 上级类目业务 ID；空表示一级类目。
-	Name     string `json:"name"`       // 平台类目名称。
-	Depth    uint8  `json:"depth"`      // 所在层级，1-3。
-	ImageURL string `json:"imageURL"`   // 已绑定的可选类目图片 URL，空表示无图。
+	ID          string `json:"categoryId"`            // 类目业务 ID，1-64 位 ASCII 字母、数字、连字符或下划线。
+	ParentID    string `json:"parentId"`              // 上级类目业务 ID；空表示一级类目。
+	Name        string `json:"name"`                  // 平台类目名称。
+	Depth       uint8  `json:"depth"`                 // 所在层级，1-3。
+	ImageURL    string `json:"imageURL"`              // 已绑定的可选类目图片 URL，空表示无图。
+	CatalogType string `json:"catalogType,omitempty"` // 仅虚拟 M币导航节点返回 MLC_COIN；缺省为普通 CNY 类目，不可作为服务端商品归属依据。
 }
 
 // HGCategoryRequest 是平台管理员创建类目的请求；受监管类目创建后仍不可发布。

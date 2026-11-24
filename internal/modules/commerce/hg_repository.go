@@ -64,7 +64,37 @@ func (r *HGRepository) HGAdminCategories(ctx context.Context, parentID string) (
 // HGPublicCategories 向已登录买家只展示启用普通类目的根节点或直属子节点，不公开管理能力。
 func (r *HGRepository) HGPublicCategories(ctx context.Context, parentID string) ([]HGCategory, error) {
 	if parentID != "" {
-		return r.hgListCategories(ctx, q.HGCommerceChildCategorySQL, parentID)
+		if parentID != hgMallCoinParentCategoryID {
+			return r.hgListCategories(ctx, q.HGCommerceChildCategorySQL, parentID)
+		}
+		var depth uint8
+		err := r.db.QueryRowContext(ctx, q.HGCommercePublicVirtualParentSQL, parentID).Scan(&depth)
+		if errors.Is(err, sql.ErrNoRows) {
+			return []HGCategory{}, nil // 父类目不存在或已停用时不暴露虚拟入口。
+		}
+		if err != nil {
+			return nil, err
+		}
+		items, err := r.hgListCategories(ctx, q.HGCommerceChildCategorySQL, parentID)
+		if err != nil {
+			return nil, err
+		}
+		if depth >= 3 {
+			return items, nil
+		}
+		// 与真实类目 ID 冲突或达到接口 200 项上限时不伪装成可下钻的商品类目。
+		if len(items) >= 200 {
+			return nil, ErrHGConflict
+		}
+		for _, item := range items {
+			if item.ID == hgMallCoinCategoryID {
+				return nil, ErrHGConflict
+			}
+		}
+		return append(items, HGCategory{
+			ID: hgMallCoinCategoryID, ParentID: parentID, Name: "M币商品",
+			Depth: depth + 1, CatalogType: "MLC_COIN",
+		}), nil
 	}
 	return r.hgListCategories(ctx, q.HGCommerceRootCategorySQL)
 }

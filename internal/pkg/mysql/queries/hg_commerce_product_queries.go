@@ -11,6 +11,8 @@ const (
 	HGCommerceChildCategorySQL         = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE parent_id=? AND status=1 AND regulated=0 ORDER BY id LIMIT 200`
 	// 买家入口只返回一级普通类目；依赖 idx_commerce_category_parent，限制响应规模。
 	HGCommerceRootCategorySQL          = `SELECT id,name,parent_id,depth,image_url FROM commerce_category WHERE parent_id IS NULL AND status=1 AND regulated=0 ORDER BY id LIMIT 200`
+	// 虚拟 M币入口只在指定普通父类目已启用且尚可添加子节点时出现；主键点查，不加事务锁。
+	HGCommercePublicVirtualParentSQL   = `SELECT depth FROM commerce_category WHERE id=? AND status=1 AND regulated=0 LIMIT 1`
 	HGCommerceCategoryParentSQL        = `SELECT depth,regulated FROM commerce_category WHERE id=? AND status=1 FOR UPDATE`
 	HGCommerceCategoryInsertSQL        = `INSERT INTO commerce_category(id,parent_id,depth,name,regulated,image_url) VALUES(?,?,?,?,?,?)`
 	HGCommerceCategoryReplaySQL        = `SELECT parent_id,depth,name,regulated,image_url,status FROM commerce_category WHERE id=? FOR UPDATE`

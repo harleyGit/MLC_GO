@@ -572,6 +572,77 @@ func TestHGCategoryDrilldownAndPublicFiltering(t *testing.T) {
 	}
 }
 
+// TestHGPublicCoinCategoryRequiresEnabledParent 虚拟入口仅返回导航标识，不读取或混合 M币商品。
+func TestHGPublicCoinCategoryRequiresEnabledParent(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		depth uint8
+		found bool
+		want  uint8
+	}{
+		{name: "一级父类目", depth: 1, found: true, want: 2},
+		{name: "二级父类目", depth: 2, found: true, want: 3},
+		{name: "三级不能继续下钻", depth: 3, found: true},
+		{name: "未启用或不存在的父类目", found: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			parent := mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicVirtualParentSQL)).WithArgs(hgMallCoinParentCategoryID)
+			if tc.found {
+				parent.WillReturnRows(sqlmock.NewRows([]string{"depth"}).AddRow(tc.depth))
+				mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceChildCategorySQL)).WithArgs(hgMallCoinParentCategoryID).
+					WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).
+						AddRow("CNY-CHILD", "人民币子类目", hgMallCoinParentCategoryID, tc.depth+1, ""))
+			} else {
+				parent.WillReturnError(sql.ErrNoRows)
+			}
+			items, err := HGNewService(HGNewRepository(db), nil).HGPublicCategories(context.Background(), "buyer", hgMallCoinParentCategoryID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == 0 {
+				if tc.found && (len(items) != 1 || items[0].CatalogType != "") {
+					t.Fatalf("层级已满不得追加虚拟入口: %+v", items)
+				}
+				if !tc.found && len(items) != 0 {
+					t.Fatalf("无父节点不得返回类目: %+v", items)
+				}
+			} else if len(items) != 2 || items[0].ID != "CNY-CHILD" ||
+				items[1].ID != hgMallCoinCategoryID || items[1].ParentID != hgMallCoinParentCategoryID ||
+				items[1].Depth != tc.want || items[1].CatalogType != "MLC_COIN" {
+				t.Fatalf("未正确标记独立 M币目录: %+v", items)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// TestHGPublicCoinCategoryCollision 拒绝真实类目占用虚拟 ID，避免客户端将 CNY 商品误判为 M币。
+func TestHGPublicCoinCategoryCollision(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicVirtualParentSQL)).WithArgs(hgMallCoinParentCategoryID).
+		WillReturnRows(sqlmock.NewRows([]string{"depth"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceChildCategorySQL)).WithArgs(hgMallCoinParentCategoryID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "parent_id", "depth", "image_url"}).
+			AddRow(hgMallCoinCategoryID, "真实类目", hgMallCoinParentCategoryID, 2, ""))
+	if _, err := HGNewRepository(db).HGPublicCategories(context.Background(), hgMallCoinParentCategoryID); !errors.Is(err, ErrHGConflict) {
+		t.Fatalf("真实类目 ID 冲突必须拒绝: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestHGPublicPageCategoryBindsCursor 确认类目与游标进入同一个有界查询；无类目保持原路径。
 func TestHGPublicPageCategoryBindsCursor(t *testing.T) {
 	db, mock, err := sqlmock.New()
