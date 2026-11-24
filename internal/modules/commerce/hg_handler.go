@@ -146,7 +146,23 @@ func (h *HGHandler) HGAdminCategories(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := hgContext(r)
 	defer cancel()
-	items, err := h.service.HGAdminCategories(ctx, id)
+	items, err := h.service.HGAdminCategories(ctx, id, r.URL.Query().Get("parentId"))
+	if err != nil {
+		hgError(w, r, err)
+		return
+	}
+	resp.SuccessResult(w, r, items)
+}
+
+// HGPublicCategories 读取普通类目的根节点或指定父节点的直属子节点；无需审核权限。
+func (h *HGHandler) HGPublicCategories(w http.ResponseWriter, r *http.Request) {
+	id, ok := hgAuth(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := hgContext(r)
+	defer cancel()
+	items, err := h.service.HGPublicCategories(ctx, id, r.URL.Query().Get("parentId"))
 	if err != nil {
 		hgError(w, r, err)
 		return
@@ -440,7 +456,11 @@ func (h *HGHandler) hgList(w http.ResponseWriter, r *http.Request, scope string)
 	}
 	ctx, cancel := hgContext(r)
 	defer cancel()
-	page, err := h.service.HGList(ctx, id, r.URL.Query().Get("cursor"), scope)
+	categoryID := ""
+	if scope == "public" {
+		categoryID = r.URL.Query().Get("categoryId")
+	}
+	page, err := h.service.HGList(ctx, id, r.URL.Query().Get("cursor"), scope, categoryID)
 	if err != nil {
 		hgError(w, r, err)
 		return

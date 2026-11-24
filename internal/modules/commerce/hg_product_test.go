@@ -520,9 +520,75 @@ func TestHGListOwnerScopeBindsUser(t *testing.T) {
 	}
 	defer db.Close()
 	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceMyPageSQL)).WithArgs("owner", uint64(99)).WillReturnRows(sqlmock.NewRows([]string{"id", "product_id", "merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version", "title", "images_json", "price"}))
-	page, err := HGNewRepository(db).HGList(context.Background(), "owner", 99, "mine")
+	page, err := HGNewRepository(db).HGList(context.Background(), "owner", 99, "mine", "")
 	if err != nil || len(page.List) != 0 {
 		t.Fatalf("本人列表查询失败：%+v %v", page, err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestHGCategoryDrilldownAndPublicFiltering 检查管理员原有全量入口、买家只读入口及参数绑定。
+func TestHGCategoryDrilldownAndPublicFiltering(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service := HGNewService(HGNewRepository(db), hgCommerceTestReviewer{})
+	cols := []string{"id", "name", "parent_id", "depth", "image_url"}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceChildCategorySQL)).WithArgs("DIG-ROOT").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("DIG-CHILD", "手机", "DIG-ROOT", 2, ""))
+	items, err := service.HGAdminCategories(context.Background(), "reviewer", "DIG-ROOT")
+	if err != nil || len(items) != 1 || items[0].ParentID != "DIG-ROOT" {
+		t.Fatalf("审核员下钻失败: %+v %v", items, err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceRootCategorySQL)).
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("DIG-ROOT", "数码", nil, 1, ""))
+	items, err = service.HGPublicCategories(context.Background(), "buyer", "")
+	if err != nil || len(items) != 1 || items[0].ID != "DIG-ROOT" {
+		t.Fatalf("买家根节点失败: %+v %v", items, err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommerceChildCategorySQL)).WithArgs("DIG-ROOT").
+		WillReturnRows(sqlmock.NewRows(cols).AddRow("DIG-CHILD", "手机", "DIG-ROOT", 2, ""))
+	items, err = service.HGPublicCategories(context.Background(), "buyer", "DIG-ROOT")
+	if err != nil || len(items) != 1 || items[0].Depth != 2 {
+		t.Fatalf("买家直属子节点失败: %+v %v", items, err)
+	}
+	if _, err = service.HGPublicCategories(context.Background(), "", ""); !errors.Is(err, ErrHGForbidden) {
+		t.Fatalf("未登录读取类目必须拒绝: %v", err)
+	}
+	for _, invalid := range []string{"../../other", strings.Repeat("a", 65)} {
+		if _, err = service.HGPublicCategories(context.Background(), "buyer", invalid); !errors.Is(err, ErrHGCategoryIDInvalid) {
+			t.Fatalf("非法 parentId 应拒绝: %v", err)
+		}
+		if _, err = service.HGList(context.Background(), "buyer", "", "public", invalid); !errors.Is(err, ErrHGCategoryIDInvalid) {
+			t.Fatalf("非法 categoryId 应拒绝: %v", err)
+		}
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestHGPublicPageCategoryBindsCursor 确认类目与游标进入同一个有界查询；无类目保持原路径。
+func TestHGPublicPageCategoryBindsCursor(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cols := []string{"id", "product_id", "merchant_id", "category_id", "audit_status", "sale_status", "version", "draft_version", "published_version", "title", "images_json", "price"}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicCategoryPageSQL)).WithArgs("DIG-ROOT", uint64(99)).WillReturnRows(sqlmock.NewRows(cols))
+	page, err := HGNewService(HGNewRepository(db), nil).HGList(context.Background(), "buyer", "99", "public", "DIG-ROOT")
+	if err != nil || len(page.List) != 0 {
+		t.Fatalf("类目筛选查询失败: %+v %v", page, err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(q.HGCommercePublicPageSQL)).WithArgs(uint64(99)).WillReturnRows(sqlmock.NewRows(cols))
+	_, err = HGNewService(HGNewRepository(db), nil).HGList(context.Background(), "buyer", "99", "public")
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err = mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

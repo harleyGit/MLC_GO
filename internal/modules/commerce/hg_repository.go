@@ -54,12 +54,23 @@ func (r *HGRepository) HGCategories(ctx context.Context, user string) ([]HGCateg
 }
 
 // HGAdminCategories 读取启用的普通父子类目；调用方必须先通过审核权限校验。
-func (r *HGRepository) HGAdminCategories(ctx context.Context) ([]HGCategory, error) {
+func (r *HGRepository) HGAdminCategories(ctx context.Context, parentID string) ([]HGCategory, error) {
+	if parentID != "" {
+		return r.hgListCategories(ctx, q.HGCommerceChildCategorySQL, parentID)
+	}
 	return r.hgListCategories(ctx, q.HGCommerceAdminCategorySQL)
 }
 
-func (r *HGRepository) hgListCategories(ctx context.Context, query string) ([]HGCategory, error) {
-	rows, err := r.db.QueryContext(ctx, query)
+// HGPublicCategories 向已登录买家只展示启用普通类目的根节点或直属子节点，不公开管理能力。
+func (r *HGRepository) HGPublicCategories(ctx context.Context, parentID string) ([]HGCategory, error) {
+	if parentID != "" {
+		return r.hgListCategories(ctx, q.HGCommerceChildCategorySQL, parentID)
+	}
+	return r.hgListCategories(ctx, q.HGCommerceRootCategorySQL)
+}
+
+func (r *HGRepository) hgListCategories(ctx context.Context, query string, args ...any) ([]HGCategory, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -536,9 +547,13 @@ func hgScanPage(row interface{ Scan(...any) error }) (HGProduct, error) {
 }
 
 // HGList 每次只查一次有界页，SKU 最低价经 (product_id,content_version,id) 索引，避免逐商品往返。
-func (r *HGRepository) HGList(ctx context.Context, user string, cursor uint64, scope string) (HGPage, error) {
+func (r *HGRepository) HGList(ctx context.Context, user string, cursor uint64, scope, categoryID string) (HGPage, error) {
 	query := q.HGCommercePublicPageSQL
 	args := []any{cursor}
+	if scope == "public" && categoryID != "" {
+		query = q.HGCommercePublicCategoryPageSQL
+		args = []any{categoryID, cursor}
+	}
 	if scope == "mine" {
 		query = q.HGCommerceMyPageSQL
 		args = []any{user, cursor}

@@ -242,11 +242,29 @@ func (s *HGService) HGCategories(ctx context.Context, user string) ([]HGCategory
 }
 
 // HGAdminCategories 通过平台审核权限读取类目，不赋予商家身份或商品归属权限。
-func (s *HGService) HGAdminCategories(ctx context.Context, user string) ([]HGCategory, error) {
+func (s *HGService) HGAdminCategories(ctx context.Context, user string, parentID ...string) ([]HGCategory, error) {
 	if err := s.hgReviewAllowed(ctx, user); err != nil {
 		return nil, err
 	}
-	return s.repo.HGAdminCategories(ctx)
+	id := ""
+	if len(parentID) > 0 {
+		id = parentID[0]
+	}
+	if id != "" && !hgID(id) {
+		return nil, ErrHGCategoryIDInvalid
+	}
+	return s.repo.HGAdminCategories(ctx, id)
+}
+
+// HGPublicCategories 只读公开普通类目；调用方仍需登录，不需要管理员或商家身份。
+func (s *HGService) HGPublicCategories(ctx context.Context, user, parentID string) ([]HGCategory, error) {
+	if user == "" {
+		return nil, ErrHGForbidden
+	}
+	if parentID != "" && !hgID(parentID) {
+		return nil, ErrHGCategoryIDInvalid
+	}
+	return s.repo.HGPublicCategories(ctx, parentID)
 }
 
 // HGCreateCategory 仅平台管理员可维护类目；受监管类目保留但不可发布。
@@ -381,7 +399,7 @@ func (s *HGService) HGArchive(ctx context.Context, user, id string, version uint
 }
 
 // HGList 只读取已发布版本；没有可售库存与支付渠道时商品只供展示，不提供购买 API。
-func (s *HGService) HGList(ctx context.Context, user, cursor string, scope string) (HGPage, error) {
+func (s *HGService) HGList(ctx context.Context, user, cursor string, scope string, categoryID ...string) (HGPage, error) {
 	if user == "" {
 		return HGPage{}, ErrHGForbidden
 	}
@@ -397,7 +415,14 @@ func (s *HGService) HGList(ctx context.Context, user, cursor string, scope strin
 	if err != nil {
 		return HGPage{}, err
 	}
-	return s.repo.HGList(ctx, user, id, scope)
+	category := ""
+	if len(categoryID) > 0 {
+		category = categoryID[0]
+	}
+	if category != "" && (scope != "public" || !hgID(category)) {
+		return HGPage{}, ErrHGCategoryIDInvalid
+	}
+	return s.repo.HGList(ctx, user, id, scope, category)
 }
 
 // HGDetail 按唯一业务 ID 定点查；公开视图不泄露草稿内容。
