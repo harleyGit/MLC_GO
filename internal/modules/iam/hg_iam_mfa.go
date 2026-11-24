@@ -120,8 +120,22 @@ func (s *HGService) hgLimitMFA(ctx context.Context, userID string) error {
 
 // EnrollMFA 先复核登录密码，再返回一次性 TOTP 秘钥；调用方禁止持久化或日志记录返回值。
 func (s *HGService) EnrollMFA(ctx context.Context, userID, password string) (string, string, error) {
-	if err := s.hgCanManage(ctx, userID, true); err != nil {
-		return "", "", err
+	return s.hgEnrollMFA(ctx, userID, password, true)
+}
+
+// HGEnrollOwnMFA 仅本人 JWT 可访问；不授予 IAM 权限，普通用户可登记自己的因子。
+func (s *HGService) HGEnrollOwnMFA(ctx context.Context, userID, password string) (string, string, error) {
+	return s.hgEnrollMFA(ctx, userID, password, false)
+}
+
+func (s *HGService) hgEnrollMFA(ctx context.Context, userID, password string, requireIAM bool) (string, string, error) {
+	if s == nil || s.repo == nil || s.repo.db == nil || !hgValidText(userID, 64) {
+		return "", "", ErrHGForbidden
+	}
+	if requireIAM {
+		if err := s.hgCanManage(ctx, userID, true); err != nil {
+			return "", "", err
+		}
 	}
 	if len(password) == 0 || len(password) > 256 {
 		return "", "", ErrHGInvalid
@@ -178,8 +192,22 @@ func (s *HGService) EnrollMFA(ctx context.Context, userID, password string) (str
 
 // ConfirmMFA 消费首次验证码并启用因子；同一个时间步不能再次用于审批。
 func (s *HGService) ConfirmMFA(ctx context.Context, userID, code string) error {
-	if err := s.hgCanManage(ctx, userID, true); err != nil {
-		return err
+	return s.hgConfirmMFA(ctx, userID, code, true)
+}
+
+// HGConfirmOwnMFA 只允许本人启用其已登记因子，管理员专用接口语义保持不变。
+func (s *HGService) HGConfirmOwnMFA(ctx context.Context, userID, code string) error {
+	return s.hgConfirmMFA(ctx, userID, code, false)
+}
+
+func (s *HGService) hgConfirmMFA(ctx context.Context, userID, code string, requireIAM bool) error {
+	if s == nil || s.repo == nil || s.repo.db == nil || !hgValidText(userID, 64) {
+		return ErrHGForbidden
+	}
+	if requireIAM {
+		if err := s.hgCanManage(ctx, userID, true); err != nil {
+			return err
+		}
 	}
 	if err := s.hgLimitMFA(ctx, userID); err != nil {
 		return err

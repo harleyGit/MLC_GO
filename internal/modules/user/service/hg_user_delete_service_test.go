@@ -33,7 +33,8 @@ func (hook *hgDeleteTokenHook) ProcessHook(next redis.ProcessHook) redis.Process
 		case "scan":
 			pattern := cmd.Args()[3].(string)
 			hook.patterns = append(hook.patterns, pattern)
-			if strings.HasPrefix(pattern, PersistenceRedisPackage.HGAuthSessionKey) {
+			if strings.HasPrefix(pattern, PersistenceRedisPackage.HGAuthSessionKey) &&
+				!strings.HasPrefix(pattern, PersistenceRedisPackage.HGAuthSessionProofKey) {
 				cmd.(*redis.ScanCmd).SetVal([]string{PersistenceRedisPackage.HGAuthSessionKey + "a*b:session"}, 0)
 			} else {
 				cmd.(*redis.ScanCmd).SetVal(nil, 0)
@@ -90,7 +91,7 @@ func TestHGRevokeDeletedUserTokensEscapesPattern(t *testing.T) {
 	if err := hgRevokeDeletedUserTokens(rdb, "a*b"); err != nil {
 		t.Fatal(err)
 	}
-	if len(hook.patterns) != 3 || hook.patterns[0] != PersistenceRedisPackage.HGAuthSessionKey+`a\*b:*` ||
+	if len(hook.patterns) != 4 || hook.patterns[0] != PersistenceRedisPackage.HGAuthSessionKey+`a\*b:*` ||
 		len(hook.deleted) != 2 || hook.deleted[0] != PersistenceRedisPackage.HGAuthSessionKey+"a*b:session" ||
 		hook.deleted[1] != PersistenceRedisPackage.HGAuthSessionIndexKey+"a*b" {
 		t.Fatalf("撤销令牌的用户范围不正确: pattern=%v deleted=%v", hook.patterns, hook.deleted)

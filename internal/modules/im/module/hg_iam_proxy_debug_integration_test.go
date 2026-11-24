@@ -146,6 +146,8 @@ func TestHGDebugIAMProxyRejectsRevokedSession(t *testing.T) {
 	UserService.HGConfigureSessionDB(db)
 	defer UserService.HGConfigureSessionDB(nil)
 	sessionBytes, _ := hex.DecodeString(sid)
+	mock.ExpectQuery(regexp.QuoteMeta(Queries.HGSelectRecoveryRevokedAt)).WithArgs(user).
+		WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
 	mock.ExpectQuery(regexp.QuoteMeta(Queries.HGIMForcedLogoutSQL)).
 		WithArgs(user, sessionBytes).
 		WillReturnError(sql.ErrNoRows)

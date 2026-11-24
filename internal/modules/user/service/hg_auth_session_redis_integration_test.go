@@ -55,6 +55,7 @@ func TestHGAuthSessionRedisIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mock.MatchExpectationsInOrder(false) // 并发刷新会交错执行 MySQL 撤销水位和强制下线点查。
 	t.Cleanup(func() { _ = db.Close() })
 	HGConfigureSessionDB(db)
 	t.Cleanup(func() { HGConfigureSessionDB(nil) })
@@ -71,6 +72,7 @@ func TestHGAuthSessionRedisIntegration(t *testing.T) {
 	if ttl := rdb.TTL(ctx, refreshKey).Val(); ttl < RefreshTTL-time.Minute || ttl > RefreshTTL {
 		t.Fatalf("首次 refresh 状态 TTL 不正确: %v", ttl)
 	}
+	hgExpectNoRecoveryCutoff(mock, "user-integration")
 	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-integration", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 	refreshed, err := RefreshToken(ctx, rdb, first.RefreshToken)
 	if err != nil || refreshed.RefreshToken != first.RefreshToken || refreshed.AccessToken == first.AccessToken {
@@ -82,6 +84,7 @@ func TestHGAuthSessionRedisIntegration(t *testing.T) {
 	// 多个请求复用同一 refresh，不因轮换/删除导致只有首个调用成功。
 	const parallelRefreshes = 8
 	for i := 0; i < parallelRefreshes; i++ {
+		hgExpectNoRecoveryCutoff(mock, "user-integration")
 		mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-integration", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 	}
 	var wg sync.WaitGroup
@@ -123,6 +126,7 @@ func TestHGAuthSessionRedisIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hgExpectNoRecoveryCutoff(mock, "user-integration")
 	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-integration", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 	legacyRefreshed, err := RefreshToken(ctx, rdb, legacyToken)
 	if err != nil || legacyRefreshed.RefreshToken != legacyToken {

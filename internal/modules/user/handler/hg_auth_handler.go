@@ -182,9 +182,14 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: 调用邮件发送服务发送验证码
-	// 这里暂时返回验证码，实际生产环境需要调用邮件服务
-	HGResponsePakcage.SuccessResult(w, r, map[string]string{"email": email, "message": "验证码已发送", "verifyCode": code})
+	if err := h.emailSender.SendCode(r.Context(), email, code); err != nil {
+		h.svc.HGDiscardEmailCode(r.Context(), email, code)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.EmailSendFailed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	HGResponsePakcage.SuccessResult(w, r, map[string]string{"message": "验证码已发送"})
 }
 
 // validateClickCaptchaToken 校验点选验证码通过后生成的一次性 token。
@@ -248,7 +253,7 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	HGResponsePakcage.SuccessResult(w, r, req)
+	HGResponsePakcage.SuccessResult(w, r, map[string]bool{"registered": true})
 }
 
 // Login 处理用户登录，支持验证码和密码两种方式。

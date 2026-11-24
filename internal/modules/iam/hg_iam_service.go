@@ -1,6 +1,7 @@
 package iam
 
 import (
+	hgemail "MLC_GO/internal/pkg/email"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	"context"
@@ -17,13 +18,22 @@ var hgPermissionCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*:[a-z][a-z0-9_
 
 // HGService 对管理端做默认拒绝鉴权，业务授权直接读取 MySQL 权威数据。
 type HGService struct {
-	repo        *HGRepository   // IAM 权威存储；失败时不放行。
-	realtime    HGRealtimeGrant // 可选用户实时通道，仅服务端签发订阅 token。
-	realtimeURL string          // 客户端已有 Centrifugo 网关端点；未启用时为空。
+	repo             *HGRepository    // IAM 权威存储；失败时不放行。
+	realtime         HGRealtimeGrant  // 可选用户实时通道，仅服务端签发订阅 token。
+	realtimeURL      string           // 客户端已有 Centrifugo 网关端点；未启用时为空。
+	hgRecoverySender hgemail.HGSender // SMTP 发信端口；无配置时失败关闭，测试可注入隔离替身。
 }
 
 // NewHGService 注入 IAM Repository。
-func NewHGService(repo *HGRepository) *HGService { return &HGService{repo: repo} }
+func NewHGService(repo *HGRepository) *HGService {
+	return &HGService{repo: repo, hgRecoverySender: hgemail.NewHGSMTPSender()}
+}
+
+// HGWithRecoverySender 仅在模块装配或测试时注入发信端口。
+func (s *HGService) HGWithRecoverySender(sender hgemail.HGSender) *HGService {
+	s.hgRecoverySender = sender
+	return s
+}
 
 // EnsureCreator 从当前注册用户身份按唯一 ID 幂等建立创作者角色，用于首次上传或历史稿件回访。
 func (s *HGService) EnsureCreator(ctx context.Context, userID string) error {

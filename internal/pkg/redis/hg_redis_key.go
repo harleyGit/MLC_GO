@@ -218,6 +218,7 @@ const (
 	AuthRefreshKey           = "auth:refresh:"
 	HGAuthSessionKey         = "auth:session:"       // 用户 ID + 会话 ID；不存在表示整会话已撤销。
 	HGAuthSessionIndexKey    = "auth:session:index:" // 单应用内按最近续期时间排列的有效会话 ID；最多 100 个。
+	HGAuthSessionProofKey    = "auth:session:proof:" // 新会话的首次签发时间（毫秒），恢复 MFA 后核对 MySQL 撤销水位。
 
 	UserListKey        = "user:list:cursor:%d:size:%d" // user:list:{cursor}:{size} 获取注册用户列表的Key
 	UserListPatternKey = "user:list:cursor:*:size:*"   // 删除用户列表分页缓存时使用
@@ -284,9 +285,19 @@ func GetRedisVerifyCodeKey(value string) string {
 }
 
 // GetRedisEmailVerifyCodeKey 生成邮箱验证码的 Redis key。
-// 使用独立前缀隔离邮箱验证码，避免与手机验证码冲突。
+// 使用独立前缀与邮箱摘要隔离验证码，不在 Redis 键名中暴露收件地址。
 func GetRedisEmailVerifyCodeKey(email string) string {
-	return fmt.Sprintf("auth:email:code:%s", email)
+	return fmt.Sprintf("auth:email:code:%s", hgRedisKeyDigest(strings.ToLower(strings.TrimSpace(email))))
+}
+
+// HGEmailCodeAttemptKey 用邮箱摘要限制错误尝试，不在 Redis 键名中记录个人邮箱。
+func HGEmailCodeAttemptKey(email string) string {
+	return "auth:email:attempt:" + hgRedisKeyDigest(strings.ToLower(strings.TrimSpace(email)))
+}
+
+// HGRecoveryCodeKey 绑定与找回各有独立命名空间，邮箱值仅服务端读取，不进入 key。
+func HGRecoveryCodeKey(userID, purpose string) string {
+	return "auth:mfa:recovery:" + hgRedisKeyDigest(userID+"\x00"+purpose)
 }
 func GetCacheKey(prefix string, value string) string {
 	return fmt.Sprintf("%s%s", prefix, value)

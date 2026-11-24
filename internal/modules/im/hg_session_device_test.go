@@ -71,9 +71,11 @@ func TestHGRegisterSessionDeviceEvictsOldest(t *testing.T) {
 			client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 			client.AddHook(hook)
 			defer client.Close()
+			mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
 			mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 			mock.ExpectBegin()
 			mock.ExpectQuery(SQL.HGIMLockDeviceOwnerSQL).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"found"}).AddRow(1))
+			mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
 			mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 			rows := sqlmock.NewRows([]string{"id"})
 			for i := 0; i < 5; i++ {
@@ -148,9 +150,11 @@ func TestHGRegisterDeviceLegacyReplacementResponse(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	client.AddHook(hook)
 	defer client.Close()
+	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
 	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 	mock.ExpectBegin()
 	mock.ExpectQuery(SQL.HGIMLockDeviceOwnerSQL).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"found"}).AddRow(1))
+	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
 	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 	rows := sqlmock.NewRows([]string{"id"})
 	for i := 0; i < 5; i++ {

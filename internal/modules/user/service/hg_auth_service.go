@@ -166,7 +166,8 @@ func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, dev
 	keys := hgAuthSessionKeys(userID, sessionID, refreshJTI)
 	ok, err := rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRegisterSessionLuaScript, keys,
 		sessionID, refreshJTI, int(RefreshTTL.Seconds()), PersistenceRedisPackage.HGAuthSessionKey+userID+":",
-		PersistenceRedisPackage.AuthRefreshKey+userID+":").Int()
+		PersistenceRedisPackage.AuthRefreshKey+userID+":", now.UnixMilli(),
+		PersistenceRedisPackage.HGAuthSessionProofKey+userID+":").Int()
 	if err != nil {
 		return nil, fmt.Errorf("存储登录会话失败: %w", err)
 	}
@@ -208,6 +209,7 @@ func hgAuthSessionKeys(userID, sessionID, refreshJTI string) []string {
 		PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID,
 		PersistenceRedisPackage.AuthRefreshKey + userID + ":" + refreshJTI,
 		PersistenceRedisPackage.HGUserDeleteFenceKey(userID),
+		PersistenceRedisPackage.HGAuthSessionProofKey + userID + ":" + sessionID,
 	}
 }
 
@@ -259,7 +261,8 @@ func RefreshToken(
 	keys := hgAuthSessionKeys(claims.UserID, claims.SessionID, claims.JTI)
 	ok, err := rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRefreshSessionLuaScript, keys,
 		claims.SessionID, claims.JTI, int(RefreshTTL.Seconds()), PersistenceRedisPackage.HGAuthSessionKey+claims.UserID+":",
-		PersistenceRedisPackage.AuthRefreshKey+claims.UserID+":").Int()
+		PersistenceRedisPackage.AuthRefreshKey+claims.UserID+":", 0,
+		PersistenceRedisPackage.HGAuthSessionProofKey+claims.UserID+":").Int()
 	if err != nil {
 		return nil, fmt.Errorf("续期登录会话失败: %w", err)
 	}
@@ -280,6 +283,16 @@ func HGSessionActive(ctx context.Context, rdb *redis.Client, userID, sessionID s
 	if err != nil || n != 1 {
 		return false, err
 	}
+	var cutoff sql.NullTime
+	if err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryRevokedAt, userID).Scan(&cutoff); err != nil {
+		return false, err
+	}
+	if cutoff.Valid {
+		proof, err := rdb.Get(ctx, PersistenceRedisPackage.HGAuthSessionProofKey+userID+":"+sessionID).Int64()
+		if err != nil || proof <= cutoff.Time.UnixMilli() {
+			return false, err
+		}
+	}
 	// 强制下线状态与设备替换同一事务提交；不用 Redis 缓存绕过权威检查。
 	checkCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -299,7 +312,8 @@ func HGRevokeAuthSession(ctx context.Context, rdb *redis.Client, userID, session
 	}
 	return rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRevokeSessionLuaScript,
 		[]string{PersistenceRedisPackage.HGAuthSessionIndexKey + userID,
-			PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID},
+			PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID,
+			PersistenceRedisPackage.HGAuthSessionProofKey + userID + ":" + sessionID},
 		sessionID, PersistenceRedisPackage.AuthRefreshKey+userID+":").Err()
 }
 

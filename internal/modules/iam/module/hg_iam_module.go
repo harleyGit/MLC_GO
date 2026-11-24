@@ -50,7 +50,11 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	var meAccess, authorizeAccess, realtimeToken, logoutRealtime http.HandlerFunc
 	var list, create, update, disable, bindings, pendingGrants, grant, directGrant, revoke, permissions, setPermissions, mfaEnroll, mfaConfirm, approvals, approve, reject http.HandlerFunc
 	var scopeList, scopeResources, scopeResourceCreate, businessScopeCreate, businessScopeDisable, scopeGet, scopeCreate, scopeUpdate, scopeDisable, batchGrant http.HandlerFunc
+	var ownMFAEnroll, ownMFAConfirm, recoveryStatus, recoverySendBind, recoverySendReset, recoveryBind, recoveryReset http.HandlerFunc
 	if handler != nil {
+		ownMFAEnroll, ownMFAConfirm = handler.HGOwnMFAEnroll, handler.HGOwnMFAConfirm
+		recoveryStatus, recoverySendBind, recoverySendReset = handler.HGOwnRecoveryStatus, handler.HGOwnRecoverySendBindCode, handler.HGOwnRecoverySendResetCode
+		recoveryBind, recoveryReset = handler.HGOwnRecoveryBind, handler.HGOwnRecoveryReset
 		meAccess, authorizeAccess = handler.HGMeAccess, handler.HGAuthorizeAccess
 		realtimeToken = handler.HGRealtimeToken
 		logoutRealtime = handler.HGLogoutRealtime
@@ -71,6 +75,14 @@ func hgRoutes(handler *IAMPackage.HGHandler) []HGRouterPackage.RouteSpec {
 	// HGIAMRoleGrant="iam:role:grant"，HGIAMRoleGrantDirect="iam:role:grant_direct"，HGIAMApprovalApprove="iam:approval:approve"。
 	// 除 JWT 外，授权器还要求当前 user_id 为活动管理员，且有未过期的全局角色绑定及对应权限。
 	return []HGRouterPackage.RouteSpec{
+		// 本人 MFA 安全设置只由 JWT 主体决定，不要求 IAM 角色；管理员原路由权限保持不变。
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/enroll", true, "本人登记 MFA", ownMFAEnroll),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/confirm", true, "本人启用 MFA", ownMFAConfirm),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/mfa/recovery", true, "本人恢复邮箱状态", recoveryStatus),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/recovery/send-bind", true, "发送新恢复邮箱验证码", recoverySendBind),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/recovery/bind", true, "验证并绑定恢复邮箱", recoveryBind),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/recovery/send-reset", true, "向已验证邮箱发送找回码", recoverySendReset),
+		HGRouterPackage.NewRouteSpec("iam", http.MethodPost, hgBasePath, "/me/mfa/recovery/reset", true, "找回 MFA 并撤销所有旧会话", recoveryReset),
 		// 本人权限快照与全局权限预判仅要求 JWT；具体业务资源仍由业务 API 独立鉴权。
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/access", true, "获取本人授权快照", meAccess),
 		HGRouterPackage.NewRouteSpec("iam", http.MethodGet, hgBasePath, "/me/sync", true, "实时重连同步本人授权快照", meAccess),

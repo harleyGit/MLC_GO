@@ -93,7 +93,7 @@ func (s *UserService) HGDeleteUnusedUser(ctx context.Context, userID, actorID st
 func hgRevokeDeletedUserTokens(rdb *redis.Client, userID string) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	for _, prefix := range []string{PersistenceRedisPackage.HGAuthSessionKey, PersistenceRedisPackage.AuthTokenKey, PersistenceRedisPackage.AuthRefreshKey} {
+	for _, prefix := range []string{PersistenceRedisPackage.HGAuthSessionKey, PersistenceRedisPackage.HGAuthSessionProofKey, PersistenceRedisPackage.AuthTokenKey, PersistenceRedisPackage.AuthRefreshKey} {
 		var cursor uint64
 		for {
 			keys, next, err := rdb.Scan(cleanupCtx, cursor, prefix+hgEscapeRedisGlob(userID)+":*", 100).Result()

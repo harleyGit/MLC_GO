@@ -1,16 +1,20 @@
 package UserServicePackage
 
 import (
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserModelsPackage "MLC_GO/internal/modules/user/model"
 	"MLC_GO/internal/pkg/logHG"
+	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	utilsPackage "MLC_GO/internal/pkg/utils"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"net/mail"
+	"strings"
 	"time"
 )
 
@@ -178,41 +182,51 @@ func (s *UserService) SendCode(ctx context.Context, phone string) (string, error
 // SendEmailCode 生成并缓存邮箱验证码。
 // 高并发设计：使用独立 Redis key 前缀隔离邮箱验证码，避免与手机验证码冲突；验证码一次性消费。
 func (s *UserService) SendEmailCode(ctx context.Context, email string) (string, error) {
-	if email == "" {
-		return "", errors.New("邮箱不能为空")
+	if !hgValidEmailAddress(email) || s == nil || s.redisService == nil || s.redisService.Client() == nil {
+		return "", errors.New("邮箱或邮件服务依赖无效")
 	}
-
-	code := utilsPackage.GenerateRandomNum(6)
+	// 使用无偏的 CSPRNG，避免低熵验证码和取模偏差。
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "", err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
 	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
-	if err := s.redisService.SetToRedisV2(key, code, time.Minute*5, ctx); err != nil {
-		return "", errors.New("redis error")
+	if err := s.redisService.Client().Set(ctx, key, code, 5*time.Minute).Err(); err != nil {
+		return "", errors.New("邮件验证码存储失败")
 	}
-
-	logHG.DebugFInfo("验证码发送到 email %s:，验证码： %s， 5分钟过期", email, code)
 	return code, nil
+}
+
+// hgValidEmailAddress 拒绝标题注入和非单一邮箱地址；不在接口响应中回显收件地址。
+func hgValidEmailAddress(email string) bool {
+	if email == "" || len(email) > 255 || strings.ContainsAny(email, "\r\n ,<>") {
+		return false
+	}
+	parsed, err := mail.ParseAddress(email)
+	return err == nil && parsed.Address == email
+}
+
+// HGDiscardEmailCode 发信失败时仅移除本次验证码，避免并发请求误删更新的邮件码。
+func (s *UserService) HGDiscardEmailCode(ctx context.Context, email, code string) {
+	if s != nil && s.redisService != nil && s.redisService.Client() != nil {
+		_ = s.redisService.Client().Eval(ctx, PersistenceRedisPackage.HGEmailDiscardCodeLua,
+			[]string{PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)}, code).Err()
+	}
 }
 
 // VerifyEmailCode 验证邮箱验证码。
 // 高并发设计：验证码一次性消费，验证成功后立即删除，降低重放风险。
 func (s *UserService) VerifyEmailCode(ctx context.Context, email, code string) error {
-	if email == "" {
-		return errors.New("邮箱不能为空")
+	if !hgValidEmailAddress(email) || len(code) != 6 || s == nil || s.redisService == nil || s.redisService.Client() == nil {
+		return errors.New("邮箱或验证码无效")
 	}
-	if code == "" {
-		return errors.New("验证码不能为空")
-	}
-
 	key := PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(email)
-	v, err := s.redisService.GetFromRedisV2(key, ctx)
-	if err != nil {
+	ok, err := s.redisService.Client().Eval(ctx, PersistenceRedisPackage.HGEmailVerifyCodeLua,
+		[]string{key, PersistenceRedisPackage.HGEmailCodeAttemptKey(email)}, code).Int()
+	if err != nil || ok != 1 {
 		return errors.New("验证码错误或已过期")
 	}
-	if DecodeRedisStringValue(v) != code {
-		return errors.New("验证码错误或已过期")
-	}
-
-	// 验证码一次性消费，验证成功后立即删除
-	s.redisService.DeleteFromRedis(key, ctx)
 	return nil
 }
 
