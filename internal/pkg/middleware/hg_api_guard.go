@@ -319,7 +319,7 @@ func buildRequestSignature(
 	language string,
 	token string,
 ) []byte {
-	mac := hmac.New(sha256.New, UserServicePackage.Secret)
+	mac := hmac.New(sha256.New, UserServicePackage.HGRequestSignatureKey)
 	writeSignaturePart(mac, r.Method)
 	writeSignaturePart(mac, r.URL.Path)
 	writeSignaturePart(mac, timestamp)

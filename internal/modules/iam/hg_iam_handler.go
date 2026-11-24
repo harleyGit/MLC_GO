@@ -247,8 +247,7 @@ func (h *HGHandler) HGLogoutRealtime(w http.ResponseWriter, r *http.Request) {
 		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
 		return
 	}
-	key := PersistenceRedisPackage.HGAuthSessionKey + actor + ":" + claims.SessionID
-	if err := PersistenceRedisPackage.RDB.Del(r.Context(), key).Err(); err != nil {
+	if err := UserServicePackage.HGRevokeAuthSession(r.Context(), PersistenceRedisPackage.RDB, actor, claims.SessionID); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
 		return

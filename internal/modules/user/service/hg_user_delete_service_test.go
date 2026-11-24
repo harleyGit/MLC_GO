@@ -90,7 +90,9 @@ func TestHGRevokeDeletedUserTokensEscapesPattern(t *testing.T) {
 	if err := hgRevokeDeletedUserTokens(rdb, "a*b"); err != nil {
 		t.Fatal(err)
 	}
-	if len(hook.patterns) != 3 || hook.patterns[0] != PersistenceRedisPackage.HGAuthSessionKey+`a\*b:*` || len(hook.deleted) != 1 || hook.deleted[0] != PersistenceRedisPackage.HGAuthSessionKey+"a*b:session" {
+	if len(hook.patterns) != 3 || hook.patterns[0] != PersistenceRedisPackage.HGAuthSessionKey+`a\*b:*` ||
+		len(hook.deleted) != 2 || hook.deleted[0] != PersistenceRedisPackage.HGAuthSessionKey+"a*b:session" ||
+		hook.deleted[1] != PersistenceRedisPackage.HGAuthSessionIndexKey+"a*b" {
 		t.Fatalf("撤销令牌的用户范围不正确: pattern=%v deleted=%v", hook.patterns, hook.deleted)
 	}
 }

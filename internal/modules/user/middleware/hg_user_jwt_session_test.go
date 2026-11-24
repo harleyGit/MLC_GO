@@ -52,7 +52,7 @@ func TestAuthMiddlewareRejectsEvictedSession(t *testing.T) {
 	PersistenceRedisPackage.RDB = client
 	t.Cleanup(func() { PersistenceRedisPackage.RDB = oldClient; client.Close() })
 	claims := &UserServicePackage.HGClaims{
-		UserID: "user-1", SessionID: "abcdefabcdefabcdefabcdefabcdefab", TokenTp: "access",
+		UserID: "user-1", SessionID: "abcdefabcdefabcdefabcdefabcdefab", JTI: "fixture-access-jti", TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)), Issuer: "mlc-go", Subject: "user-token"},
 	}
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(UserServicePackage.Secret)

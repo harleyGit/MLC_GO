@@ -87,20 +87,18 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
-			// 旧版无 sid 的 JWT 也必须受账号删除隔离约束；Redis 故障时失败关闭。
+			// 新旧 access 均需提供有效会话 ID；Redis 故障或后台撤销时失败关闭。
 			deleted, deleteErr := UserServicePackage.HGUserDeleted(r.Context(), PersistenceRedisPackage.RDB, claims.UserID)
 			if deleteErr != nil || deleted {
 				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
 				return
 			}
-			if claims.SessionID != "" {
-				active, sessionErr := UserServicePackage.HGSessionActive(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
-				if sessionErr != nil || !active {
-					w.WriteHeader(http.StatusUnauthorized)
-					HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
-					return
-				}
+			active, sessionErr := UserServicePackage.HGSessionActive(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
+			if sessionErr != nil || !active {
+				w.WriteHeader(http.StatusUnauthorized)
+				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
+				return
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, claims)
@@ -114,8 +112,9 @@ func validateAccessClaims(r *http.Request, claims *UserServicePackage.HGClaims) 
 	if claims == nil {
 		return errors.New("nil claims")
 	}
-	// 验证 token 类型,如果 token type 不为空且不是 "access"，就拒绝
-	if claims.TokenTp != "" && claims.TokenTp != "access" {
+	// 所有业务请求均须携带可撤销会话与有到期时间的 access，旧版无 sid token 不能绕过淘汰。
+	if claims.TokenTp != "access" || claims.UserID == "" || claims.SessionID == "" ||
+		claims.JTI == "" || claims.ExpiresAt == nil {
 		return errors.New("token type invalid")
 	}
 	// 验证发行者,确保 token 是由 mlc-go 系统生成，防止第三方伪造

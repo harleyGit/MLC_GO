@@ -111,7 +111,7 @@ func hgRevokeDeletedUserTokens(rdb *redis.Client, userID string) error {
 			}
 		}
 	}
-	return nil
+	return rdb.Del(cleanupCtx, PersistenceRedisPackage.HGAuthSessionIndexKey+userID).Err()
 }
 
 // hgEscapeRedisGlob 防止历史用户 ID 中的通配符扩大 SCAN 匹配范围并误撤销其他账号。

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -19,11 +20,10 @@ func TestValidateAccessClaims_AllowsSameDeviceWithDifferentRemotePort(t *testing
 	loginReq.Header.Set("User-Agent", "Mozilla/5.0 test")
 
 	claims := &UserServicePackage.HGClaims{
-		Device:  PkGDevicePackage.Fingerprint(loginReq),
-		TokenTp: "access",
+		UserID: "user-1", SessionID: "abcdefabcdefabcdefabcdefabcdefab", JTI: "jti-1",
+		Device: PkGDevicePackage.Fingerprint(loginReq), TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:  "mlc-go",
-			Subject: "user-token",
+			Issuer: "mlc-go", Subject: "user-token", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 	}
 
@@ -48,11 +48,10 @@ func TestValidateAccessClaims_RejectsDifferentDeviceID(t *testing.T) {
 	loginReq.Header.Set("User-Agent", "Mozilla/5.0 test")
 
 	claims := &UserServicePackage.HGClaims{
-		Device:  PkGDevicePackage.Fingerprint(loginReq),
-		TokenTp: "access",
+		UserID: "user-1", SessionID: "abcdefabcdefabcdefabcdefabcdefab", JTI: "jti-1",
+		Device: PkGDevicePackage.Fingerprint(loginReq), TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:  "mlc-go",
-			Subject: "user-token",
+			Issuer: "mlc-go", Subject: "user-token", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 	}
 
@@ -69,5 +68,21 @@ func TestValidateAccessClaims_RejectsDifferentDeviceID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "device fingerprint mismatch") {
 		t.Fatalf("expected mismatch error, got: %v", err)
+	}
+}
+
+func TestValidateAccessClaimsRejectsLegacySessionlessAccess(t *testing.T) {
+	request := httptest.NewRequest("GET", "/api/v1/profile/list", nil)
+	claims := &UserServicePackage.HGClaims{
+		UserID: "user-1", JTI: "jti-1", TokenTp: "access",
+		RegisteredClaims: jwt.RegisteredClaims{Issuer: "mlc-go", Subject: "user-token", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}
+	if err := validateAccessClaims(request, claims); err == nil {
+		t.Fatal("无会话 ID 的旧令牌不得绕过服务端淘汰与撤销")
+	}
+	claims.SessionID = "abcdefabcdefabcdefabcdefabcdefab"
+	claims.RegisteredClaims.ExpiresAt = nil
+	if err := validateAccessClaims(request, claims); err == nil {
+		t.Fatal("无期限的 access JWT 不得进入业务接口")
 	}
 }

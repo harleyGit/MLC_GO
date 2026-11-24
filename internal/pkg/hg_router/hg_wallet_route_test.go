@@ -84,7 +84,7 @@ func TestHGWalletSignaturePath(t *testing.T) {
 				hgHeaders["X-Timestamp"], hgHeaders["X-Request-ID"], hgHeaders["X-Device-ID"],
 				hgHeaders["X-Client-Type"], hgHeaders["X-Client-Version"], hgHeaders["X-API-Version"],
 				hgHeaders["X-Language"], hex.EncodeToString(hgBodyHash[:]), hgHeaders["Authorization"]}, "\n")
-			hgMAC := hmac.New(sha256.New, hguser.Secret)
+			hgMAC := hmac.New(sha256.New, hguser.HGRequestSignatureKey)
 			_, _ = hgMAC.Write([]byte(hgPayload))
 			hgReq.Header.Set("X-Signature", "sha256="+hex.EncodeToString(hgMAC.Sum(nil)))
 			hgRec := httptest.NewRecorder()

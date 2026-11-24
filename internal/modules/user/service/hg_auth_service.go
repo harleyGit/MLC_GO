@@ -68,9 +68,9 @@ func NewAuthService(
 
 // Token 结构定义
 var (
-	AccessTTL  = 15 * time.Minute
-	RefreshTTL = 7 * 24 * time.Hour
-	Secret     = []byte("change-me") // jwt 签名密钥，生产环境应从配置中心或环境变量读取
+	AccessTTL  = 24 * time.Hour
+	RefreshTTL = 30 * 24 * time.Hour
+	Secret     = hgEphemeralJWTSecret() // 仅 debug 未配置时使用进程内随机值；pre/prod 启动须注入稳定密钥。
 )
 
 // HGClaims JWT Claims 结构。
@@ -122,22 +122,10 @@ func GenerateTokens(
 		return nil, fmt.Errorf("生成登录会话 ID 失败: %w", err)
 	}
 	sessionID := hex.EncodeToString(hgSessionBytes[:])
-	hgKey := PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID
-	if err := rdb.Set(ctx, hgKey, "1", RefreshTTL).Err(); err != nil {
-		return nil, fmt.Errorf("存储登录会话失败: %w", err)
-	}
-	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
-		_ = rdb.Del(ctx, hgKey).Err()
-		return nil, errors.New("账号不可登录")
-	}
-	pair, err := hgGenerateSessionTokens(ctx, rdb, userID, device, role, sessionID)
-	if err != nil {
-		_ = rdb.Del(ctx, hgKey).Err()
-	}
-	return pair, err
+	return hgGenerateSessionTokens(ctx, rdb, userID, device, role, sessionID)
 }
 
-// hgGenerateSessionTokens 续期同一会话，不得在已被踢下线后重建会话 key。
+// hgGenerateSessionTokens 首次签发并原子登记会话；后续刷新绝不调用此函数重建 refresh。
 func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, device, role, sessionID string) (*TokenPair, error) {
 	if userID == "" {
 		return nil, errors.New("userID 不能为空")
@@ -151,14 +139,50 @@ func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, dev
 	}
 
 	now := time.Now()
-	jti := randJTI()
+	accessTokenString, err := hgSignAccessToken(userID, device, role, sessionID, now)
+	if err != nil {
+		return nil, err
+	}
+	refreshJTI := randJTI()
+	// refresh JWT 不设置固定 exp；签名和服务端 Redis TTL 共同限定有效性，过期后绝不能重建。
+	refreshClaims := &HGClaims{
+		UserID:    userID,
+		SessionID: sessionID,
+		Device:    device,
+		JTI:       refreshJTI,
+		TokenTp:   "refresh",
+		Role:      role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "mlc-go",
+			Subject:   "user-token",
+		},
+	}
+	refreshTokenString, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(Secret)
+	if err != nil {
+		return nil, fmt.Errorf("生成 refresh token 失败: %w", err)
+	}
+	keys := hgAuthSessionKeys(userID, sessionID, refreshJTI)
+	ok, err := rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRegisterSessionLuaScript, keys,
+		sessionID, refreshJTI, int(RefreshTTL.Seconds()), PersistenceRedisPackage.HGAuthSessionKey+userID+":",
+		PersistenceRedisPackage.AuthRefreshKey+userID+":").Int()
+	if err != nil {
+		return nil, fmt.Errorf("存储登录会话失败: %w", err)
+	}
+	if ok != 1 {
+		return nil, errors.New("账号不可登录")
+	}
+	return &TokenPair{AccessToken: accessTokenString, RefreshToken: refreshTokenString}, nil
+}
 
-	// 生成 Access Token
+// hgSignAccessToken 每次签发独立 JTI；刷新不修改此前的 access token 或会话状态。
+func hgSignAccessToken(userID, device, role, sessionID string, now time.Time) (string, error) {
 	accessClaims := &HGClaims{
 		UserID:    userID,
 		SessionID: sessionID,
 		Device:    device,
-		JTI:       jti,
+		JTI:       randJTI(),
 		TokenTp:   "access",
 		Role:      role,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -172,55 +196,22 @@ func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, dev
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessTokenString, err := accessToken.SignedString(Secret)
 	if err != nil {
-		return nil, fmt.Errorf("生成 access token 失败: %w", err)
+		return "", fmt.Errorf("生成 access token 失败: %w", err)
 	}
-
-	// 生成 Refresh Token（使用独立的 JTI）
-	refreshJTI := randJTI()
-	refreshClaims := &HGClaims{
-		UserID:    userID,
-		SessionID: sessionID,
-		Device:    device,
-		JTI:       refreshJTI,
-		TokenTp:   "refresh",
-		Role:      role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(RefreshTTL)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "mlc-go",
-			Subject:   "user-token",
-		},
-	}
-	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
-	refreshTokenString, err := refreshToken.SignedString(Secret)
-	if err != nil {
-		return nil, fmt.Errorf("生成 refresh token 失败: %w", err)
-	}
-
-	// 存储 Token 状态到 Redis（用于撤销和黑名单）
-	accessKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, userID, jti)
-	if err := rdb.Set(ctx, accessKey, "1", AccessTTL).Err(); err != nil {
-		return nil, fmt.Errorf("存储 access token 失败: %w", err)
-	}
-
-	refreshKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, userID, refreshJTI)
-	if err := rdb.Set(ctx, refreshKey, "1", RefreshTTL).Err(); err != nil {
-		return nil, fmt.Errorf("存储 refresh token 失败: %w", err)
-	}
-
-	return &TokenPair{
-		AccessToken:  accessTokenString,
-		RefreshToken: refreshTokenString,
-	}, nil
+	return accessTokenString, nil
 }
 
-// RefreshToken 刷新 Access Token（大厂标准实现）。
-// 流程：
-//  1. 验证 Refresh Token 签名和有效期
-//  2. 检查 Redis 中是否存在（未被撤销）
-//  3. 撤销旧的 Refresh Token（一次性使用）
-//  4. 生成新的 Token Pair
+// hgAuthSessionKeys 给登录与续签 Lua 提供同一组 key；均由服务端 JWT 主体构造。
+func hgAuthSessionKeys(userID, sessionID, refreshJTI string) []string {
+	return []string{
+		PersistenceRedisPackage.HGAuthSessionIndexKey + userID,
+		PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID,
+		PersistenceRedisPackage.AuthRefreshKey + userID + ":" + refreshJTI,
+		PersistenceRedisPackage.HGUserDeleteFenceKey(userID),
+	}
+}
+
+// RefreshToken 使用同一 refresh JWT 滑动续期；Redis 负责 30 天闲置过期及会话撤销。
 func RefreshToken(
 	ctx context.Context,
 	rdb *redis.Client,
@@ -229,62 +220,53 @@ func RefreshToken(
 	if refreshTokenString == "" {
 		return nil, errors.New("refresh token 不能为空")
 	}
+	if rdb == nil {
+		return nil, errors.New("Redis 不可用")
+	}
 
-	// 1. 解析并验证 Refresh Token
+	// 旧版 JWT 含固定 7 天 exp；只有服务端状态仍存在时才允许其跨越原 exp 继续续签。
 	claims := &HGClaims{}
 	token, err := jwt.ParseWithClaims(refreshTokenString, claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		if t.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return Secret, nil
-	})
+	}, jwt.WithoutClaimsValidation())
 	if err != nil {
 		return nil, fmt.Errorf("refresh token 无效: %w", err)
 	}
 	if !token.Valid {
-		return nil, errors.New("refresh token 已过期")
+		return nil, errors.New("refresh token 签名无效")
 	}
-
-	// 2. 验证 Token 类型
-	if claims.TokenTp != "refresh" {
-		return nil, errors.New("token 类型错误，需要 refresh token")
+	now := time.Now()
+	if claims.TokenTp != "refresh" || claims.UserID == "" || claims.JTI == "" ||
+		claims.Issuer != "mlc-go" || claims.Subject != "user-token" ||
+		claims.IssuedAt == nil || claims.IssuedAt.Time.After(now.Add(time.Minute)) ||
+		(claims.NotBefore != nil && claims.NotBefore.Time.After(now)) {
+		return nil, errors.New("refresh token 声明无效")
 	}
-
-	// 3. 检查 Redis 中是否存在（未被撤销）
-	refreshKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthRefreshKey, claims.UserID, claims.JTI)
-	exists, err := rdb.Exists(ctx, refreshKey).Result()
-	if err != nil {
-		return nil, fmt.Errorf("检查 refresh token 状态失败: %w", err)
+	if claims.SessionID == "" {
+		return nil, errors.New("旧版无会话令牌须重新登录")
 	}
-	if exists == 0 {
-		return nil, errors.New("refresh token 已被撤销或不存在")
-	}
-	if claims.SessionID != "" {
-		active, err := HGSessionActive(ctx, rdb, claims.UserID, claims.SessionID)
-		if err != nil || !active {
-			return nil, errors.New("登录会话已失效")
-		}
-	}
-
-	// 4. 撤销旧的 Refresh Token（一次性使用，防止重放攻击）
-	if err := rdb.Del(ctx, refreshKey).Err(); err != nil {
-		return nil, fmt.Errorf("撤销旧 refresh token 失败: %w", err)
-	}
-
-	// 5. 撤销旧的 Access Token
-	oldAccessKey := fmt.Sprintf("%s%s:%s", PersistenceRedisPackage.AuthTokenKey, claims.UserID, claims.JTI)
-	rdb.Del(ctx, oldAccessKey) // 忽略错误，可能已过期
-
-	// 6. 生成新的 Token Pair（继承设备信息和角色）
-	if claims.SessionID == "" { // 发布前签发的 refresh token 不带 sid，兼容一次刷新并转为新会话。
-		return GenerateTokens(ctx, rdb, claims.UserID, claims.Device, claims.Role)
-	}
-	// EXPIRE GT 不创建不存在的 key；并发踢出与刷新时，撤销优先，旧会话不能复活。
-	updated, err := rdb.ExpireGT(ctx, PersistenceRedisPackage.HGAuthSessionKey+claims.UserID+":"+claims.SessionID, RefreshTTL).Result()
-	if err != nil || !updated {
+	active, err := HGSessionActive(ctx, rdb, claims.UserID, claims.SessionID)
+	if err != nil || !active {
 		return nil, errors.New("登录会话已失效")
 	}
-	return hgGenerateSessionTokens(ctx, rdb, claims.UserID, claims.Device, claims.Role, claims.SessionID)
+	accessTokenString, err := hgSignAccessToken(claims.UserID, claims.Device, claims.Role, claims.SessionID, now)
+	if err != nil {
+		return nil, err
+	}
+	keys := hgAuthSessionKeys(claims.UserID, claims.SessionID, claims.JTI)
+	ok, err := rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRefreshSessionLuaScript, keys,
+		claims.SessionID, claims.JTI, int(RefreshTTL.Seconds()), PersistenceRedisPackage.HGAuthSessionKey+claims.UserID+":",
+		PersistenceRedisPackage.AuthRefreshKey+claims.UserID+":").Int()
+	if err != nil {
+		return nil, fmt.Errorf("续期登录会话失败: %w", err)
+	}
+	if ok != 1 {
+		return nil, errors.New("refresh token 已过期或会话已撤销")
+	}
+	return &TokenPair{AccessToken: accessTokenString, RefreshToken: refreshTokenString}, nil
 }
 
 // HGSessionActive 校验新 JWT 的会话存活状态；Redis 异常必须失败关闭。
@@ -309,8 +291,20 @@ func HGSessionActive(ctx context.Context, rdb *redis.Client, userID, sessionID s
 	return false, err
 }
 
+// HGRevokeAuthSession 撤销当前会话、索引和对应 refresh 状态；失败时不能声称登出成功。
+func HGRevokeAuthSession(ctx context.Context, rdb *redis.Client, userID, sessionID string) error {
+	decoded, err := hex.DecodeString(sessionID)
+	if rdb == nil || userID == "" || err != nil || len(decoded) != 16 {
+		return errors.New("登录会话参数无效")
+	}
+	return rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRevokeSessionLuaScript,
+		[]string{PersistenceRedisPackage.HGAuthSessionIndexKey + userID,
+			PersistenceRedisPackage.HGAuthSessionKey + userID + ":" + sessionID},
+		sessionID, PersistenceRedisPackage.AuthRefreshKey+userID+":").Err()
+}
+
 // RefreshToken 通过注入的 Redis 客户端刷新 Token，避免 handler 直接依赖全局 RDB。
-// 业务规则沿用包级 RefreshToken：校验 refresh token、撤销旧 token、签发新 token pair。
+// 业务规则沿用包级 RefreshToken：服务端状态续期并签发新 access，原 refresh 不轮换。
 func (s *HGAuthService) RefreshToken(ctx context.Context, refreshTokenString string) (*TokenPair, error) {
 	if s == nil || s.rdb == nil {
 		return nil, errors.New("auth service redis dependency is nil")

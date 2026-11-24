@@ -5,6 +5,7 @@ import (
 	UserJWTMiddlewarePackage "MLC_GO/internal/modules/user/middleware"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
+	SQL "MLC_GO/internal/pkg/mysql/queries"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	"context"
@@ -23,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -39,18 +41,34 @@ func (hgDeleteFenceTestHook) ProcessHook(next redis.ProcessHook) redis.ProcessHo
 		if cmd.Name() != "exists" {
 			return errors.New("未预期 Redis 操作")
 		}
-		cmd.(*redis.IntCmd).SetVal(0)
+		if key := cmd.Args()[1].(string); strings.HasPrefix(key, PersistenceRedisPackage.HGAuthSessionKey+"trusted-user:") {
+			cmd.(*redis.IntCmd).SetVal(1)
+		} else {
+			cmd.(*redis.IntCmd).SetVal(0)
+		}
 		return nil
 	}
 }
 
-func hgConfigureDeleteFenceTest(t *testing.T) {
+func hgConfigureDeleteFenceTest(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
 	old := PersistenceRedisPackage.RDB
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	client.AddHook(hgDeleteFenceTestHook{})
 	PersistenceRedisPackage.RDB = client
 	t.Cleanup(func() { PersistenceRedisPackage.RDB = old; _ = client.Close() })
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatal(err)
+	}
+	UserServicePackage.HGConfigureSessionDB(db)
+	t.Cleanup(func() { UserServicePackage.HGConfigureSessionDB(nil); _ = db.Close() })
+	return mock
+}
+
+// 根路由测试为服务端会话点查提供一条明确可撤销的活动会话。
+func hgExpectActivePermissionSession(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("trusted-user", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
 }
 
 type hgRouteAuthorizerStub struct {
@@ -82,7 +100,7 @@ func hgSignedPermissionRequest(t *testing.T, hgMethod, hgPath, hgTokenMode strin
 		hgRequest.Header.Set(hgKey, hgValue)
 	}
 	if hgTokenMode == "valid" {
-		hgClaims := &UserServicePackage.HGClaims{UserID: "trusted-user", TokenTp: "access", RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)), Issuer: "mlc-go", Subject: "user-token"}}
+		hgClaims := &UserServicePackage.HGClaims{UserID: "trusted-user", SessionID: "abcdefabcdefabcdefabcdefabcdefab", JTI: "permission-access-jti", TokenTp: "access", RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)), Issuer: "mlc-go", Subject: "user-token"}}
 		hgToken, hgErr := jwt.NewWithClaims(jwt.SigningMethodHS256, hgClaims).SignedString(UserServicePackage.Secret)
 		if hgErr != nil {
 			t.Fatal(hgErr)
@@ -98,7 +116,7 @@ func hgSignedPermissionRequest(t *testing.T, hgMethod, hgPath, hgTokenMode strin
 }
 
 func TestHGRoutePermissionChain(t *testing.T) {
-	hgConfigureDeleteFenceTest(t)
+	mock := hgConfigureDeleteFenceTest(t)
 	for _, hgCase := range []struct {
 		hgName    string          // 用例说明。
 		hgToken   string          // valid、invalid 或空。
@@ -132,6 +150,9 @@ func TestHGRoutePermissionChain(t *testing.T) {
 			hgRoot := http.NewServeMux()
 			hgRoot.Handle("/api/v1/test/", http.StripPrefix("/api/v1/test", NewRouteGroup(hgConfig, []RouteSpec{hgSpec})))
 			hgResponse := httptest.NewRecorder()
+			if hgCase.hgToken == "valid" {
+				hgExpectActivePermissionSession(mock)
+			}
 			hgRoot.ServeHTTP(hgResponse, hgSignedPermissionRequest(t, http.MethodPost, "/run", hgCase.hgToken))
 			if hgResponse.Code != hgCase.hgStatus || hgCalled != (hgCase.hgStatus == 204) {
 				t.Fatalf("状态=%d 业务执行=%v 响应=%s", hgResponse.Code, hgCalled, hgResponse.Body.String())
@@ -278,13 +299,14 @@ func TestHGMethodBoundPermissionsAndPublicRoutes(t *testing.T) {
 }
 
 func TestHGOpsLegacyRoleRouteStillGoneAfterAuthorization(t *testing.T) {
-	hgConfigureDeleteFenceTest(t)
+	mock := hgConfigureDeleteFenceTest(t)
 	hgStub := &hgRouteAuthorizerStub{hgAllowed: map[string]bool{"iam:role:read": true}}
 	hgRoot := http.NewServeMux()
 	hgRoot.Handle(OpsModuleBasePath+"/", http.StripPrefix(OpsModuleBasePath, NewOpsRouteGroup(&OpsHandlerPackage.Handler{}, hgStub)))
 	hgRequest := hgSignedPermissionRequest(t, http.MethodGet, "/roles/list", "valid")
 	hgRequest.URL.Path = OpsModuleBasePath + "/roles/list"
 	hgResponse := httptest.NewRecorder()
+	hgExpectActivePermissionSession(mock)
 	hgRoot.ServeHTTP(hgResponse, hgRequest)
 	if hgResponse.Code != 410 {
 		t.Fatalf("旧角色入口应继续提示迁移: %d %s", hgResponse.Code, hgResponse.Body.String())

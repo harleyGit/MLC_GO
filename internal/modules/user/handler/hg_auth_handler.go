@@ -283,6 +283,7 @@ func (h *HGUserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	HGResponsePakcage.SuccessResult(w, r, resp)
 }
 
@@ -343,7 +344,7 @@ func (h *HGUserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // RefreshToken 刷新 Access Token。
-// token 校验、Redis 状态检查和重放防护属于认证 service，不允许 handler 直接访问 Redis 客户端。
+// token 校验、Redis 滑动过期与会话撤销属于认证 service，不允许 handler 直接访问 Redis 客户端。
 func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -367,6 +368,7 @@ func (h *HGUserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	HGResponsePakcage.SuccessResult(w, r, RefreshTokenResponse{
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,

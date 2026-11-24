@@ -28,6 +28,7 @@ import (
 	hgrecharge "MLC_GO/internal/modules/recharge/module"
 	HGTestHandlerPackage "MLC_GO/internal/modules/test/handler"
 	HGUserModulePackage "MLC_GO/internal/modules/user/module"
+	UserServicePackage "MLC_GO/internal/modules/user/service"
 	VideoCommentModulePackage "MLC_GO/internal/modules/video_comment/module"
 	VideoCommentTaskPackage "MLC_GO/internal/modules/video_comment/task"
 	VideoDanmakuModulePackage "MLC_GO/internal/modules/video_danmaku/module"
@@ -146,6 +147,10 @@ func loadRuntimeConfig() error {
 	if err := ConfigPackage.LoadConfig(string(env)); err != nil {
 		return fmt.Errorf("加载配置文件失败, env=%s: %w", env, err)
 	}
+	if err := UserServicePackage.HGConfigureJWTSecret(string(env)); err != nil {
+		return fmt.Errorf("认证服务初始化失败: %w", err)
+	}
+	UserServicePackage.HGConfigureRequestSignatureKey()
 
 	logHG.DebugFInfo("当前环境: %s", env)
 	return nil

@@ -42,7 +42,7 @@ func TestHGCommerceCatalogGuardAndRootPrefix(t *testing.T) {
 }
 
 func TestHGCommercePaymentCallbackJWTGuardAndIAM(t *testing.T) {
-	hgConfigureDeleteFenceTest(t)
+	mock := hgConfigureDeleteFenceTest(t)
 	for _, path := range []string{"/admin/simulated-payment/callback", "/admin/simulated-payment/settle"} {
 		for _, tc := range []struct {
 			name, token  string
@@ -66,6 +66,9 @@ func TestHGCommercePaymentCallbackJWTGuardAndIAM(t *testing.T) {
 				request.URL.Path = HGCommerceBasePath + path
 				if tc.badSignature {
 					request.Header.Set("X-Signature", "bad")
+				}
+				if tc.token == "valid" && !tc.badSignature {
+					hgExpectActivePermissionSession(mock)
 				}
 				writer := httptest.NewRecorder()
 				root.ServeHTTP(writer, request)

@@ -144,7 +144,7 @@ func buildSignature(r *http.Request) string {
 		r.Header.Get("Authorization"),
 	}
 
-	mac := hmac.New(sha256.New, UserServicePackage.Secret)
+	mac := hmac.New(sha256.New, UserServicePackage.HGRequestSignatureKey)
 	mac.Write([]byte(strings.Join(payload, "\n")))
 
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
