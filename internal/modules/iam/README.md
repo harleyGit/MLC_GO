@@ -22,7 +22,7 @@
 
 `000076` 迁移新增字典和授权表的 `scope_type` 索引，涉及大表 DDL，须在授权环境评估建索引时长与发布窗口。字典预置文档中的八种类型及旧 `org` 兼容编码，初始仅 `global/shop/org` 启用。管理页可修改字典启停状态，但授权接口仍仅支持已接入资源校验的 `global/shop/org`；启用其他类型不会自动接通权威业务资源表与权限引擎。状态、名称与审计在同一短事务保存，编辑停用与删除停用共用历史绑定检查，检查或审计失败均回滚。现有 `status` 列可直接复用，无须新增迁移。文档建议的 `iam_role_scope_types` 角色约束尚未纳入现有授权协议，不能把字典视为角色可授予作用域的证明。
 | POST | `/bindings/revoke` | 按 `userId/bindingId` 精确撤销 |
-| POST | `/mfa/enroll` | 复核当前登录密码 `password`；一次性返回 `secret/otpauthUri`，禁止缓存 |
+| POST | `/mfa/enroll` | 复核当前登录密码 `password`；一次性返回 `secret/otpauthUri`，禁止缓存；已启用 MFA 返回 HTTP 409 / 业务码 `404008`，不同于普通 IAM 冲突 `100009` |
 | POST | `/mfa/confirm` | 用 6 位 `code` 验证并启用 TOTP |
 | GET | `/approvals/list` | `id DESC` 游标读取待审批申请，单页最多 50 条 |
 | POST | `/approvals/approve`、`/approvals/reject` | `id/mfaCode`；申请人不可自批，24 小时后过期 |

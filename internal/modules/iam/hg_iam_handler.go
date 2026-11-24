@@ -163,6 +163,9 @@ func hgHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGForbidden):
 		status, message = http.StatusForbidden, "无权执行此操作"
 		code = HGResponsePackage.Forbidden.Code
+	case errors.Is(err, ErrHGMFAAlreadyEnabled):
+		status, message = http.StatusConflict, "当前账号已绑定 MFA"
+		code = HGResponsePackage.MFAAlreadyEnabledCode
 	case errors.Is(err, ErrHGMFAKeyUnavailable):
 		status, message = http.StatusServiceUnavailable, "MFA 服务暂不可用"
 		code = HGResponsePackage.InternalError.Code

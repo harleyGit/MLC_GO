@@ -122,6 +122,7 @@ const (
 	BindPhoneFailCode      HGErrorCode = 404005 // 绑定手机号失败
 	BindEmailFailCode      HGErrorCode = 404006 // 绑定邮箱失败
 	OAuthBindFailCode      HGErrorCode = 404007 // 第三方账号绑定失败
+	MFAAlreadyEnabledCode  HGErrorCode = 404008 // 当前账号的 MFA 已启用，不能再次绑定
 
 	// 405xxx 内容/文件模块
 	FileNotFoundCode       HGErrorCode = 405001 // 文件不存在

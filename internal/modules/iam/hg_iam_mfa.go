@@ -160,7 +160,7 @@ func (s *HGService) EnrollMFA(ctx context.Context, userID, password string) (str
 		return "", "", err
 	}
 	if err == nil && enabled {
-		return "", "", ErrHGConflict
+		return "", "", ErrHGMFAAlreadyEnabled
 	}
 	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGInsertIAMMFAFactor, userID, sealed); err != nil {
 		return "", "", err

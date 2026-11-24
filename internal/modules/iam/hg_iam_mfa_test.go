@@ -2,6 +2,7 @@ package iam
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,35 @@ import (
 	"testing"
 	"time"
 )
+
+// enroll 已启用因子的专用业务码不得与普通 IAM 冲突混淆；权限/配置错误仍按原协议。
+func TestHGMFAAlreadyEnabledErrorMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		code   int
+	}{
+		{"已启用", ErrHGMFAAlreadyEnabled, http.StatusConflict, 404008},
+		{"普通冲突", ErrHGConflict, http.StatusConflict, 100009},
+		{"无权", ErrHGForbidden, http.StatusForbidden, 300004},
+		{"密钥不可用", ErrHGMFAKeyUnavailable, http.StatusServiceUnavailable, 500001},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			hgHTTPError(w, httptest.NewRequest(http.MethodPost, "/api/v1/iam/mfa/enroll", nil), tc.err)
+			var body struct {
+				Code int `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != tc.status || body.Code != tc.code {
+				t.Fatalf("预期 HTTP %d/业务码 %d，实际 HTTP %d/业务码 %d", tc.status, tc.code, w.Code, body.Code)
+			}
+		})
+	}
+}
 
 // 配置缺失和密码/授权拒绝保持不同状态；不向客户端输出密钥值或内部配置路径。
 func TestHGMFAKeyUnavailableIsNotPermissionDenial(t *testing.T) {
