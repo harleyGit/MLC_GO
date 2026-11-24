@@ -68,8 +68,8 @@ func (s *HGService) AccessSnapshot(ctx context.Context, userID string) (HGAccess
 	}
 	defer rows.Close()
 	seenRoles := make(map[string]bool)
-	// 仅在实时通道可用时取消一分钟复核；旧环境保持短期快照的默认拒绝语义。
-	result.ExpiresAt = time.Now().UTC().Add(time.Minute)
+	// 未启用实时通道时展示快照最多保留 30 天；实际授权仍由业务请求逐次校验。
+	result.ExpiresAt = time.Now().UTC().Add(30 * 24 * time.Hour)
 	if s.realtime != nil {
 		result.ExpiresAt = time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
 	}

@@ -103,6 +103,30 @@ func TestHGAccessSnapshotKeepsScopeBindings(t *testing.T) {
 	}
 }
 
+func TestHGAccessSnapshotWithoutRealtimeExpiresInThirtyDays(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMPolicyRevision)).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMAccessGrants)).WithArgs("U1").
+		WillReturnRows(sqlmock.NewRows([]string{"role_code", "permission_code", "scope_type", "scope_id", "expires_at"}))
+	start := time.Now().UTC()
+	snapshot, err := NewHGService(NewHGRepository(db)).AccessSnapshot(context.Background(), "U1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining := snapshot.ExpiresAt.Sub(start)
+	if remaining < 30*24*time.Hour || remaining > 30*24*time.Hour+time.Minute {
+		t.Fatalf("未启用实时通道时快照应在 30 天后失效: %+v", snapshot)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHGAccessSnapshotRejectsOverflow(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
