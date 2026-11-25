@@ -1,6 +1,7 @@
 package iam
 
 import (
+	UserService "MLC_GO/internal/modules/user/service"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
@@ -105,14 +106,11 @@ func (s *HGService) hgLimitMFA(ctx context.Context, userID string) error {
 		return ErrHGForbidden
 	}
 	key := PersistenceRedisPackage.GetIAMMFAAttemptKey(userID)
-	if err := s.repo.cache.Client().SetNX(ctx, key, 0, 5*time.Minute).Err(); err != nil {
-		return err
-	}
-	count, err := s.repo.cache.Client().Incr(ctx, key).Result()
+	allowed, err := s.repo.cache.Client().Eval(ctx, PersistenceRedisPackage.HGFixedWindowCountLua, []string{key}, 300, 5).Int()
 	if err != nil {
 		return err
 	}
-	if count > 5 {
+	if allowed != 1 {
 		return ErrHGForbidden
 	}
 	return nil
@@ -168,6 +166,15 @@ func (s *HGService) hgEnrollMFA(ctx context.Context, userID, password string, re
 		return "", "", err
 	}
 	defer tx.Rollback()
+	if generation, ok := UserService.HGSessionGenerationFromContext(ctx); ok {
+		currentHash, currentSalt, err := hgLockRecoveryAccount(ctx, tx, userID, generation)
+		if err != nil {
+			return "", "", err
+		}
+		if currentHash != hash || currentSalt != salt {
+			return "", "", hgErrRecoveryChanged
+		}
+	}
 	var enabled bool
 	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMMFAFactor, userID).Scan(new([]byte), &enabled, new(int64))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -217,6 +224,11 @@ func (s *HGService) hgConfirmMFA(ctx context.Context, userID, code string, requi
 		return err
 	}
 	defer tx.Rollback()
+	if generation, ok := UserService.HGSessionGenerationFromContext(ctx); ok {
+		if _, _, err := hgLockRecoveryAccount(ctx, tx, userID, generation); err != nil {
+			return err
+		}
+	}
 	var ciphertext []byte
 	var enabled bool
 	var last int64

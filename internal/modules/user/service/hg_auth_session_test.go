@@ -73,9 +73,9 @@ func (h *hgAuthHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	}
 }
 
-func hgExpectNoRecoveryCutoff(mock sqlmock.Sqlmock, user string) {
-	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs(user).WillReturnRows(
-		sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
+func hgExpectSessionAuthority(mock sqlmock.Sqlmock, user string, generation uint64, forced bool) {
+	mock.ExpectQuery(SQL.HGSelectAuthSessionAuthority).WithArgs(user, sqlmock.AnyArg(), user).WillReturnRows(
+		sqlmock.NewRows([]string{"generation", "forced"}).AddRow(generation, forced))
 }
 
 func TestHGSessionRevocationBlocksRefresh(t *testing.T) {
@@ -91,7 +91,7 @@ func TestHGSessionRevocationBlocksRefresh(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	client.AddHook(hook)
 	defer client.Close()
-	pair, err := GenerateTokens(ctx, client, "user-1", "", "user")
+	pair, err := hgNewSessionTokens(ctx, client, "user-1", "", "user", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,14 +107,12 @@ func TestHGSessionRevocationBlocksRefresh(t *testing.T) {
 	if _, err := jwt.ParseWithClaims(pair.RefreshToken, originalRefresh, func(t *jwt.Token) (any, error) { return Secret, nil }); err != nil || originalRefresh.ExpiresAt != nil {
 		t.Fatalf("refresh 过期应由服务端 30 天闲置 TTL 控制: %v", err)
 	}
-	hgExpectNoRecoveryCutoff(mock, "user-1")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock, "user-1", 0, false)
 	active, err := HGSessionActive(ctx, client, "user-1", claims.SessionID)
 	if err != nil || !active {
 		t.Fatalf("新登录会话应有效: %v", err)
 	}
-	hgExpectNoRecoveryCutoff(mock, "user-1")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock, "user-1", 0, false)
 	refreshed, err := RefreshToken(ctx, client, pair.RefreshToken)
 	if err != nil {
 		t.Fatalf("有效会话应能续签: %v", err)
@@ -133,14 +131,12 @@ func TestHGSessionRevocationBlocksRefresh(t *testing.T) {
 	if ttl := hook.ttl[PersistenceRedisPackage.AuthRefreshKey+"user-1:"+originalRefresh.JTI]; ttl != RefreshTTL {
 		t.Fatalf("refresh TTL 应滑动重置至 30 天: %v", ttl)
 	}
-	hgExpectNoRecoveryCutoff(mock, "user-1")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock, "user-1", 0, false)
 	again, err := RefreshToken(ctx, client, pair.RefreshToken)
 	if err != nil || again.RefreshToken != pair.RefreshToken || again.AccessToken == refreshed.AccessToken {
 		t.Fatalf("同一 refresh 必须可重复续期且每次签发新 access: %v", err)
 	}
-	hgExpectNoRecoveryCutoff(mock, "user-1")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}).AddRow(1))
+	hgExpectSessionAuthority(mock, "user-1", 0, true)
 	active, err = HGSessionActive(ctx, client, "user-1", claims.SessionID)
 	if err != nil || active {
 		t.Fatalf("MySQL 标记强制下线后 access 应立即失效: %v", err)
@@ -172,7 +168,7 @@ func TestHGRefreshIdleExpiryAndOldAccess(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	client.AddHook(hook)
 	defer client.Close()
-	pair, err := GenerateTokens(ctx, client, "user-2", "", "user")
+	pair, err := hgNewSessionTokens(ctx, client, "user-2", "", "user", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,8 +176,7 @@ func TestHGRefreshIdleExpiryAndOldAccess(t *testing.T) {
 	if _, err := jwt.ParseWithClaims(pair.RefreshToken, claims, func(t *jwt.Token) (any, error) { return Secret, nil }); err != nil {
 		t.Fatal(err)
 	}
-	hgExpectNoRecoveryCutoff(mock, "user-2")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-2", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock, "user-2", 0, false)
 	if _, err := RefreshToken(ctx, client, pair.RefreshToken); err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +186,7 @@ func TestHGRefreshIdleExpiryAndOldAccess(t *testing.T) {
 		t.Fatalf("旧 access 仍须在原有效期及会话存活期间有效: %v", err)
 	}
 	delete(hook.keys, PersistenceRedisPackage.AuthRefreshKey+"user-2:"+claims.JTI)
-	hgExpectNoRecoveryCutoff(mock, "user-2")
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-2", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock, "user-2", 0, false)
 	if _, err := RefreshToken(ctx, client, pair.RefreshToken); err == nil {
 		t.Fatal("闲置超过 30 天后 refresh 状态到期不得续期")
 	}
@@ -210,7 +204,7 @@ func TestHGAuthSessionCapEvictsOldest(t *testing.T) {
 	defer client.Close()
 	var first *TokenPair
 	for i := 0; i < 101; i++ {
-		pair, err := GenerateTokens(ctx, client, "user-3", "", "user")
+		pair, err := hgNewSessionTokens(ctx, client, "user-3", "", "user", 0)
 		if err != nil {
 			t.Fatal(err)
 		}

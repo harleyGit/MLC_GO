@@ -68,8 +68,8 @@ func hgConfigureDeleteFenceTest(t *testing.T) sqlmock.Sqlmock {
 
 // 根路由测试为服务端会话点查提供一条明确可撤销的活动会话。
 func hgExpectActivePermissionSession(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("trusted-user").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("trusted-user", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	mock.ExpectQuery(SQL.HGSelectAuthSessionAuthority).WithArgs("trusted-user", sqlmock.AnyArg(), "trusted-user").
+		WillReturnRows(sqlmock.NewRows([]string{"generation", "forced"}).AddRow(0, false))
 }
 
 type hgRouteAuthorizerStub struct {

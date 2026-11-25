@@ -121,6 +121,30 @@ func (g *HGCentrifugo) HGDisconnectIAMSession(ctx context.Context, userID, sessi
 	return nil
 }
 
+// HGDisconnectIAMSessions 批量关闭恢复前的连接，不影响同一用户重新登录的新会话。
+func (g *HGCentrifugo) HGDisconnectIAMSessions(ctx context.Context, userID string, sessionIDs []string) error {
+	if userID == "" || len(sessionIDs) == 0 || len(sessionIDs) > 101 {
+		return fmt.Errorf("IAM 会话批次无效")
+	}
+	pipe := g.sdk.Pipe()
+	for _, sid := range sessionIDs {
+		if len(sid) != 32 || pipe.AddDisconnect("iam/"+userID+"/"+sid) != nil {
+			return fmt.Errorf("IAM 登录会话无效")
+		}
+	}
+	results, err := g.sdk.SendPipe(ctx, pipe)
+	if err != nil || len(results) != len(sessionIDs) {
+		return fmt.Errorf("IAM 网关未确认断开会话")
+	}
+	for _, result := range results {
+		var acknowledgement map[string]any
+		if result.Error != nil || json.Unmarshal(result.Result, &acknowledgement) != nil || acknowledgement == nil {
+			return fmt.Errorf("IAM 网关未确认断开会话")
+		}
+	}
+	return nil
+}
+
 // HGPublishUser 发布服务端选择的本人业务频道事件（权限快照或无正文通知提示）；网关确认不是设备 ACK。
 func (g *HGCentrifugo) HGPublishUser(ctx context.Context, userID string, payload json.RawMessage) error {
 	pipe := g.sdk.Pipe()

@@ -32,6 +32,12 @@ type RedisService struct {
 	client     *redis.Client
 	defaultCtx context.Context
 }
+
+// HGNewRedisServiceWithClient 注入已配置的客户端；服务 Close 时会关闭该客户端。
+func HGNewRedisServiceWithClient(client *redis.Client) *RedisService {
+	return &RedisService{client: client, defaultCtx: context.Background()}
+}
+
 type options struct {
 	ctx        context.Context
 	timeout    time.Duration

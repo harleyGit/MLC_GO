@@ -268,6 +268,12 @@ func buildMLCApplication() (*MLCApplication, error) {
 		HGLoggerPackage.CloseLogger()
 		return nil, fmt.Errorf("数据库初始化失败: %w", err)
 	}
+	if err := UserServicePackage.HGCheckAuthRecoverySchema(context.Background(), sqlManager.GetSQLDB()); err != nil {
+		_ = sqlManager.Close()
+		_ = redisService.Close()
+		HGLoggerPackage.CloseLogger()
+		return nil, err
+	}
 	// Kafka 消费与业务 HTTP 共用一套提示器；网关初始化前仍先保证权威通知入箱。
 	notificationHints := NotificationPackage.HGNewHints()
 

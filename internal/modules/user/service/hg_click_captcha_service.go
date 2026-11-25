@@ -166,7 +166,13 @@ func (s *ClickCaptchaService) VerifyCaptcha(ctx context.Context, req *ClickCaptc
 
 	// 验证通过，删除已使用的验证码。
 	// 这一步保证同一个 captchaID 只能被验证一次，避免用户或脚本复用同一张图片反复换取 verifyToken。
-	s.redisService.DeleteFromRedis(key, ctx)
+	removed, err := s.redisService.Client().Del(ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("consume captcha: %w", err)
+	}
+	if removed != 1 {
+		return &ClickCaptchaVerifyResponse{Valid: false}, nil
+	}
 
 	// 生成验证 token。
 	// verifyToken 是给 send_code / send_email_code 使用的一次性凭证，不等同于登录 token。
@@ -185,32 +191,23 @@ func (s *ClickCaptchaService) VerifyCaptcha(ctx context.Context, req *ClickCaptc
 
 // ValidateVerifyToken 验证点选验证码的 token 是否有效。
 func (s *ClickCaptchaService) ValidateVerifyToken(ctx context.Context, verifyToken string) (bool, error) {
-	if s == nil || s.redisService == nil {
+	if s == nil || s.redisService == nil || s.redisService.Client() == nil {
 		return false, fmt.Errorf("captcha service not initialized")
 	}
 
-	if verifyToken == "" {
+	if verifyToken == "" || len(verifyToken) > 128 {
 		return false, nil
 	}
 
 	// token key 与 captcha key 分开前缀，避免图片验证码数据和验证通过凭证混用。
 	// 这里只关心 token 是否存在，不需要解析 value；value 当前固定为 "1"。
 	key := clickCaptchaTokenPrefix + verifyToken
-	val, err := s.redisService.GetFromRedisV2(key, ctx)
+	removed, err := s.redisService.Client().Del(ctx, key).Result()
 	if err != nil {
-		return false, fmt.Errorf("get verify token from redis: %w", err)
+		return false, fmt.Errorf("consume verify token: %w", err)
 	}
 
-	if val == "" {
-		return false, nil
-	}
-
-	// 验证通过后删除 token（一次性使用）。
-	// 在高并发下，这里后续可进一步收敛为 Redis Lua：GET+DEL 原子执行，避免同一 token 极短时间内并发双花。
-	// 当前逻辑已经满足普通注册发送验证码流程；如果该接口成为热点，应升级为 Lua 原子消费。
-	s.redisService.DeleteFromRedis(key, ctx)
-
-	return true, nil
+	return removed == 1, nil
 }
 
 // parseCaptchaData 解析 Redis 中保存的点选验证码数据。

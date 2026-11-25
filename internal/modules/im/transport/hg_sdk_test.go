@@ -122,6 +122,40 @@ func TestHGCentrifugoUserNotificationHintUsesPrivateChannel(t *testing.T) {
 	}
 }
 
+func TestHGCentrifugoMFARecoveryDisconnectIsSessionScoped(t *testing.T) {
+	oldSessions := []string{strings.Repeat("1", 32), strings.Repeat("2", 32)}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		for _, sid := range oldSessions {
+			var command struct {
+				Method string `json:"method"` // 网关批量命令中的单项动作。
+				Params struct {
+					User string `json:"user"` // 仅断开指定会话的合成用户。
+				} `json:"params"`
+			}
+			if err := decoder.Decode(&command); err != nil || command.Method != "disconnect" || command.Params.User != "iam/fixture-user/"+sid {
+				t.Error("恢复下线未限定为明确的旧会话")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err == nil {
+			t.Error("不得额外断开其他会话")
+		}
+		_, _ = w.Write([]byte("{\"result\":{}}\n{\"result\":{}}\n"))
+	}))
+	defer server.Close()
+	gateway, err := HGNewCentrifugo(server.URL, strings.Repeat("k", 16), strings.Repeat("s", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gateway.HGClose()
+	if err := gateway.HGDisconnectIAMSessions(context.Background(), "fixture-user", oldSessions); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHGLiveKitSDKJoinTokenHasMinimalGrant(t *testing.T) {
 	secret := strings.Repeat("s", 32)
 	client, err := HGNewLiveKit("http://127.0.0.1:7880", "fixture", secret)

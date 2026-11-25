@@ -30,7 +30,7 @@ type HGDeviceDelivery struct {
 
 // HGRegisterDevice 串行检查用户活跃设备上限；30 天未活动设备不参与投递，历史由会话补拉。
 func (s *HGService) HGRegisterDevice(ctx context.Context, user string) (HGDeviceCredential, error) {
-	return s.hgRegisterDevice(ctx, user, "")
+	return s.hgRegisterDevice(ctx, user, "", 0)
 }
 
 // HGRegisterSessionDevice 将设备绑定已验证的登录会话；达到上限时优先替换本会话设备，旧版设备仅撤销 IM 凭据。
@@ -39,14 +39,14 @@ func (s *HGService) HGRegisterSessionDevice(ctx context.Context, user, sessionID
 	if decodeErr != nil || len(decoded) != 16 || s == nil || s.sessions == nil {
 		return HGDeviceCredential{}, HGErrInvalid
 	}
-	active, err := UserServicePackage.HGSessionActive(ctx, s.sessions, user, sessionID)
+	generation, active, err := UserServicePackage.HGActiveSessionGeneration(ctx, s.sessions, user, sessionID)
 	if err != nil || !active {
 		return HGDeviceCredential{}, HGErrForbidden
 	}
-	return s.hgRegisterDevice(ctx, user, sessionID)
+	return s.hgRegisterDevice(ctx, user, sessionID, generation)
 }
 
-func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string) (HGDeviceCredential, error) {
+func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string, generation uint64) (HGDeviceCredential, error) {
 	if s == nil || s.db == nil || user == "" || len(user) > 128 {
 		return HGDeviceCredential{}, HGErrInvalid
 	}
@@ -74,13 +74,14 @@ func (s *HGService) hgRegisterDevice(ctx context.Context, user, sessionID string
 	}
 	if sessionID != "" {
 		decoded, _ := hex.DecodeString(sessionID) // 入口已验证为 16 字节十六进制。
-		var forced int
-		checkErr := tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMForcedLogoutSQL, user, decoded).Scan(&forced)
-		if checkErr == nil {
-			return HGDeviceCredential{}, HGErrForbidden
-		}
-		if !errors.Is(checkErr, sql.ErrNoRows) {
+		var current uint64
+		var forced bool
+		checkErr := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectAuthSessionAuthority, user, decoded, user).Scan(&current, &forced)
+		if checkErr != nil {
 			return HGDeviceCredential{}, checkErr
+		}
+		if forced || current != generation {
+			return HGDeviceCredential{}, HGErrForbidden
 		}
 	}
 	rows, err := tx.QueryContext(ctx, SQLQueriesPackage.HGIMActiveDevicesSQL, user)

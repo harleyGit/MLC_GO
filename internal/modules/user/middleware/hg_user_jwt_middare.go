@@ -94,14 +94,14 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
 				return
 			}
-			active, sessionErr := UserServicePackage.HGSessionActive(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
+			generation, active, sessionErr := UserServicePackage.HGActiveSessionGeneration(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
 			if sessionErr != nil || !active {
 				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), UserIDKey, claims)
+			ctx := context.WithValue(UserServicePackage.HGContextWithSessionGeneration(r.Context(), generation), UserIDKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		},
 	)

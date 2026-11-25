@@ -66,8 +66,8 @@ func TestAuthMiddlewareRejectsEvictedSession(t *testing.T) {
 	}{{true, http.StatusNoContent}, {false, http.StatusUnauthorized}} {
 		hook.active = tc.active
 		if tc.active {
-			mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-			mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+			mock.ExpectQuery(SQL.HGSelectAuthSessionAuthority).WithArgs("user-1", sqlmock.AnyArg(), "user-1").
+				WillReturnRows(sqlmock.NewRows([]string{"generation", "forced"}).AddRow(0, false))
 		}
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/im/conversations", nil)
 		request.Header.Set("Authorization", "Bearer "+signed)

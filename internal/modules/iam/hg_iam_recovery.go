@@ -1,206 +1,283 @@
 package iam
 
 import (
-	ConfigPackage "MLC_GO/internal/pkg/config"
-	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
-	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
-	UtilsPackage "MLC_GO/internal/pkg/utils"
+	UserService "MLC_GO/internal/modules/user/service"
+	Config "MLC_GO/internal/pkg/config"
+	Mail "MLC_GO/internal/pkg/email"
+	"MLC_GO/internal/pkg/logHG"
+	SQL "MLC_GO/internal/pkg/mysql/queries"
+	Redis "MLC_GO/internal/pkg/redis"
+	Utils "MLC_GO/internal/pkg/utils"
 	"context"
-	"crypto/rand"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
-	"net/mail"
+	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
-// HGRecoveryStatus 是本人 MFA 恢复状态协议；不返回完整邮箱或验证码。
+const (
+	hgRecoveryBind  = 1
+	hgRecoveryReset = 2
+)
+
+var (
+	hgErrRecoveryMFA      = errors.New("请先绑定并启用 MFA")
+	hgErrRecoveryEmail    = errors.New("尚无已验证的恢复邮箱")
+	hgErrRecoveryCooldown = errors.New("恢复邮箱尚在冷却期")
+	hgErrRecoveryCode     = errors.New("邮件验证码错误、已过期或已使用")
+	hgErrRecoveryFactor   = errors.New("MFA 动态码无效或已使用，请使用新的动态码")
+	hgErrRecoveryPassword = errors.New("当前登录密码不正确")
+	hgErrRecoveryTaken    = errors.New("此邮箱无法绑定，请使用其他邮箱")
+	hgErrRecoveryChanged  = errors.New("安全设置已变化，请重新登录或重试")
+	hgErrRecoveryDisabled = errors.New("MFA 找回暂未开放，请联系管理员")
+)
+
+// HGRecoveryStatus 是本人安全中心响应，仅包含邮箱掩码和 UTC 生效时间。
 type HGRecoveryStatus struct {
-	MFAEnabled    bool       `json:"mfaEnabled"`    // true 表示当前因子已激活；尚未绑定时为 false。
-	EmailVerified bool       `json:"emailVerified"` // true 表示邮箱码已通过绑定，非邮件发送成功。
-	EmailMasked   string     `json:"emailMasked"`   // 仅供本人识别的邮箱掩码，未绑定时为空。
-	AvailableAt   *time.Time `json:"availableAt"`   // 恢复能力生效时间；未绑定时为 null。
+	MFAEnabled    bool       `json:"mfaEnabled"`    // 是否启用了当前 MFA 因子。
+	EmailVerified bool       `json:"emailVerified"` // 是否已有验证成功的恢复邮箱。
+	EmailMasked   string     `json:"emailMasked"`   // 邮箱掩码，未绑定时为空。
+	AvailableAt   *time.Time `json:"availableAt"`   // UTC 冷却期截止时间，未绑定时为 null。
+	ResetEnabled  bool       `json:"resetEnabled"`  // 部署已确认所有实例校验代际时才启用找回。
 }
 
-func hgRecoveryEmailValid(email string) bool {
-	if email == "" || len(email) > 255 || strings.ContainsAny(email, "\r\n ,<>") {
-		return false
-	}
-	parsed, err := mail.ParseAddress(email)
-	return err == nil && parsed.Address == email
+type hgRecoveryEmail struct {
+	address   string    // 已验证收件地址。
+	available time.Time // UTC 生效时间，同时将找回码绑定到本次邮箱验证。
+	ready     bool      // 由 MySQL 权威时间判断是否过了冷却期。
 }
 
-func hgRecoveryMasked(email string) string {
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 {
-		return ""
-	}
-	return parts[0][:1] + "***@" + parts[1]
+func hgReadRecoveryEmail(row *sql.Row) (hgRecoveryEmail, error) {
+	var current hgRecoveryEmail
+	err := row.Scan(&current.address, &current.available, &current.ready)
+	return current, err
 }
 
-func (s *HGService) hgRecoveryDeps(user string) error {
-	if s == nil || s.repo == nil || s.repo.db == nil || s.repo.cache == nil ||
-		s.repo.cache.Client() == nil || !hgValidText(user, 64) {
-		return ErrHGForbidden
-	}
-	return nil
-}
-
-// HGOwnRecoveryStatus 只查询本人 MFA 与已验证邮箱，按两个主键点查，不发送任何邮件。
-func (s *HGService) HGOwnRecoveryStatus(ctx context.Context, user string) (HGRecoveryStatus, error) {
-	var status HGRecoveryStatus
-	if err := s.hgRecoveryDeps(user); err != nil {
-		return status, err
-	}
+func (s *HGService) hgRecoveryMFAEnabled(ctx context.Context, user string) (bool, error) {
 	var enabled bool
-	err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMMFAEnabled, user).Scan(&enabled)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	err := s.repo.db.QueryRowContext(ctx, SQL.HGSelectIAMMFAEnabled, user).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// HGOwnRecoveryStatus 只读取本人状态，不依赖发信服务或恢复限流。
+func (s *HGService) HGOwnRecoveryStatus(ctx context.Context, user string) (HGRecoveryStatus, error) {
+	status := HGRecoveryStatus{ResetEnabled: hgRecoveryResetEnabled()}
+	if s == nil || s.repo == nil || s.repo.db == nil || user == "" {
+		return status, ErrHGForbidden
+	}
+	var err error
+	if status.MFAEnabled, err = s.hgRecoveryMFAEnabled(ctx, user); err != nil {
 		return status, err
 	}
-	status.MFAEnabled = err == nil && enabled
-	var email string
-	var verified, available time.Time
-	err = s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryEmail, user).Scan(&email, &verified, &available)
+	current, err := hgReadRecoveryEmail(s.repo.db.QueryRowContext(ctx, SQL.HGSelectRecoveryEmail, user))
 	if errors.Is(err, sql.ErrNoRows) {
 		return status, nil
 	}
 	if err != nil {
 		return status, err
 	}
-	status.EmailVerified, status.EmailMasked, status.AvailableAt = true, hgRecoveryMasked(email), &available
+	_, domain, _ := strings.Cut(current.address, "@")
+	available := current.available.UTC()
+	status.EmailVerified, status.EmailMasked, status.AvailableAt = true, "***@"+domain, &available
 	return status, nil
 }
 
-func (s *HGService) hgSendRecoveryCode(ctx context.Context, user, email, purpose string) error {
-	if s.hgRecoverySender == nil {
-		return errors.New("邮件服务暂不可用")
+func (s *HGService) hgRecoveryContext(ctx context.Context, user string) (uint64, error) {
+	generation, ok := UserService.HGSessionGenerationFromContext(ctx)
+	if !ok || user == "" || s == nil || s.repo == nil || s.repo.db == nil {
+		return 0, ErrHGForbidden
+	}
+	return generation, nil
+}
+
+// hgLockRecoveryAccount 与 IM 设备登记按同一 users 点锁串行；在 MFA 或恢复表之前获得。
+func hgLockRecoveryAccount(ctx context.Context, tx *sql.Tx, user string, generation uint64) (hash, salt sql.NullString, err error) {
+	if err = tx.QueryRowContext(ctx, SQL.HGLockRecoveryAccount, user).Scan(&hash, &salt); err != nil {
+		return
+	}
+	var current uint64
+	if err = tx.QueryRowContext(ctx, SQL.HGSelectRecoveryGeneration, user).Scan(&current); err == nil && current != generation {
+		err = hgErrRecoveryChanged
+	}
+	return
+}
+
+// hgRecoveryDigest 的域隔离绑定账号、代际、用途和邮箱；数据库不保存可直接使用的短验证码。
+func hgRecoveryDigest(user string, generation uint64, purpose int, email hgRecoveryEmail, code string) ([]byte, error) {
+	key, err := hgMFAKey()
+	if err != nil {
+		return nil, err
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = fmt.Fprintf(mac, "mlc-mfa-recovery-v1\x00%s\x00%d\x00%d\x00%s\x00%d\x00%s",
+		user, generation, purpose, email.address, email.available.UnixMilli(), code)
+	return mac.Sum(nil), nil
+}
+
+func (s *HGService) hgSendRecoveryCode(ctx context.Context, user string, generation uint64, email hgRecoveryEmail, purpose int) error {
+	if s.hgRecoverySender == nil || s.repo.cache == nil || s.repo.cache.Client() == nil {
+		return Mail.HGErrUnavailable
 	}
 	rdb := s.repo.cache.Client()
-	limit := PersistenceRedisPackage.HGRecoveryCodeKey(user, "send-limit")
-	allowed, err := rdb.SetNX(ctx, limit, "1", time.Minute).Result()
+	ok, err := rdb.SetNX(ctx, Redis.HGRecoveryCodeKey(user, "send-limit"), "1", time.Minute).Result()
 	if err != nil {
 		return err
 	}
-	if !allowed {
-		return ErrHGForbidden
+	if !ok {
+		return Mail.HGErrRateLimited
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err := Mail.HGAdmitCodeSend(ctx, rdb, email.address); err != nil {
+		return err
+	}
+	code, err := Mail.HGNewCode()
 	if err != nil {
 		return err
 	}
-	code := fmt.Sprintf("%06d", n.Int64())
-	key := PersistenceRedisPackage.HGRecoveryCodeKey(user, purpose+"|"+strings.ToLower(email))
-	if err := rdb.Set(ctx, key, code, 5*time.Minute).Err(); err != nil {
+	digest, err := hgRecoveryDigest(user, generation, purpose, email, code)
+	if err != nil {
 		return err
 	}
-	if err := s.hgRecoverySender.SendCode(ctx, email, code); err != nil {
-		_ = rdb.Eval(ctx, PersistenceRedisPackage.HGEmailDiscardCodeLua, []string{key}, code).Err()
-		return errors.New("邮件发送失败")
+	if err := s.hgRecoverySender.SendCode(ctx, email.address, code); err != nil {
+		return Mail.HGErrUnavailable
 	}
-	return nil
+	// 未获得 SMTP 接受确认时不使新码生效；任意外部 I/O 均在事务外。
+	_, err = s.repo.db.ExecContext(ctx, SQL.HGSaveRecoveryChallenge, user, purpose, digest)
+	return err
 }
 
-// HGSendOwnRecoveryBindCode 为本人新邮箱发送验证码；只有已启用 MFA 的账号可以绑定。
+// HGSendOwnRecoveryBindCode 为本人新邮箱发送验证码；要求已启用 MFA。
 func (s *HGService) HGSendOwnRecoveryBindCode(ctx context.Context, user, email string) error {
-	if err := s.hgRecoveryDeps(user); err != nil {
-		return err
-	}
-	email = strings.ToLower(strings.TrimSpace(email))
-	if !hgRecoveryEmailValid(email) {
-		return ErrHGInvalid
-	}
-	var enabled bool
-	if err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMMFAEnabled, user).Scan(&enabled); err != nil || !enabled {
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		return ErrHGForbidden
-	}
-	return s.hgSendRecoveryCode(ctx, user, email, "bind")
-}
-
-// HGSendOwnRecoveryResetCode 仅向权威已绑定邮箱发送，不接受客户端指定收件人。
-func (s *HGService) HGSendOwnRecoveryResetCode(ctx context.Context, user string) error {
-	if err := s.hgRecoveryDeps(user); err != nil {
-		return err
-	}
-	var email string
-	var verified, available time.Time
-	if err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryEmail, user).Scan(&email, &verified, &available); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHGForbidden
-		}
-		return err
-	}
-	if time.Now().Before(available) {
-		return ErrHGForbidden
-	}
-	var enabled bool
-	if err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMMFAEnabled, user).Scan(&enabled); err != nil || !enabled {
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		return ErrHGForbidden
-	}
-	return s.hgSendRecoveryCode(ctx, user, email, "reset")
-}
-
-func (s *HGService) hgConsumeRecoveryCode(ctx context.Context, user, email, purpose, code string) error {
-	if len(code) != 6 {
-		return ErrHGInvalid
-	}
-	for _, ch := range code {
-		if ch < '0' || ch > '9' {
-			return ErrHGInvalid
-		}
-	}
-	key := PersistenceRedisPackage.HGRecoveryCodeKey(user, purpose+"|"+strings.ToLower(email))
-	n, err := s.repo.cache.Client().Eval(ctx, PersistenceRedisPackage.HGEmailVerifyCodeLua,
-		[]string{key, PersistenceRedisPackage.HGRecoveryCodeKey(user, purpose+"-attempt")}, code).Int()
+	generation, err := s.hgRecoveryContext(ctx, user)
 	if err != nil {
 		return err
 	}
-	if n != 1 {
-		return ErrHGForbidden
+	address, err := Mail.HGNormalizeAddress(email)
+	if err != nil {
+		return ErrHGInvalid
 	}
-	return nil
-}
-
-func hgRecoveryCooldown() time.Duration {
-	if ConfigPackage.GetEnv() == ConfigPackage.EnvDebug {
-		return time.Minute
-	}
-	return time.Hour
-}
-
-// HGBindOwnRecoveryEmail 使用邮件码与已启用的本人 TOTP 同事务写入已验证状态；更换邮箱重置冷却期。
-func (s *HGService) HGBindOwnRecoveryEmail(ctx context.Context, user, email, emailCode, mfaCode string) error {
-	if err := s.hgRecoveryDeps(user); err != nil {
+	enabled, err := s.hgRecoveryMFAEnabled(ctx, user)
+	if err != nil {
 		return err
 	}
-	email = strings.ToLower(strings.TrimSpace(email))
-	if !hgRecoveryEmailValid(email) || len(mfaCode) != 6 {
+	if !enabled {
+		return hgErrRecoveryMFA
+	}
+	return s.hgSendRecoveryCode(ctx, user, generation, hgRecoveryEmail{address: address}, hgRecoveryBind)
+}
+
+// HGSendOwnRecoveryResetCode 只发送到本人已验证且过了冷却期的邮箱。
+func (s *HGService) HGSendOwnRecoveryResetCode(ctx context.Context, user string) error {
+	generation, err := s.hgRecoveryContext(ctx, user)
+	if err != nil {
+		return err
+	}
+	if !hgRecoveryResetEnabled() {
+		return hgErrRecoveryDisabled
+	}
+	enabled, err := s.hgRecoveryMFAEnabled(ctx, user)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return hgErrRecoveryMFA
+	}
+	email, err := hgReadRecoveryEmail(s.repo.db.QueryRowContext(ctx, SQL.HGSelectRecoveryEmail, user))
+	if errors.Is(err, sql.ErrNoRows) {
+		return hgErrRecoveryEmail
+	}
+	if err != nil {
+		return err
+	}
+	if !email.ready {
+		return hgErrRecoveryCooldown
+	}
+	return s.hgSendRecoveryCode(ctx, user, generation, email, hgRecoveryReset)
+}
+
+func hgConsumeRecoveryChallenge(ctx context.Context, tx *sql.Tx, user string, generation uint64, purpose int, email hgRecoveryEmail, code string) error {
+	digest, err := hgRecoveryDigest(user, generation, purpose, email, code)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, SQL.HGConsumeRecoveryChallenge, user, purpose, digest)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n != 1 {
+		return hgErrRecoveryCode
+	}
+	return err
+}
+
+func hgRecoveryCooldown() int {
+	if Config.GetEnv() == Config.EnvDebug {
+		return 60
+	}
+	return 3600
+}
+
+func hgRecoveryResetEnabled() bool {
+	return Config.GetEnv() == Config.EnvDebug || os.Getenv("MLC_MFA_RECOVERY_RESET_ENABLED") == "1"
+}
+
+// HGBindOwnRecoveryEmail 在同一短事务消费邮件码、MFA 时间步并写入已验证邮箱。
+func (s *HGService) HGBindOwnRecoveryEmail(ctx context.Context, user, email, emailCode, mfaCode string) error {
+	generation, err := s.hgRecoveryContext(ctx, user)
+	if err != nil {
+		return err
+	}
+	address, err := Mail.HGNormalizeAddress(email)
+	if err != nil || !Mail.HGValidCode(emailCode) || !Mail.HGValidCode(mfaCode) {
 		return ErrHGInvalid
 	}
 	if err := s.hgLimitMFA(ctx, user); err != nil {
 		return err
 	}
-	if err := s.hgConsumeRecoveryCode(ctx, user, email, "bind", emailCode); err != nil {
-		return err
-	}
-	tx, err := s.repo.db.BeginTx(ctx, nil)
+	tx, err := s.repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := s.hgConsumeMFATx(ctx, tx, user, mfaCode); err != nil {
+	if _, _, err := hgLockRecoveryAccount(ctx, tx, user, generation); err != nil {
 		return err
 	}
-	available := time.Now().Add(hgRecoveryCooldown())
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGUpsertRecoveryEmail, user, email, available); err != nil {
+	if err := hgConsumeRecoveryChallenge(ctx, tx, user, generation, hgRecoveryBind, hgRecoveryEmail{address: address}, emailCode); err != nil {
+		return err
+	}
+	if err := s.hgConsumeMFATx(ctx, tx, user, mfaCode); err != nil {
+		if errors.Is(err, ErrHGForbidden) || errors.Is(err, ErrHGConflict) {
+			return hgErrRecoveryFactor
+		}
+		return err
+	}
+	current, err := hgReadRecoveryEmail(tx.QueryRowContext(ctx, SQL.HGSelectRecoveryEmailForUpdate, user))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		_, err = tx.ExecContext(ctx, SQL.HGInsertRecoveryEmail, user, address, hgRecoveryCooldown())
+	case err == nil && current.address != address:
+		_, err = tx.ExecContext(ctx, SQL.HGUpdateRecoveryEmail, address, hgRecoveryCooldown(), user)
+	}
+	if err != nil {
+		var duplicate *mysql.MySQLError
+		if errors.As(err, &duplicate) && duplicate.Number == 1062 {
+			return hgErrRecoveryTaken
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, SQL.HGClearRecoveryChallenges, user); err != nil {
 		return err
 	}
 	if err := hgAudit(ctx, tx, user, "iam.mfa.recovery.bind", "user", user, "recovery-bind", map[string]any{}); err != nil {
@@ -209,67 +286,121 @@ func (s *HGService) HGBindOwnRecoveryEmail(ctx context.Context, user, email, ema
 	return tx.Commit()
 }
 
-// HGResetOwnMFA 用登录密码及预绑定邮箱的一次性邮件码失效旧 MFA；旧会话在 MySQL 撤销水位处失败关闭。
+// HGResetOwnMFA 复核当前密码并原子消费已验证邮箱码、删除旧因子、推进代际和撤销活跃 IM 设备。
 func (s *HGService) HGResetOwnMFA(ctx context.Context, user, password, emailCode string) error {
-	if err := s.hgRecoveryDeps(user); err != nil {
+	generation, err := s.hgRecoveryContext(ctx, user)
+	if err != nil {
 		return err
 	}
-	if len(password) == 0 || len(password) > 256 {
+	if !hgRecoveryResetEnabled() {
+		return hgErrRecoveryDisabled
+	}
+	if len(password) == 0 || len(password) > 256 || !Mail.HGValidCode(emailCode) {
 		return ErrHGInvalid
 	}
 	if err := s.hgLimitMFA(ctx, user); err != nil {
 		return err
 	}
-	var hash, salt sql.NullString
-	if err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMPassword, user).Scan(&hash, &salt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHGForbidden
-		}
-		return err
-	}
-	if !hash.Valid || !salt.Valid || subtle.ConstantTimeCompare([]byte(UtilsPackage.HashPassword(password, salt.String)), []byte(hash.String)) != 1 {
-		return ErrHGForbidden
-	}
-	var expectedEmail string
-	var verified, expectedAvailable time.Time
-	if err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryEmail, user).Scan(&expectedEmail, &verified, &expectedAvailable); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHGForbidden
-		}
-		return err
-	}
-	if time.Now().Before(expectedAvailable) {
-		return ErrHGForbidden
-	}
-	if err := s.hgConsumeRecoveryCode(ctx, user, expectedEmail, "reset", emailCode); err != nil {
-		return err
-	}
-	tx, err := s.repo.db.BeginTx(ctx, nil)
+	tx, err := s.repo.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var email string
-	var available time.Time
-	if err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryEmailForUpdate, user).Scan(&email, &available); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrHGForbidden
-		}
+	hash, salt, err := hgLockRecoveryAccount(ctx, tx, user, generation)
+	if err != nil {
 		return err
 	}
-	if email != expectedEmail || time.Now().Before(available) {
-		return ErrHGForbidden
+	if !hash.Valid || !salt.Valid || subtle.ConstantTimeCompare([]byte(Utils.HashPassword(password, salt.String)), []byte(hash.String)) != 1 {
+		return hgErrRecoveryPassword
 	}
-	if res, err := tx.ExecContext(ctx, SQLQueriesPackage.HGResetRecoveryMFA, []byte{}, user); err != nil {
+	email, err := hgReadRecoveryEmail(tx.QueryRowContext(ctx, SQL.HGSelectRecoveryEmailForUpdate, user))
+	if errors.Is(err, sql.ErrNoRows) {
+		return hgErrRecoveryEmail
+	}
+	if err != nil {
 		return err
-	} else if n, err := res.RowsAffected(); err != nil || n != 1 {
-		return ErrHGConflict
 	}
-	if _, err := tx.ExecContext(ctx, SQLQueriesPackage.HGRevokeRecoverySessions, user); err != nil {
+	if !email.ready {
+		return hgErrRecoveryCooldown
+	}
+	if err := hgConsumeRecoveryChallenge(ctx, tx, user, generation, hgRecoveryReset, email, emailCode); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, SQL.HGResetRecoveryMFA, user)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return hgErrRecoveryMFA
+	}
+	if _, err := tx.ExecContext(ctx, SQL.HGRevokeRecoverySessions, user); err != nil {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, SQL.HGRevokeRecoveryIMDevices, user)
+	if err != nil {
+		return err
+	}
+	n, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 5 {
+		return fmt.Errorf("活跃 IM 设备超过预期上限")
+	}
+	if _, err := tx.ExecContext(ctx, SQL.HGClearRecoveryChallenges, user); err != nil {
 		return err
 	}
 	if err := hgAudit(ctx, tx, user, "iam.mfa.recovery.reset", "user", user, "recovery-reset", map[string]any{}); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+type hgRecoverySocketBatch interface {
+	HGDisconnectIAMSessions(context.Context, string, []string) error
+}
+
+// hgDisconnectRecoveredSessions 尽力关闭已建连的网关连接；权威撤销先提交，不依赖网关或 Redis 清理。
+func (s *HGService) hgDisconnectRecoveredSessions(ctx context.Context, user, callerSID string) {
+	gateway, ok := s.realtime.(hgRecoverySocketBatch)
+	if !ok {
+		return
+	}
+	generation, _ := UserService.HGSessionGenerationFromContext(ctx)
+	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), 1200*time.Millisecond)
+	defer cancel()
+	sids := []string{callerSID} // 即使 Redis 索引不可读，也尽力关闭本次请求的连接。
+	if s.repo.cache != nil && s.repo.cache.Client() != nil {
+		rdb := s.repo.cache.Client()
+		lookup, stop := context.WithTimeout(bounded, 300*time.Millisecond)
+		indexed, err := rdb.ZRange(lookup, Redis.HGAuthSessionIndexKey+user, 0, 99).Result()
+		keys := make([]string, 0, len(indexed))
+		valid := make([]string, 0, len(indexed))
+		for _, sid := range indexed {
+			if decoded, decodeErr := hex.DecodeString(sid); decodeErr == nil && len(decoded) == 16 && sid != callerSID {
+				valid = append(valid, sid)
+				keys = append(keys, Redis.HGAuthSessionProofKey+user+":"+sid)
+			}
+		}
+		if err == nil && len(keys) > 0 {
+			values, err := rdb.MGet(lookup, keys...).Result()
+			if err == nil {
+				for i, value := range values {
+					proof, _ := value.(string)
+					current, parseErr := strconv.ParseUint(proof, 10, 64)
+					if value == nil || (parseErr == nil && current <= generation) {
+						sids = append(sids, valid[i])
+					}
+				}
+			}
+		}
+		stop()
+	}
+	if err := gateway.HGDisconnectIAMSessions(bounded, user, sids); err != nil {
+		logHG.ErrInfo("MFA 恢复后网关关闭未确认，旧会话已由权威代际撤销")
+	}
 }

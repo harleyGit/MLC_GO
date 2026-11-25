@@ -10,7 +10,6 @@ import (
 	Redis "MLC_GO/internal/pkg/redis"
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -146,16 +145,14 @@ func TestHGDebugIAMProxyRejectsRevokedSession(t *testing.T) {
 	UserService.HGConfigureSessionDB(db)
 	defer UserService.HGConfigureSessionDB(nil)
 	sessionBytes, _ := hex.DecodeString(sid)
-	mock.ExpectQuery(regexp.QuoteMeta(Queries.HGSelectRecoveryRevokedAt)).WithArgs(user).
-		WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-	mock.ExpectQuery(regexp.QuoteMeta(Queries.HGIMForcedLogoutSQL)).
-		WithArgs(user, sessionBytes).
-		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(Queries.HGSelectAuthSessionAuthority)).
+		WithArgs(user, sessionBytes, user).
+		WillReturnRows(sqlmock.NewRows([]string{"generation", "forced"}).AddRow(0, false))
 	service := IAM.NewHGService(IAM.NewHGRepository(nil))
 	service.HGWithRealtime(gateway, cfg.WebSocketURL)
 	handler := UserJWT.AuthMiddleware(http.HandlerFunc(IAM.NewHGHandler(service).HGLogoutRealtime))
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &UserService.HGClaims{
-		UserID: user, SessionID: sid, TokenTp: "access",
+		UserID: user, SessionID: sid, JTI: "iam-logout-fixture", TokenTp: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
 			Issuer:    "mlc-go",

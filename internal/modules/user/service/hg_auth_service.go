@@ -47,6 +47,17 @@ var hgSessionDB atomic.Pointer[sql.DB]
 // HGConfigureSessionDB 在注册用户路由前设置强制下线查询所用 MySQL 连接池。
 func HGConfigureSessionDB(db *sql.DB) { hgSessionDB.Store(db) }
 
+// HGCheckAuthRecoverySchema 监听前校验迁移完成，防止缺表时应用启动后大面积拒绝已有会话。
+func HGCheckAuthRecoverySchema(ctx context.Context, db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx, SQLQueriesPackage.HGCheckRecoverySchema)
+	if err != nil {
+		return fmt.Errorf("无法读取 MFA 恢复表，请检查迁移 000087 及数据库权限: %w", err)
+	}
+	return rows.Close()
+}
+
 // NewAuthService 创建认证服务。
 func NewAuthService(
 	users *userrepository.UserRepo,
@@ -111,25 +122,39 @@ func GenerateTokens(
 	device string,
 	role string,
 ) (*TokenPair, error) {
+	generation, err := hgUserSessionGeneration(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return hgNewSessionTokens(ctx, rdb, userID, device, role, generation)
+}
+
+func hgUserSessionGeneration(ctx context.Context, userID string) (uint64, error) {
+	db := hgSessionDB.Load()
+	if db == nil || userID == "" {
+		return 0, errors.New("无法读取账号会话代际")
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	var generation uint64
+	err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryGeneration, userID).Scan(&generation)
+	return generation, err
+}
+
+func hgNewSessionTokens(ctx context.Context, rdb *redis.Client, userID, device, role string, generation uint64) (*TokenPair, error) {
 	if userID == "" || rdb == nil {
 		return nil, errors.New("登录用户或 Redis 不可用")
-	}
-	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
-		return nil, errors.New("账号不可登录")
 	}
 	var hgSessionBytes [16]byte
 	if _, err := rand.Read(hgSessionBytes[:]); err != nil {
 		return nil, fmt.Errorf("生成登录会话 ID 失败: %w", err)
 	}
 	sessionID := hex.EncodeToString(hgSessionBytes[:])
-	return hgGenerateSessionTokens(ctx, rdb, userID, device, role, sessionID)
+	return hgGenerateSessionTokens(ctx, rdb, userID, device, role, sessionID, generation)
 }
 
 // hgGenerateSessionTokens 首次签发并原子登记会话；后续刷新绝不调用此函数重建 refresh。
-func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, device, role, sessionID string) (*TokenPair, error) {
-	if userID == "" {
-		return nil, errors.New("userID 不能为空")
-	}
+func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, device, role, sessionID string, generation uint64) (*TokenPair, error) {
 	if deleted, err := HGUserDeleted(ctx, rdb, userID); err != nil || deleted {
 		return nil, errors.New("账号不可登录")
 	}
@@ -166,7 +191,7 @@ func hgGenerateSessionTokens(ctx context.Context, rdb *redis.Client, userID, dev
 	keys := hgAuthSessionKeys(userID, sessionID, refreshJTI)
 	ok, err := rdb.Eval(ctx, PersistenceRedisPackage.HGAuthRegisterSessionLuaScript, keys,
 		sessionID, refreshJTI, int(RefreshTTL.Seconds()), PersistenceRedisPackage.HGAuthSessionKey+userID+":",
-		PersistenceRedisPackage.AuthRefreshKey+userID+":", now.UnixMilli(),
+		PersistenceRedisPackage.AuthRefreshKey+userID+":", generation,
 		PersistenceRedisPackage.HGAuthSessionProofKey+userID+":").Int()
 	if err != nil {
 		return nil, fmt.Errorf("存储登录会话失败: %w", err)
@@ -274,34 +299,55 @@ func RefreshToken(
 
 // HGSessionActive 校验新 JWT 的会话存活状态；Redis 异常必须失败关闭。
 func HGSessionActive(ctx context.Context, rdb *redis.Client, userID, sessionID string) (bool, error) {
+	_, active, err := HGActiveSessionGeneration(ctx, rdb, userID, sessionID)
+	return active, err
+}
+
+// HGActiveSessionGeneration 核对权威代际；零代兼容上线前签发且 Redis 会话仍存活的令牌。
+func HGActiveSessionGeneration(ctx context.Context, rdb *redis.Client, userID, sessionID string) (uint64, bool, error) {
 	decoded, decodeErr := hex.DecodeString(sessionID)
 	db := hgSessionDB.Load()
 	if rdb == nil || db == nil || userID == "" || decodeErr != nil || len(decoded) != 16 {
-		return false, errors.New("登录会话参数无效")
+		return 0, false, errors.New("登录会话参数无效")
 	}
 	n, err := rdb.Exists(ctx, PersistenceRedisPackage.HGAuthSessionKey+userID+":"+sessionID).Result()
 	if err != nil || n != 1 {
-		return false, err
+		return 0, false, err
 	}
-	var cutoff sql.NullTime
-	if err := db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectRecoveryRevokedAt, userID).Scan(&cutoff); err != nil {
-		return false, err
-	}
-	if cutoff.Valid {
-		proof, err := rdb.Get(ctx, PersistenceRedisPackage.HGAuthSessionProofKey+userID+":"+sessionID).Int64()
-		if err != nil || proof <= cutoff.Time.UnixMilli() {
-			return false, err
-		}
-	}
-	// 强制下线状态与设备替换同一事务提交；不用 Redis 缓存绕过权威检查。
 	checkCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	var forced int
-	err = db.QueryRowContext(checkCtx, SQLQueriesPackage.HGIMForcedLogoutSQL, userID, decoded).Scan(&forced)
+	var generation uint64
+	var forced bool
+	err = db.QueryRowContext(checkCtx, SQLQueriesPackage.HGSelectAuthSessionAuthority, userID, decoded, userID).Scan(&generation, &forced)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return 0, false, nil
 	}
-	return false, err
+	if err != nil || forced {
+		return 0, false, err
+	}
+	if generation != 0 {
+		proof, err := rdb.Get(checkCtx, PersistenceRedisPackage.HGAuthSessionProofKey+userID+":"+sessionID).Uint64()
+		if errors.Is(err, redis.Nil) {
+			return 0, false, nil
+		}
+		if err != nil || proof != generation {
+			return 0, false, err
+		}
+	}
+	return generation, true, nil
+}
+
+type hgSessionGenerationContextKey struct{}
+
+// HGContextWithSessionGeneration 仅由通过鉴权的中间件记录服务端会话代际，不读取客户端数据。
+func HGContextWithSessionGeneration(ctx context.Context, generation uint64) context.Context {
+	return context.WithValue(ctx, hgSessionGenerationContextKey{}, generation)
+}
+
+// HGSessionGenerationFromContext 把已鉴权的代际交给加锁写操作复核，避免旧请求跨越恢复事务。
+func HGSessionGenerationFromContext(ctx context.Context) (uint64, bool) {
+	value, ok := ctx.Value(hgSessionGenerationContextKey{}).(uint64)
+	return value, ok
 }
 
 // HGRevokeAuthSession 撤销当前会话、索引和对应 refresh 状态；失败时不能声称登出成功。

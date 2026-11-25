@@ -4,8 +4,11 @@ import (
 	UserDtoPackage "MLC_GO/internal/modules/user/dto"
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
+	Mail "MLC_GO/internal/pkg/email"
 	HGResponsePakcage "MLC_GO/internal/response"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 )
 
@@ -163,32 +166,46 @@ func (h *HGUserHandler) SendCode(w http.ResponseWriter, r *http.Request) {
 // SendEmailCode 发送邮箱验证码。
 // 高并发设计：使用独立 Redis key 前缀隔离邮箱验证码，避免与手机验证码冲突；验证码一次性消费。
 func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
-	email := r.URL.Query().Get("email")
-	if email == "" {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "缺少 email 参数"})
+	w.Header().Set("Cache-Control", "no-store")
+	var req struct {
+		Email       string `json:"email"`       // 单一注册邮箱；POST 不保留在 URL。
+		VerifyToken string `json:"verifyToken"` // 一次性点选验证凭证。
+	}
+	if r.Method == http.MethodPost {
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+		decoder.DisallowUnknownFields()
+		var extra any
+		if err := decoder.Decode(&req); err != nil || !errors.Is(decoder.Decode(&extra), io.EOF) {
+			w.WriteHeader(http.StatusBadRequest)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+			return
+		}
+	} else {
+		req.Email, req.VerifyToken = r.URL.Query().Get("email"), r.URL.Query().Get("verifyToken")
+	}
+	email, err := Mail.HGNormalizeAddress(req.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "请输入有效的邮箱地址"})
 		return
 	}
 
 	// 邮箱验证码同样走点选验证码前置校验，避免绕过弹窗直接刷邮件发送接口。
 	// 这里和 SendCode 共用 validateClickCaptchaToken，保证手机和邮箱验证码入口安全语义一致。
-	verifyToken := r.URL.Query().Get("verifyToken")
-	if ok := h.validateClickCaptchaToken(w, r, verifyToken); !ok {
+	if ok := h.validateClickCaptchaToken(w, r, req.VerifyToken); !ok {
 		return
 	}
 
-	code, err := h.svc.SendEmailCode(r.Context(), email)
-	if err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: err.Error()})
-		return
-	}
-
-	if err := h.emailSender.SendCode(r.Context(), email, code); err != nil {
-		h.svc.HGDiscardEmailCode(r.Context(), email, code)
+	if err := h.svc.HGSendRegistrationEmailCode(r.Context(), email, h.emailSender); err != nil {
+		if errors.Is(err, Mail.HGErrRateLimited) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.EmailSendFailCode, Message: err.Error()})
+			return
+		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.EmailSendFailed)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	HGResponsePakcage.SuccessResult(w, r, map[string]string{"message": "验证码已发送"})
 }
 
@@ -242,6 +259,13 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 	}
 
 	// 验证邮箱验证码
+	w.Header().Set("Cache-Control", "no-store")
+	email, err := Mail.HGNormalizeAddress(req.Email)
+	if err != nil {
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: err.Error()})
+		return
+	}
+	req.Email = email
 	if err := h.svc.VerifyEmailCode(r.Context(), req.Email, req.Code); err != nil {
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParamCode, Message: "验证码错误或已过期"})
 		return
@@ -249,7 +273,7 @@ func (h *HGUserHandler) RegisterWithEmail(w http.ResponseWriter, r *http.Request
 
 	// 调用邮箱注册服务
 	if err := h.svc.RegisterWithEmail(r.Context(), req); err != nil {
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "注册失败: " + err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserRegisterFailCode, Message: "邮箱注册失败，请核对资料或稍后重试"})
 		return
 	}
 

@@ -71,12 +71,10 @@ func TestHGRegisterSessionDeviceEvictsOldest(t *testing.T) {
 			client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 			client.AddHook(hook)
 			defer client.Close()
-			mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-			mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+			hgExpectSessionAuthority(mock)
 			mock.ExpectBegin()
 			mock.ExpectQuery(SQL.HGIMLockDeviceOwnerSQL).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"found"}).AddRow(1))
-			mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-			mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+			hgExpectSessionAuthority(mock)
 			rows := sqlmock.NewRows([]string{"id"})
 			for i := 0; i < 5; i++ {
 				rows.AddRow([]byte{byte(i)})
@@ -136,6 +134,11 @@ func TestHGRegisterSessionDeviceEvictsOldest(t *testing.T) {
 	}
 }
 
+func hgExpectSessionAuthority(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(SQL.HGSelectAuthSessionAuthority).WithArgs("user-1", sqlmock.AnyArg(), "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"generation", "forced"}).AddRow(0, false))
+}
+
 // 旧设备过渡成功时必须明确告知客户端：聊天设备已替换，但旧登录会话并未被强制下线。
 func TestHGRegisterDeviceLegacyReplacementResponse(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
@@ -150,12 +153,10 @@ func TestHGRegisterDeviceLegacyReplacementResponse(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	client.AddHook(hook)
 	defer client.Close()
-	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(SQL.HGIMLockDeviceOwnerSQL).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"found"}).AddRow(1))
-	mock.ExpectQuery(SQL.HGSelectRecoveryRevokedAt).WithArgs("user-1").WillReturnRows(sqlmock.NewRows([]string{"mfa_recovery_revoked_at"}).AddRow(nil))
-	mock.ExpectQuery(SQL.HGIMForcedLogoutSQL).WithArgs("user-1", sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"found"}))
+	hgExpectSessionAuthority(mock)
 	rows := sqlmock.NewRows([]string{"id"})
 	for i := 0; i < 5; i++ {
 		rows.AddRow([]byte{byte(i)})
