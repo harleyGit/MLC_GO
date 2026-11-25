@@ -1,6 +1,7 @@
 package hgemail
 
 import (
+	"MLC_GO/internal/pkg/logHG"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -16,6 +17,39 @@ import (
 // HGSender 发送一次性邮箱验证码；实现不得记录邮件内容或收件人。
 type HGSender interface {
 	SendCode(ctx context.Context, address, code string) error
+}
+
+// HGErrSenderConfig 表示发件服务尚不可用，修正配置后重启进程；不包含任何配置值。
+var HGErrSenderConfig = errors.New("邮件发件服务未配置或配置有误，请联系管理员")
+
+// HGCheckCodeSender 在占用发信配额前校验 SMTP 配置；替换发件实现可按需提供配置检查。
+// 此检查不会连接 SMTP 或发送邮件。
+func HGCheckCodeSender(sender HGSender) error {
+	if sender == nil {
+		return HGErrSenderConfig
+	}
+	if configured, ok := sender.(interface{ CheckConfig() error }); ok {
+		return hgSafeSenderError(configured.CheckConfig())
+	}
+	return nil
+}
+
+// HGDeliverCode 只向业务层返回受控错误，避免替换发件实现泄露供应商响应或凭据。
+func HGDeliverCode(ctx context.Context, sender HGSender, address, code string) error {
+	return hgSafeSenderError(sender.SendCode(ctx, address, code))
+}
+
+func hgSafeSenderError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, HGErrSenderConfig):
+		return HGErrSenderConfig
+	case errors.Is(err, HGErrRateLimited):
+		return HGErrRateLimited
+	default:
+		return HGErrUnavailable
+	}
 }
 
 // HGSMTPSender 从进程环境读取 SMTP 配置；没有配置时拒绝发送，不在代码中存储凭据。
@@ -35,8 +69,13 @@ type hgSMTPConfig struct {
 // NewHGSMTPSender 提供只在实际发送时读取配置的 SMTP 适配器。
 func NewHGSMTPSender() *HGSMTPSender { return &HGSMTPSender{} }
 
-// SendCode 使用证书校验的 STARTTLS 或隐式 TLS；不向客户端返回供应商错误。
-func (s *HGSMTPSender) SendCode(ctx context.Context, address, code string) error {
+// CheckConfig 检查进程内 SMTP 配置，不触发网络访问。
+func (s *HGSMTPSender) CheckConfig() error {
+	_, err := hgReadSMTPConfig()
+	return err
+}
+
+func hgReadSMTPConfig() (hgSMTPConfig, error) {
 	cfg := hgSMTPConfig{
 		host: strings.TrimSpace(os.Getenv("MLC_SMTP_HOST")), port: strings.TrimSpace(os.Getenv("MLC_SMTP_PORT")),
 		user: os.Getenv("MLC_SMTP_USER"), password: os.Getenv("MLC_SMTP_PASSWORD"),
@@ -44,7 +83,7 @@ func (s *HGSMTPSender) SendCode(ctx context.Context, address, code string) error
 	mode := strings.TrimSpace(os.Getenv("MLC_SMTP_TLS_MODE"))
 	cfg.implicit = mode == "implicit" || (mode == "" && cfg.port == "465")
 	if mode != "" && mode != "starttls" && mode != "implicit" {
-		return HGErrUnavailable
+		return hgSMTPConfig{}, HGErrSenderConfig
 	}
 	if cfg.port == "" {
 		cfg.port = "587"
@@ -54,12 +93,22 @@ func (s *HGSMTPSender) SendCode(ctx context.Context, address, code string) error
 	}
 	var err error
 	cfg.from, err = HGNormalizeAddress(os.Getenv("MLC_SMTP_FROM"))
-	if err != nil || cfg.host == "" || cfg.user == "" || cfg.password == "" || strings.ContainsAny(cfg.user+cfg.password, "\x00\r\n") {
-		return HGErrUnavailable
+	if err != nil || cfg.host == "" || strings.ContainsAny(cfg.host, " /\\\x00\r\n\t") ||
+		strings.TrimSpace(cfg.user) == "" || strings.TrimSpace(cfg.password) == "" || strings.ContainsAny(cfg.user+cfg.password, "\x00\r\n") {
+		return hgSMTPConfig{}, HGErrSenderConfig
 	}
 	portNum, err := strconv.Atoi(cfg.port)
 	if err != nil || portNum < 1 || portNum > 65535 {
-		return HGErrUnavailable
+		return hgSMTPConfig{}, HGErrSenderConfig
+	}
+	return cfg, nil
+}
+
+// SendCode 使用证书校验的 STARTTLS 或隐式 TLS；只记录代码内定义的失败阶段。
+func (s *HGSMTPSender) SendCode(ctx context.Context, address, code string) error {
+	cfg, err := hgReadSMTPConfig()
+	if err != nil {
+		return err
 	}
 	address, err = HGNormalizeAddress(address)
 	if err != nil || !HGValidCode(code) {
@@ -71,7 +120,11 @@ func (s *HGSMTPSender) SendCode(ctx context.Context, address, code string) error
 	default:
 		return HGErrRateLimited
 	}
-	return hgSendSMTP(ctx, cfg, &tls.Config{ServerName: cfg.host, MinVersion: tls.VersionTLS12}, address, code)
+	if err := hgSendSMTP(ctx, cfg, &tls.Config{ServerName: cfg.host, MinVersion: tls.VersionTLS12}, address, code); err != nil {
+		logHG.ErrFInfo("SMTP 投递失败：%v", err) // hgSendSMTP 的错误均为常量阶段描述，不带第三方响应、地址或配置值。
+		return HGErrUnavailable
+	}
+	return nil
 }
 
 func hgSendSMTP(ctx context.Context, cfg hgSMTPConfig, tlsConfig *tls.Config, address, code string) error {

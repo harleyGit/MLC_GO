@@ -29,7 +29,7 @@ func hgRecoveryHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, hgErrRecoveryDisabled):
 		status, code = http.StatusServiceUnavailable, HGResponsePackage.InternalError.Code
-	case errors.Is(err, Mail.HGErrUnavailable):
+	case errors.Is(err, Mail.HGErrUnavailable), errors.Is(err, Mail.HGErrSenderConfig):
 		status, code = http.StatusServiceUnavailable, HGResponsePackage.EmailSendFailCode
 	case errors.Is(err, Mail.HGErrRateLimited):
 		status, code = http.StatusTooManyRequests, HGResponsePackage.EmailSendFailCode

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http/httptest"
@@ -12,6 +13,28 @@ import (
 	"testing"
 	"time"
 )
+
+func TestHGSMTPConfigDoesNotRequireNetwork(t *testing.T) {
+	t.Setenv("MLC_SMTP_HOST", "")
+	sender := NewHGSMTPSender()
+	if err := HGCheckCodeSender(sender); !errors.Is(err, HGErrSenderConfig) {
+		t.Fatal("缺失 SMTP 配置应明确报告")
+	}
+	t.Setenv("MLC_SMTP_HOST", "smtp.example.invalid")
+	t.Setenv("MLC_SMTP_FROM", "sender@example.invalid")
+	t.Setenv("MLC_SMTP_USER", "sender@example.invalid")
+	t.Setenv("MLC_SMTP_PASSWORD", "smtp-fixture-only")
+	t.Setenv("MLC_SMTP_PORT", "587")
+	t.Setenv("MLC_SMTP_TLS_MODE", "starttls")
+	if err := HGCheckCodeSender(sender); err != nil {
+		t.Fatalf("检查配置不应连接测试域名: %v", err)
+	}
+	t.Setenv("MLC_SMTP_PORT", "bad-port-fixture")
+	if err := HGCheckCodeSender(sender); !errors.Is(err, HGErrSenderConfig) ||
+		strings.Contains(err.Error(), "bad-port-fixture") || strings.Contains(err.Error(), "smtp-fixture-only") {
+		t.Fatal("配置错误不得泄露具体参数")
+	}
+}
 
 func TestHGEmailAddresses(t *testing.T) {
 	for _, address := range []string{"mail.test+tag@gmail.com", "name@icloud.com", "123@example.QQ.COM", "demo@qq.com"} {

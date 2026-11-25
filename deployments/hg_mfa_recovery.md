@@ -23,6 +23,19 @@
 
 同一套 SMTP 可以发送给 Gmail、iCloud Mail、QQ 等收件邮箱，不按收件域名挑选 SDK 或登录方式。若使用这些服务作为**发件方**，以账户与服务商规则为准，例如 Gmail 可在允许应用专用密码的账户使用 STARTTLS/587，iCloud Mail 使用 STARTTLS/587 和应用专用密码，QQ 邮箱可用隐式 TLS/465 和 SMTP 授权码。仅允许 OAuth 的发件租户需另行配置支持其认证方案的中继。真实送达依赖供应商限制、域名 SPF/DKIM/DMARC 和收件过滤；SMTP 接受不等于已进入收件箱。
 
+本地调试可把发件配置放到 Go 仓库的 `config/MLC.local.env`（Git 已忽略），保存后重启 Go 后端；Vite 的 `5174` 只是代理。以下仅示例，必须使用真实的**发件**账号及应用专用密码，不要填收件人的账号或 Apple 账号登录密码：
+
+```dotenv
+MLC_SMTP_HOST=smtp.mail.me.com
+MLC_SMTP_PORT=587
+MLC_SMTP_TLS_MODE=starttls
+MLC_SMTP_FROM=your-sender@icloud.com
+MLC_SMTP_USER=your-sender@icloud.com
+MLC_SMTP_PASSWORD=
+```
+
+安全中心下拉框只用于选择和校验**收件**邮箱类型，不会切换后端发件服务。`406003` 若提示“邮件发件服务未配置或配置有误”，先检查以上环境变量和后端启动环境；还提示“暂不可用”时，查看后端的 `SMTP 投递失败` 阶段日志（连接、TLS、认证或投递，不含地址、验证码、密码和供应商原始响应）。
+
 ## 协议与失败处理
 
 - 旧 `GET /api/v1/auth/send_email_code` 保留，Web 改用同路径的 `POST`，邮件地址及点选验证码凭证不再进入 Web 请求 URL。两者均只返回发送结果，验证码 5 分钟有效，不在响应、日志或注册成功结果中回显。注册用码与 MFA 绑定、找回用码不能互换。

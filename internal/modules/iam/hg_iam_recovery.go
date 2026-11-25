@@ -127,7 +127,10 @@ func hgRecoveryDigest(user string, generation uint64, purpose int, email hgRecov
 }
 
 func (s *HGService) hgSendRecoveryCode(ctx context.Context, user string, generation uint64, email hgRecoveryEmail, purpose int) error {
-	if s.hgRecoverySender == nil || s.repo.cache == nil || s.repo.cache.Client() == nil {
+	if err := Mail.HGCheckCodeSender(s.hgRecoverySender); err != nil {
+		return err
+	}
+	if s.repo.cache == nil || s.repo.cache.Client() == nil {
 		return Mail.HGErrUnavailable
 	}
 	rdb := s.repo.cache.Client()
@@ -149,8 +152,8 @@ func (s *HGService) hgSendRecoveryCode(ctx context.Context, user string, generat
 	if err != nil {
 		return err
 	}
-	if err := s.hgRecoverySender.SendCode(ctx, email.address, code); err != nil {
-		return Mail.HGErrUnavailable
+	if err := Mail.HGDeliverCode(ctx, s.hgRecoverySender, email.address, code); err != nil {
+		return err
 	}
 	// 未获得 SMTP 接受确认时不使新码生效；任意外部 I/O 均在事务外。
 	_, err = s.repo.db.ExecContext(ctx, SQL.HGSaveRecoveryChallenge, user, purpose, digest)

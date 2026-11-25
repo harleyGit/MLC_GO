@@ -188,8 +188,11 @@ func (s *UserService) HGSendRegistrationEmailCode(ctx context.Context, email str
 	if err != nil {
 		return err
 	}
-	if s == nil || s.redisService == nil || s.redisService.Client() == nil || sender == nil {
+	if s == nil || s.redisService == nil || s.redisService.Client() == nil {
 		return Mail.HGErrUnavailable
+	}
+	if err := Mail.HGCheckCodeSender(sender); err != nil {
+		return err
 	}
 	rdb := s.redisService.Client()
 	if err := Mail.HGAdmitCodeSend(ctx, rdb, address); err != nil {
@@ -199,8 +202,8 @@ func (s *UserService) HGSendRegistrationEmailCode(ctx context.Context, email str
 	if err != nil {
 		return Mail.HGErrUnavailable
 	}
-	if err := sender.SendCode(ctx, address, code); err != nil {
-		return Mail.HGErrUnavailable
+	if err := Mail.HGDeliverCode(ctx, sender, address, code); err != nil {
+		return err
 	}
 	if err := rdb.Eval(ctx, PersistenceRedisPackage.HGEmailSaveCodeLua,
 		[]string{PersistenceRedisPackage.GetRedisEmailVerifyCodeKey(address)}, hgRegistrationCodeDigest(address, code), 300).Err(); err != nil {

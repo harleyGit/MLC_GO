@@ -234,7 +234,7 @@ func TestHGRegistrationEmailRedisIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := service.HGSendRegistrationEmailCode(ctx, "test@example.org", nil); !errors.Is(err, Mail.HGErrUnavailable) {
+		if err := service.HGSendRegistrationEmailCode(ctx, "test@example.org", nil); !errors.Is(err, Mail.HGErrSenderConfig) {
 			t.Fatal("缺失发信端口应失败")
 		}
 		if err := service.HGSendRegistrationEmailCode(ctx, "test@example.org", hgRegistrationSender(func(context.Context, string, string) error {

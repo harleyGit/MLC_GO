@@ -203,6 +203,10 @@ func (h *HGUserHandler) SendEmailCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
+		if errors.Is(err, Mail.HGErrSenderConfig) {
+			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.EmailSendFailCode, Message: Mail.HGErrSenderConfig.Error()})
+			return
+		}
 		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.EmailSendFailed)
 		return
 	}

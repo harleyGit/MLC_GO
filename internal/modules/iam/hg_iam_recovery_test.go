@@ -240,6 +240,23 @@ func TestHGMFARecoveryHandlerRejectsOtherAccountsAndRecipient(t *testing.T) {
 	}
 }
 
+func TestHGMFARecoverySendBindExplainsMissingSMTP(t *testing.T) {
+	t.Setenv("MLC_SMTP_HOST", "")
+	service, mock := hgRecoveryFixture(t, true) // 若错误进入限流，Redis 替身将拒绝。
+	mock.ExpectQuery(SQL.HGSelectIAMMFAEnabled).WithArgs(hgRecoveryTestUser).
+		WillReturnRows(sqlmock.NewRows([]string{"enabled"}).AddRow(true))
+	h := NewHGHandler(service)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/iam/me/mfa/recovery/send-bind", strings.NewReader(`{"email":"receiver@example.org"}`))
+	ctx := UserService.HGContextWithSessionGeneration(r.Context(), 0)
+	r = r.WithContext(context.WithValue(ctx, UserJWT.UserIDKey, &UserService.HGClaims{UserID: hgRecoveryTestUser}))
+	w := httptest.NewRecorder()
+	h.HGOwnRecoverySendBindCode(w, r)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "406003") ||
+		!strings.Contains(w.Body.String(), Mail.HGErrSenderConfig.Error()) || strings.Contains(w.Body.String(), "receiver@example.org") {
+		t.Fatalf("缺失 SMTP 时应返回配置说明，不得回显收件地址: HTTP %d", w.Code)
+	}
+}
+
 func TestHGRecoveryCooldownByEnvironment(t *testing.T) {
 	for _, env := range []string{"debug", "pre", "prod", "release"} {
 		t.Setenv("SERVER_ENV", env)
