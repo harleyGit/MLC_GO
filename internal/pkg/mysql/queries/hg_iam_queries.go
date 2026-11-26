@@ -25,6 +25,8 @@ const (
 	HGConsumeIAMMFACounter       = `UPDATE iam_mfa_factors SET last_counter=?,updated_at=CURRENT_TIMESTAMP(3) WHERE user_id=? AND enabled=1 AND last_counter<?`
 	HGInsertIAMApproval          = `INSERT INTO iam_approval_requests(request_id,applicant_id,action,payload,status,expires_at) VALUES(?,?,?,?,'pending',?)`
 	HGSelectIAMApprovalForUpdate = `SELECT applicant_id,action,payload,status,expires_at FROM iam_approval_requests WHERE id=? LIMIT 1 FOR UPDATE`
+	// 超管自审仅认有效的全局 super_admin 绑定；idx_iam_binding_user_scope 点查并锁定绑定与角色，避免裁决期间资格被撤销。
+	HGSelectIAMGlobalSuperAdminForApproval = `SELECT 1 FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id AND r.role_code='super_admin' AND r.status=1 WHERE b.user_id=? AND b.scope_type='global' AND b.scope_id='' AND b.status=1 AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP(3)) LIMIT 1 FOR UPDATE`
 	HGDecideIAMApproval          = `UPDATE iam_approval_requests SET status=?,approver_id=?,decided_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3)`
 	// 审批列表依赖 status,id 索引，仅返回待处理申请，游标递减且单页有上限。
 	HGSelectIAMApprovalsFirst = `SELECT id,request_id,applicant_id,action,payload,expires_at,created_at FROM iam_approval_requests WHERE status='pending' AND expires_at>CURRENT_TIMESTAMP(3) ORDER BY id DESC LIMIT ?`

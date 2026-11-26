@@ -10,7 +10,7 @@
       "presentation": { "hidden": true },
       "type": "go", // 调试类型（Go）
       "request": "launch", // 启动模式（launch 或 attach）
-      "mode": "auto", // 调试模式（auto/debug/test）
+      "mode": "debug", // 固定启动主服务；当前编辑器打开 _test.go 时也不切换到测试模式。
       "dlvFlags": ["--check-go-version=false"], // 当前 Go 版本高于 Delve 声明支持版本时，跳过 Delve 版本检查
       "buildFlags": "-tags=production",
       "program": "${workspaceFolder}", // 按 main 包整体启动，避免只编译 main.go 导致同包符号缺失
@@ -46,7 +46,7 @@
       "presentation": { "hidden": true },
       "type": "go",
       "request": "launch",
-      "mode": "auto",
+      "mode": "debug",
       "dlvFlags": ["--check-go-version=false"],
       "buildFlags": "-tags=production",
       "program": "${workspaceFolder}",

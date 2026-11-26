@@ -39,7 +39,7 @@ func TestHGRevokeRollsBackOnRevisionFailure(t *testing.T) {
 	}
 }
 
-// 即使审批人拥有管理和审批权限，也不能批准本人申请。
+// 普通管理员即使拥有管理和审批权限，也不能批准本人申请。
 func TestHGApprovalRejectsSelfDecision(t *testing.T) {
 	service, mock := hgTestService(t)
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
@@ -47,12 +47,72 @@ func TestHGApprovalRejectsSelfDecision(t *testing.T) {
 	hgExpectPermission(mock, "ADMIN", "global", "", "iam:approval:approve", true)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMApprovalForUpdate)).WithArgs(uint64(9)).WillReturnRows(sqlmock.NewRows([]string{"applicant_id", "action", "payload", "status", "expires_at"}).AddRow("ADMIN", "grant", []byte(`{}`), "pending", time.Now().Add(time.Hour)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGlobalSuperAdminForApproval)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}))
 	mock.ExpectRollback()
 	err := service.DecideApproval(context.Background(), "ADMIN", "req-1", "123456", 9, true)
 	if !errors.Is(err, ErrHGConflict) {
 		t.Fatalf("自批未被拒绝: %v", err)
 	}
 	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 有效全局超管绑定允许本人走审批事务，但仍须校验管理员权限及本人 MFA，不能直接生效。
+func TestHGApprovalAllowsGlobalSuperAdminSelfDecisionBeforeMFA(t *testing.T) {
+	service, mock := hgTestService(t)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "ADMIN", "global", "", "iam:role:grant", true)
+	hgExpectPermission(mock, "ADMIN", "global", "", "iam:approval:approve", true)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMApprovalForUpdate)).WithArgs(uint64(9)).WillReturnRows(sqlmock.NewRows([]string{"applicant_id", "action", "payload", "status", "expires_at"}).AddRow("ADMIN", "grant", []byte(`{}`), "pending", time.Now().Add(time.Hour)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGlobalSuperAdminForApproval)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "ADMIN", "global", "", "iam:approval:approve", true)
+	mock.ExpectRollback()
+	err := service.DecideApproval(context.Background(), "ADMIN", "req-1", "123456", 9, true)
+	if !errors.Is(err, ErrHGMFAUnavailable) {
+		t.Fatalf("超管自审应继续进入本人 MFA 校验，实际 %v", err)
+	}
+	if err = mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 全局超管绑定查询故障时不能回退为自审放行，错误仍向调用方传递。
+func TestHGApprovalRejectsSelfDecisionOnSuperAdminCheckError(t *testing.T) {
+	service, mock := hgTestService(t)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("ADMIN").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "ADMIN", "global", "", "iam:role:grant", true)
+	hgExpectPermission(mock, "ADMIN", "global", "", "iam:approval:approve", true)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMApprovalForUpdate)).WithArgs(uint64(9)).WillReturnRows(sqlmock.NewRows([]string{"applicant_id", "action", "payload", "status", "expires_at"}).AddRow("ADMIN", "role_permissions", []byte(`{}`), "pending", time.Now().Add(time.Hour)))
+	checkErr := errors.New("super admin lookup unavailable")
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMGlobalSuperAdminForApproval)).WithArgs("ADMIN").WillReturnError(checkErr)
+	mock.ExpectRollback()
+	if err := service.DecideApproval(context.Background(), "ADMIN", "req-1", "123456", 9, true); !errors.Is(err, checkErr) {
+		t.Fatalf("超管校验故障不得放行，实际 %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 另一名管理员仍按原审批链办理，不需检查超级管理员角色。
+func TestHGApprovalKeepsOtherAdminDecisionBeforeMFA(t *testing.T) {
+	service, mock := hgTestService(t)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("APPROVER").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "APPROVER", "global", "", "iam:role:grant", true)
+	hgExpectPermission(mock, "APPROVER", "global", "", "iam:approval:approve", true)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMApprovalForUpdate)).WithArgs(uint64(9)).WillReturnRows(sqlmock.NewRows([]string{"applicant_id", "action", "payload", "status", "expires_at"}).AddRow("APPLICANT", "grant", []byte(`{}`), "pending", time.Now().Add(time.Hour)))
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("APPROVER").WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "APPROVER", "global", "", "iam:approval:approve", true)
+	mock.ExpectRollback()
+	if err := service.DecideApproval(context.Background(), "APPROVER", "req-1", "123456", 9, true); !errors.Is(err, ErrHGMFAUnavailable) {
+		t.Fatalf("另一名管理员应继续进入 MFA 校验，实际 %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
 }

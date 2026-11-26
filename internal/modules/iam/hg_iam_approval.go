@@ -190,7 +190,7 @@ func hgApprovalCanDelegateTx(ctx context.Context, tx *sql.Tx, userID string, cod
 	return nil
 }
 
-// DecideApproval 使用行锁、MFA 和同一 MySQL 事务完成裁决与授权变更。
+// DecideApproval 使用行锁、MFA 和同一 MySQL 事务完成裁决与授权变更；仅有效全局超管可自审。
 func (s *HGService) DecideApproval(ctx context.Context, approver, requestID, otp string, id uint64, approve bool) error {
 	if id == 0 {
 		return ErrHGInvalid
@@ -220,8 +220,18 @@ func (s *HGService) DecideApproval(ctx context.Context, approver, requestID, otp
 	if err != nil {
 		return err
 	}
-	if applicant == approver || status != "pending" || !expires.After(time.Now()) {
+	if status != "pending" || !expires.After(time.Now()) {
 		return ErrHGConflict
+	}
+	if applicant == approver {
+		var one int
+		err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMGlobalSuperAdminForApproval, approver).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrHGConflict
+		}
+		if err != nil {
+			return err // 查询失败不能当作具有超级管理员资格。
+		}
 	}
 	if err = hgApprovalActorTx(ctx, tx, approver, string(HGPermissionPackage.HGIAMApprovalApprove)); err != nil {
 		return err

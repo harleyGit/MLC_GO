@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# 这个文件测试 VS Code 前置脚本对 Kafka 的判断逻辑。
+# 这个文件测试 VS Code 前置脚本的 Docker 可用性和 Kafka 判断逻辑。
 # 测试不会真的启动或停止 Docker、MySQL、Redis、Kafka，而是在临时目录中创建同名“假命令”。
 # 被测脚本执行 docker、make、go、migrate 时，实际调用的是这些假命令，因此测试安全且可重复。
 
@@ -42,13 +42,17 @@ assert_not_contains() {
 }
 
 # run_case 执行一个测试场景。
-# 第 1 个参数 case_name 表示场景名称：running 或 stopped。
+# 第 1 个参数 case_name 表示场景名称：running、stopped 或 docker-down。
 # 第 2 个参数 stopped_container 可选，用来指定哪个 Kafka 容器应被模拟成“未运行”。
 run_case() {
     local case_name="$1"
     local stopped_container="${2:-}"
     local gopath_migrate_broken="${3:-false}"
+    local docker_unavailable=false
     local temp_dir
+    if [ "${case_name}" = "docker-down" ]; then
+        docker_unavailable=true
+    fi
     # mktemp -d 创建只属于当前场景的临时目录，避免不同测试之间相互污染。
     temp_dir="$(mktemp -d)"
 
@@ -64,6 +68,9 @@ run_case() {
 set -euo pipefail
 # 无论收到什么参数，都把完整 docker 命令写入日志，供后面的断言检查。
 echo "docker $*" >>"${COMMAND_LOG}"
+if [ "${1:-}" = "info" ] && [ "${DOCKER_UNAVAILABLE}" = "true" ]; then
+    exit 1
+fi
 if [ "${1:-}" = "inspect" ]; then
     # ${@: -1} 取得最后一个参数，也就是当前被检查的容器名。
     container="${@: -1}"
@@ -88,6 +95,7 @@ EOF
     cat >"${temp_dir}/bin/go" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+echo "go $*" >>"${COMMAND_LOG}"
 if [ "${1:-}" = "env" ] && [ "${2:-}" = "GOPATH" ]; then
     printf '%s\n' "${GOPATH}"
     exit 0
@@ -130,13 +138,30 @@ EOF
 
     # 把临时 bin 放到 PATH 最前面，Shell 会优先找到假命令，而不是系统中的真实命令。
     # COMMAND_LOG 和 STOPPED_CONTAINER 只对本次命令生效，不会修改用户终端的永久环境变量。
-    # >/dev/null 隐藏被测脚本普通日志，让测试输出只保留 PASS 或 FAIL。
+    local status=0
     COMMAND_LOG="${temp_dir}/commands.log" \
         STOPPED_CONTAINER="${stopped_container}" \
         GOPATH_MIGRATE_BROKEN="${gopath_migrate_broken}" \
+        DOCKER_UNAVAILABLE="${docker_unavailable}" \
         GOPATH="${temp_dir}/go" \
         PATH="${temp_dir}/bin:${PATH}" \
-        "${SCRIPT_DIR}/ensure_debug_deps.sh" debug >/dev/null
+        "${SCRIPT_DIR}/ensure_debug_deps.sh" debug >"${temp_dir}/output.log" 2>&1 || status=$?
+
+    assert_contains "docker info" "${temp_dir}/commands.log"
+    if [ "${docker_unavailable}" = "true" ]; then
+        [ "${status}" -ne 0 ] || fail "Docker 不可用时应阻断 debug 启动"
+        assert_contains "Docker daemon 不可用" "${temp_dir}/output.log"
+        assert_not_contains "--check mysql" "${temp_dir}/commands.log"
+        assert_not_contains "--migrations-dir" "${temp_dir}/commands.log"
+        assert_not_contains "docker compose" "${temp_dir}/commands.log"
+        assert_not_contains "make kafka-init" "${temp_dir}/commands.log"
+        rm -rf "${temp_dir}"
+        return 0
+    fi
+    if [ "${status}" -ne 0 ]; then
+        cat "${temp_dir}/output.log" >&2
+        fail "${case_name} 场景的前置任务退出码为 ${status}"
+    fi
 
     # GOPATH 工具可用时优先采用；不可用时必须回退到登录 shell 的兼容工具。
     if [ "${gopath_migrate_broken}" = "true" ]; then
@@ -171,5 +196,7 @@ run_case running
 run_case stopped mlc-kafka-2
 # 场景三：模拟 GOPATH/bin/migrate 架构或系统版本不兼容，必须回退到 PATH 中的可用工具。
 run_case running "" true
+# 场景四：Docker daemon 不可用，在 MySQL 探活、迁移及 Kafka 初始化前退出。
+run_case docker-down
 
-echo "[PASS] VS Code debug 前置 Kafka 检查通过"
+echo "[PASS] VS Code debug 前置 Docker 和 Kafka 检查通过"

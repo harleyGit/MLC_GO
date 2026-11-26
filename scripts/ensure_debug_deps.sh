@@ -129,6 +129,21 @@ log_error() {
     echo "[ERROR] $1" >&2
 }
 
+# 本机 debug 必须通过 Docker 检查 Kafka；提前失败，避免 Docker 不可用时仍启动服务或迁移 MySQL。
+hg_check_debug_docker() {
+    if [ "${TARGET_ENV}" != "debug" ]; then
+        return 0
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
+        log_error "未找到 docker 命令。请确认 Docker 已安装且 VS Code 终端的 PATH 能找到 docker。"
+        return 1
+    fi
+    if ! docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
+        log_error "Docker daemon 不可用。请先启动 Docker Desktop，等待 docker info 成功后再按 F5。"
+        return 1
+    fi
+}
+
 # can_auto_start 用来判断当前环境是否允许自动拉起依赖服务。
 # 约定上：
 # - debug 可以自动启动
@@ -489,13 +504,6 @@ ensure_debug_kafka_ready() {
         return 0
     fi
 
-    # command -v docker 用来确认当前终端能找到 docker 命令。
-    # 如果 Docker Desktop 未安装、未启动或 PATH 配置错误，这里会给出明确错误并中断调试。
-    if ! command -v docker >/dev/null 2>&1; then
-        log_error "未找到 docker 命令，无法检查本地 Kafka"
-        return 1
-    fi
-
     # local 表示变量只在当前函数内有效，不会影响脚本其他逻辑。
     # 先假设 Kafka 完整运行；只要三个 broker 中有一个未运行，就改为 false。
     local container
@@ -570,13 +578,14 @@ ensure_debug_clickhouse_ready() {
 }
 
 # main 是脚本主入口函数。
-# 这里依次确保 MySQL、Redis 和本地 debug Kafka 就绪。
+# debug 先确认 Docker 可用，再检查 MySQL、Redis、ClickHouse 和 Kafka。
 # 只要其中任何一步失败，整个脚本就会失败。
 # 而这个脚本是 VS Code debug 的 preLaunchTask，
 # 所以一旦脚本失败，调试就会被中断，不会继续启动 Go 程序。
 main() {
     log_info "开始检查 ${TARGET_ENV} 环境依赖服务"
     log_info "当前使用模块配置：${CONFIG_DIR}/${TARGET_ENV}/mysql.yaml、redis.yaml"
+    hg_check_debug_docker
     ensure_mysql_ready
     ensure_debug_database_migrated
     ensure_redis_ready

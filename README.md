@@ -223,36 +223,36 @@ internal/
 
 以 `🧪 Launch MLC_GO Debug` 为例，点击绿色调试按钮或按 `F5` 后，并不是立即执行根目录的 `main.go`，而是先完成启动前检查：
 
+请先启动 Docker Desktop，并在 VS Code 终端确认 `docker info` 成功。Docker 未就绪时，前置任务会明确报错，并在启动 MySQL/Redis 或执行迁移之前退出。不要选择“仍要调试”跳过失败的前置任务。
+
 ```text
 点击启动调试
     ↓
 .vscode/launch.json
     ↓
-preLaunchTask: ensure-debug-deps
+preLaunchTask: ensure-debug-services（依次执行 ensure-debug-deps、ensure-debug-aux）
     ↓
-.vscode/tasks.json
+scripts/ensure_debug_deps.sh debug（先确认 Docker 可用）
     ↓
-scripts/ensure_debug_deps.sh debug
-    ↓
-go run ./cmd/hg_config_check（读取配置、检查 MySQL/Redis、执行 debug 数据库迁移）
+go run ./cmd/hg_config_check（检查 MySQL/Redis/ClickHouse、执行 debug 数据库迁移）
     ↓
 检查本地 Kafka；未运行时执行 docker compose，随后执行 make kafka-init
     ↓
-前置任务成功退出
+scripts/ensure_debug_aux.sh（检查并按需启动审核器、crawler）
     ↓
-Delve 启动根目录 main 包
+Delve 以 debug 模式和 -tags=production 启动根目录 main 包
     ↓
-main.go → mlc_main()
+main_production.go → mlc_main()
 ```
 
 对应的关键配置如下：
 
 ```jsonc
-// .vscode/launch.json
+// .vscode/launch.json 中的联合入口
 {
   "name": "🧪 Launch MLC_GO Debug",
-  "preLaunchTask": "ensure-debug-deps",
-  "program": "${workspaceFolder}"
+  "preLaunchTask": "ensure-debug-services",
+  "configurations": ["MLC_GO Debug（主服务进程）"]
 }
 ```
 

@@ -25,9 +25,9 @@
 | POST | `/mfa/enroll` | 复核当前登录密码 `password`；一次性返回 `secret/otpauthUri`，禁止缓存；已启用 MFA 返回 HTTP 409 / 业务码 `404008`，不同于普通 IAM 冲突 `100009` |
 | POST | `/mfa/confirm` | 用 6 位 `code` 验证并启用 TOTP |
 | GET | `/approvals/list` | `id DESC` 游标读取待审批申请，单页最多 50 条 |
-| POST | `/approvals/approve`、`/approvals/reject` | `id/mfaCode`；申请人不可自批，24 小时后过期 |
+| POST | `/approvals/approve`、`/approvals/reject` | `id/mfaCode`；普通管理员不可自审，有效全局 `super_admin` 可用本人新动态码自审；申请 24 小时后过期 |
 
-内置 `ops_engineer` 的权限调整仍须申请人 MFA、另一名管理员审批与 MFA，且双方都须持有待授予的权限；审批时再次验证角色版本及委派范围。`/roles/update` 只修改自定义角色的名称与描述，不接受权限变更，内置角色的名称与描述仍由迁移维护。提交 `/roles/permissions` 时 `permissions` 是**完整权限集合**，应先通过 `/permissions/list?roleId=...` 获取 `selected`，将保留项与新增项一并提交，避免误撤原有权限。
+内置 `ops_engineer` 的权限调整仍须申请与审批分别验证 MFA；普通管理员须另一名管理员审批，仅有效全局超管可自审，且双方都须持有待授予的权限。审批时再次验证角色版本及委派范围。`/roles/update` 只修改自定义角色的名称与描述，不接受权限变更，内置角色的名称与描述仍由迁移维护。提交 `/roles/permissions` 时 `permissions` 是**完整权限集合**，应先通过 `/permissions/list?roleId=...` 获取 `selected`，将保留项与新增项一并提交，避免误撤原有权限。
 
 ### 使用前需要的身份与权限
 
@@ -36,12 +36,12 @@
 | 接口 | 必需权限枚举（字符串值） | 额外条件 |
 | --- | --- | --- |
 | 角色、绑定、权限目录、审批列表查询 | `HGIAMRoleRead`（`iam:role:read`） | 只读，不能据此执行变更 |
-| 创建/更新/停用角色、授权申请与撤销、设置角色权限 | `HGIAMRoleGrant`（`iam:role:grant`） | 授权申请需本人已启用 MFA，部分变更须由另一位合格管理员审批；角色及可委派权限仍受业务校验 |
+| 创建/更新/停用角色、授权申请与撤销、设置角色权限 | `HGIAMRoleGrant`（`iam:role:grant`） | 授权申请需本人已启用 MFA；普通管理员的申请由另一人审批，角色及可委派权限仍受业务校验 |
 | 本人 `/mfa/enroll`、`/mfa/confirm` | `HGIAMRoleGrant`（`iam:role:grant`） | enroll 复核当前登录密码、Redis 每人五分钟最多五次尝试及服务端 MFA 加密密钥；confirm 用六位 TOTP 验证并启用，不会赋予角色权限 |
-| `/approvals/approve`、`/approvals/reject` | `HGIAMRoleGrant` **和** `HGIAMApprovalApprove`（`iam:approval:approve`） | 本人 MFA 验证；不可审批自己的申请 |
+| `/approvals/approve`、`/approvals/reject` | `HGIAMRoleGrant` **和** `HGIAMApprovalApprove`（`iam:approval:approve`） | 本人 MFA 验证；仅有效全局 `super_admin` 绑定允许自审，普通管理员不可自审 |
 | `/bindings/grant-direct` | `HGIAMRoleGrant` **和** `HGIAMRoleGrantDirect`（`iam:role:grant_direct`） | 仅受控权限可即时授予他人非超管角色；操作者 MFA 消费、可委派权限复核、绑定、缓存版本与独立审计同事务完成。`scopeType` 是绑定字段，不属于角色定义 |
 
-开通方式：由获授权人员先核对目标账号的业务 `user_id`、活动管理员状态、IAM 全局角色绑定及角色权限。内置 `super_admin` 在迁移中预置权限，但仍以当前数据库的有效绑定为准；其他角色应按现有 MFA + 双人审批流程授予权限和绑定，不要修改代码中的枚举或关闭鉴权来放行。首次尚无 MFA 的管理员需要**先已有** `iam:role:grant`，才能通过 `/mfa/enroll` 绑定自己的因子。若绑定或权限缺失，须由已具备权限的其他管理员或受控引导流程处理，不能靠当前账号自助扩权。
+开通方式：由获授权人员先核对目标账号的业务 `user_id`、活动管理员状态、IAM 全局角色绑定及角色权限。内置 `super_admin` 在迁移中预置权限，但仍以当前数据库的有效绑定为准；有效全局超管可对自己的授权申请自审，其他管理员仍须另一人审批，不要修改代码中的枚举或关闭鉴权来放行。首次尚无 MFA 的管理员需要**先已有** `iam:role:grant`，才能通过 `/mfa/enroll` 绑定自己的因子。若绑定或权限缺失，须由已具备权限的其他管理员或受控引导流程处理，不能靠当前账号自助扩权。
 
 `/mfa/enroll` 返回的 `secret/otpauthUri` 用于在认证器中添加动态码，随后调用 `/mfa/confirm` 激活；它不是登录接口，也不负责创建管理员或授予角色。不要记录、分享或缓存密钥。HTTP 403 的“无权执行此操作”还可能来自服务层密码复核失败、MFA 密钥缺失或限流等拒绝；仅凭该响应不能判定缺少 `iam:role:grant`，请由有权限的人员按服务端配置和授权数据逐项核查，不要提交密码或密钥作为排障材料。
 
@@ -53,10 +53,10 @@
 
 ## 发布边界
 
-路由权限枚举、独立服务目录项、`000048` 的发布顺序和其他角色的受控授权步骤见 [路由权限说明](../../pkg/hg_router/README.md)。`000048` 新增的 7 项权限仅预置给 `super_admin`；其他角色通过现有 MFA 与双人审批流程申请权限及绑定。本次未执行数据库迁移或自动授权。
+路由权限枚举、独立服务目录项、`000048` 的发布顺序和其他角色的受控授权步骤见 [路由权限说明](../../pkg/hg_router/README.md)。`000048` 新增的 7 项权限仅预置给 `super_admin`；普通管理员通过现有 MFA 与双人审批流程申请权限及绑定，超管申请仍需两次独立 MFA 才能自审生效。本次未执行数据库迁移或自动授权。
 
 `migrations/000046_create_iam.up.sql` 创建六张基础表；`000047_iam_cutover_security.up.sql` 追加策略版本、审批和 MFA 表，回填旧角色/权限/绑定并建立创作者、商家业务角色。迁移前在隔离环境确认至少两名不同的活动管理员有授权与审批资格。先备份并停止旧版本角色写入，再由发布流程依次执行两次迁移；本次代码交付未执行迁移。`000047` 回滚只删除新增安全表，已回填 IAM 数据需人工核对，不能视为无损回退。
 
-低风险只读权限使用 20 秒 Redis 缓存，每次命中前先读取 MySQL `iam_policy_revision`；授权变更在同一事务递增版本使旧 key 失效。IAM 管理、资产写入、爬虫执行、临时授权和按用户首次建立的业务角色权限均不缓存放行。Redis 故障回源 MySQL，MySQL 故障拒绝。申请人与审批人各自消费 TOTP 验证码，审批人不能批准本人申请；批准时重新校验双方权限、目标和角色版本，授权及审计同事务提交。
+低风险只读权限使用 20 秒 Redis 缓存，每次命中前先读取 MySQL `iam_policy_revision`；授权变更在同一事务递增版本使旧 key 失效。IAM 管理、资产写入、爬虫执行、临时授权和按用户首次建立的业务角色权限均不缓存放行。Redis 故障回源 MySQL，MySQL 故障拒绝。申请与审批分别消费 TOTP 验证码；仅活动全局超管可自审，且须使用新动态码。批准时重新校验双方权限、目标和角色版本，授权及审计同事务提交。
 
 部署须通过密钥管理注入 `MLC_IAM_MFA_KEY_HEX`，值为 32 字节密钥的 64 位十六进制编码。密钥缺失时 MFA 和审批拒绝；密钥遗失或轮换会使现有因子无法解密，须准备受控恢复流程。MFA 密钥用 AES-GCM 加密，30 秒动态码在 MySQL 记录已消费时间步防重放；Redis 限制每名管理员 5 分钟最多 5 次尝试。首次绑定复核项目当前用户密码散列，后续应单独升级该散列算法。跨服务通知、审计归档及容量压测仍待独立建设；发布前需要在隔离环境验证迁移与完整审批链。
