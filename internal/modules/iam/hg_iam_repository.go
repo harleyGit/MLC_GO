@@ -443,6 +443,9 @@ func (r *HGRepository) hgGrantTx(ctx context.Context, tx *sql.Tx, delegateActor,
 	}
 	err := tx.QueryRowContext(ctx, targetSQL, userID).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
+		if auditAction == "iam.binding.grant" {
+			return ErrHGGrantTarget
+		}
 		return ErrHGNotFound
 	}
 	if err != nil {

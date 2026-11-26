@@ -103,15 +103,15 @@ func hgVerifyTOTP(secret []byte, code string, last int64, now time.Time) (int64,
 
 func (s *HGService) hgLimitMFA(ctx context.Context, userID string) error {
 	if s == nil || s.repo == nil || s.repo.cache == nil || s.repo.cache.Client() == nil {
-		return ErrHGForbidden
+		return ErrHGMFAUnavailable
 	}
 	key := PersistenceRedisPackage.GetIAMMFAAttemptKey(userID)
 	allowed, err := s.repo.cache.Client().Eval(ctx, PersistenceRedisPackage.HGFixedWindowCountLua, []string{key}, 300, 5).Int()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrHGMFAUnavailable, err)
 	}
 	if allowed != 1 {
-		return ErrHGForbidden
+		return ErrHGMFARateLimited
 	}
 	return nil
 }
@@ -281,21 +281,26 @@ func (s *HGService) hgConsumeMFATx(ctx context.Context, tx *sql.Tx, userID, code
 	var last int64
 	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMMFAFactor, userID).Scan(&ciphertext, &enabled, &last)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrHGForbidden
+		return ErrHGMFANotEnrolled
 	}
 	if err != nil {
 		return err
 	}
 	if !enabled {
-		return ErrHGForbidden
+		return ErrHGMFANotEnabled
 	}
 	secret, err := hgDecryptMFA(ciphertext)
 	if err != nil {
 		return err
 	}
-	counter, ok := hgVerifyTOTP(secret, code, last, time.Now())
+	now := time.Now()
+	counter, ok := hgVerifyTOTP(secret, code, last, now)
 	if !ok {
-		return ErrHGForbidden
+		// 仅在当前时间窗内能够匹配时才区分重放；过期码与错误码保持同一响应。
+		if _, matched := hgVerifyTOTP(secret, code, -1, now); matched {
+			return ErrHGMFACodeUsed
+		}
+		return ErrHGMFACodeInvalid
 	}
 	res, err := tx.ExecContext(ctx, SQLQueriesPackage.HGConsumeIAMMFACounter, counter, userID, counter)
 	if err != nil {
@@ -306,7 +311,7 @@ func (s *HGService) hgConsumeMFATx(ctx context.Context, tx *sql.Tx, userID, code
 		return err
 	}
 	if n != 1 {
-		return ErrHGConflict
+		return ErrHGMFACodeUsed
 	}
 	return nil
 }

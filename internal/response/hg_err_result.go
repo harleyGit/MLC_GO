@@ -123,6 +123,12 @@ const (
 	BindEmailFailCode      HGErrorCode = 404006 // 绑定邮箱失败
 	OAuthBindFailCode      HGErrorCode = 404007 // 第三方账号绑定失败
 	MFAAlreadyEnabledCode  HGErrorCode = 404008 // 当前账号的 MFA 已启用，不能再次绑定
+	MFANotEnrolledCode     HGErrorCode = 404009 // 当前账号尚未登记 MFA 因子
+	MFANotEnabledCode      HGErrorCode = 404010 // 已登记但尚未启用 MFA 因子
+	MFACodeInvalidCode     HGErrorCode = 404011 // MFA 动态码错误或已过期
+	MFACodeUsedCode        HGErrorCode = 404012 // MFA 当前时间步已被消费
+	MFARateLimitedCode     HGErrorCode = 404013 // MFA 尝试次数超限
+	IAMGrantTargetCode     HGErrorCode = 404014 // 双人审批授权目标不是活动管理员
 
 	// 405xxx 内容/文件模块
 	FileNotFoundCode       HGErrorCode = 405001 // 文件不存在

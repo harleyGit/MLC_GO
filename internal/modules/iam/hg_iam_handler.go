@@ -160,15 +160,33 @@ func hgHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGInvalid):
 		status, message = http.StatusBadRequest, "请求参数无效"
 		code = HGResponsePackage.InvalidParam.Code
+	case errors.Is(err, ErrHGMFANotEnrolled):
+		status, message = http.StatusConflict, "当前账号未绑定 MFA，请先完成绑定"
+		code = HGResponsePackage.MFANotEnrolledCode
+	case errors.Is(err, ErrHGMFANotEnabled):
+		status, message = http.StatusConflict, "当前账号 MFA 未启用，请先完成验证"
+		code = HGResponsePackage.MFANotEnabledCode
+	case errors.Is(err, ErrHGMFACodeInvalid):
+		status, message = http.StatusForbidden, "MFA 验证码错误或已过期"
+		code = HGResponsePackage.MFACodeInvalidCode
+	case errors.Is(err, ErrHGMFACodeUsed):
+		status, message = http.StatusConflict, "MFA 验证码已使用，请等待下一组动态码"
+		code = HGResponsePackage.MFACodeUsedCode
+	case errors.Is(err, ErrHGMFARateLimited):
+		status, message = http.StatusTooManyRequests, "MFA 尝试次数过多，请稍后再试"
+		code = HGResponsePackage.MFARateLimitedCode
 	case errors.Is(err, ErrHGForbidden):
 		status, message = http.StatusForbidden, "无权执行此操作"
 		code = HGResponsePackage.Forbidden.Code
 	case errors.Is(err, ErrHGMFAAlreadyEnabled):
 		status, message = http.StatusConflict, "当前账号已绑定 MFA"
 		code = HGResponsePackage.MFAAlreadyEnabledCode
-	case errors.Is(err, ErrHGMFAKeyUnavailable):
+	case errors.Is(err, ErrHGMFAKeyUnavailable), errors.Is(err, ErrHGMFAUnavailable):
 		status, message = http.StatusServiceUnavailable, "MFA 服务暂不可用"
 		code = HGResponsePackage.InternalError.Code
+	case errors.Is(err, ErrHGGrantTarget):
+		status, message = http.StatusNotFound, "目标不是可授权的活动管理员"
+		code = HGResponsePackage.IAMGrantTargetCode
 	case errors.Is(err, ErrHGScopeNotFound):
 		status, message = http.StatusNotFound, "作用域不存在或未生效"
 		code = HGResponsePackage.InvalidParam.Code

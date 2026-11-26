@@ -56,3 +56,22 @@ func TestHGApprovalRejectsSelfDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// /bindings/grant 的目标来自请求体，申请人已有全局权限时仍须要求目标为活动管理员。
+func TestHGRequestGrantRejectsInactiveTargetBeforeMFA(t *testing.T) {
+	service, mock := hgTestService(t)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("ACTOR").
+		WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	hgExpectPermission(mock, "ACTOR", "global", "", "iam:role:grant", true)
+	mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMManager)).WithArgs("TARGET").
+		WillReturnRows(sqlmock.NewRows([]string{"1"}))
+	_, err := service.RequestGrant(context.Background(), "ACTOR", "req-1", "invalid", hgGrantApprovalPayload{
+		UserID: "TARGET", RoleID: 8, ScopeType: "global",
+	})
+	if !errors.Is(err, ErrHGGrantTarget) {
+		t.Fatalf("目标非活动管理员应返回专用错误，实际 %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

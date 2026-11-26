@@ -1,14 +1,19 @@
 package iam
 
 import (
+	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 // enroll 已启用因子的专用业务码不得与普通 IAM 冲突混淆；权限/配置错误仍按原协议。
@@ -20,9 +25,16 @@ func TestHGMFAAlreadyEnabledErrorMapping(t *testing.T) {
 		code   int
 	}{
 		{"已启用", ErrHGMFAAlreadyEnabled, http.StatusConflict, 404008},
+		{"未绑定", ErrHGMFANotEnrolled, http.StatusConflict, 404009},
+		{"未启用", ErrHGMFANotEnabled, http.StatusConflict, 404010},
+		{"动态码无效", ErrHGMFACodeInvalid, http.StatusForbidden, 404011},
+		{"动态码已使用", ErrHGMFACodeUsed, http.StatusConflict, 404012},
+		{"尝试超限", ErrHGMFARateLimited, http.StatusTooManyRequests, 404013},
+		{"目标非活动管理员", ErrHGGrantTarget, http.StatusNotFound, 404014},
 		{"普通冲突", ErrHGConflict, http.StatusConflict, 100009},
 		{"无权", ErrHGForbidden, http.StatusForbidden, 300004},
 		{"密钥不可用", ErrHGMFAKeyUnavailable, http.StatusServiceUnavailable, 500001},
+		{"限流服务不可用", ErrHGMFAUnavailable, http.StatusServiceUnavailable, 500001},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -37,6 +49,59 @@ func TestHGMFAAlreadyEnabledErrorMapping(t *testing.T) {
 				t.Fatalf("预期 HTTP %d/业务码 %d，实际 HTTP %d/业务码 %d", tc.status, tc.code, w.Code, body.Code)
 			}
 		})
+	}
+}
+
+// MFA 写入前的因子状态、动态码校验与已使用时间步须分别返回稳定错误，拒绝时不能推进计数器。
+func TestHGConsumeMFAFailureReasons(t *testing.T) {
+	t.Setenv("MLC_IAM_MFA_KEY_HEX", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	secret := []byte("12345678901234567890") // RFC 6238 测试夹具，不是线上因子。
+	ciphertext, err := hgEncryptMFA(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := time.Now().Unix() / 30
+	code := hgTOTP(secret, step)
+	for _, tc := range []struct {
+		name    string
+		rows    *sqlmock.Rows
+		code    string
+		zeroRow bool
+		want    error
+	}{
+		{"未绑定", sqlmock.NewRows([]string{"secret_cipher", "enabled", "last_counter"}), code, false, ErrHGMFANotEnrolled},
+		{"未启用", sqlmock.NewRows([]string{"secret_cipher", "enabled", "last_counter"}).AddRow(ciphertext, false, -1), code, false, ErrHGMFANotEnabled},
+		{"无效", sqlmock.NewRows([]string{"secret_cipher", "enabled", "last_counter"}).AddRow(ciphertext, true, -1), "invalid", false, ErrHGMFACodeInvalid},
+		{"已使用", sqlmock.NewRows([]string{"secret_cipher", "enabled", "last_counter"}).AddRow(ciphertext, true, step), code, false, ErrHGMFACodeUsed},
+		{"写入竞争", sqlmock.NewRows([]string{"secret_cipher", "enabled", "last_counter"}).AddRow(ciphertext, true, -1), code, true, ErrHGMFACodeUsed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, mock := hgTestService(t)
+			mock.ExpectBegin()
+			mock.ExpectQuery(regexp.QuoteMeta(SQLQueriesPackage.HGSelectIAMMFAFactor)).WithArgs("ACTOR").WillReturnRows(tc.rows)
+			if tc.zeroRow {
+				mock.ExpectExec(regexp.QuoteMeta(SQLQueriesPackage.HGConsumeIAMMFACounter)).
+					WithArgs(sqlmock.AnyArg(), "ACTOR", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+			}
+			mock.ExpectRollback()
+			tx, beginErr := service.repo.db.BeginTx(context.Background(), nil)
+			if beginErr != nil {
+				t.Fatal(beginErr)
+			}
+			if got := service.hgConsumeMFATx(context.Background(), tx, "ACTOR", tc.code); !errors.Is(got, tc.want) {
+				t.Fatalf("预期 %v，实际 %v", tc.want, got)
+			}
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				t.Fatal(rollbackErr)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	service, _ := hgTestService(t)
+	if err := service.hgLimitMFA(context.Background(), "ACTOR"); !errors.Is(err, ErrHGMFAUnavailable) {
+		t.Fatalf("限流依赖不可用时不应伪装成权限拒绝: %v", err)
 	}
 }
 

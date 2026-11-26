@@ -261,7 +261,9 @@ func (s *HGService) HGBindOwnRecoveryEmail(ctx context.Context, user, email, ema
 		return err
 	}
 	if err := s.hgConsumeMFATx(ctx, tx, user, mfaCode); err != nil {
-		if errors.Is(err, ErrHGForbidden) || errors.Is(err, ErrHGConflict) {
+		if errors.Is(err, ErrHGForbidden) || errors.Is(err, ErrHGConflict) ||
+			errors.Is(err, ErrHGMFANotEnrolled) || errors.Is(err, ErrHGMFANotEnabled) ||
+			errors.Is(err, ErrHGMFACodeInvalid) || errors.Is(err, ErrHGMFACodeUsed) {
 			return hgErrRecoveryFactor
 		}
 		return err

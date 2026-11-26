@@ -110,7 +110,7 @@ func (s *HGService) RequestGrant(ctx context.Context, actor, requestID, otp stri
 		return "", err
 	}
 	if !active {
-		return "", ErrHGNotFound
+		return "", ErrHGGrantTarget
 	}
 	codes, err := s.repo.hgRolePermissions(ctx, p.RoleID)
 	if err != nil {
