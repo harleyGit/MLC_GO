@@ -245,7 +245,7 @@ check_mysql() {
 # start_mysql 的作用是：当 MySQL 没起来时，尝试把它启动起来。
 # 启动顺序是：
 # 1. pre 环境优先尝试 docker compose
-# 2. Apple Silicon 机器优先尝试 mysql.server，因为这类机器上常见的是 sudo mysql.server start
+# 2. Apple Silicon 的本机 debug 如果使用 Oracle 安装包，以安装包的 _mysql 账号启动
 # 3. 其他场景优先尝试 brew services start mysql
 # 4. 如果还不行，再尝试 sudo -n mysql.server start
 #
@@ -268,6 +268,26 @@ start_mysql() {
         if start_pre_compose_services; then
             return 0
         fi
+    fi
+
+    # Oracle 安装包的数据目录归 _mysql 所有。mysql.server 的启动输出有时显示成功，
+    # 但如果以 root 执行，mysqld 会拒绝启动。仅对该安装包使用专用账号，不影响 Homebrew。
+    local hg_oracle_mysql_script="/usr/local/mysql/support-files/mysql.server"
+    local hg_mysql_script_on_path
+    hg_mysql_script_on_path="$(command -v mysql.server || true)"
+    if [ "${TARGET_ENV}" = "debug" ] && is_apple_silicon_mac \
+        && [ -x "${hg_oracle_mysql_script}" ] && id -u _mysql >/dev/null 2>&1 \
+        && { [ -z "${hg_mysql_script_on_path}" ] || [ "${hg_mysql_script_on_path}" -ef "${hg_oracle_mysql_script}" ]; }; then
+        local hg_sudo_args=(-u _mysql)
+        if ! can_prompt_for_sudo; then
+            hg_sudo_args=(-n "${hg_sudo_args[@]}")
+        fi
+        log_info "以 _mysql 账号启动 Oracle MySQL"
+        if sudo "${hg_sudo_args[@]}" "${hg_oracle_mysql_script}" start; then
+            return 0
+        fi
+        log_error "Oracle MySQL 启动失败。请在终端执行：sudo -u _mysql ${hg_oracle_mysql_script} start"
+        return 1
     fi
 
     # Apple Silicon 机器优先尝试 mysql.server。

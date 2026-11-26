@@ -225,6 +225,8 @@ internal/
 
 请先启动 Docker Desktop，并在 VS Code 终端确认 `docker info` 成功。Docker 未就绪时，前置任务会明确报错，并在启动 MySQL/Redis 或执行迁移之前退出。不要选择“仍要调试”跳过失败的前置任务。
 
+Apple Silicon 上使用 Oracle MySQL 安装包时，前置任务以 `_mysql` 账号启动服务；如果 VS Code 终端出现 `sudo` 提示，请在终端确认。
+
 ```text
 点击启动调试
     ↓

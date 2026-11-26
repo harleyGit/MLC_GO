@@ -147,9 +147,9 @@ EOF
         PATH="${temp_dir}/bin:${PATH}" \
         "${SCRIPT_DIR}/ensure_debug_deps.sh" debug >"${temp_dir}/output.log" 2>&1 || status=$?
 
-    assert_contains "docker info" "${temp_dir}/commands.log"
     if [ "${docker_unavailable}" = "true" ]; then
         [ "${status}" -ne 0 ] || fail "Docker 不可用时应阻断 debug 启动"
+        assert_contains "docker info" "${temp_dir}/commands.log"
         assert_contains "Docker daemon 不可用" "${temp_dir}/output.log"
         assert_not_contains "--check mysql" "${temp_dir}/commands.log"
         assert_not_contains "--migrations-dir" "${temp_dir}/commands.log"
@@ -162,6 +162,7 @@ EOF
         cat "${temp_dir}/output.log" >&2
         fail "${case_name} 场景的前置任务退出码为 ${status}"
     fi
+    assert_contains "docker info" "${temp_dir}/commands.log"
 
     # GOPATH 工具可用时优先采用；不可用时必须回退到登录 shell 的兼容工具。
     if [ "${gopath_migrate_broken}" = "true" ]; then
@@ -190,13 +191,13 @@ EOF
     rm -rf "${temp_dir}"
 }
 
-# 场景一：三个容器都返回 Running=true，不能重复执行 docker compose。
-run_case running
-# 场景二：模拟 mlc-kafka-2 未运行，必须执行限定三个 broker 的 compose 启动命令。
-run_case stopped mlc-kafka-2
-# 场景三：模拟 GOPATH/bin/migrate 架构或系统版本不兼容，必须回退到 PATH 中的可用工具。
-run_case running "" true
-# 场景四：Docker daemon 不可用，在 MySQL 探活、迁移及 Kafka 初始化前退出。
+# 场景一：Docker daemon 不可用，在 MySQL 探活、迁移及 Kafka 初始化前退出。
 run_case docker-down
+# 场景二：三个容器都返回 Running=true，不能重复执行 docker compose。
+run_case running
+# 场景三：模拟 mlc-kafka-2 未运行，必须执行限定三个 broker 的 compose 启动命令。
+run_case stopped mlc-kafka-2
+# 场景四：模拟 GOPATH/bin/migrate 架构或系统版本不兼容，必须回退到 PATH 中的可用工具。
+run_case running "" true
 
 echo "[PASS] VS Code debug 前置 Docker 和 Kafka 检查通过"
