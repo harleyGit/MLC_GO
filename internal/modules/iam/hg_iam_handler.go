@@ -559,7 +559,7 @@ func (h *HGHandler) HGListPermissions(w http.ResponseWriter, r *http.Request) {
 	HGResponsePackage.SuccessResult(w, r, map[string]any{"list": items, "selected": codes})
 }
 
-// HGSetRolePermissions 全量替换自定义角色的权限。
+// HGSetRolePermissions 申请全量替换自定义角色或 ops_engineer 内置角色的权限。
 func (h *HGHandler) HGSetRolePermissions(w http.ResponseWriter, r *http.Request) {
 	actor, ok := hgActor(w, r)
 	if !ok {

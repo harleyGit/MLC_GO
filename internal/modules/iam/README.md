@@ -11,7 +11,7 @@
 | POST | `/roles/update` | 修改自定义角色名称与描述，使用十进制字符串 `id` |
 | POST | `/roles/disable` | 停用没有有效绑定的自定义角色 |
 | GET | `/permissions/list?roleId=...` | 权限目录及角色已选权限 |
-| POST | `/roles/permissions` | 用 `roleId/permissions/mfaCode` 申请全量替换；返回 `approvalId/status=pending` |
+| POST | `/roles/permissions` | 用 `roleId/permissions/mfaCode` 申请全量替换自定义角色或内置 `ops_engineer` 的权限；返回 `approvalId/status=pending`，其他内置角色不可修改 |
 | GET | `/bindings/list?userId=...&cursor=0&pageSize=20` | 按精确业务用户 ID 列出活动绑定 |
 | POST | `/bindings/grant` | 用 `userId/roleId/scopeType/scopeId/expiresAt/mfaCode` 申请授权；返回 `approvalId/status=pending` |
 | POST | `/bindings/grant-direct` | 受限即时授权：目标是现有 `users.user_id`（可为普通账号），提交角色、作用域及本人 `mfaCode`，成功返回 `granted=true`；不允许自授或直接授予 `super_admin`，独立审计 |
@@ -26,6 +26,8 @@
 | POST | `/mfa/confirm` | 用 6 位 `code` 验证并启用 TOTP |
 | GET | `/approvals/list` | `id DESC` 游标读取待审批申请，单页最多 50 条 |
 | POST | `/approvals/approve`、`/approvals/reject` | `id/mfaCode`；申请人不可自批，24 小时后过期 |
+
+内置 `ops_engineer` 的权限调整仍须申请人 MFA、另一名管理员审批与 MFA，且双方都须持有待授予的权限；审批时再次验证角色版本及委派范围。`/roles/update` 只修改自定义角色的名称与描述，不接受权限变更，内置角色的名称与描述仍由迁移维护。提交 `/roles/permissions` 时 `permissions` 是**完整权限集合**，应先通过 `/permissions/list?roleId=...` 获取 `selected`，将保留项与新增项一并提交，避免误撤原有权限。
 
 ### 使用前需要的身份与权限
 

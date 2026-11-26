@@ -33,7 +33,7 @@ const (
 	// target_user_id 为生成列，旧申请由 JSON 自动派生；仅在迁移 000074 应用后可用，未迁移时请求失败而不降级为无界过滤。
 	HGSelectIAMPendingGrantsFirst = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) ORDER BY id DESC LIMIT ?`
 	HGSelectIAMPendingGrantsAfter = `SELECT id,payload,expires_at,created_at FROM iam_approval_requests WHERE target_user_id=? AND status='pending' AND expires_at>CURRENT_TIMESTAMP(3) AND id<? ORDER BY id DESC LIMIT ?`
-	HGSelectIAMRoleVersion        = `SELECT version,built_in FROM iam_roles WHERE id=? AND status=1 LIMIT 1`
+	HGSelectIAMRoleVersion        = `SELECT version,built_in,role_code FROM iam_roles WHERE id=? AND status=1 LIMIT 1`
 	// 创作者身份在首次上传前按 users 唯一业务 ID 建立；业务权限不进入 Redis 授权缓存。
 	HGInsertIAMCreatorBinding = `INSERT IGNORE INTO iam_user_role_bindings(user_id,role_id,scope_type,scope_id,status,granted_by) SELECT u.user_id,r.id,'global','',1,'creator-onboarding' FROM users u JOIN iam_roles r ON r.role_code='creator' AND r.status=1 WHERE u.user_id=? LIMIT 1`
 	// 商家审核通过后同事务赋予业务身份，撤销/拒绝申请均不自动扩权。
@@ -44,7 +44,7 @@ const (
 	HGSelectIAMRole                   = `SELECT id,role_code,role_name,description,status,built_in,created_at FROM iam_roles WHERE id=? LIMIT 1`
 	HGSelectIAMActiveRoleCode         = `SELECT role_code FROM iam_roles WHERE id=? AND status=1 LIMIT 1 FOR UPDATE`
 	HGSelectIAMBindingRoleForRevoke   = `SELECT r.role_code FROM iam_user_role_bindings b JOIN iam_roles r ON r.id=b.role_id WHERE b.id=? AND b.user_id=? AND b.status=1 LIMIT 1 FOR UPDATE`
-	HGSelectIAMRoleForPermissionWrite = `SELECT built_in,version FROM iam_roles WHERE id=? AND status=1 LIMIT 1 FOR UPDATE`
+	HGSelectIAMRoleForPermissionWrite = `SELECT built_in,version,role_code FROM iam_roles WHERE id=? AND status=1 LIMIT 1 FOR UPDATE`
 	HGInsertIAMRole                   = `INSERT INTO iam_roles(role_code,role_name,description,status,built_in) VALUES(?,?,?,1,0)`
 	HGUpdateIAMRole                   = `UPDATE iam_roles SET role_name=?,description=?,version=version+1,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0`
 	HGDisableIAMRole                  = `UPDATE iam_roles SET status=0,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0 AND NOT EXISTS(SELECT 1 FROM iam_user_role_bindings WHERE role_id=? AND status=1 AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP(3)) LIMIT 1)`
@@ -67,9 +67,10 @@ const (
 	HGSelectIAMPermissions     = `SELECT permission_code,description FROM iam_permissions ORDER BY permission_code LIMIT ?`
 	HGSelectIAMRolePermissions = `SELECT p.permission_code FROM iam_role_permissions rp JOIN iam_permissions p ON p.id=rp.permission_id WHERE rp.role_id=? ORDER BY p.permission_code LIMIT ?`
 	HGDeleteIAMRolePermissions = `DELETE FROM iam_role_permissions WHERE role_id=?`
-	HGBumpIAMRoleVersion       = `UPDATE iam_roles SET version=version+1,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND built_in=0`
-	HGInsertIAMRolePermission  = `INSERT INTO iam_role_permissions(role_id,permission_id) SELECT ?,id FROM iam_permissions WHERE permission_code=? LIMIT 1`
-	HGSelectIAMOrganization    = `SELECT 1 FROM iam_organizations WHERE id=? AND org_type=? AND status=1 LIMIT 1`
+	// 仅 ops_engineer 内置角色可通过双人审批调整权限；按主键更新并保留数据库侧保护，其他内置角色仍由迁移维护。
+	HGBumpIAMRoleVersion      = `UPDATE iam_roles SET version=version+1,updated_at=CURRENT_TIMESTAMP(3) WHERE id=? AND status=1 AND (built_in=0 OR role_code='ops_engineer')`
+	HGInsertIAMRolePermission = `INSERT INTO iam_role_permissions(role_id,permission_id) SELECT ?,id FROM iam_permissions WHERE permission_code=? LIMIT 1`
+	HGSelectIAMOrganization   = `SELECT 1 FROM iam_organizations WHERE id=? AND org_type=? AND status=1 LIMIT 1`
 	// uk_mall_merchant_id 唯一点查；仅审核通过的真实商家可作为未登记 shop 的授权作用域。
 	// IAM 已登记作用域优先沿用旧协议，回退查询不写入表，也不把客户端 ID 当可信登记。
 	HGSelectIAMApprovedShopScope = `SELECT 1 FROM mall_merchant WHERE merchant_id=? AND status=1 LIMIT 1`

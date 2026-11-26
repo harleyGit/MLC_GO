@@ -681,18 +681,22 @@ func (r *HGRepository) hgSetRolePermissions(ctx context.Context, actor, requestI
 	return tx.Commit()
 }
 
-// hgSetRolePermissionsTx 锁定角色并执行整组替换；expectedVersion 非零时拒绝过期审批。
+// hgSetRolePermissionsTx 锁定角色并执行整组替换；内置运维角色只接受带版本的审批写入。
 func (r *HGRepository) hgSetRolePermissionsTx(ctx context.Context, tx *sql.Tx, actor, requestID string, roleID uint64, codes []string, expectedVersion uint64) error {
 	var builtIn bool
 	var version uint64
-	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleForPermissionWrite, roleID).Scan(&builtIn, &version)
+	var roleCode string
+	err := tx.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleForPermissionWrite, roleID).Scan(&builtIn, &version, &roleCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrHGNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if builtIn {
+	if !hgRolePermissionsEditable(builtIn, roleCode) {
+		return ErrHGForbidden
+	}
+	if builtIn && expectedVersion == 0 {
 		return ErrHGForbidden
 	}
 	if expectedVersion > 0 && version != expectedVersion {
@@ -714,8 +718,16 @@ func (r *HGRepository) hgSetRolePermissionsTx(ctx context.Context, tx *sql.Tx, a
 			return fmt.Errorf("%w: 未知权限编码", ErrHGInvalid)
 		}
 	}
-	if _, err = tx.ExecContext(ctx, SQLQueriesPackage.HGBumpIAMRoleVersion, roleID); err != nil {
+	res, err := tx.ExecContext(ctx, SQLQueriesPackage.HGBumpIAMRoleVersion, roleID)
+	if err != nil {
 		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrHGConflict
 	}
 	if err = hgBumpRevision(ctx, tx); err != nil {
 		return err

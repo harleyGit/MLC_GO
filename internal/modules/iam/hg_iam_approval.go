@@ -122,7 +122,7 @@ func (s *HGService) RequestGrant(ctx context.Context, actor, requestID, otp stri
 	return s.hgRequestApproval(ctx, actor, requestID, "grant", otp, p)
 }
 
-// RequestRolePermissions 为完整权限替换创建审批，拒绝内置角色和过期角色版本。
+// RequestRolePermissions 为完整权限替换创建审批；仅允许自定义角色及 ops_engineer 内置角色。
 func (s *HGService) RequestRolePermissions(ctx context.Context, actor, requestID, otp string, roleID uint64, codes []string) (string, error) {
 	if err := s.hgCanManage(ctx, actor, true); err != nil {
 		return "", err
@@ -135,17 +135,23 @@ func (s *HGService) RequestRolePermissions(ctx context.Context, actor, requestID
 	}
 	var version uint64
 	var builtIn bool
-	err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleVersion, roleID).Scan(&version, &builtIn)
+	var roleCode string
+	err := s.repo.db.QueryRowContext(ctx, SQLQueriesPackage.HGSelectIAMRoleVersion, roleID).Scan(&version, &builtIn, &roleCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrHGNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	if builtIn {
+	if !hgRolePermissionsEditable(builtIn, roleCode) {
 		return "", ErrHGForbidden
 	}
 	return s.hgRequestApproval(ctx, actor, requestID, "role_permissions", otp, hgRolePermissionsApprovalPayload{RoleID: roleID, Permissions: codes, Version: version})
+}
+
+// hgRolePermissionsEditable 只对运维内置角色开放受审批的权限调整，其他内置角色继续由迁移维护。
+func hgRolePermissionsEditable(builtIn bool, roleCode string) bool {
+	return !builtIn || roleCode == "ops_engineer"
 }
 
 func hgApprovalActorTx(ctx context.Context, tx *sql.Tx, userID, permission string) error {
