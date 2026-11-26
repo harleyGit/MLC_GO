@@ -11,7 +11,7 @@ import (
 func TestHGPermissionEnumMatchesMigrations(t *testing.T) {
 	hgExpected := make(map[string]bool)
 	hgPattern := regexp.MustCompile(`'([a-z][a-z0-9_]*:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*)'`)
-	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql", "000075_iam_direct_grant_permission.up.sql", "000078_notification_templates.up.sql", "000083_notification_send_tasks.up.sql"} {
+	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql", "000075_iam_direct_grant_permission.up.sql", "000078_notification_templates.up.sql", "000083_notification_send_tasks.up.sql", "000085_notification_send_approval.up.sql"} {
 		hgSQL, hgErr := os.ReadFile("../../../migrations/" + hgFile)
 		if hgErr != nil {
 			t.Fatal(hgErr)
@@ -80,5 +80,30 @@ func TestHGUserDirectoryDeleteBootstrap(t *testing.T) {
 		!strings.Contains(text, "p.permission_code='user:directory:delete'") ||
 		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") {
 		t.Fatal("用户删除权限必须仅授予超级管理员并推进 IAM 版本")
+	}
+}
+
+// TestHGMediaInventorySuperAdminBootstrap 约束迁移只向超级管理员授予媒体盘点权限，回退不影响其他角色。
+func TestHGMediaInventorySuperAdminBootstrap(t *testing.T) {
+	up, err := os.ReadFile("../../../migrations/000088_media_inventory_super_admin.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(up)
+	if !strings.Contains(text, "INSERT IGNORE INTO iam_role_permissions(role_id,permission_id)") ||
+		!strings.Contains(text, "p.permission_code='media:inventory:read'") ||
+		!strings.Contains(text, "r.role_code='super_admin' AND r.status=1") ||
+		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") {
+		t.Fatal("媒体盘点权限必须仅引导给生效超级管理员并推进 IAM 版本")
+	}
+	down, err := os.ReadFile("../../../migrations/000088_media_inventory_super_admin.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(down)
+	if !strings.Contains(text, "WHERE r.role_code='super_admin' AND p.permission_code='media:inventory:read'") ||
+		!strings.Contains(text, "UPDATE iam_policy_revision SET revision=revision+1 WHERE id=1") ||
+		strings.Contains(text, "DELETE FROM iam_permissions") {
+		t.Fatal("回退只能撤销超级管理员的媒体盘点权限并推进 IAM 版本")
 	}
 }
