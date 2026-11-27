@@ -16,8 +16,13 @@
 | `POST /api/v1/media/uploads/complete` | JWT，JSON `{ "upload_id": "..." }`；真实长度符合后进入 `processing`，仍不可引用。 |
 | `GET /api/v1/media/assets/status?asset_id=...` | JWT，查询本人申请元数据和状态。 |
 | `GET /api/v1/media/assets/download?asset_id=...` | JWT，仅低敏图片用途的原上传者且 `ready` 可获得 30 秒私有读授权；聊天、实名认证、售后、视频源禁止走此入口，仍须业务鉴权网关。 |
+| `GET /api/v1/media/admin/assets/list` | 活动管理员和全局 `media:inventory:read`。返回新旧元数据、游标、本人新资源标记及服务端是否启用预览/清理；不返回其他人的归属或对象读取地址。 |
+| `GET /api/v1/media/admin/assets/preview?asset_id=...` | 另需全局 `media:asset:preview` 和封存读取身份。已审核低敏图片使用 30 秒签名；新模块 `video_source`、`comment_video`、`chat_audio`、`chat_video` 仅当调用者是原上传者、会话为 `ready` 且未绑定业务时可使用 300 秒签名。旧 IM 及已绑定音视频仍不从此入口读取。 |
+| `POST /api/v1/media/admin/assets/delete` | 另需全局 `media:asset:delete` 和清理 worker；JSON `{ "asset_id": "..." }`。仅接受用途、会话和对象归属一致、无业务引用且已结束审核的合规新资源；音视频草稿限本人，已解绑的资源仍保留 24 小时保护期。 |
 
 API Guard 目前只支持固定路径；变更为文档示例中的 `{id}` 路径前，必须一并改造 Guard 并测试动态路径认证。`ready` 需要受信审核器返回与申请一致的 MIME、SHA256、大小、宽高/时长和指定封存键，并由服务器再次 HEAD 校验封存对象长度；真实字节内容的审核责任仍在外部审核器。
+
+发布管理操作前须在获准环境应用 `000089_media_admin_actions`，仅向活动超级管理员引导独立权限。未启用 S3 时仍只挂载盘点接口。删除事务标记 `deleting`、登记双对象清理任务和操作审计，至少等待 15 分钟后由现有任务尝试删除，保留上传签名到期窗口；重复提交不重复入队。签名预览不能即时撤销；浏览器音视频分段请求须在签名有效期内，超时需重新打开。旧资源必须由各业务按原授权处理。
 
 ## 事务与后台
 

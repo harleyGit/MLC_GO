@@ -67,6 +67,8 @@ const (
 	HGNotificationSendCancel      HGPermission = "notification:send:cancel"      // 取消本人尚未完成的任务。
 	HGNotificationSendApprove     HGPermission = "notification:send:approve"     // 审批另一位管理员的定时或营销任务。
 	HGMediaInventoryRead          HGPermission = "media:inventory:read"          // 全平台新旧媒体元数据只读盘点；不授予内容读取或删除。
+	HGMediaAssetPreview           HGPermission = "media:asset:preview"           // 管理预览独立授权；仍须校验审核状态、用途和归属。
+	HGMediaAssetDelete            HGPermission = "media:asset:delete"            // 单个无引用新资源的异步清理；不授予旧链路删除权限。
 )
 
 // hgPermissions 是编译期权限字典；新增权限须同步受控迁移，不在路由注册时写库。
@@ -123,6 +125,8 @@ var hgPermissions = [...]HGPermission{
 	HGNotificationSendCancel,
 	HGNotificationSendApprove,
 	HGMediaInventoryRead,
+	HGMediaAssetPreview,
+	HGMediaAssetDelete,
 }
 
 // HGKnown 判断是否为已登记的路由权限；仅用于启动配置校验，不代替 IAM 授权查询。

@@ -14,14 +14,15 @@ import (
 
 // HGService 管理媒体隔离上传会话；不会将未经审核的对象升级为可引用资源。
 type HGService struct {
-	db           *sql.DB       // MySQL 权威会话与元数据，事务不可跨 S3 网络 I/O。
-	store        HGObjectStore // SeaweedFS 隔离桶访问，必须复用持久客户端。
-	bucket       string        // 与 store 一致的受信隔离桶名。
-	reviewer     HGReviewer    // 受信内容审核服务，仅在显式启用的模块内注入。
-	sealed       HGSealedStore // 封存复查及异步清理的独立后台 S3 能力。
-	read         HGReadStore   // 可选的受限封存读取签名身份，未配置则不发放下载授权。
-	expireCursor atomic.Uint32 // 轮询过期状态；避免多范围排序与状态饥饿。
-	deleteCursor atomic.Uint32 // 轮询待处理和租约到期任务。
+	db           *sql.DB            // MySQL 权威会话与元数据，事务不可跨 S3 网络 I/O。
+	store        HGObjectStore      // SeaweedFS 隔离桶访问，必须复用持久客户端。
+	bucket       string             // 与 store 一致的受信隔离桶名。
+	reviewer     HGReviewer         // 受信内容审核服务，仅在显式启用的模块内注入。
+	sealed       HGSealedStore      // 封存复查及异步清理的独立后台 S3 能力。
+	read         HGReadStore        // 可选的受限封存读取签名身份，未配置则不发放下载授权。
+	previewRead  hgPreviewReadStore // 管理预览专用签名能力，仍使用受限封存读取身份。
+	expireCursor atomic.Uint32      // 轮询过期状态；避免多范围排序与状态饥饿。
+	deleteCursor atomic.Uint32      // 轮询待处理和租约到期任务。
 }
 
 // HGNewService 构造未审核上传服务；bucket 必须与对象存储实例配置相同。

@@ -11,7 +11,7 @@ import (
 func TestHGPermissionEnumMatchesMigrations(t *testing.T) {
 	hgExpected := make(map[string]bool)
 	hgPattern := regexp.MustCompile(`'([a-z][a-z0-9_]*:[a-z][a-z0-9_]*:[a-z][a-z0-9_]*)'`)
-	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql", "000075_iam_direct_grant_permission.up.sql", "000078_notification_templates.up.sql", "000083_notification_send_tasks.up.sql", "000085_notification_send_approval.up.sql"} {
+	for _, hgFile := range []string{"000046_create_iam.up.sql", "000047_iam_cutover_security.up.sql", "000048_route_permissions.up.sql", "000051_notification_inbox.up.sql", "000057_user_directory_write.up.sql", "000060_user_delete_dependency_indexes.up.sql", "000073_media_inventory.up.sql", "000075_iam_direct_grant_permission.up.sql", "000078_notification_templates.up.sql", "000083_notification_send_tasks.up.sql", "000085_notification_send_approval.up.sql", "000089_media_admin_actions.up.sql"} {
 		hgSQL, hgErr := os.ReadFile("../../../migrations/" + hgFile)
 		if hgErr != nil {
 			t.Fatal(hgErr)

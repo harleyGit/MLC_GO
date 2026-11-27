@@ -13,19 +13,22 @@ import (
 
 // HGInventoryItem 是管理端元数据盘点协议；旧来源只报告记录，不授予对象读取、引用或迁移权限。
 type HGInventoryItem struct {
-	Source  string `json:"source"`    // new 或四种 legacy_* 来源；每一来源独立按主键倒序分页。
-	ID      string `json:"id"`        // 来源内主键（新资源 UUID、旧 IM 十六进制 ID 或旧表数字 ID），不可用于跨来源操作。
-	Kind    string `json:"kind"`      // image/video/audio/file；由 MIME 或旧来源分类，不代表审核通过。
-	Purpose string `json:"purpose"`   // 新媒体业务用途；旧来源为对应的 legacy_* 标记。
-	MIME    string `json:"mime_type"` // 声明 MIME；旧头像/商品没有此字段时为空，不能据此预览。
-	Size    uint64 `json:"file_size"` // 已登记字节数；旧头像/商品未知时为零，不表示空文件。
-	Status  string `json:"status"`    // 新媒体状态或 legacy: 原来源状态；旧状态绝不等同新媒体 ready。
+	Source    string `json:"source"`                // new 或四种 legacy_* 来源；每一来源独立按主键倒序分页。
+	ID        string `json:"id"`                    // 来源内主键（新资源 UUID、旧 IM 十六进制 ID 或旧表数字 ID），不可用于跨来源操作。
+	Kind      string `json:"kind"`                  // image/video/audio/file；由 MIME 或旧来源分类，不代表审核通过。
+	Purpose   string `json:"purpose"`               // 新媒体业务用途；旧来源为对应的 legacy_* 标记。
+	MIME      string `json:"mime_type"`             // 声明 MIME；旧头像/商品没有此字段时为空，不能据此预览。
+	Size      uint64 `json:"file_size"`             // 已登记字节数；旧头像/商品未知时为零，不表示空文件。
+	Status    string `json:"status"`                // 新媒体状态或 legacy: 原来源状态；旧状态绝不等同新媒体 ready。
+	OwnedByMe bool   `json:"owned_by_me,omitempty"` // 只在本人新资源显示；不会返回其他人的归属信息。
 }
 
 // HGInventoryPage 按固定来源顺序逐来源主键倒序游标分页；next_cursor 为空表示已遍历已知来源。
 type HGInventoryPage struct {
-	Items      []HGInventoryItem `json:"items"`       // 最多 50 条；仅含只读非敏感元数据。
-	NextCursor string            `json:"next_cursor"` // 含类别、来源序号与上次主键；换类别必须重新从首页查询。
+	Items      []HGInventoryItem `json:"items"`             // 最多 50 条；仅含只读非敏感元数据。
+	NextCursor string            `json:"next_cursor"`       // 含类别、来源序号与上次主键；换类别必须重新从首页查询。
+	PreviewOn  bool              `json:"preview_available"` // 服务端是否配置封存读取身份；不代表当前管理员获授权。
+	DeleteOn   bool              `json:"delete_available"`  // 服务端是否启用后台清理；不代表单个资源可以删除。
 }
 
 var hgInventorySources = [...]string{"new", "legacy_mall", "legacy_video", "legacy_avatar", "legacy_im"}
@@ -83,10 +86,15 @@ func hgInventoryCursor(kind, raw string) (int, string, error) {
 // HGInventory 只查询已知的新媒体及四种旧媒体元数据；权限由路由上的 media:inventory:read 与活动管理员校验。
 // 不关联旧业务主表，也不从旧 URL/对象键推测可见性；失败时不返回部分来源的结果。
 func (s *HGService) HGInventory(ctx context.Context, kind, cursor string, limit int) (HGInventoryPage, error) {
+	return s.hgInventoryForActor(ctx, "", kind, cursor, limit)
+}
+
+func (s *HGService) hgInventoryForActor(ctx context.Context, actor, kind, cursor string, limit int) (HGInventoryPage, error) {
 	page := HGInventoryPage{Items: []HGInventoryItem{}}
 	if s == nil || s.db == nil || !hgInventoryKindValid(kind) || limit < 1 || limit > 50 {
 		return page, HGErrInvalid
 	}
+	page.PreviewOn, page.DeleteOn = s.previewRead != nil, s.sealed != nil
 	source, bound, err := hgInventoryCursor(kind, cursor)
 	if err != nil {
 		return page, err
@@ -96,7 +104,7 @@ func (s *HGService) HGInventory(ctx context.Context, kind, cursor string, limit 
 			bound = ""
 			continue
 		}
-		found, queryErr := s.hgInventorySource(ctx, source, kind, bound, limit+1-len(page.Items))
+		found, queryErr := s.hgInventorySource(ctx, source, actor, kind, bound, limit+1-len(page.Items))
 		if queryErr != nil {
 			return HGInventoryPage{}, queryErr
 		}
@@ -116,7 +124,7 @@ func (s *HGService) HGInventory(ctx context.Context, kind, cursor string, limit 
 	return page, nil
 }
 
-func (s *HGService) hgInventorySource(ctx context.Context, source int, kind, bound string, limit int) ([]HGInventoryItem, error) {
+func (s *HGService) hgInventorySource(ctx context.Context, source int, actor, kind, bound string, limit int) ([]HGInventoryItem, error) {
 	var query string
 	args := []any{}
 	// BIGINT 游标以数值类型绑定，避免列与文本参数比较时的隐式转换。
@@ -129,6 +137,7 @@ func (s *HGService) hgInventorySource(ctx context.Context, source int, kind, bou
 		}
 	}
 	if source == 0 {
+		args = append(args, actor)
 		if kind == "" {
 			query = SQL.HGMediaInventoryNewAllFirstSQL
 			if bound != "" {
@@ -196,7 +205,7 @@ func hgScanInventoryRow(rows *sql.Rows, source int) (HGInventoryItem, error) {
 	item := HGInventoryItem{Source: hgInventorySources[source]}
 	switch source {
 	case 0:
-		if err := rows.Scan(&item.ID, &item.Purpose, &item.MIME, &item.Size, &item.Status); err != nil {
+		if err := rows.Scan(&item.ID, &item.Purpose, &item.MIME, &item.Size, &item.Status, &item.OwnedByMe); err != nil {
 			return item, err
 		}
 		item.Kind = hgInventoryMIMEKind(item.MIME)

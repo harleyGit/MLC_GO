@@ -47,6 +47,10 @@ type HGReadStore interface {
 	HGSignRead(ctx context.Context, key string) (string, error)
 }
 
+type hgPreviewReadStore interface {
+	hgSignRead(ctx context.Context, key string, ttl time.Duration) (string, error)
+}
+
 // HGSeaweedStore 管理隔离桶的 S3 客户端，调用方负责保证 Gateway 的私有访问与 TLS。
 type HGSeaweedStore struct {
 	bucket string            // 受信配置的隔离桶，不能从客户端请求提取。
@@ -125,10 +129,15 @@ func (s *HGSeaweedStore) HGDelete(ctx context.Context, key string) error {
 
 // HGSignRead 仅为经过业务鉴权的封存对象签发 30 秒临时读 URL；不得对 quarantine/ 签发。
 func (s *HGSeaweedStore) HGSignRead(ctx context.Context, key string) (string, error) {
+	return s.hgSignRead(ctx, key, 30*time.Second)
+}
+
+// hgSignRead 的 TTL 只来自服务端，不能由客户端覆盖。
+func (s *HGSeaweedStore) hgSignRead(ctx context.Context, key string, ttl time.Duration) (string, error) {
 	if !hgSealedKey.MatchString(key) {
 		return "", HGErrInvalid
 	}
-	result, err := s.signer.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, func(o *s3.PresignOptions) { o.Expires = 30 * time.Second })
+	result, err := s.signer.PresignGetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}, func(o *s3.PresignOptions) { o.Expires = ttl })
 	if err != nil {
 		return "", fmt.Errorf("创建私有媒体读取授权失败: %w", err)
 	}

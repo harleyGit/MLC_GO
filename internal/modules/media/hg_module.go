@@ -23,7 +23,7 @@ const hgBasePath = "/api/v1/media"
 // HGModule 提供独立于旧上传链路的隔离上传 API；部署迁移与审核器前不能替换现有读路径。
 type HGModule struct {
 	handler    *HGHandler                 // 已验证的隔离上传 handler。
-	authorizer HGRouter.HGRouteAuthorizer // 管理盘点只读权限；未配置时路由失败关闭。
+	authorizer HGRouter.HGRouteAuthorizer // 校验盘点与独立管理操作权限；未配置时路由失败关闭。
 }
 
 func (m *HGModule) Name() string     { return "media" }
@@ -43,7 +43,19 @@ func hgRoutes(h *HGHandler) []HGRouter.RouteSpec {
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/status", true, "查询本人资源审核状态", status),
 		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/assets/download", true, "获取本人已审核私有文件短时读授权", download),
 	}
-	return append(routes, hgInventoryRoutes(h)...)
+	routes = append(routes, hgInventoryRoutes(h)...)
+	return append(routes, hgAdminActionRoutes(h)...)
+}
+
+func hgAdminActionRoutes(h *HGHandler) []HGRouter.RouteSpec {
+	var preview, deleteAsset http.HandlerFunc
+	if h != nil {
+		preview, deleteAsset = h.hgAdminPreview, h.hgAdminDelete
+	}
+	return []HGRouter.RouteSpec{
+		HGRouter.NewRouteSpec("media", http.MethodGet, hgBasePath, "/admin/assets/preview", true, "预览符合归属和审核要求的新媒体", preview, Permission.HGMediaInventoryRead, Permission.HGMediaAssetPreview),
+		HGRouter.NewRouteSpec("media", http.MethodPost, hgBasePath, "/admin/assets/delete", true, "申请单个无引用的新媒体异步清理", deleteAsset, Permission.HGMediaInventoryRead, Permission.HGMediaAssetDelete),
+	}
 }
 
 // HGRouteCatalog 由同一 RouteSpec 构造路由清单及 API Guard。
@@ -156,6 +168,7 @@ func HGRegister(db *sql.DB) (*HGRuntime, error) {
 			reviewer.HGClose()
 			return nil, err
 		}
+		service.previewRead = readStore
 	}
 	// 管理接口独立使用 IAM 活动管理员 + 全局权限；不改变普通用户的本人上传和私有读取链路。
 	authorizer := IAM.NewHGAssetAuthorizer(IAM.NewHGService(IAM.NewHGRepository(db)))

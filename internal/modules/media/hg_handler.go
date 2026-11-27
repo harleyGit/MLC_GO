@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// HGHandler 除本人隔离上传与状态外，仅提供受 IAM 限制的新旧媒体元数据盘点，不向管理员提供对象读取地址。
+// HGHandler 提供本人隔离上传和受 IAM 限制的管理操作；不会通过列表返回对象读取地址。
 type HGHandler struct {
 	service *HGService // 媒体元数据服务；依赖受信用户上下文。
 }
@@ -121,7 +121,8 @@ func (h *HGHandler) HGOwnerDownload(w http.ResponseWriter, r *http.Request) {
 // HGInventoryList 全平台新旧媒体只读盘点；RouteSpec 先验证活动管理员和 media:inventory:read。
 // kind=空/image/video/audio/file，limit 默认 20、最大 50；游标绑定种类并限制长度。
 func (h *HGHandler) HGInventoryList(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.hgUser(w, r); !ok {
+	actor, ok := h.hgUser(w, r)
+	if !ok {
 		return
 	}
 	query := r.URL.Query()
@@ -150,10 +151,11 @@ func (h *HGHandler) HGInventoryList(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer cancel()
-	page, err := h.service.HGInventory(ctx, query.Get("kind"), query.Get("cursor"), limit)
+	page, err := h.service.hgInventoryForActor(ctx, actor, query.Get("kind"), query.Get("cursor"), limit)
 	if err != nil {
 		hgFail(w, r, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	HGResponse.SuccessResult(w, r, page)
 }

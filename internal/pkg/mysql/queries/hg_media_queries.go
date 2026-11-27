@@ -79,10 +79,10 @@ const (
 	HGMediaLegacyIMSampleSQL     = `SELECT owner_id,conversation_id,object_key,immutable_key,state FROM im_private_attachment ORDER BY id LIMIT 100`
 	// 盘点按固定来源顺序和各自主键倒序推进，每次 LIMIT 由服务端限制 <= 51；不扫描对象内容或返回 owner/key/URL。
 	// 新媒体无类别走 PRIMARY(asset_id)，按种类走 idx_media_inventory_kind(media_kind,asset_id)；迁移 000073 未执行时失败关闭。
-	HGMediaInventoryNewAllFirstSQL  = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets ORDER BY asset_id DESC LIMIT ?`
-	HGMediaInventoryNewAllSQL       = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE asset_id<? ORDER BY asset_id DESC LIMIT ?`
-	HGMediaInventoryNewKindFirstSQL = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE media_kind=? ORDER BY asset_id DESC LIMIT ?`
-	HGMediaInventoryNewKindSQL      = `SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE media_kind=? AND asset_id<? ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewAllFirstSQL  = `SELECT asset_id,purpose,mime_type,file_size,status,(owner_id=?) FROM media_assets ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewAllSQL       = `SELECT asset_id,purpose,mime_type,file_size,status,(owner_id=?) FROM media_assets WHERE asset_id<? ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewKindFirstSQL = `SELECT asset_id,purpose,mime_type,file_size,status,(owner_id=?) FROM media_assets WHERE media_kind=? ORDER BY asset_id DESC LIMIT ?`
+	HGMediaInventoryNewKindSQL      = `SELECT asset_id,purpose,mime_type,file_size,status,(owner_id=?) FROM media_assets WHERE media_kind=? AND asset_id<? ORDER BY asset_id DESC LIMIT ?`
 	// 旧商品与视频均按 PRIMARY(id) 游标；视频源只对应 video 类型，商品图片只对应 image。
 	HGMediaInventoryMallFirstSQL  = `SELECT id,status FROM mall_product_image ORDER BY id DESC LIMIT ?`
 	HGMediaInventoryMallSQL       = `SELECT id,status FROM mall_product_image WHERE id<? ORDER BY id DESC LIMIT ?`
@@ -96,4 +96,19 @@ const (
 	HGMediaInventoryIMAllSQL       = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE id<UNHEX(?) ORDER BY id DESC LIMIT ?`
 	HGMediaInventoryIMKindFirstSQL = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE media_type=? ORDER BY id DESC LIMIT ?`
 	HGMediaInventoryIMKindSQL      = `SELECT HEX(id),media_type,mime_type,byte_size,state FROM im_private_attachment WHERE media_type=? AND id<UNHEX(?) ORDER BY id DESC LIMIT ?`
+
+	// 操作只点查新媒体主键，按唯一 asset_id 找会话，按 idx_media_ref_asset 判是否存在引用；不从列表暴露归属。
+	HGMediaAdminPreviewSQL = `SELECT a.owner_id,a.purpose,a.mime_type,a.status,a.bucket,a.sealed_key,
+	  u.status,EXISTS(SELECT 1 FROM media_asset_refs r WHERE r.asset_id=a.asset_id LIMIT 1)
+	  FROM media_assets a JOIN media_upload_sessions u
+	    ON u.asset_id=a.asset_id AND u.owner_id=a.owner_id AND u.purpose=a.purpose AND u.object_key=a.object_key
+	  WHERE a.asset_id=?`
+	// 删除与审核、引用和过期清理同为会话→资源的锁顺序；只锁唯一键，事务不直接访问对象存储。
+	HGMediaAdminDeleteSessionSQL = `SELECT upload_id,owner_id,purpose,object_key,status,
+	  (expires_at>DATE_ADD(created_at,INTERVAL 24 HOUR) AND expires_at>NOW(3))
+	  FROM media_upload_sessions WHERE asset_id=? FOR UPDATE`
+	HGMediaAdminDeleteAssetSQL = `SELECT owner_id,purpose,object_key,bucket,status,sealed_key FROM media_assets WHERE asset_id=? FOR UPDATE`
+	// 逻辑标记立即生效；对象至少保留 15 分钟，覆盖此前最长 10 分钟的 PUT 签名及时间偏差。
+	HGMediaAdminDeleteQueueSQL = `INSERT INTO media_delete_jobs (asset_id,bucket,object_key,execute_after,updated_at)
+	  VALUES (?,?,?,DATE_ADD(NOW(3),INTERVAL 15 MINUTE),NOW(3))`
 )

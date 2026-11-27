@@ -91,8 +91,8 @@ func TestHGInventoryCursorRejectsInvalidAndCrossKind(t *testing.T) {
 func TestHGInventorySourceCursorAndCategory(t *testing.T) {
 	db, mock := hgMockDB(t)
 	service, _ := HGNewService(db, &hgFakeStore{}, "mlc-temp")
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT asset_id,purpose,mime_type,file_size,status FROM media_assets WHERE media_kind=? ORDER BY asset_id DESC LIMIT ?")).
-		WithArgs("image", 3).WillReturnRows(sqlmock.NewRows([]string{"asset_id", "purpose", "mime_type", "file_size", "status"}))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT asset_id,purpose,mime_type,file_size,status,(owner_id=?) FROM media_assets WHERE media_kind=? ORDER BY asset_id DESC LIMIT ?")).
+		WithArgs("", "image", 3).WillReturnRows(sqlmock.NewRows([]string{"asset_id", "purpose", "mime_type", "file_size", "status", "owned"}))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,status FROM mall_product_image ORDER BY id DESC LIMIT ?")).
 		WithArgs(3).WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(uint64(9), 1))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM users WHERE hg_has_avatar=1 ORDER BY id DESC LIMIT ?")).
@@ -119,12 +119,28 @@ func TestHGInventorySourceCursorAndCategory(t *testing.T) {
 func TestHGInventoryStopsOnMissingLegacySource(t *testing.T) {
 	db, mock := hgMockDB(t)
 	service, _ := HGNewService(db, &hgFakeStore{}, "mlc-temp")
-	mock.ExpectQuery("FROM media_assets ORDER BY asset_id DESC LIMIT").WithArgs(2).
-		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "purpose", "mime_type", "file_size", "status"}))
+	mock.ExpectQuery("FROM media_assets ORDER BY asset_id DESC LIMIT").WithArgs("", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "purpose", "mime_type", "file_size", "status", "owned"}))
 	mock.ExpectQuery("FROM mall_product_image ORDER BY id DESC LIMIT").WithArgs(2).WillReturnError(errors.New("缺少旧来源表"))
 	page, err := service.HGInventory(context.Background(), "", "", 1)
 	if err == nil || len(page.Items) != 0 {
 		t.Fatalf("旧来源失败仍返回局部结果: %+v, %v", page, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHGInventoryOnlyMarksActorOwnedRows(t *testing.T) {
+	db, mock := hgMockDB(t)
+	service := &HGService{db: db}
+	mock.ExpectQuery("FROM media_assets WHERE media_kind=").WithArgs("current-actor", "audio", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "purpose", "mime_type", "file_size", "status", "owned"}).
+			AddRow(hgAdminActionAsset, "chat_audio", "audio/ogg", 100, "ready", true).
+			AddRow("019ac000-0000-7000-8000-000000000002", "chat_audio", "audio/ogg", 100, "ready", false))
+	page, err := service.hgInventoryForActor(context.Background(), "current-actor", "audio", "", 1)
+	if err != nil || len(page.Items) != 1 || !page.Items[0].OwnedByMe || page.NextCursor == "" {
+		t.Fatalf("未标记当前操作者自己的资源: %+v, %v", page, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
