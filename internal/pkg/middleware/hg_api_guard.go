@@ -5,6 +5,7 @@ import (
 	"MLC_GO/internal/pkg/logHG"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -68,8 +69,9 @@ type compiledAPIRule struct {
 
 // hgAPIGuardFailure keeps validation free of response writes; Middleware owns the failure response.
 type hgAPIGuardFailure struct {
-	status int
-	result HGResponsePakcage.HGErrorResult
+	status   int                             // 旧协议状态。
+	result   HGResponsePakcage.HGErrorResult // 面向旧客户端的提示。
+	business hgerrors.Code                   // 非零时区分签名/时钟错误与缺失 Token。
 }
 
 // endregion
@@ -130,23 +132,24 @@ func (g *APIGuard) Middleware() Middleware {
 
 			rule, ok := g.lookupRule(version, r.URL.Path)
 			if !ok {
-				http.NotFound(w, r)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestURI.Code, Message: "interface not found"})
+				HGResponsePakcage.HGFailStatus(w, r, http.StatusNotFound, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestURI.Code, Message: "interface not found"})
 				logHG.ErrFInfo(`%s: 未找到接口规则，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
 
 			if !rule.allowMethod(r.Method) {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
+				HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 				logHG.ErrFInfo(`%s: Method校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
 
 			ctx, failure := g.checkoutHeader(r, rule.NeedAuth)
 			if failure != nil {
-				w.WriteHeader(failure.status)
-				HGResponsePakcage.FailResult[string](w, r, failure.result)
+				if failure.business != 0 {
+					HGResponsePakcage.HGFailError(w, r, failure.status, failure.result, failure.business)
+				} else {
+					HGResponsePakcage.HGFailStatus(w, r, failure.status, failure.result)
+				}
 				logHG.ErrFInfo(`%s: Header校验失败，version="%s", path="%s"`, apiGuardTag, version, r.URL.Path)
 				return
 			}
@@ -154,8 +157,7 @@ func (g *APIGuard) Middleware() Middleware {
 			if len(rule.Permissions) > 0 {
 				// 独立 Guard 无可信身份和 IAM 依赖，禁止按客户端角色放行。
 				// NewRouteGroup 接管权限并在 JWT 后执行；未完成装配时默认拒绝。
-				w.WriteHeader(http.StatusForbidden)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "权限校验未配置"})
+				HGResponsePakcage.HGFailError(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "权限校验未配置"}, hgerrors.HGCommonUnavailable)
 				return
 			}
 
@@ -213,7 +215,7 @@ func (g *APIGuard) checkoutHeader(r *http.Request, needAuth bool) (context.Conte
 	}
 
 	if err := verifyTimestamp(timestamp); err != nil {
-		return nil, &hgAPIGuardFailure{status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "timestamp无效或已过期"}}
+		return nil, &hgAPIGuardFailure{business: hgerrors.HGAuthRequestInvalid, status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "timestamp无效或已过期"}}
 	}
 
 	// 对于 multipart/form-data 或二进制数据请求，使用空字符串作为 body 签名
@@ -230,7 +232,7 @@ func (g *APIGuard) checkoutHeader(r *http.Request, needAuth bool) (context.Conte
 
 	if err := verifySignature(r, body, signature, timestamp, requestID, deviceID, clientType, clientVersion, version, language, token); err != nil {
 		logHG.ErrFInfo("signature无效，请求可能被篡改,错误码：%d, 业务错误码：%d", http.StatusUnauthorized, HGResponsePakcage.Unauthorized.Code)
-		return nil, &hgAPIGuardFailure{status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "signature无效"}}
+		return nil, &hgAPIGuardFailure{business: hgerrors.HGAuthRequestInvalid, status: http.StatusUnauthorized, result: HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: "signature无效"}}
 	}
 
 	ctx := r.Context()
@@ -398,8 +400,7 @@ func MethodGuardMiddlewareV2(rules []APIRule) func(http.Handler) http.Handler {
 			}
 
 			if !rule.allowMethod(r.Method) {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
+				HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -416,8 +417,7 @@ func (g *APIGuard) MethodGuardMiddleware(next http.Handler) http.Handler {
 		}
 
 		if !rule.allowMethod(r.Method) {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.RequestMethod.Code, Message: "method not allowed"})
 			return
 		}
 		next.ServeHTTP(w, r)

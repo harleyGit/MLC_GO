@@ -54,14 +54,12 @@ func NewHandler(service *VideoUploadServicePackage.Service) *Handler {
 func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 	if err := h.service.CheckUploadRateLimit(r.Context(), userID, clientIP(r)); err != nil {
 		status, code := mapUploadError(err)
-		w.WriteHeader(status)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGSafeLegacyResult(code))
 		return
 	}
 
@@ -72,8 +70,7 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes)
 	file, fileName, fileSize, mimeType, fields, err := readUploadMultipart(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 	// file.(io.CLoser)看看file时候支持CLose()
@@ -90,8 +87,7 @@ func (h *Handler) UploadVideo(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.service.UploadVideo(r.Context(), userID, file, fileName, fileSize, mimeType, strings.TrimSpace(fields["submissionId"]), uint32(partNumber))
 	if err != nil {
 		status, code := mapUploadError(err)
-		w.WriteHeader(status)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGSafeLegacyResult(code))
 		return
 	}
 
@@ -176,15 +172,13 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Request, status string) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req VideoUploadDtoPackage.SaveSubmissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 	req.Status = status
@@ -192,8 +186,7 @@ func (h *Handler) saveSubmissionWithStatus(w http.ResponseWriter, r *http.Reques
 	resp, err := h.service.SaveSubmission(r.Context(), userID, req)
 	if err != nil {
 		statusCode, code := mapSaveError(err)
-		w.WriteHeader(statusCode)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, statusCode, HGResponsePakcage.HGSafeLegacyResult(code))
 		return
 	}
 
@@ -238,7 +231,6 @@ func mapSaveError(err error) (int, HGResponsePakcage.HGErrorCode) {
 func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -249,8 +241,7 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.GetVideoList(r.Context(), cursor, pageSize, tagName)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -260,7 +251,6 @@ func (h *Handler) GetVideoList(w http.ResponseWriter, r *http.Request) {
 // GetVideoDetail 点查视频列表项，支持页面刷新后按路由 contentId 恢复播放信息。
 func (h *Handler) GetVideoDetail(w http.ResponseWriter, r *http.Request) {
 	if _, ok := HGContextPackage.CurrentUserID(r); !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -268,18 +258,15 @@ func (h *Handler) GetVideoDetail(w http.ResponseWriter, r *http.Request) {
 	contentID := strings.TrimSpace(r.URL.Query().Get("contentId"))
 	item, found, err := h.service.GetVideoListItem(r.Context(), contentID)
 	if errors.Is(err, VideoUploadServicePackage.ErrSubmissionInvalid) {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "视频详情加载失败"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "视频详情加载失败"})
 		return
 	}
 	if !found {
-		w.WriteHeader(http.StatusNotFound)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "视频不存在"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusNotFound, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "视频不存在"})
 		return
 	}
 	HGResponsePakcage.SuccessResult(w, r, item)
@@ -291,7 +278,6 @@ func (h *Handler) GetVideoDetail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -303,15 +289,13 @@ func (h *Handler) UploadCover(w http.ResponseWriter, r *http.Request) {
 	// 创建一个 JSON 解码器，数据源是 HTTP 请求体流 r.Body。
 	// r.Body：请求体数据流（前端 POST/PUT 提交的 body 内容）
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Image == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 image 字段"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 image 字段"})
 		return
 	}
 
 	url, err := h.service.SaveCoverImage(r.Context(), userID, req.Image)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 

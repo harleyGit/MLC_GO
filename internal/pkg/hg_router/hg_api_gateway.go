@@ -250,8 +250,7 @@ func newHGModuleReverseProxy(target *url.URL) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("X-Request-ID", tid)
-		w.WriteHeader(http.StatusBadGateway)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ServiceUnavailable)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadGateway, HGResponsePakcage.ServiceUnavailable)
 	}
 	return proxy
 }
@@ -301,8 +300,7 @@ func (g *HGAPIGateway) writeFailure(w http.ResponseWriter, r *http.Request, stat
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Request-ID", tid)
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, result)
+	HGResponsePakcage.HGFailStatus(w, r, status, result)
 }
 
 func (g *HGAPIGateway) sourceIP(r *http.Request) string {

@@ -2,6 +2,7 @@ package UserJWTMiddlewarePackage
 
 import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
+	resp "MLC_GO/internal/response"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -83,10 +84,27 @@ func assertStandardTokenInvalidBody(t *testing.T, body []byte) {
 		t.Fatalf("unmarshal response failed: %v, body=%s", err, string(body))
 	}
 
-	if resp.Code != 101001 {
-		t.Fatalf("expected code=101001, got=%d, body=%s", resp.Code, string(body))
+	if resp.Code != 300001 {
+		t.Fatalf("expected legacy code=300001, got=%d, body=%s", resp.Code, string(body))
 	}
 	if resp.Message != "Token无效" {
 		t.Fatalf("expected message=Token无效, got=%s, body=%s", resp.Message, string(body))
+	}
+}
+
+func TestHGExpiredJWTUsesBusinessCode(t *testing.T) {
+	claims := &UserServicePackage.HGClaims{RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour))}}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(UserServicePackage.Secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept", resp.HGBusinessMediaType)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	AuthMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("过期 token 不得放行") })).ServeHTTP(w, req)
+	var got resp.HGBusinessEnvelope
+	if json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Code != 1101002 || got.Error != "AUTH_TOKEN_EXPIRED" || w.Code != 401 || strings.Contains(w.Body.String(), token) {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }

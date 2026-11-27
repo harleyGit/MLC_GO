@@ -177,6 +177,7 @@ func (b *HGBaseConsumer) HGRunConsumeBatch(ctx context.Context, handle HGRecordB
 //	@param ctx
 //	@param handle
 func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBatchHandler) {
+	heads := make(hgRetryHeads)
 	if b.lagObserver != nil {
 		defer b.lagObserver.Close()
 	}
@@ -253,8 +254,13 @@ func (b *HGBaseConsumer) consumeBatchLoop(ctx context.Context, handle HGRecordBa
 					failureIndex := hgBatchFailureIndex(err, len(partition.Records))
 					failedRecord := partition.Records[failureIndex]
 					hgKafkaDLQWrites.Add(1)
-					if dlqErr := HGSendDLQ(traceCtx, failedRecord, b.dlqTopic, err.Error()); dlqErr == nil && hgIsTerminalError(err) {
+					result := HGClassifyConsumer(err)
+					failedCtx := HGExtractTraceFromRecordContext(ctx, failedRecord)
+					dlqErr := hgSendClassifiedDLQ(failedCtx, failedRecord, b.dlqTopic, result.Code.Definition().Key, result, heads.failure(failedRecord))
+					if dlqErr == nil {
 						hgKafkaDLQSuccesses.Add(1)
+					}
+					if dlqErr == nil && result.Action == HGConsumerDLQ {
 						for _, record := range partition.Records[:failureIndex] {
 							b.lagObserver.ObserveSuccessful(record)
 						}
@@ -332,6 +338,7 @@ func (b *HGBaseConsumer) hgCommitAndRestore(ctx context.Context,
 //	@param ctx
 //	@param handle
 func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler) {
+	heads := make(hgRetryHeads)
 	/** lagObserver 是消费延迟（lag）观测器，负责统计各分区消费进度与最新 offset 的差距。
 	用 defer 保证循环退出时释放观测资源（比如停止后台采样 goroutine、刷新 metrics）。
 	显式判 nil，说明该观测器是可选组件。
@@ -405,7 +412,8 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 			// 写入 DLQ（死信队列）
 			hgKafkaDLQWrites.Add(1)
 			// 所有处理失败的消息都尝试写入 b.dlqTopic（死信主题），保留原始消息 + 错误原因，便于人工排查和重放。
-			if dlqErr := HGSendDLQ(traceCtx, record, b.dlqTopic, handleErr.Error()); dlqErr != nil { // DLQ 写入失败时 return false—— 这个返回值的含义见下
+			result := HGClassifyConsumer(handleErr)
+			if dlqErr := hgSendClassifiedDLQ(traceCtx, record, b.dlqTopic, result.Code.Definition().Key, result, heads.failure(record)); dlqErr != nil {
 				hgKafkaDLQFailures.Add(1)
 				logHG.ErrFInfo("kafka consume dlq failed topic=%s partition=%d offset=%d err=%v", record.Topic, record.Partition, record.Offset, dlqErr)
 				return false
@@ -426,7 +434,7 @@ func (b *HGBaseConsumer) consumeLoop(ctx context.Context, handle HGRecordHandler
 				*/
 				hgKafkaRetryableFailures.Add(1)
 			}
-			return hgIsTerminalError(handleErr)
+			return result.Action == HGConsumerDLQ
 		})
 		hgObserveConsumeBatch(fetches.NumRecords(), time.Since(batchStartedAt))
 

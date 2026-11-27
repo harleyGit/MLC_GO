@@ -17,7 +17,7 @@ require (
 	github.com/Shopify/goreferrer v0.0.0-20220729165902-8cddb4f5de06 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/antchfx/htmlquery v1.3.4 // indirect
+	github.com/antchfx/htmlquery v1.3.4
 	github.com/antchfx/xmlquery v1.4.3 // indirect
 	github.com/antchfx/xpath v1.3.3 // indirect
 	// go get -u github.com/astaxie/beego/validation:  Beego 框架 提供的 数据验证（validation）库，用于对结构体字段、表单数据等进行校验，类似于 validator 库。
@@ -99,7 +99,7 @@ require (
 	golang.org/x/net v0.50.0
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
-	golang.org/x/time v0.8.0 // indirect
+	golang.org/x/time v0.8.0
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
 	// rpc、grpc、protobuf 框架
@@ -165,6 +165,8 @@ require (
 	github.com/twmb/franz-go/pkg/kmsg v1.12.0
 )
 
+require go.opentelemetry.io/otel v1.32.0 // indirect
+
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.34.2-20240717164558-a6c49f84cc0f.2 // indirect
 	buf.build/go/protoyaml v0.2.0 // indirect
@@ -199,7 +201,7 @@ require (
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
 	github.com/livekit/mageutil v0.0.0-20230125210925-54e8a70427c1 // indirect
 	github.com/livekit/mediatransportutil v0.0.0-20241220010243-a2bdee945564 // indirect
-	github.com/livekit/protocol v1.32.2-0.20250206110518-331f97dbf4f3 // indirect
+	github.com/livekit/protocol v1.32.2-0.20250206110518-331f97dbf4f3
 	github.com/livekit/psrpc v0.6.1-0.20250204212339-6de8b05bfcff // indirect
 	github.com/livekit/server-sdk-go/v2 v2.5.0
 	github.com/magefile/mage v1.15.0 // indirect
@@ -231,7 +233,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.19.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
@@ -241,6 +243,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/redis/go-redis/v9 v9.17.2 // indirect // redis 安装
+	go.opentelemetry.io/otel/trace v1.32.0
 )
 
 replace (

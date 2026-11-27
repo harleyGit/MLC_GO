@@ -10,7 +10,6 @@ import (
 func (h *Handler) HGCrawlerSpiderStatus(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -42,7 +41,6 @@ func (h *Handler) HGCrawlerSpiderStop(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) hgSetCrawlerSpider(w http.ResponseWriter, r *http.Request, desired bool) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -62,6 +60,5 @@ func (h *Handler) hgSetCrawlerSpider(w http.ResponseWriter, r *http.Request, des
 }
 
 func hgWriteSpiderSwitchFailure(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusServiceUnavailable)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InternalError.Code, Message: "爬虫开关状态不可用，请检查迁移和数据库"})
+	HGResponsePackage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InternalError.Code, Message: "爬虫开关状态不可用，请检查迁移和数据库"})
 }

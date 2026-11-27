@@ -3,6 +3,7 @@ package commerce
 import (
 	user "MLC_GO/internal/pkg/hg_context"
 	resp "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -32,7 +33,6 @@ func (h *HGHandler) HGWithOrderStore(store *HGOrderStore) *HGHandler { h.orders 
 func hgAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := user.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		resp.FailTokenInvalid(w, r, "登录状态无效")
 	}
 	return id, ok
@@ -55,7 +55,13 @@ func hgDecode(w http.ResponseWriter, r *http.Request, value any) bool {
 }
 
 func hgError(w http.ResponseWriter, r *http.Request, err error) {
+	var typed *hgerrors.AppError
+	if errors.As(err, &typed) {
+		resp.HGFailError(w, r, hgerrors.Resolve(err).HTTPStatus, resp.HGErrorResult{Code: resp.InvalidParam.Code, Message: ErrHGStock.Error()}, err)
+		return
+	}
 	status, message := http.StatusInternalServerError, "人民币商品服务暂不可用"
+	var business hgerrors.Code
 	switch {
 	case errors.Is(err, ErrHGCategoryIDInvalid):
 		status, message = http.StatusBadRequest, "类目 ID 无效：填写 1-64 位 ASCII 字母、数字、连字符或下划线"
@@ -85,8 +91,10 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGConflict):
 		status, message = http.StatusConflict, "商品状态、规格或版本已变化"
 	case errors.Is(err, ErrHGStock):
+		business = hgerrors.HGMallPurchaseUnavailable
 		status, message = http.StatusConflict, "库存不足或商品不可购买"
 	case errors.Is(err, ErrHGPaymentUnavailable):
+		business = hgerrors.HGPaymentChannelUnavailable
 		status, message = http.StatusServiceUnavailable, "交易渠道未验收，当前操作未开放"
 	case errors.Is(err, sql.ErrNoRows):
 		status, message = http.StatusNotFound, "商品或类目不存在"
@@ -98,8 +106,12 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	if status >= 500 {
 		code = resp.InternalError.Code
 	}
-	w.WriteHeader(status)
-	resp.FailResult[string](w, r, resp.HGErrorResult{Code: code, Message: message})
+	legacy := resp.HGErrorResult{Code: code, Message: message}
+	if business != 0 {
+		resp.HGFailError(w, r, status, legacy, hgerrors.Wrap(business, err))
+		return
+	}
+	resp.HGFailStatus(w, r, status, legacy)
 }
 
 func hgContext(r *http.Request) (context.Context, context.CancelFunc) {

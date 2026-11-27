@@ -1,0 +1,982 @@
+[
+  {
+    "code": 1000001,
+    "error_key": "COMMON_INTERNAL_ERROR",
+    "message": "服务器繁忙，请稍后重试",
+    "http_status": 500,
+    "retryable": true
+  },
+  {
+    "code": 1000002,
+    "error_key": "COMMON_INVALID_PARAM",
+    "message": "请求参数无效",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1000003,
+    "error_key": "COMMON_RATE_LIMITED",
+    "message": "请求过于频繁",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1000004,
+    "error_key": "COMMON_UNAVAILABLE",
+    "message": "服务暂时不可用",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1000005,
+    "error_key": "COMMON_IDEMPOTENCY_CONFLICT",
+    "message": "幂等键对应的请求内容不同",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1000006,
+    "error_key": "COMMON_CONFLICT",
+    "message": "当前资源状态冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1000007,
+    "error_key": "COMMON_NOT_FOUND",
+    "message": "请求的资源不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1000008,
+    "error_key": "COMMON_METHOD_NOT_ALLOWED",
+    "message": "请求方法不允许",
+    "http_status": 405,
+    "retryable": false
+  },
+  {
+    "code": 1000009,
+    "error_key": "COMMON_BODY_TOO_LARGE",
+    "message": "请求体过大",
+    "http_status": 413,
+    "retryable": false
+  },
+  {
+    "code": 1000010,
+    "error_key": "COMMON_GONE",
+    "message": "资源已移除",
+    "http_status": 410,
+    "retryable": false
+  },
+  {
+    "code": 1000011,
+    "error_key": "COMMON_PRECONDITION_FAILED",
+    "message": "前置条件不满足",
+    "http_status": 412,
+    "retryable": false
+  },
+  {
+    "code": 1000012,
+    "error_key": "COMMON_TIMEOUT",
+    "message": "请求超时",
+    "http_status": 408,
+    "retryable": false
+  },
+  {
+    "code": 1000013,
+    "error_key": "COMMON_BAD_GATEWAY",
+    "message": "上游服务响应异常",
+    "http_status": 502,
+    "retryable": true
+  },
+  {
+    "code": 1000014,
+    "error_key": "COMMON_GATEWAY_TIMEOUT",
+    "message": "上游服务超时",
+    "http_status": 504,
+    "retryable": true
+  },
+  {
+    "code": 1000015,
+    "error_key": "COMMON_UNPROCESSABLE",
+    "message": "请求内容不符合要求",
+    "http_status": 422,
+    "retryable": false
+  },
+  {
+    "code": 1000016,
+    "error_key": "COMMON_FORBIDDEN",
+    "message": "无权执行此操作",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1101001,
+    "error_key": "AUTH_TOKEN_MISSING",
+    "message": "未携带 Token",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1101002,
+    "error_key": "AUTH_TOKEN_EXPIRED",
+    "message": "Access Token 过期",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1101003,
+    "error_key": "AUTH_TOKEN_INVALID",
+    "message": "Token 无效",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1101004,
+    "error_key": "AUTH_REFRESH_EXPIRED",
+    "message": "Refresh Token 过期",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1101005,
+    "error_key": "AUTH_SESSION_REVOKED",
+    "message": "登录会话已撤销",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1101006,
+    "error_key": "AUTH_REQUEST_INVALID",
+    "message": "请求身份校验失败",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1102001,
+    "error_key": "AUTH_USER_NOT_FOUND",
+    "message": "用户不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1102002,
+    "error_key": "AUTH_ACCOUNT_DISABLED",
+    "message": "账号被禁用",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1102003,
+    "error_key": "AUTH_CREDENTIAL_INVALID",
+    "message": "账号或密码错误",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 1102004,
+    "error_key": "AUTH_ACCOUNT_LOCKED",
+    "message": "账号已锁定",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1102005,
+    "error_key": "AUTH_USER_ALREADY_EXISTS",
+    "message": "用户已存在",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1103001,
+    "error_key": "AUTH_SMS_CODE_INVALID",
+    "message": "验证码错误",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1103002,
+    "error_key": "AUTH_SMS_CODE_EXPIRED",
+    "message": "验证码过期",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1104001,
+    "error_key": "AUTH_MFA_REQUIRED",
+    "message": "需要 MFA 验证",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1104002,
+    "error_key": "AUTH_MFA_CODE_INVALID",
+    "message": "MFA 动态码错误",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1104003,
+    "error_key": "AUTH_MFA_ALREADY_ENABLED",
+    "message": "当前账号已启用 MFA",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1104004,
+    "error_key": "AUTH_MFA_NOT_ENROLLED",
+    "message": "当前账号未绑定 MFA",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1104005,
+    "error_key": "AUTH_MFA_NOT_ENABLED",
+    "message": "当前账号未启用 MFA",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1104006,
+    "error_key": "AUTH_MFA_CODE_USED",
+    "message": "动态码已使用",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1104007,
+    "error_key": "AUTH_MFA_RATE_LIMITED",
+    "message": "MFA 尝试次数过多",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1201001,
+    "error_key": "IAM_ROLE_NOT_FOUND",
+    "message": "角色不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1201002,
+    "error_key": "IAM_ROLE_NOT_ASSIGNED",
+    "message": "未分配所需角色",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1201003,
+    "error_key": "IAM_PERMISSION_DENIED",
+    "message": "没有操作权限",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1201004,
+    "error_key": "IAM_SCOPE_DENIED",
+    "message": "不在授权作用域内",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1201005,
+    "error_key": "IAM_ROLE_BINDING_CONFLICT",
+    "message": "角色绑定冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1201006,
+    "error_key": "IAM_GRANT_TARGET_INVALID",
+    "message": "目标不可授权",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1202001,
+    "error_key": "IAM_POLICY_VERSION_STALE",
+    "message": "权限策略版本过期",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1202002,
+    "error_key": "IAM_HIGH_RISK_CONFIRM_REQUIRED",
+    "message": "需要高风险操作确认",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1202003,
+    "error_key": "IAM_PROTECTED_ROLE",
+    "message": "禁止修改受保护角色",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1301001,
+    "error_key": "IM_CONVERSATION_NOT_FOUND",
+    "message": "会话不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1301002,
+    "error_key": "IM_NOT_CONVERSATION_MEMBER",
+    "message": "非会话成员",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1301003,
+    "error_key": "IM_CONVERSATION_MUTED",
+    "message": "当前会话禁止发言",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1301004,
+    "error_key": "IM_ACCESS_DENIED",
+    "message": "无权执行此会话操作",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1302001,
+    "error_key": "IM_MESSAGE_EMPTY",
+    "message": "消息内容为空",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1302002,
+    "error_key": "IM_MESSAGE_TOO_LONG",
+    "message": "消息超长",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1302003,
+    "error_key": "IM_MESSAGE_DUPLICATED",
+    "message": "消息请求冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1302004,
+    "error_key": "IM_MESSAGE_RECALLED",
+    "message": "消息已撤回",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1302005,
+    "error_key": "IM_MESSAGE_RECALL_EXPIRED",
+    "message": "超过撤回时限",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1302006,
+    "error_key": "IM_MESSAGE_NOT_FOUND",
+    "message": "消息不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1302007,
+    "error_key": "IM_STATE_CONFLICT",
+    "message": "消息或会话状态冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1303001,
+    "error_key": "IM_USER_BLOCKED",
+    "message": "消息发送受到限制",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1303002,
+    "error_key": "IM_SEND_RATE_LIMITED",
+    "message": "发消息频率超限",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1304001,
+    "error_key": "IM_ATTACHMENT_INVALID",
+    "message": "附件不可用",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1401001,
+    "error_key": "MALL_PRODUCT_NOT_FOUND",
+    "message": "商品不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1401002,
+    "error_key": "MALL_PRODUCT_OFF_SHELF",
+    "message": "商品已下架",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1401003,
+    "error_key": "MALL_SKU_NOT_FOUND",
+    "message": "SKU 不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1402001,
+    "error_key": "MALL_STOCK_LOCK_FAILED",
+    "message": "库存锁定失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1402002,
+    "error_key": "MALL_STOCK_RESERVATION_EXPIRED",
+    "message": "库存预占已失效",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1402003,
+    "error_key": "MALL_PURCHASE_LIMIT_EXCEEDED",
+    "message": "超过限购数量",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1402004,
+    "error_key": "MALL_STOCK_INSUFFICIENT",
+    "message": "商品库存不足",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1402005,
+    "error_key": "MALL_PURCHASE_UNAVAILABLE",
+    "message": "商品当前不可购买",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1403001,
+    "error_key": "MALL_ORDER_NOT_FOUND",
+    "message": "订单不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1403002,
+    "error_key": "MALL_ORDER_STATUS_CONFLICT",
+    "message": "订单状态不允许操作",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1403003,
+    "error_key": "MALL_ORDER_ALREADY_PAID",
+    "message": "订单已支付",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1403004,
+    "error_key": "MALL_ORDER_EXPIRED",
+    "message": "订单已超时",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1404001,
+    "error_key": "MALL_COUPON_INVALID",
+    "message": "优惠券无效",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1404002,
+    "error_key": "MALL_COUPON_EXPIRED",
+    "message": "优惠券已过期",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1404003,
+    "error_key": "MALL_ADDRESS_REQUIRED",
+    "message": "未选择收货地址",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1405001,
+    "error_key": "MALL_GROUP_BUY_FULL",
+    "message": "拼单人数已满",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1405002,
+    "error_key": "MALL_GROUP_BUY_EXPIRED",
+    "message": "拼单已结束",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1501001,
+    "error_key": "PAYMENT_ORDER_NOT_FOUND",
+    "message": "支付订单不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1501002,
+    "error_key": "PAYMENT_ORDER_EXPIRED",
+    "message": "支付订单已过期",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1501003,
+    "error_key": "PAYMENT_CHANNEL_UNAVAILABLE",
+    "message": "支付渠道不可用",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1502001,
+    "error_key": "WALLET_BALANCE_INSUFFICIENT",
+    "message": "M币余额不足",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1502002,
+    "error_key": "WALLET_ACCOUNT_FROZEN",
+    "message": "钱包已冻结",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1502003,
+    "error_key": "WALLET_LEDGER_CONFLICT",
+    "message": "钱包账本冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1503001,
+    "error_key": "PAYMENT_IDEMPOTENCY_CONFLICT",
+    "message": "幂等键对应的请求内容不同",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1503002,
+    "error_key": "PAYMENT_REFUND_NOT_ALLOWED",
+    "message": "当前订单不可退款",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1503003,
+    "error_key": "PAYMENT_CALLBACK_INVALID",
+    "message": "支付回调校验失败",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1601001,
+    "error_key": "VIDEO_NOT_FOUND",
+    "message": "视频不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1601002,
+    "error_key": "VIDEO_NOT_PUBLISHED",
+    "message": "视频尚未发布",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1601003,
+    "error_key": "VIDEO_ACCESS_DENIED",
+    "message": "无权观看视频",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1601004,
+    "error_key": "VIDEO_PLAYBACK_UNAVAILABLE",
+    "message": "视频暂不可播放",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1602001,
+    "error_key": "VIDEO_COMMENT_DISABLED",
+    "message": "视频禁止评论",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1602002,
+    "error_key": "VIDEO_COMMENT_NOT_FOUND",
+    "message": "评论不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1602003,
+    "error_key": "VIDEO_COMMENT_TOO_LONG",
+    "message": "评论超长",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1602004,
+    "error_key": "VIDEO_COMMENT_RATE_LIMITED",
+    "message": "评论频率超限",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1603001,
+    "error_key": "VIDEO_DANMAKU_DISABLED",
+    "message": "视频禁止弹幕",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1603002,
+    "error_key": "VIDEO_DANMAKU_TOO_LONG",
+    "message": "弹幕超长",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1603003,
+    "error_key": "VIDEO_DANMAKU_RATE_LIMITED",
+    "message": "弹幕频率超限",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1604001,
+    "error_key": "VIDEO_ALREADY_LIKED",
+    "message": "已点赞",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1604002,
+    "error_key": "VIDEO_FAVORITE_LIMIT_EXCEEDED",
+    "message": "收藏数量超限",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1605002,
+    "error_key": "VIDEO_TRANSCODE_FAILED",
+    "message": "视频转码失败",
+    "http_status": 500,
+    "retryable": false
+  },
+  {
+    "code": 1701001,
+    "error_key": "CRAWLER_TASK_NOT_FOUND",
+    "message": "任务不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1701002,
+    "error_key": "CRAWLER_TASK_ALREADY_RUNNING",
+    "message": "任务已运行",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1701003,
+    "error_key": "CRAWLER_TASK_NOT_RUNNING",
+    "message": "任务未运行",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1701004,
+    "error_key": "CRAWLER_TASK_CANCELLED",
+    "message": "任务已取消",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1702001,
+    "error_key": "CRAWLER_SOURCE_UNAVAILABLE",
+    "message": "数据源暂不可用",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1702002,
+    "error_key": "CRAWLER_SOURCE_RATE_LIMITED",
+    "message": "上游限流",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1702003,
+    "error_key": "CRAWLER_SOURCE_ACCESS_DENIED",
+    "message": "数据源拒绝访问",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1703001,
+    "error_key": "CRAWLER_INVALID_BVID",
+    "message": "视频 BV 号无效",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1703002,
+    "error_key": "CRAWLER_STAGE_CONFLICT",
+    "message": "流水线阶段不匹配",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1703003,
+    "error_key": "CRAWLER_CLEAN_FAILED",
+    "message": "数据清洗失败",
+    "http_status": 500,
+    "retryable": false
+  },
+  {
+    "code": 1703004,
+    "error_key": "CRAWLER_STORE_FAILED",
+    "message": "数据存储失败",
+    "http_status": 500,
+    "retryable": false
+  },
+  {
+    "code": 1704001,
+    "error_key": "CRAWLER_KAFKA_PUBLISH_FAILED",
+    "message": "事件投递失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1704002,
+    "error_key": "CRAWLER_EVENT_DUPLICATED",
+    "message": "事件重复且内容冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1801001,
+    "error_key": "OPS_OPERATION_FORBIDDEN",
+    "message": "运维操作被拒绝",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1801002,
+    "error_key": "OPS_APPROVAL_REQUIRED",
+    "message": "需要审批",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1801003,
+    "error_key": "OPS_MFA_REQUIRED",
+    "message": "需要 MFA 验证",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1802001,
+    "error_key": "OPS_CONFIG_VERSION_CONFLICT",
+    "message": "配置版本冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1802002,
+    "error_key": "OPS_CONFIG_VALIDATION_FAILED",
+    "message": "配置校验失败",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1803001,
+    "error_key": "OPS_SERVICE_UNHEALTHY",
+    "message": "服务健康检查失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1803002,
+    "error_key": "OPS_DEPLOYMENT_IN_PROGRESS",
+    "message": "正在部署中",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1804001,
+    "error_key": "OPS_AUDIT_WRITE_FAILED",
+    "message": "审计日志持久化失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1804002,
+    "error_key": "OPS_PROTECTED_RESOURCE",
+    "message": "受保护资源不可删除",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 1901001,
+    "error_key": "NOTIFICATION_TEMPLATE_NOT_FOUND",
+    "message": "模板不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 1901002,
+    "error_key": "NOTIFICATION_TEMPLATE_DISABLED",
+    "message": "模板已停用",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1901003,
+    "error_key": "NOTIFICATION_TEMPLATE_VARIABLE_MISSING",
+    "message": "模板变量缺失",
+    "http_status": 400,
+    "retryable": false
+  },
+  {
+    "code": 1901004,
+    "error_key": "NOTIFICATION_TEMPLATE_CONFLICT",
+    "message": "通知模板状态冲突",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 1902001,
+    "error_key": "NOTIFICATION_CHANNEL_DISABLED",
+    "message": "通知渠道不可用",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1902002,
+    "error_key": "NOTIFICATION_DELIVERY_FAILED",
+    "message": "通知投递失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 1902003,
+    "error_key": "NOTIFICATION_FREQUENCY_LIMITED",
+    "message": "通知发送频率超限",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 1903001,
+    "error_key": "NOTIFICATION_NOT_FOUND",
+    "message": "通知不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 2001001,
+    "error_key": "MEDIA_FILE_NOT_FOUND",
+    "message": "文件不存在",
+    "http_status": 404,
+    "retryable": false
+  },
+  {
+    "code": 2001002,
+    "error_key": "MEDIA_FILE_TOO_LARGE",
+    "message": "文件超出大小限制",
+    "http_status": 413,
+    "retryable": false
+  },
+  {
+    "code": 2001003,
+    "error_key": "MEDIA_TYPE_UNSUPPORTED",
+    "message": "不支持的媒体类型",
+    "http_status": 415,
+    "retryable": false
+  },
+  {
+    "code": 2001004,
+    "error_key": "MEDIA_UPLOAD_FAILED",
+    "message": "上传失败",
+    "http_status": 503,
+    "retryable": true
+  },
+  {
+    "code": 2101001,
+    "error_key": "REALTIME_TOKEN_EXPIRED",
+    "message": "实时连接 Token 过期",
+    "http_status": 401,
+    "retryable": false
+  },
+  {
+    "code": 2101002,
+    "error_key": "REALTIME_CHANNEL_FORBIDDEN",
+    "message": "无权订阅频道",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 2101003,
+    "error_key": "REALTIME_CONNECTION_LIMITED",
+    "message": "连接数量超限",
+    "http_status": 429,
+    "retryable": true
+  },
+  {
+    "code": 2102001,
+    "error_key": "REALTIME_SYNC_REQUIRED",
+    "message": "需要补齐断线消息",
+    "http_status": 409,
+    "retryable": false
+  },
+  {
+    "code": 2201001,
+    "error_key": "RISK_ACTION_REJECTED",
+    "message": "操作未通过安全校验",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 2201002,
+    "error_key": "RISK_VERIFICATION_REQUIRED",
+    "message": "需要额外验证",
+    "http_status": 403,
+    "retryable": false
+  },
+  {
+    "code": 2201003,
+    "error_key": "RISK_RATE_LIMITED",
+    "message": "触发风控限流",
+    "http_status": 429,
+    "retryable": true
+  }
+]

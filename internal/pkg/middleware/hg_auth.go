@@ -12,6 +12,7 @@ package HGMiddlewarePackage
 import (
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"net/http"
 )
 
@@ -19,12 +20,10 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if token == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.HGFailError(w, r, http.StatusUnauthorized, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: HGResponsePakcage.TokenInvalidFailDesc}, hgerrors.HGAuthTokenMissing)
 			return
 		}
 		if _, err := PersistenceRedisPackage.GetFromRedis(nil, "token:"+token); err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
 			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}
@@ -37,14 +36,12 @@ func TokenAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		if token == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
+			HGResponsePakcage.HGFailError(w, r, http.StatusUnauthorized, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: HGResponsePakcage.TokenInvalidFailDesc}, hgerrors.HGAuthTokenMissing)
 			return
 		}
 
 		_, err := PersistenceRedisPackage.RDB.Get(r.Context(), "token:"+token).Result()
 		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
 			HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 			return
 		}

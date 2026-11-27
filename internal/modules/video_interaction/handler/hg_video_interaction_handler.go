@@ -7,6 +7,7 @@ import (
 	VideoInteractionServicePackage "MLC_GO/internal/modules/video_interaction/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -59,8 +60,8 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request, action string) 
 		hgWriteError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	HGResponsePakcage.SuccessResult(w, r, response)
+	response.Status = "accepted"
+	HGResponsePakcage.HGSuccessStatus(w, r, http.StatusAccepted, response)
 }
 
 func (h *Handler) Follow(w http.ResponseWriter, r *http.Request) {
@@ -78,8 +79,8 @@ func (h *Handler) Follow(w http.ResponseWriter, r *http.Request) {
 		hgWriteError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	HGResponsePakcage.SuccessResult(w, r, response)
+	response.Status = "accepted"
+	HGResponsePakcage.HGSuccessStatus(w, r, http.StatusAccepted, response)
 }
 
 func hgDecodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -87,15 +88,13 @@ func hgDecodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestBodyInvalid)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.RequestBodyInvalid)
 		return false
 	}
 	return true
 }
 
 func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusUnauthorized)
 	HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 }
 
@@ -103,18 +102,15 @@ func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusBadRequest
 	code := HGResponsePakcage.InvalidParam.Code
 	if errors.Is(err, CoinRepositoryPackage.ErrHGInsufficientBalance) || errors.Is(err, VideoInteractionRepositoryPackage.ErrInsufficientCoinBalance) {
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InsufficientBalance)
+		HGResponsePakcage.HGFailError(w, r, http.StatusForbidden, HGResponsePakcage.InsufficientBalance, hgerrors.Wrap(hgerrors.HGWalletBalanceInsufficient, err))
 		return
 	}
 	if errors.Is(err, CoinRepositoryPackage.ErrHGBusinessLimit) || errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinLimitExceeded) {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.InvalidParam)
 		return
 	}
 	if errors.Is(err, CoinRepositoryPackage.ErrHGIdempotencyConflict) || errors.Is(err, VideoInteractionRepositoryPackage.ErrCoinIdempotencyConflict) {
-		w.WriteHeader(http.StatusConflict)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+		HGResponsePakcage.HGFailError(w, r, http.StatusConflict, HGResponsePakcage.InvalidParam, hgerrors.Wrap(hgerrors.HGCommonIdempotencyConflict, err))
 		return
 	}
 	if !errors.Is(err, VideoInteractionServicePackage.ErrInvalidAction) &&
@@ -125,6 +121,5 @@ func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusServiceUnavailable
 		code = HGResponsePakcage.MQError.Code
 	}
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
+	HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGSafeLegacyResult(code))
 }

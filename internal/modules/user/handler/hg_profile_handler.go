@@ -20,12 +20,12 @@ import (
 func (h *HGUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.InvalidParam)
 		return
 	}
 
 	if err := h.svc.CreateUser(r.Context(), &d); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.InternalError)
 		return
 	}
 
@@ -47,7 +47,7 @@ func (h *HGUserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.svc.GetUserList(r.Context(), cursor, size)
 	if err != nil {
-		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserListFailed.Code, Message: err.Error()})
+		HGResponsePakcage.FailResult[error](w, r, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.UserListFailed.Code))
 		return
 	}
 
@@ -59,23 +59,26 @@ func (h *HGUserHandler) GetUserList(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 user_id 参数"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少 user_id 参数"})
 		return
 	}
 
 	var d UserDtoPackage.HGCreateUserDTO
 	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.InvalidParam)
 		return
 	}
 
 	user, err := h.svc.PathUser(r.Context(), userID, &d)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.InternalError)
 		return
 	}
 
+	if HGResponsePakcage.HGUsesBusinessEnvelope(r) {
+		HGResponsePakcage.SuccessResult(w, r, user)
+		return
+	}
 	json.NewEncoder(w).Encode(user)
 }
 
@@ -84,15 +87,13 @@ func (h *HGUserHandler) PathUser(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 
 	var req UserDtoPackage.HGUpdateUserProfileReqDTO
 	if err = json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
@@ -100,19 +101,16 @@ func (h *HGUserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			w.WriteHeader(http.StatusNotFound)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在"})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusNotFound, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在"})
 			return
 		case errors.Is(err, UserServicePackage.ErrProfileNoField),
 			errors.Is(err, UserServicePackage.ErrProfileGenderInvalid),
 			errors.Is(err, UserServicePackage.ErrProfileSignatureTooLong),
 			errors.Is(err, UserServicePackage.ErrProfileBirthDateInvalid):
-			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 			return
 		default:
-			w.WriteHeader(http.StatusInternalServerError)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "更新用户资料失败"})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "更新用户资料失败"})
 			return
 		}
 	}
@@ -126,7 +124,6 @@ func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
 		logHG.ErrFInfo("用户信息Profile error: %v", ok)
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -134,7 +131,7 @@ func (h *HGUserHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	userDTO, err := h.svc.GetUserByID(r.Context(), userID)
 	if err != nil {
 		logHG.ErrFInfo("用户信息Profile error: %v", err)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UserNotFound.Code, Message: "用户不存在" + err.Error()})
+		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.UserNotFound.Code))
 		return
 	}
 

@@ -154,7 +154,20 @@ func TestHGRoutePermissionChain(t *testing.T) {
 			if hgCase.hgToken == "valid" {
 				hgExpectActivePermissionSession(mock)
 			}
-			hgRoot.ServeHTTP(hgResponse, hgSignedPermissionRequest(t, http.MethodPost, "/run", hgCase.hgToken))
+			req := hgSignedPermissionRequest(t, http.MethodPost, "/run", hgCase.hgToken)
+			if hgCase.hgAny {
+				req.Header.Set("Accept", "application/vnd.mlc.v2+json")
+			}
+			hgRoot.ServeHTTP(hgResponse, req)
+			if hgCase.hgAny && hgCase.hgStatus == 403 {
+				var b struct {
+					Code  int
+					Error string
+				}
+				if json.Unmarshal(hgResponse.Body.Bytes(), &b) != nil || b.Code != 1201003 || b.Error != "IAM_PERMISSION_DENIED" {
+					t.Fatalf("IAM 协议错误：%s", hgResponse.Body.String())
+				}
+			}
 			if hgResponse.Code != hgCase.hgStatus || hgCalled != (hgCase.hgStatus == 204) {
 				t.Fatalf("状态=%d 业务执行=%v 响应=%s", hgResponse.Code, hgCalled, hgResponse.Body.String())
 			}

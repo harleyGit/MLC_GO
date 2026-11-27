@@ -24,16 +24,14 @@ func NewHandler(service *VideoRecommendServicePackage.Service) *Handler {
 func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 	userID, ok := hgcontext.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.Unauthorized)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusUnauthorized, HGResponsePakcage.Unauthorized)
 		return
 	}
 	pageSize := 0
 	if value := strings.TrimSpace(r.URL.Query().Get("pageSize")); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.InvalidParam)
 			return
 		}
 		pageSize = parsed
@@ -41,12 +39,10 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.Feed(r.Context(), userID, r.URL.Query().Get("cursor"), pageSize)
 	if err != nil {
 		if errors.Is(err, VideoRecommendServicePackage.ErrInvalidRequest) {
-			w.WriteHeader(http.StatusBadRequest)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.InvalidParam)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.InvalidParam)
 			return
 		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.ServiceUnavailable)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePakcage.ServiceUnavailable)
 		return
 	}
 	HGResponsePakcage.SuccessResult(w, r, response)

@@ -20,7 +20,6 @@ func HGNewHandler(hgService *service.HGService) *HGHandler { return &HGHandler{h
 func (hgHandler *HGHandler) HGRecords(w http.ResponseWriter, r *http.Request) {
 	hgUser, hgOK := hgcontext.CurrentUserID(r)
 	if !hgOK {
-		w.WriteHeader(http.StatusUnauthorized)
 		response.FailTokenInvalid(w, r, "请先登录")
 		return
 	}
@@ -42,6 +41,5 @@ func hgError(w http.ResponseWriter, r *http.Request, hgErr error) {
 	if errors.Is(hgErr, model.HGErrInvalid) {
 		hgStatus, hgCode, hgMessage = http.StatusBadRequest, response.InvalidParam.Code, model.HGErrInvalid.Error()
 	}
-	w.WriteHeader(hgStatus)
-	response.FailResult[string](w, r, response.HGErrorResult{Code: hgCode, Message: hgMessage})
+	response.HGFailStatus(w, r, hgStatus, response.HGErrorResult{Code: hgCode, Message: hgMessage})
 }

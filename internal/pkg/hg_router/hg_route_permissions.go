@@ -83,7 +83,6 @@ func hgPermissionHandler(hgSpec RouteSpec, hgAuthorizer HGRouteAuthorizer) http.
 		}
 		hgUserID, hgOK := HGContextPackage.CurrentUserID(r)
 		if !hgOK {
-			w.WriteHeader(http.StatusUnauthorized)
 			HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 			return
 		}
@@ -131,8 +130,7 @@ func hgRoutePermissionError(w http.ResponseWriter, r *http.Request, permissions 
 	if match == HGPermissionMatchAny {
 		mode = "any"
 	}
-	w.WriteHeader(http.StatusForbidden)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGPermissionError("", mode, items...))
+	HGResponsePackage.HGFailPermission(w, r, HGResponsePackage.HGPermissionError("", mode, items...))
 }
 
 func hgPermissionError(w http.ResponseWriter, r *http.Request, hgStatus int) {
@@ -140,6 +138,5 @@ func hgPermissionError(w http.ResponseWriter, r *http.Request, hgStatus int) {
 	if hgStatus == http.StatusServiceUnavailable {
 		hgResult = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InternalError.Code, Message: "权限服务暂不可用"}
 	}
-	w.WriteHeader(hgStatus)
-	HGResponsePackage.FailResult[string](w, r, hgResult)
+	HGResponsePackage.HGFailStatus(w, r, hgStatus, hgResult)
 }

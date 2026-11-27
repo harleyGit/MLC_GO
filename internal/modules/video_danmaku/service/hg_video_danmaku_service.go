@@ -5,6 +5,7 @@ import (
 	VideoDanmakuRepositoryPackage "MLC_GO/internal/modules/video_danmaku/repository"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -76,7 +77,9 @@ func (s *Service) Create(ctx context.Context, userID string, req VideoDanmakuDto
 	if userID == "" || req.VideoID == "" {
 		return VideoDanmakuDtoPackage.DanmakuResponse{}, ErrInvalidTarget
 	}
-	if count := utf8.RuneCountInString(req.Content); count < 1 || count > 100 {
+	if count := utf8.RuneCountInString(req.Content); count > 100 {
+		return VideoDanmakuDtoPackage.DanmakuResponse{}, hgerrors.Wrap(hgerrors.HGVideoDanmakuTooLong, ErrInvalidContent)
+	} else if count < 1 {
 		return VideoDanmakuDtoPackage.DanmakuResponse{}, ErrInvalidContent
 	}
 	if count := utf8.RuneCountInString(req.RequestID); count < 1 || count > 64 {

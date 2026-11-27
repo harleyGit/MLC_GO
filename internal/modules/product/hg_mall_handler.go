@@ -3,6 +3,7 @@ package product
 import (
 	ctxuser "MLC_GO/internal/pkg/hg_context"
 	resp "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -24,7 +25,6 @@ func (h *HGHandler) HGWithImages(images *HGImageStore) *HGHandler { h.images = i
 func hgAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := ctxuser.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		resp.FailTokenInvalid(w, r, "unauthorized")
 	}
 	return id, ok
@@ -47,6 +47,11 @@ func hgDecode(w http.ResponseWriter, r *http.Request, target any) bool {
 }
 
 func hgError(w http.ResponseWriter, r *http.Request, err error) {
+	var typed *hgerrors.AppError
+	if errors.As(err, &typed) {
+		resp.HGFailError(w, r, hgerrors.Resolve(err).HTTPStatus, resp.HGErrorResult{Code: resp.InvalidParam.Code, Message: ErrHGStock.Error()}, err)
+		return
+	}
 	status, message := http.StatusInternalServerError, "商城服务暂不可用"
 	switch {
 	case errors.Is(err, ErrHGInvalid):
@@ -56,10 +61,12 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrHGConflict), errors.Is(err, ErrHGState), errors.Is(err, ErrHGStock), errors.Is(err, ErrHGFunds):
 		status, message = http.StatusConflict, "当前状态已变化，请刷新重试"
 		if errors.Is(err, ErrHGFunds) {
-			message = "M币余额不足或有效批次不足"
+			resp.HGFailError(w, r, status, resp.HGErrorResult{Code: resp.InvalidParam.Code, Message: ErrHGFunds.Error()}, hgerrors.Wrap(hgerrors.HGWalletBalanceInsufficient, err))
+			return
 		}
 		if errors.Is(err, ErrHGStock) {
-			message = "库存不足、金额超出单笔上限或商品不可购买"
+			resp.HGFailError(w, r, status, resp.HGErrorResult{Code: resp.InvalidParam.Code, Message: "库存不足、金额超出单笔上限或商品不可购买"}, hgerrors.Wrap(hgerrors.HGMallPurchaseUnavailable, err))
+			return
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		status, message = http.StatusNotFound, "未找到记录"
@@ -68,8 +75,7 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	if status >= 500 {
 		code = resp.InternalError.Code
 	}
-	w.WriteHeader(status)
-	resp.FailResult[string](w, r, resp.HGErrorResult{Code: code, Message: message})
+	resp.HGFailStatus(w, r, status, resp.HGErrorResult{Code: code, Message: message})
 }
 
 func (h *HGHandler) HGList(w http.ResponseWriter, r *http.Request) {

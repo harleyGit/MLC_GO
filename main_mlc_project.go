@@ -49,6 +49,7 @@ import (
 	HGMiddlewarePackage "MLC_GO/internal/pkg/middleware"
 	PersistenceSQLPackage "MLC_GO/internal/pkg/mysql"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
+	hgresponse "MLC_GO/internal/response"
 	"context"
 	"errors"
 	"fmt"
@@ -742,7 +743,7 @@ func buildMLCApplication() (*MLCApplication, error) {
 	// ⑨ 注册管理端口
 	managementMux := HGHandlerPackage.NewManagementHandler(HGHandlerPackage.HealthCheckConfig{
 		ReadyCheck:     newReadyCheck(redisService, sqlManager, kafkaCloser != nil, kafkaRuntime, videoDanmakuComponents.Realtime, imRuntime, mediaRuntime),
-		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics, imRuntime.HGWritePrometheusMetrics),
+		MetricsHandler: HGKafkaPackage.HGKafkaMetricsHandler(hgresponse.HGWritePrometheusMetrics, apiGateway.HGWritePrometheusMetrics, StatisticConsumerPackage.HGWritePrometheusMetrics, VideoInteractionRepositoryPackage.HGWritePrometheusMetrics, VideoInteractionTaskPackage.HGWritePrometheusMetrics, CoinRepositoryPackage.HGWritePrometheusMetrics, CoinTaskPackage.HGWritePrometheusMetrics, OpsRepositoryPackage.HGWritePrometheusMetrics, VideoCommentTaskPackage.HGWritePrometheusMetrics, videoDanmakuComponents.Realtime.HGWritePrometheusMetrics, imRuntime.HGWritePrometheusMetrics),
 	})
 	imRuntime.HGMountManagement(managementMux)
 	// ⑨ 创建 HTTP Server ，srv 业务服务器

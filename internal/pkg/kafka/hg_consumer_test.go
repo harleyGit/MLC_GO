@@ -1,6 +1,7 @@
 package HGKafkaPackage
 
 import (
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"errors"
 	"reflect"
@@ -9,6 +10,23 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
+
+func TestHGConsumerReasonIndependentOfAction(t *testing.T) {
+	err := hgerrors.New(hgerrors.HGCommonInvalidParam)
+	retry, dlq := HGClassifyConsumer(err), HGClassifyConsumer(HGNewTerminalError(err))
+	if HGClassifyConsumer(nil).Action != HGConsumerACK || retry.Action != HGConsumerRetry || dlq.Action != HGConsumerDLQ || retry.Code != 1000002 || retry.Code != dlq.Code {
+		t.Fatalf("失败原因不能决定提交: %+v %+v", retry, dlq)
+	}
+	heads := make(hgRetryHeads)
+	a, b := &kgo.Record{Topic: "t", Offset: 10}, &kgo.Record{Topic: "t", Partition: 1, Offset: 10}
+	if heads.failure(a) != 0 || heads.failure(b) != 0 || heads.failure(a) != 1 {
+		t.Fatal("重试次数未按失败位点隔离")
+	}
+	a.Offset++
+	if heads.failure(a) != 0 {
+		t.Fatal("新 offset 应从零开始")
+	}
+}
 
 func TestHGInvokeRecordBatchHandlerRecoversPanic(t *testing.T) {
 	err := hgInvokeRecordBatchHandler(context.Background(), func(context.Context, []*kgo.Record) error {

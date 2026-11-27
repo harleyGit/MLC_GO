@@ -6,6 +6,7 @@ import (
 	"MLC_GO/internal/modules/wallet/service"
 	hgcontext "MLC_GO/internal/pkg/hg_context"
 	response "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,7 +23,6 @@ func HGNewHandler(hgService *service.HGService) *HGHandler { return &HGHandler{h
 func (hgHandler *HGHandler) HGEnsureUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	hgUser, hgOK := hgcontext.CurrentUserID(r)
 	if !hgOK {
-		w.WriteHeader(http.StatusUnauthorized)
 		response.FailTokenInvalid(w, r, "请先登录")
 	}
 	return hgUser, hgOK
@@ -122,20 +122,25 @@ func hgDecode(w http.ResponseWriter, r *http.Request, hgTarget any) bool {
 }
 func hgWalletError(w http.ResponseWriter, r *http.Request, hgErr error) {
 	hgStatus, hgMessage := http.StatusInternalServerError, "钱包服务暂不可用"
+	var business hgerrors.Code
 	switch {
 	case errors.Is(hgErr, model.HGErrInvalid):
 		hgStatus, hgMessage = http.StatusBadRequest, model.HGErrInvalid.Error()
 	case errors.Is(hgErr, model.HGErrNotFound):
+		business = hgerrors.HGPaymentOrderNotFound
 		hgStatus, hgMessage = http.StatusNotFound, model.HGErrNotFound.Error()
 	case errors.Is(hgErr, model.HGErrConflict):
+		business = hgerrors.HGPaymentIdempotencyConflict
 		hgStatus, hgMessage = http.StatusConflict, model.HGErrConflict.Error()
 	case errors.Is(hgErr, model.HGErrOrderExpired):
+		business = hgerrors.HGPaymentOrderExpired
 		hgStatus, hgMessage = http.StatusConflict, model.HGErrOrderExpired.Error()
 	case errors.Is(hgErr, model.HGErrSKUUnavailable):
 		hgStatus, hgMessage = http.StatusNotFound, model.HGErrSKUUnavailable.Error()
 	case errors.Is(hgErr, model.HGErrUnsupported):
 		hgStatus, hgMessage = http.StatusUnprocessableEntity, model.HGErrUnsupported.Error()
 	case errors.Is(hgErr, model.HGErrPaymentUnavailable):
+		business = hgerrors.HGPaymentChannelUnavailable
 		hgStatus, hgMessage = http.StatusServiceUnavailable, model.HGErrPaymentUnavailable.Error()
 	}
 	hgCode := response.InvalidParam.Code
@@ -145,6 +150,10 @@ func hgWalletError(w http.ResponseWriter, r *http.Request, hgErr error) {
 	if hgStatus == http.StatusConflict {
 		hgCode = response.ConflictCode
 	}
-	w.WriteHeader(hgStatus)
-	response.FailResult[string](w, r, response.HGErrorResult{Code: hgCode, Message: hgMessage})
+	legacy := response.HGErrorResult{Code: hgCode, Message: hgMessage}
+	if business != 0 {
+		response.HGFailError(w, r, hgStatus, legacy, hgerrors.Wrap(business, hgErr))
+		return
+	}
+	response.HGFailStatus(w, r, hgStatus, legacy)
 }

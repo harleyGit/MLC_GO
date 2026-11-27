@@ -7,6 +7,7 @@ import (
 	OpsServicePackage "MLC_GO/internal/modules/ops/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"encoding/json"
 	"errors"
@@ -60,7 +61,6 @@ func (h *Handler) WithCrawlerSpiderSwitch(store interface {
 func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -68,8 +68,7 @@ func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.crawlerDebug == nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集测试服务不可用"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集测试服务不可用"})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
@@ -77,8 +76,7 @@ func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 	var req CrawlerDtoPackage.HGDebugRequest
 	if err := decoder.Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 	result, err := h.crawlerDebug.TestRequest(r.Context(), req)
@@ -89,8 +87,7 @@ func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, context.DeadlineExceeded) {
 			status = http.StatusGatewayTimeout
 		}
-		w.WriteHeader(status)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 	HGResponsePakcage.SuccessResult(w, r, result)
@@ -100,7 +97,6 @@ func (h *Handler) DebugCrawlerTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SaveCrawlerTask(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -127,7 +123,6 @@ func (h *Handler) SaveCrawlerTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SaveAndRunCrawlerTask(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -158,7 +153,6 @@ func (h *Handler) SaveAndRunCrawlerTask(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) ListCrawlerTasks(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -183,7 +177,6 @@ func (h *Handler) ListCrawlerTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListCrawlerTaskContents(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -196,8 +189,7 @@ func (h *Handler) ListCrawlerTaskContents(w http.ResponseWriter, r *http.Request
 	}
 	taskID, err := strconv.ParseUint(r.URL.Query().Get("taskId"), 10, 64)
 	if err != nil || taskID == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "taskId is required"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "taskId is required"})
 		return
 	}
 	cursor, _ := strconv.ParseUint(r.URL.Query().Get("cursor"), 10, 64)
@@ -212,19 +204,16 @@ func (h *Handler) ListCrawlerTaskContents(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) hgAuthorizeCrawler(w http.ResponseWriter, r *http.Request, userID, permission string) bool {
 	if h.crawlerAuth == nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
 		return false
 	}
 	allowed, err := h.crawlerAuth.HasAssetPermission(r.Context(), userID, permission)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "权限校验失败"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "权限校验失败"})
 		return false
 	}
 	if !allowed {
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无采集任务操作权限"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无采集任务操作权限"})
 		return false
 	}
 	return true
@@ -235,16 +224,14 @@ func hgDecodeCrawlerBody(w http.ResponseWriter, r *http.Request, target any) boo
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return false
 	}
 	return true
 }
 
 func hgWriteCrawlerUnavailable(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusServiceUnavailable)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
+	HGResponsePakcage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "采集任务服务不可用"})
 }
 
 func hgWriteCrawlerTaskError(w http.ResponseWriter, r *http.Request, err error) {
@@ -254,33 +241,29 @@ func hgWriteCrawlerTaskError(w http.ResponseWriter, r *http.Request, err error) 
 		status = http.StatusBadRequest
 		code = HGResponsePakcage.InvalidParam.Code
 	} else if errors.Is(err, CrawlerServicePackage.ErrHGTaskLeaseNotAcquired) {
-		status = http.StatusConflict
-		code = HGResponsePakcage.Conflict.Code
+		HGResponsePakcage.HGFailError(w, r, http.StatusConflict, HGResponsePakcage.Conflict, hgerrors.Wrap(hgerrors.HGCrawlerTaskAlreadyRunning, err))
+		return
 	}
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: err.Error()})
+	HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGSafeLegacyResult(code))
 }
 
 // CreateRole 创建角色
 func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.CreateRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.CreateRole(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -291,22 +274,19 @@ func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.UpdateRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.UpdateRole(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -317,22 +297,19 @@ func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.DeleteRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	err := h.service.DeleteRole(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -343,7 +320,6 @@ func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -353,8 +329,7 @@ func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.GetRoleList(r.Context(), cursor, pageSize)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -365,7 +340,6 @@ func (h *Handler) GetRoleList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetAdminUserList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -375,8 +349,7 @@ func (h *Handler) GetAdminUserList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.GetAdminUserList(r.Context(), cursor, pageSize)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -387,7 +360,6 @@ func (h *Handler) GetAdminUserList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -406,8 +378,7 @@ func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.service.SearchAdminUsers(r.Context(), keyword, limit)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 
@@ -418,7 +389,6 @@ func (h *Handler) SearchAdminUsers(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SearchAdminCandidates(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -427,8 +397,7 @@ func (h *Handler) SearchAdminCandidates(w http.ResponseWriter, r *http.Request) 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	resp, err := h.service.SearchAdminCandidates(r.Context(), keyword, r.URL.Query().Get("cursor"), limit)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 
@@ -439,22 +408,19 @@ func (h *Handler) SearchAdminCandidates(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) AddAdmin(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.AddAdminRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.AddAdmin(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -465,22 +431,19 @@ func (h *Handler) AddAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AssignUserRoles(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.AssignUserRolesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	err := h.service.AssignUserRoles(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -491,22 +454,19 @@ func (h *Handler) AssignUserRoles(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	userID := r.URL.Query().Get("userId")
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少用户ID"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少用户ID"})
 		return
 	}
 
 	resp, err := h.service.GetUserRoles(r.Context(), userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -517,22 +477,19 @@ func (h *Handler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateMenu(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.CreateMenuRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	resp, err := h.service.CreateMenu(r.Context(), userID, req)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -543,15 +500,13 @@ func (h *Handler) CreateMenu(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetMenuList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	resp, err := h.service.GetMenuList(r.Context())
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -562,27 +517,23 @@ func (h *Handler) GetMenuList(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AssignRolePermissions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	var req OpsDtoPackage.AssignRolePermissionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求体格式错误"})
 		return
 	}
 
 	err := h.service.AssignRolePermissions(r.Context(), userID, req)
 	if err != nil {
 		if errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden) {
-			w.WriteHeader(http.StatusForbidden)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限分配失败"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限分配失败"})
 		return
 	}
 
@@ -593,27 +544,23 @@ func (h *Handler) AssignRolePermissions(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	roleID := r.URL.Query().Get("roleId")
 	if roleID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少角色ID"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少角色ID"})
 		return
 	}
 
 	resp, err := h.service.GetRolePermissions(r.Context(), userID, roleID)
 	if err != nil {
 		if errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden) {
-			w.WriteHeader(http.StatusForbidden)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.Forbidden.Code, Message: "无 RBAC 管理权限"})
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限查询失败"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "角色权限查询失败"})
 		return
 	}
 
@@ -624,30 +571,26 @@ func (h *Handler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
 
 	// 解析multipart表单
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "文件过大"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "文件过大"})
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少文件"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "缺少文件"})
 		return
 	}
 	defer file.Close()
 
 	resp, err := h.service.UploadFile(r.Context(), userID, file, header.Filename, header.Size, header.Header.Get("Content-Type"))
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -658,7 +601,6 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetFileList(w http.ResponseWriter, r *http.Request) {
 	_, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -668,8 +610,7 @@ func (h *Handler) GetFileList(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.GetFileList(r.Context(), page, pageSize)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 

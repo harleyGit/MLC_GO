@@ -16,7 +16,8 @@ type hgHistoryStoreStub struct {
 }
 
 func TestConsumerMarksMalformedEventAsTerminalBatchRecord(t *testing.T) {
-	handler := NewConsumer(&hgHistoryStoreStub{}, &hgRecentProjectorStub{})
+	store, recent := &hgHistoryStoreStub{}, &hgRecentProjectorStub{}
+	handler := NewConsumer(store, recent)
 	delivered := []consumer.DeliveredEnvelope{
 		{Delivery: consumer.Delivery{Topic: "danmaku", Partition: 3, Offset: 7}, Envelope: events.EventEnvelope{EventName: VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName, Payload: json.RawMessage(`{"danmakuId":"DMK_1","videoId":"video-1","userId":"user-1","createdAt":1000}`)}},
 		{Delivery: consumer.Delivery{Topic: "danmaku", Partition: 3, Offset: 8}, Envelope: events.EventEnvelope{EventName: VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName, Payload: json.RawMessage(`{"danmakuId":`)}},
@@ -28,6 +29,9 @@ func TestConsumerMarksMalformedEventAsTerminalBatchRecord(t *testing.T) {
 	}
 	if index := HGKafkaPackage.HGBatchFailureIndex(err, len(delivered)); index != 1 {
 		t.Fatalf("batch failure index = %d, want 1", index)
+	}
+	if len(store.items) != 1 || len(recent.deliveries) != 1 || recent.deliveries[0].Offset != 7 {
+		t.Fatal("返回终止下标前必须可靠处理 offset 7")
 	}
 }
 

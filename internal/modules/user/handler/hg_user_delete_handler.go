@@ -16,18 +16,15 @@ func (h *HGUserHandler) HGDeleteUnusedUser(w http.ResponseWriter, r *http.Reques
 	target := strings.TrimSpace(r.URL.Query().Get("user_id"))
 	actor, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 		return
 	}
 	if target == "" || len(target) > 255 {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InvalidParam.Code, Message: "user_id 参数无效"})
+		HGResponsePackage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InvalidParam.Code, Message: "user_id 参数无效"})
 		return
 	}
 	if target == actor {
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.Forbidden.Code, Message: "不能删除当前登录账号"})
+		HGResponsePackage.HGFailStatus(w, r, http.StatusForbidden, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.Forbidden.Code, Message: "不能删除当前登录账号"})
 		return
 	}
 	err := h.svc.HGDeleteUnusedUser(r.Context(), target, actor)
@@ -37,19 +34,18 @@ func (h *HGUserHandler) HGDeleteUnusedUser(w http.ResponseWriter, r *http.Reques
 		switch {
 		case errors.Is(err, UserServicePackage.HGErrUserDeleteBusy):
 			status = http.StatusTooManyRequests
-			result = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.RateLimit.Code, Message: err.Error()}
+			result = HGResponsePackage.HGSafeLegacyResult(HGResponsePackage.RateLimit.Code)
 		case errors.Is(err, UserServicePackage.HGErrUserDeleteSelf):
 			status = http.StatusForbidden
-			result = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.Forbidden.Code, Message: err.Error()}
+			result = HGResponsePackage.HGSafeLegacyResult(HGResponsePackage.Forbidden.Code)
 		case UserServicePackage.HGUserDeleteIsNotFound(err):
 			status = http.StatusNotFound
 			result = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.UserNotFound.Code, Message: "用户不存在"}
 		case errors.Is(err, userrepository.HGErrUserHasDependencies), errors.Is(err, UserServicePackage.HGErrUserDeletionInProgress):
 			status = http.StatusConflict
-			result = HGResponsePackage.HGErrorResult{Code: HGResponsePackage.InvalidParam.Code, Message: err.Error()}
+			result = HGResponsePackage.HGSafeLegacyResult(HGResponsePackage.InvalidParam.Code)
 		}
-		w.WriteHeader(status)
-		HGResponsePackage.FailResult[string](w, r, result)
+		HGResponsePackage.HGFailStatus(w, r, status, result)
 		return
 	}
 	HGResponsePackage.SuccessResult(w, r, map[string]string{"user_id": target})

@@ -11,13 +11,14 @@ package HGRouterPackage
 import (
 	OpsHandlerPackage "MLC_GO/internal/modules/ops/handler"
 	HGPermissionPackage "MLC_GO/internal/pkg/permission"
+	response "MLC_GO/internal/response"
 	"net/http"
 )
 
 // hgIAMCutoverGone 阻止旧 ops 角色表继续写入或展示过期快照，提示客户端迁移到 IAM。
 func hgIAMCutoverGone(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "角色管理已迁移至 /api/v1/iam", http.StatusGone)
+	response.HGFailStatus(w, r, http.StatusGone, response.HGErrorResult{Code: response.GoneCode, Message: "角色管理已迁移至 /api/v1/iam"})
 }
 
 // opsRoutes 返回 ops 模块完整路由定义。

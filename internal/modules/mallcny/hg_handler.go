@@ -71,13 +71,11 @@ func hgError(w http.ResponseWriter, r *http.Request, err error) {
 	if hgStatus >= 500 {
 		hgCode = resp.InternalError.Code
 	}
-	w.WriteHeader(hgStatus)
-	resp.FailResult[string](w, r, resp.HGErrorResult{Code: hgCode, Message: hgMessage})
+	resp.HGFailStatus(w, r, hgStatus, resp.HGErrorResult{Code: hgCode, Message: hgMessage})
 }
 func hgUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	hgUser, hgOK := ctxuser.CurrentUserID(r)
 	if !hgOK {
-		w.WriteHeader(http.StatusUnauthorized)
 		resp.FailTokenInvalid(w, r, "unauthorized")
 	}
 	return hgUser, hgOK

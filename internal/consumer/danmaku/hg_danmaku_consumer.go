@@ -39,16 +39,20 @@ func (c *Consumer) Handle(context.Context, events.EventEnvelope) error {
 func (c *Consumer) HandleBatch(ctx context.Context, delivered []consumer.DeliveredEnvelope) error {
 	rows := make([]ClickHousePackage.HGDanmakuHistory, 0, len(delivered))
 	deliveries := make([]consumer.Delivery, 0, len(delivered))
+	// 返回失败下标意味着此前记录可以提交。先投影有效前缀，投影失败则整批重试。
+	var terminal error
 	for index, item := range delivered {
 		if item.Envelope.EventName != VideoDanmakuEventsPackage.VideoDanmakuCreatedEventName {
 			continue
 		}
 		var event VideoDanmakuEventsPackage.CreatedEvent
 		if err := json.Unmarshal(item.Envelope.Payload, &event); err != nil {
-			return HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("decode danmaku event: %w", err)))
+			terminal = HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("decode danmaku event: %w", err)))
+			break
 		}
 		if event.DanmakuID == "" || event.VideoID == "" || event.UserID == "" || event.CreatedAt <= 0 {
-			return HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("danmaku event is invalid")))
+			terminal = HGKafkaPackage.HGNewBatchRecordError(index, HGKafkaPackage.HGNewTerminalError(fmt.Errorf("danmaku event is invalid")))
+			break
 		}
 		rows = append(rows, ClickHousePackage.HGDanmakuHistory{
 			DanmakuID: event.DanmakuID, SubmissionID: event.SubmissionID, VideoID: event.VideoID,
@@ -59,7 +63,7 @@ func (c *Consumer) HandleBatch(ctx context.Context, delivered []consumer.Deliver
 		deliveries = append(deliveries, item.Delivery)
 	}
 	if len(rows) == 0 {
-		return nil
+		return terminal
 	}
 	if c == nil || c.store == nil || c.recent == nil {
 		return fmt.Errorf("danmaku consumer dependencies cannot be nil")
@@ -72,5 +76,5 @@ func (c *Consumer) HandleBatch(ctx context.Context, delivered []consumer.Deliver
 			return fmt.Errorf("project recent danmaku: %w", err)
 		}
 	}
-	return nil
+	return terminal
 }

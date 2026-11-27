@@ -4,6 +4,7 @@ import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGUtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePackage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"io"
@@ -183,17 +184,13 @@ func HGNewTemplateHandler(repo *HGTemplateRepository) *HGTemplateHandler {
 func hgTemplateFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, HGErrInvalid):
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePackage.InvalidParam)
 	case errors.Is(err, HGErrTemplateMissing):
-		w.WriteHeader(http.StatusNotFound)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailError(w, r, http.StatusNotFound, HGResponsePackage.InvalidParam, hgerrors.Wrap(hgerrors.HGNotificationTemplateNotFound, err))
 	case errors.Is(err, HGErrTemplateConflict):
-		w.WriteHeader(http.StatusConflict)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailError(w, r, http.StatusConflict, HGResponsePackage.InvalidParam, hgerrors.Wrap(hgerrors.HGNotificationTemplateConflict, err))
 	default:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.DatabaseError)
+		HGResponsePackage.HGFailError(w, r, http.StatusServiceUnavailable, HGResponsePackage.DatabaseError, err)
 	}
 }
 

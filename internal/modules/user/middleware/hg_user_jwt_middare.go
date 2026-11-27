@@ -13,6 +13,7 @@ import (
 	PkGDevicePackage "MLC_GO/internal/pkg/device"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"errors"
 	"net/http"
@@ -31,8 +32,11 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
+			if h == "" {
+				hgJWTFailure(w, r, hgerrors.HGAuthTokenMissing, nil)
+				return
+			}
 			if !strings.HasPrefix(h, "Bearer ") {
-				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
@@ -42,7 +46,6 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 			// 如果不是，就返回原字符串不变
 			token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 			if token == "" {
-				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
@@ -68,36 +71,35 @@ func AuthMiddleware(next http.Handler) http.Handler { // 可以从这里传入
 			// 	return
 			// }
 
-			if err != nil || !t.Valid {
-				now := time.Now()
-				desc := "invalid token"
-				if err != nil {
-					desc += ": " + err.Error()
+			if err != nil || t == nil || !t.Valid {
+				code := hgerrors.HGAuthTokenInvalid
+				if errors.Is(err, jwt.ErrTokenExpired) && !errors.Is(err, jwt.ErrTokenSignatureInvalid) {
+					code = hgerrors.HGAuthTokenExpired
 				}
-				desc +=
-					"\n localTime:" + now.Format("2006-01-02 15:04:05") +
-						"\n UTC time:" + now.UTC().Format("2006-01-02 15:04:05")
-
-				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc+desc)
+				hgJWTFailure(w, r, code, err)
 				return
 			}
 			if err := validateAccessClaims(r, claims); err != nil {
-				w.WriteHeader(http.StatusUnauthorized)
 				HGResponsePakcage.FailTokenInvalid(w, r, HGResponsePakcage.TokenInvalidFailDesc)
 				return
 			}
 			// 新旧 access 均需提供有效会话 ID；Redis 故障或后台撤销时失败关闭。
 			deleted, deleteErr := UserServicePackage.HGUserDeleted(r.Context(), PersistenceRedisPackage.RDB, claims.UserID)
 			if deleteErr != nil || deleted {
-				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
+				code := hgerrors.HGAuthSessionRevoked
+				if deleteErr != nil {
+					code = hgerrors.HGCommonUnavailable
+				}
+				hgJWTFailure(w, r, code, deleteErr)
 				return
 			}
 			generation, active, sessionErr := UserServicePackage.HGActiveSessionGeneration(r.Context(), PersistenceRedisPackage.RDB, claims.UserID, claims.SessionID)
 			if sessionErr != nil || !active {
-				w.WriteHeader(http.StatusUnauthorized)
-				HGResponsePakcage.FailTokenInvalid(w, r, "登录会话已失效")
+				code := hgerrors.HGAuthSessionRevoked
+				if sessionErr != nil {
+					code = hgerrors.HGCommonUnavailable
+				}
+				hgJWTFailure(w, r, code, sessionErr)
 				return
 			}
 
@@ -132,4 +134,9 @@ func validateAccessClaims(r *http.Request, claims *UserServicePackage.HGClaims) 
 	}
 
 	return nil
+}
+
+// hgJWTFailure 旧协议保持统一 401，新协议区分可续签的过期与不可确认会话的依赖故障。
+func hgJWTFailure(w http.ResponseWriter, r *http.Request, code hgerrors.Code, cause error) {
+	HGResponsePakcage.HGFailError(w, r, http.StatusUnauthorized, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.UnauthorizedCode, Message: HGResponsePakcage.TokenInvalidFailDesc}, hgerrors.Wrap(code, cause))
 }

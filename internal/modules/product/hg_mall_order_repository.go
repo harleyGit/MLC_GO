@@ -4,6 +4,7 @@ import (
 	CoinRepositoryPackage "MLC_GO/internal/modules/coin/repository"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -153,7 +154,10 @@ func (r *HGOrderRepository) Buy(ctx context.Context, user string, req HGBuyReque
 	if seller == user {
 		return HGOrder{}, ErrHGForbidden
 	}
-	if unit < 1 || unit > int64(CoinRepositoryPackage.HGMaxMallMutationAmount) || req.Quantity > available || unit > math.MaxInt64/int64(req.Quantity) || unit*int64(req.Quantity) > int64(CoinRepositoryPackage.HGMaxMallMutationAmount) {
+	if req.Quantity > available {
+		return r.hgReplayAfterBuyFailure(ctx, tx, user, req, hash, hgerrors.Wrap(hgerrors.HGMallStockInsufficient, ErrHGStock))
+	}
+	if unit < 1 || unit > int64(CoinRepositoryPackage.HGMaxMallMutationAmount) || unit > math.MaxInt64/int64(req.Quantity) || unit*int64(req.Quantity) > int64(CoinRepositoryPackage.HGMaxMallMutationAmount) {
 		return r.hgReplayAfterBuyFailure(ctx, tx, user, req, hash, ErrHGStock)
 	}
 	amount := unit * int64(req.Quantity)

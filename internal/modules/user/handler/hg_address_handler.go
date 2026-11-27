@@ -18,7 +18,6 @@ import (
 func hgAddressUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "未登录")
 	}
 	return userID, ok
@@ -41,8 +40,7 @@ func hgAddressFailure(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, UserServicePackage.ErrHGAddressInvalid), errors.Is(err, userrepository.ErrHGAddressLimit):
 		status, code, message = http.StatusBadRequest, HGResponsePackage.InvalidParam.Code, err.Error()
 	}
-	w.WriteHeader(status)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: code, Message: message})
+	HGResponsePackage.HGFailStatus(w, r, status, HGResponsePackage.HGErrorResult{Code: code, Message: message})
 }
 
 func hgDecodeAddress(w http.ResponseWriter, r *http.Request) (UserDtoPackage.HGAddressInput, bool) {

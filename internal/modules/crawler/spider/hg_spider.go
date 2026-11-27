@@ -1,9 +1,9 @@
 package spider
 
 import (
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -159,7 +159,7 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (ta
 		req.Type = "recommendation"
 	}
 	if req.Platform != m.platform.Name() || req.Type != "recommendation" {
-		return HGTaskSnapshot{}, errors.New("only bilibili recommendation tasks are supported")
+		return HGTaskSnapshot{}, hgerrors.New(hgerrors.HGCommonInvalidParam)
 	}
 	if req.Priority < 1 || req.Priority > 10 {
 		req.Priority = 5
@@ -168,7 +168,7 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (ta
 	m.mu.Lock()
 	if m.executing {
 		m.mu.Unlock()
-		return HGTaskSnapshot{}, errors.New("a crawler task is already running")
+		return HGTaskSnapshot{}, hgerrors.New(hgerrors.HGCrawlerTaskAlreadyRunning)
 	}
 	m.executing = true
 	// 新任务放在切片头部，使默认列表天然按创建时间倒序；超过上限时丢弃最旧记录。
@@ -195,7 +195,7 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (ta
 		task.ItemCount = len(items)
 		if runErr != nil {
 			task.Status = "FAILED"
-			task.Error = fmt.Sprintf("fetch failed: %v", runErr)
+			task.Error = hgerrors.Resolve(runErr).Message
 		} else {
 			task.Status = "SUCCESS"
 		}
@@ -220,8 +220,13 @@ func (m *HGManager) RunOnce(parent context.Context, req HGCreateTaskRequest) (ta
 	}()
 
 	items, runErr = m.platform.FetchRecommendations(ctx)
-	if runErr == nil && m.store != nil {
+	if runErr != nil {
+		runErr = hgerrors.Wrap(hgerrors.HGCrawlerSourceUnavailable, runErr)
+	} else if m.store != nil {
 		runErr = m.store.UpsertRecommendations(ctx, items)
+		if runErr != nil {
+			runErr = hgerrors.Wrap(hgerrors.HGCrawlerStoreFailed, runErr)
+		}
 	}
 	return task, runErr
 }

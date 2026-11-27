@@ -8,6 +8,7 @@ import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	UtilsPackage "MLC_GO/internal/pkg/utils"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"net"
@@ -110,7 +111,6 @@ func (h *Handler) GetAssetPipelineStatus(w http.ResponseWriter, r *http.Request)
 func (h *Handler) hgWithOperator(w http.ResponseWriter, r *http.Request, call func(string, *OpsServicePackage.HGOperationalService) (any, error)) {
 	operatorID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -129,8 +129,7 @@ func (h *Handler) hgWithOperator(w http.ResponseWriter, r *http.Request, call fu
 func hgDecodeOpsJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	if err := decoder.Decode(target); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求参数错误"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "请求参数错误"})
 		return false
 	}
 	return true
@@ -140,8 +139,10 @@ func hgWriteCoinOperationsError(w http.ResponseWriter, r *http.Request, err erro
 	status := http.StatusInternalServerError
 	code := HGResponsePakcage.InternalError.Code
 	message := "运维操作失败"
+	var business hgerrors.Code
 	switch {
 	case errors.Is(err, OpsServicePackage.ErrHGOperationsForbidden):
+		business = hgerrors.HGOPSOperationForbidden
 		status, code, message = http.StatusForbidden, HGResponsePakcage.Forbidden.Code, "无运维操作权限"
 	case errors.Is(err, OpsServicePackage.ErrHGOperationsRateLimited):
 		status, code, message = http.StatusTooManyRequests, HGResponsePakcage.InvalidParam.Code, "资产写操作请求过于频繁"
@@ -152,14 +153,20 @@ func hgWriteCoinOperationsError(w http.ResponseWriter, r *http.Request, err erro
 	case errors.Is(err, OpsServicePackage.ErrHGOperationsInvalid), errors.Is(err, CoinServicePackage.ErrHGInvalidIdentity), errors.Is(err, CoinServicePackage.ErrHGInvalidAmount), errors.Is(err, CoinServicePackage.ErrHGInvalidReference), errors.Is(err, CoinServicePackage.ErrHGInvalidReason):
 		status, code, message = http.StatusBadRequest, HGResponsePakcage.InvalidParam.Code, "运维请求参数错误"
 	case errors.Is(err, CoinRepositoryPackage.ErrHGIdempotencyConflict):
+		business = hgerrors.HGCommonIdempotencyConflict
 		status, code, message = http.StatusConflict, HGResponsePakcage.InvalidParam.Code, "requestId 已被不同资产命令使用"
 	case errors.Is(err, CoinRepositoryPackage.ErrHGInsufficientBalance):
+		business = hgerrors.HGWalletBalanceInsufficient
 		status, code, message = http.StatusConflict, HGResponsePakcage.InvalidParam.Code, "用户硬币余额不足"
 	case errors.Is(err, CoinRepositoryPackage.ErrHGRefundExceedsDebit):
 		status, code, message = http.StatusConflict, HGResponsePakcage.InvalidParam.Code, "退款超过原扣款可退金额"
 	}
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: message})
+	legacy := HGResponsePakcage.HGErrorResult{Code: code, Message: message}
+	if business != 0 {
+		HGResponsePakcage.HGFailError(w, r, status, legacy, hgerrors.Wrap(business, err))
+		return
+	}
+	HGResponsePakcage.HGFailStatus(w, r, status, legacy)
 }
 
 func hgAssetOperator(r *http.Request, operatorID string) OpsServicePackage.HGAssetOperator {

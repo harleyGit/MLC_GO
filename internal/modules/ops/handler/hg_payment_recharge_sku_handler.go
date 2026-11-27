@@ -87,7 +87,6 @@ func (h *Handler) HGListRechargeSKUs(w http.ResponseWriter, r *http.Request) {
 func hgRechargeSKUOperator(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 	}
 	return id, ok
@@ -131,6 +130,5 @@ func hgWriteRechargeSKUError(w http.ResponseWriter, r *http.Request, err error) 
 	if status >= 500 {
 		code = HGResponsePakcage.InternalError.Code
 	}
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: message})
+	HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGErrorResult{Code: code, Message: message})
 }

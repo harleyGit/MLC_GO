@@ -5,6 +5,7 @@ import (
 	IMEventsPackage "MLC_GO/internal/events/im"
 	"MLC_GO/internal/outbox"
 	SQLQueriesPackage "MLC_GO/internal/pkg/mysql/queries"
+	"MLC_GO/internal/response/hgerrors"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -145,7 +146,7 @@ func (s *HGService) HGSend(ctx context.Context, sender string, cmd HGSendCommand
 	err = tx.QueryRowContext(ctx, SQLQueriesPackage.HGIMExistingMessageSQL, sender, cmd.ClientMsgID).Scan(&existingID, &existingConversation, &existingSeq, &existingType, &existingHash)
 	if err == nil {
 		if existingConversation != id || existingType != string(cmd.MessageType) || !bytes.Equal(existingHash, hash[:]) {
-			return HGSendReceipt{}, HGErrConflict
+			return HGSendReceipt{}, hgerrors.Wrap(hgerrors.HGIMMessageDuplicated, HGErrConflict)
 		}
 		return HGSendReceipt{MessageID: strconv.FormatUint(existingID, 10), Seq: existingSeq}, nil
 	}
@@ -257,8 +258,14 @@ func hgIMContent(cmd HGSendCommand) ([]byte, string, error) {
 		var value struct {
 			Text string `json:"text"`
 		}
-		if err := decoder.Decode(&value); err != nil || utf8.RuneCountInString(value.Text) < 1 || utf8.RuneCountInString(value.Text) > 1000 {
+		if err := decoder.Decode(&value); err != nil {
 			return nil, "", HGErrInvalid
+		}
+		if value.Text == "" {
+			return nil, "", hgerrors.Wrap(hgerrors.HGIMMessageEmpty, HGErrInvalid)
+		}
+		if utf8.RuneCountInString(value.Text) > 1000 {
+			return nil, "", hgerrors.Wrap(hgerrors.HGIMMessageTooLong, HGErrInvalid)
 		}
 	case HGImage, HGVideo, HGAudio, HGFile:
 		var value HGMediaContent

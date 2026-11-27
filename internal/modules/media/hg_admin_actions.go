@@ -230,11 +230,9 @@ func (h *HGHandler) hgAdminDelete(w http.ResponseWriter, r *http.Request) {
 func hgAdminActionFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, HGErrNotFound):
-		w.WriteHeader(http.StatusNotFound)
-		HGResponse.FailResult[string](w, r, HGResponse.HGErrorResult{Code: HGResponse.InvalidParam.Code, Message: "资源不存在或不允许该操作"})
+		HGResponse.HGFailStatus(w, r, http.StatusNotFound, HGResponse.HGErrorResult{Code: HGResponse.InvalidParam.Code, Message: "资源不存在或不允许该操作"})
 	case errors.Is(err, HGErrConflict):
-		w.WriteHeader(http.StatusConflict)
-		HGResponse.FailResult[string](w, r, HGResponse.HGErrorResult{Code: HGResponse.InvalidParam.Code, Message: "资源有业务引用、处于保护期或状态不允许删除"})
+		HGResponse.HGFailStatus(w, r, http.StatusConflict, HGResponse.HGErrorResult{Code: HGResponse.InvalidParam.Code, Message: "资源有业务引用、处于保护期或状态不允许删除"})
 	default:
 		hgFail(w, r, err)
 	}

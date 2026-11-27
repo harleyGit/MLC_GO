@@ -3,6 +3,7 @@ package media
 import (
 	HGContext "MLC_GO/internal/pkg/hg_context"
 	HGResponse "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,7 +24,6 @@ func HGNewHandler(service *HGService) *HGHandler { return &HGHandler{service: se
 func (h *HGHandler) hgUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	owner, ok := HGContext.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponse.FailTokenInvalid(w, r, "请先登录")
 	}
 	return owner, ok
@@ -32,17 +32,13 @@ func (h *HGHandler) hgUser(w http.ResponseWriter, r *http.Request) (string, bool
 func hgFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, HGErrInvalid):
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponse.FailResult[string](w, r, HGResponse.InvalidParam)
+		HGResponse.HGFailStatus(w, r, http.StatusBadRequest, HGResponse.InvalidParam)
 	case errors.Is(err, HGErrConflict):
-		w.WriteHeader(http.StatusConflict)
-		HGResponse.FailResult[string](w, r, HGResponse.InvalidParam)
+		HGResponse.HGFailStatus(w, r, http.StatusConflict, HGResponse.InvalidParam)
 	case errors.Is(err, HGErrNotFound):
-		w.WriteHeader(http.StatusNotFound)
-		HGResponse.FailResult[string](w, r, HGResponse.InvalidParam)
+		HGResponse.HGFailError(w, r, http.StatusNotFound, HGResponse.InvalidParam, hgerrors.Wrap(hgerrors.HGMediaFileNotFound, err))
 	default:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponse.FailResult[string](w, r, HGResponse.DatabaseError)
+		HGResponse.HGFailError(w, r, http.StatusServiceUnavailable, HGResponse.DatabaseError, err)
 	}
 }
 

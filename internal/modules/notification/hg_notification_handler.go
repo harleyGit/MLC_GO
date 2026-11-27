@@ -43,19 +43,16 @@ func hgPageSize(raw string) (int, error) {
 func hgUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	user, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 	}
 	return user, ok
 }
 func hgFail(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, HGErrInvalid) {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePackage.InvalidParam)
 		return
 	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.DatabaseError)
+	HGResponsePackage.HGFailError(w, r, http.StatusServiceUnavailable, HGResponsePackage.DatabaseError, err)
 }
 func hgBody(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))

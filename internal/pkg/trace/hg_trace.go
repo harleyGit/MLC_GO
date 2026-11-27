@@ -1,15 +1,15 @@
 /*
 * @Author: GangHuang harleysor@qq.com
 * @Date: 2026-01-28 10:16:45
- * @LastEditors: GangHuang harleysor@qq.com
- * @LastEditTime: 2026-01-28 10:39:22
+  - @LastEditors: GangHuang harleysor@qq.com
+  - @LastEditTime: 2026-01-28 10:39:22
 
 * @FilePath: /MLC_GO/internal/pkg/trace/hg_trace.go
 * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 
 * OpenTelemetry 设计是啥？使用它有啥好处
 * 这就是“自研究OTel适配层”，将来可以将这里替换成官方 【go.opentelemetry.io/tel】
-* 
+*
 */
 package HGTracePackage
 
@@ -21,10 +21,10 @@ import (
 )
 
 type HGTraceContext struct {
-	TraceD string
-	SpanID string
-	Name   string
-	Start  time.Time
+	TraceD string    // 自有适配器的关联 ID，未必是有效的 OpenTelemetry TraceID。
+	SpanID string    // 自有适配器生成的跨度标识，不伪称官方 Span。
+	Name   string    // 启动时配置的跨度名称。
+	Start  time.Time // 本机起始时间，用于计算耗时。
 }
 
 type hgTraceKey struct{}
@@ -33,8 +33,10 @@ var traceKey = hgTraceKey{}
 
 // 对外暴露安全的读取方法
 func GetTraceKey(ctx context.Context) string {
-	traceKey, _ := ctx.Value(traceKey).(string)
-	return traceKey
+	if tc := Get(ctx); tc != nil {
+		return tc.TraceD
+	}
+	return ""
 }
 
 func NewTrace(ctx context.Context, name string, tid string) context.Context {
@@ -45,18 +47,19 @@ func NewTrace(ctx context.Context, name string, tid string) context.Context {
 		Name:   name,
 		Start:  time.Now(),
 	}
-	return context.WithValue(ctx, traceKey, tc)
+	return context.WithValue(ctx, traceKey, &tc)
 }
 
 func Get(ctx context.Context) *HGTraceContext {
 
-	if v := ctx.Value(traceKey); v != nil {
-		return v.(*HGTraceContext)
-	}
-	return nil
+	tc, _ := ctx.Value(traceKey).(*HGTraceContext)
+	return tc
 }
 
 func End(tc *HGTraceContext) {
+	if tc == nil {
+		return
+	}
 	cost := time.Since(tc.Start).Milliseconds()
 	logHG.DebugFInfo(
 		`{"otel":"span", "trace_id":"%s","span_id":"%s", "name":"%s", "cost_ms":%d   }`+"\n",

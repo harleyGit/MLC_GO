@@ -6,6 +6,7 @@ import (
 	UserServicePackage "MLC_GO/internal/modules/user/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePackage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,26 +36,26 @@ func HGNewFeatureHandler(service *HGService, gateway *transport.HGCentrifugo, me
 func hgIMUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	user, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "请先登录")
 	}
 	return user, ok
 }
 
 func hgIMFail(w http.ResponseWriter, r *http.Request, err error) {
+	var typed *hgerrors.AppError
+	if errors.As(err, &typed) {
+		HGResponsePackage.HGFailError(w, r, hgerrors.Resolve(err).HTTPStatus, HGResponsePackage.InvalidParam, err)
+		return
+	}
 	switch {
 	case errors.Is(err, HGErrInvalid):
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePackage.InvalidParam)
 	case errors.Is(err, HGErrForbidden):
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailError(w, r, http.StatusForbidden, HGResponsePackage.InvalidParam, hgerrors.Wrap(hgerrors.HGIMAccessDenied, err))
 	case errors.Is(err, HGErrConflict):
-		w.WriteHeader(http.StatusConflict)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InvalidParam)
+		HGResponsePackage.HGFailError(w, r, http.StatusConflict, HGResponsePackage.InvalidParam, hgerrors.Wrap(hgerrors.HGIMStateConflict, err))
 	default:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.DatabaseError)
+		HGResponsePackage.HGFailError(w, r, http.StatusServiceUnavailable, HGResponsePackage.DatabaseError, err)
 	}
 }
 

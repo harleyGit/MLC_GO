@@ -17,7 +17,6 @@ import (
 func (h *Handler) CreateBilibiliTag(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -38,7 +37,6 @@ func (h *Handler) CreateBilibiliTag(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateBilibiliTag(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -59,7 +57,6 @@ func (h *Handler) UpdateBilibiliTag(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteBilibiliTag(w http.ResponseWriter, r *http.Request) {
 	userID, ok := HGContextPackage.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -79,7 +76,6 @@ func (h *Handler) DeleteBilibiliTag(w http.ResponseWriter, r *http.Request) {
 // cursor/pageSize 服务于运维管理分页；activeOnly=true 服务于动画页的启用标签读取。
 func (h *Handler) GetBilibiliTagList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := HGContextPackage.CurrentUserID(r); !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 		return
 	}
@@ -102,23 +98,25 @@ func writeBilibiliTagServiceError(w http.ResponseWriter, r *http.Request, err er
 	}
 	message := err.Error()
 	status := http.StatusBadRequest
+	public := "标签参数无效"
 	if strings.Contains(message, "已存在") {
 		status = http.StatusConflict
+		public = "标签已存在"
 	} else if strings.Contains(message, "不存在") {
 		status = http.StatusNotFound
+		public = "标签不存在"
 	} else if strings.Contains(message, "create bilibili") || strings.Contains(message, "query bilibili") || strings.Contains(message, "authorize bilibili") {
 		status = http.StatusInternalServerError
-		message = "标签服务暂不可用"
+		public = "标签服务暂不可用"
 	}
-	writeBilibiliTagError(w, r, status, message)
+	writeBilibiliTagError(w, r, status, public)
 }
 
 // writeBilibiliTagError 使用项目统一响应结构输出标签接口错误。
 func writeBilibiliTagError(w http.ResponseWriter, r *http.Request, status int, message string) {
-	w.WriteHeader(status)
 	code := HGResponsePakcage.InvalidParam.Code
 	if status >= http.StatusInternalServerError {
 		code = HGResponsePakcage.InternalError.Code
 	}
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: code, Message: message})
+	HGResponsePakcage.HGFailStatus(w, r, status, HGResponsePakcage.HGErrorResult{Code: code, Message: message})
 }

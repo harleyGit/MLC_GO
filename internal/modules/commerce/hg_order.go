@@ -3,6 +3,7 @@ package commerce
 import (
 	q "MLC_GO/internal/pkg/mysql/queries"
 	util "MLC_GO/internal/pkg/utils"
+	"MLC_GO/internal/response/hgerrors"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -155,7 +156,7 @@ func (s *HGOrderStore) HGPreview(ctx context.Context, user string, r HGReserveRe
 		return HGOrderQuote{}, err
 	}
 	if quote.Available < int64(r.Quantity) {
-		return quote, ErrHGStock
+		return quote, hgerrors.Wrap(hgerrors.HGMallStockInsufficient, ErrHGStock)
 	}
 	return quote, nil
 }

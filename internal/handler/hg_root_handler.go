@@ -175,8 +175,7 @@ func registerHealthRoutes(rootMux *http.ServeMux, health HealthCheckConfig) {
 func newHealthzHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestMethod)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.RequestMethod)
 			return
 		}
 		HGResponsePakcage.SuccessResult(w, r, map[string]string{"status": "ok"})
@@ -188,16 +187,14 @@ func newHealthzHandler() http.Handler {
 func newReadyzHandler(check DependencyChecker) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestMethod)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.RequestMethod)
 			return
 		}
 		if check != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), defaultHealthCheckTimout)
 			defer cancel()
 			if err := check(ctx); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "service not ready"})
+				HGResponsePakcage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "service not ready"})
 				return
 			}
 		}
@@ -335,8 +332,7 @@ func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogIte
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 路由清单是只读接口，只允许 GET 方法，其他方法返回 405
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestMethod)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.RequestMethod)
 			return
 		}
 
@@ -348,8 +344,7 @@ func newRouteCatalogHandler(catalog []HGMiddlewareGroupPackage.HGRouteCatalogIte
 func newRouteCatalogGroupedHandler(grouped map[string][]HGMiddlewareGroupPackage.HGRouteCatalogItem) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestMethod)
+			HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.RequestMethod)
 			return
 		}
 

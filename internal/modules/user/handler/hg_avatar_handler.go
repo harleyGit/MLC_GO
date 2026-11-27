@@ -22,8 +22,7 @@ func (h *HGUserHandler) Avatar(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		h.GetAvatar(w, r)
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestMethod)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusMethodNotAllowed, HGResponsePakcage.RequestMethod)
 	}
 }
 
@@ -32,19 +31,16 @@ func (h *HGUserHandler) Avatar(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 
 	if r.ContentLength <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "图片数据为空"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "图片数据为空"})
 		return
 	}
 	if r.ContentLength > 10<<20 {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "图片大小超过限制"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "图片大小超过限制"})
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
@@ -59,8 +55,7 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.avatarSvc.UploadAvatarFromReader(r.Context(), userID, r.Body, r.ContentLength, ext)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "上传头像失败: "+err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 
@@ -75,15 +70,13 @@ func (h *HGUserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 func (h *HGUserHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUpdateUserID(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
 
 	avatarURL, err := h.avatarSvc.GetAvatarURL(r.Context(), userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalError.Code, Message: "获取头像失败: "+err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InternalError.Code))
 		return
 	}
 

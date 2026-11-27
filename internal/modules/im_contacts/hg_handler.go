@@ -19,20 +19,15 @@ func HGNewHandler(db *sql.DB) *HGHandler { return &HGHandler{service: HGNewServi
 func hgFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, HGErrInvalid):
-		w.WriteHeader(http.StatusBadRequest)
-		Response.FailResult[string](w, r, Response.InvalidParam)
+		Response.HGFailStatus(w, r, http.StatusBadRequest, Response.InvalidParam)
 	case errors.Is(err, HGErrDenied):
-		w.WriteHeader(http.StatusForbidden)
-		Response.FailResult[string](w, r, Response.InvalidParam)
+		Response.HGFailStatus(w, r, http.StatusForbidden, Response.InvalidParam)
 	case errors.Is(err, HGErrAbsent):
-		w.WriteHeader(http.StatusNotFound)
-		Response.FailResult[string](w, r, Response.InvalidParam)
+		Response.HGFailStatus(w, r, http.StatusNotFound, Response.InvalidParam)
 	case errors.Is(err, HGErrState):
-		w.WriteHeader(http.StatusConflict)
-		Response.FailResult[string](w, r, Response.InvalidParam)
+		Response.HGFailStatus(w, r, http.StatusConflict, Response.InvalidParam)
 	default:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		Response.FailResult[string](w, r, Response.DatabaseError)
+		Response.HGFailError(w, r, http.StatusServiceUnavailable, Response.DatabaseError, err)
 	}
 }
 
@@ -49,7 +44,6 @@ func hgBody(w http.ResponseWriter, r *http.Request, into any) bool {
 func hgViewer(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id, ok := Context.CurrentUserID(r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
 		Response.FailTokenInvalid(w, r, "请先登录")
 	}
 	return id, ok

@@ -55,7 +55,6 @@ func hgOwnProfileOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := HGContextPackage.CurrentUserID(r)
 		if !ok {
-			w.WriteHeader(http.StatusUnauthorized)
 			HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 			return
 		}
@@ -72,7 +71,6 @@ func hgProfileTargetWriteGuard(next http.HandlerFunc, authorizer HGRouteAuthoriz
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := HGContextPackage.CurrentUserID(r)
 		if !ok {
-			w.WriteHeader(http.StatusUnauthorized)
 			HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 			return
 		}

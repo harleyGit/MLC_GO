@@ -33,21 +33,18 @@ func hgBody(w http.ResponseWriter, r *http.Request, value any) error {
 func hgFail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, HGErrInvalid):
-		w.WriteHeader(http.StatusBadRequest)
+		response.HGFailStatus(w, r, http.StatusBadRequest, response.InvalidParam)
 	case errors.Is(err, HGErrConflict):
-		w.WriteHeader(http.StatusConflict)
+		response.HGFailStatus(w, r, http.StatusConflict, response.InvalidParam)
 	case errors.Is(err, HGErrMissing):
-		w.WriteHeader(http.StatusNotFound)
+		response.HGFailStatus(w, r, http.StatusNotFound, response.InvalidParam)
 	case errors.Is(err, HGErrBusy):
-		w.WriteHeader(http.StatusTooManyRequests)
-		response.FailResult[string](w, r, response.RateLimit)
+		response.HGFailStatus(w, r, http.StatusTooManyRequests, response.RateLimit)
 		return
 	default:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		response.FailResult[string](w, r, response.DatabaseError)
+		response.HGFailError(w, r, http.StatusServiceUnavailable, response.DatabaseError, err)
 		return
 	}
-	response.FailResult[string](w, r, response.InvalidParam)
 }
 
 func hgActor(r *http.Request) (string, error) {

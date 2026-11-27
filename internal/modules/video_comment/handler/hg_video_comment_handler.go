@@ -6,6 +6,7 @@ import (
 	VideoCommentServicePackage "MLC_GO/internal/modules/video_comment/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"io"
@@ -168,47 +169,39 @@ func hgDecodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestBodyInvalid)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.RequestBodyInvalid)
 		return false
 	}
 	return true
 }
 
 func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusUnauthorized)
 	HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 }
 
 func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, VideoCommentServicePackage.ErrImageRateLimited) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailError(w, r, http.StatusTooManyRequests, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code), hgerrors.Wrap(hgerrors.HGVideoCommentRateLimited, err))
 		return
 	}
 	if errors.Is(err, VideoCommentServicePackage.ErrImageQuotaExceeded) || errors.Is(err, VideoCommentRepositoryPackage.ErrImageQuotaExceeded) {
-		w.WriteHeader(http.StatusConflict)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrImageQuotaExceeded.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusConflict, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrImageQuotaExceeded.Error()})
 		return
 	}
 	if errors.Is(err, VideoCommentServicePackage.ErrCommentHasReplies) {
-		w.WriteHeader(http.StatusConflict)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrCommentHasReplies.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusConflict, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrCommentHasReplies.Error()})
 		return
 	}
 	if errors.Is(err, VideoCommentServicePackage.ErrCommentNotFound) {
-		w.WriteHeader(http.StatusNotFound)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrCommentNotFound.Error()})
+		HGResponsePakcage.HGFailError(w, r, http.StatusNotFound, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: VideoCommentServicePackage.ErrCommentNotFound.Error()}, hgerrors.Wrap(hgerrors.HGVideoCommentNotFound, err))
 		return
 	}
 	if errors.Is(err, VideoCommentRepositoryPackage.ErrSubmissionNotCommentable) {
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "当前视频不可评论"})
+		HGResponsePakcage.HGFailError(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "当前视频不可评论"}, hgerrors.Wrap(hgerrors.HGVideoCommentDisabled, err))
 		return
 	}
 	if errors.Is(err, VideoCommentRepositoryPackage.ErrParentNotAvailable) || errors.Is(err, VideoCommentServicePackage.ErrInvalidParent) || errors.Is(err, VideoCommentRepositoryPackage.ErrCommentNotAvailable) {
-		w.WriteHeader(http.StatusNotFound)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "评论不存在或不可用"})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusNotFound, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "评论不存在或不可用"})
 		return
 	}
 	if errors.Is(err, VideoCommentServicePackage.ErrInvalidTarget) || errors.Is(err, VideoCommentServicePackage.ErrInvalidContent) ||
@@ -216,12 +209,10 @@ func hgWriteError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, VideoCommentServicePackage.ErrInvalidCursor) || errors.Is(err, VideoCommentServicePackage.ErrInvalidPageSize) ||
 		errors.Is(err, VideoCommentServicePackage.ErrInvalidImageURLs) || errors.Is(err, VideoCommentServicePackage.ErrInvalidReaction) ||
 		errors.Is(err, VideoCommentServicePackage.ErrInvalidImageUpload) {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "评论服务暂不可用"})
+	HGResponsePakcage.HGFailError(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "评论服务暂不可用"}, err)
 }
 
 // hgClientIP 仅在 TCP 直连来源可信时解析代理头，并从右向左剥离可信代理，返回最右侧非可信地址。

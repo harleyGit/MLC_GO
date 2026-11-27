@@ -17,6 +17,7 @@ type FollowRequest struct {
 
 // AcceptedResponse 表示命令已被 Kafka 可靠接收，持久化最终一致完成。
 type AcceptedResponse struct {
+	Status   string `json:"status,omitempty"` // HTTP 202 已受理，最终投影可能尚未完成。
 	Accepted bool   `json:"accepted"`
 	Action   string `json:"action"`
 	Active   bool   `json:"active,omitempty"`

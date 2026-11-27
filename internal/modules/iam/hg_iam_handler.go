@@ -6,6 +6,7 @@ import (
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	PersistenceRedisPackage "MLC_GO/internal/pkg/redis"
 	HGResponsePackage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -104,7 +105,6 @@ func (h *HGHandler) HGConfirmMFA(w http.ResponseWriter, r *http.Request) {
 func hgActor(w http.ResponseWriter, r *http.Request) (string, bool) {
 	actor, ok := HGContextPackage.CurrentUserID(r)
 	if !ok || actor == "" {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "登录状态无效")
 		return "", false
 	}
@@ -118,8 +118,7 @@ func hgDecode(w http.ResponseWriter, r *http.Request, dest any) bool {
 	if err := decoder.Decode(dest); err != nil {
 		var sizeError *http.MaxBytesError
 		if errors.As(err, &sizeError) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.RequestTooLargeCode, Message: "请求体过大"})
+			HGResponsePackage.HGFailStatus(w, r, http.StatusRequestEntityTooLarge, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.RequestTooLargeCode, Message: "请求体过大"})
 			return false
 		}
 		hgHTTPError(w, r, ErrHGInvalid)
@@ -167,8 +166,8 @@ func hgHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusConflict, "当前账号 MFA 未启用，请先完成验证"
 		code = HGResponsePackage.MFANotEnabledCode
 	case errors.Is(err, ErrHGMFACodeInvalid):
-		status, message = http.StatusForbidden, "MFA 验证码错误或已过期"
-		code = HGResponsePackage.MFACodeInvalidCode
+		HGResponsePackage.HGFailError(w, r, http.StatusForbidden, HGResponsePackage.HGErrorResult{Code: HGResponsePackage.MFACodeInvalidCode, Message: "MFA 验证码错误或已过期"}, hgerrors.Wrap(hgerrors.HGAuthMFACodeInvalid, err))
+		return
 	case errors.Is(err, ErrHGMFACodeUsed):
 		status, message = http.StatusConflict, "MFA 验证码已使用，请等待下一组动态码"
 		code = HGResponsePackage.MFACodeUsedCode
@@ -197,8 +196,7 @@ func hgHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 		status, message = http.StatusConflict, "角色或授权状态冲突"
 		code = HGResponsePackage.Conflict.Code
 	}
-	w.WriteHeader(status)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: code, Message: message})
+	HGResponsePackage.HGFailStatus(w, r, status, HGResponsePackage.HGErrorResult{Code: code, Message: message})
 }
 
 func hgID(value string) (uint64, error) {
@@ -231,13 +229,11 @@ func (h *HGHandler) HGRealtimeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.service.realtime == nil || h.service.realtimeURL == "" {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePackage.InternalError)
 		return
 	}
 	claims, valid := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !valid || claims.SessionID == "" || claims.UserID != actor {
-		w.WriteHeader(http.StatusUnauthorized)
 		HGResponsePackage.FailTokenInvalid(w, r, "登录会话无效")
 		return
 	}
@@ -261,18 +257,15 @@ func (h *HGHandler) HGLogoutRealtime(w http.ResponseWriter, r *http.Request) {
 	claims, valid := r.Context().Value(UserJWTMiddlewarePackage.UserIDKey).(*UserServicePackage.HGClaims)
 	if !valid || claims.UserID != actor || claims.SessionID == "" || h.service.realtime == nil ||
 		PersistenceRedisPackage.RDB == nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePackage.InternalError)
 		return
 	}
 	if err := UserServicePackage.HGRevokeAuthSession(r.Context(), PersistenceRedisPackage.RDB, actor, claims.SessionID); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePackage.InternalError)
 		return
 	}
 	if err := h.service.realtime.HGDisconnectIAMSession(r.Context(), actor, claims.SessionID); err != nil {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		HGResponsePackage.FailResult[string](w, r, HGResponsePackage.InternalError)
+		HGResponsePackage.HGFailStatus(w, r, http.StatusServiceUnavailable, HGResponsePackage.InternalError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

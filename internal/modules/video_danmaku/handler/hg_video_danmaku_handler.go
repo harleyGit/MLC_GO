@@ -6,6 +6,7 @@ import (
 	VideoDanmakuServicePackage "MLC_GO/internal/modules/video_danmaku/service"
 	HGContextPackage "MLC_GO/internal/pkg/hg_context"
 	HGResponsePakcage "MLC_GO/internal/response"
+	"MLC_GO/internal/response/hgerrors"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -95,8 +96,7 @@ func hgDecode(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(target) != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.RequestBodyInvalid)
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.RequestBodyInvalid)
 		return false
 	}
 	return true
@@ -114,20 +114,24 @@ func hgUint32(w http.ResponseWriter, r *http.Request, key string) (uint32, bool)
 	return uint32(value), true
 }
 func hgUnauthorized(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusUnauthorized)
 	HGResponsePakcage.FailTokenInvalid(w, r, "unauthorized")
 }
 func hgError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, VideoDanmakuRepositoryPackage.ErrIdempotencyConflict) {
+		HGResponsePakcage.HGFailError(w, r, 503, HGResponsePakcage.DatabaseError, hgerrors.Wrap(hgerrors.HGCommonIdempotencyConflict, err))
+		return
+	}
+	if errors.Is(err, hgerrors.HGVideoDanmakuTooLong) {
+		HGResponsePakcage.HGFailError(w, r, 400, HGResponsePakcage.InvalidParam, err)
+		return
+	}
 	if errors.Is(err, VideoDanmakuRepositoryPackage.ErrVideoNotDanmakuEnabled) {
-		w.WriteHeader(http.StatusForbidden)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "当前视频不可发送弹幕"})
+		HGResponsePakcage.HGFailError(w, r, http.StatusForbidden, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: "当前视频不可发送弹幕"}, hgerrors.Wrap(hgerrors.HGVideoDanmakuDisabled, err))
 		return
 	}
 	if errors.Is(err, VideoDanmakuServicePackage.ErrInvalidTarget) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidContent) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidRequestID) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidProgress) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidStyle) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidWindow) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidPageSize) || errors.Is(err, VideoDanmakuServicePackage.ErrInvalidCursor) {
-		w.WriteHeader(http.StatusBadRequest)
-		HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InvalidParam.Code, Message: err.Error()})
+		HGResponsePakcage.HGFailStatus(w, r, http.StatusBadRequest, HGResponsePakcage.HGSafeLegacyResult(HGResponsePakcage.InvalidParam.Code))
 		return
 	}
-	w.WriteHeader(http.StatusServiceUnavailable)
-	HGResponsePakcage.FailResult[string](w, r, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "弹幕服务暂不可用"})
+	HGResponsePakcage.HGFailError(w, r, http.StatusServiceUnavailable, HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.DatabaseError.Code, Message: "弹幕服务暂不可用"}, err)
 }

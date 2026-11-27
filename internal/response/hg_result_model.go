@@ -10,7 +10,7 @@ package HGResponsePakcage
 
 import (
 	UtilsPackage "MLC_GO/internal/pkg/utils"
-	"encoding/json"
+	"MLC_GO/internal/response/hgerrors"
 	"net/http"
 	"time"
 )
@@ -207,93 +207,31 @@ func NewPageResponse[T any](items []T, opts ...HGPageOption) HGPageResultModel[T
 }
 
 func SuccessResult[T any](w http.ResponseWriter, r *http.Request, data T) {
-
-	result := HGResultModel[T]{
-		Code:      HGSuccess.Code,
-		Message:   HGSuccess.Message,
-		Result:    data,
-		TID:       UtilsPackage.GetTID(r.Context()),
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	writeResult(result, w)
+	HGSuccessStatus(w, r, 0, data)
 }
 
 func SuccessPageResult[T any](w http.ResponseWriter, r *http.Request, data T) {
-
-	result := HGResultModel[T]{
-		Code:      HGSuccess.Code,
-		Message:   HGSuccess.Message,
-		Result:    data,
-		TID:       UtilsPackage.GetTID(r.Context()),
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	writeResult(result, w)
+	SuccessResult(w, r, data)
 }
 
 func FailResult[T any](w http.ResponseWriter, r *http.Request, err HGErrorResult) {
-
-	var zero T
-	resp := HGResultModel[T]{
-		Code:      err.Code,
-		Message:   err.Message,
-		Result:    zero,
-		TID:       UtilsPackage.GetTID(r.Context()),
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	writeResult(resp, w)
+	HGFailStatus(w, r, 0, err)
 }
 
-// FailTokenInvalid 统一 token 失效响应语义：HTTP 层由调用方写 401，业务码统一返回 UnauthorizedCode。
-// 约束：响应结构保持不变，只收敛鉴权失败业务码，便于前端统一按 401 处理。
+// FailTokenInvalid 保留旧端鉴权码；未知的底层校验原因不可外传。
 func FailTokenInvalid(w http.ResponseWriter, r *http.Request, msg string) {
-	FailResult[string](w, r, HGErrorResult{UnauthorizedCode, msg})
+	HGFailError(w, r, http.StatusUnauthorized, HGErrorResult{UnauthorizedCode, msg}, hgerrors.HGAuthTokenInvalid)
 }
 
-/* 统一·JOSN 输出方法 */
-// Deprecated: 使用 SuccessResult 方法，因为该方法无法定制化
-func WriteJSON(
-	w http.ResponseWriter,
-	r *http.Request,
-	result HGResultProtocol,
-) {
-
-	resp := HGAPIResponseModel[HGResultProtocol]{
-		Code:      0,
-		Message:   "success💯",
-		Result:    result,
-		TID:       UtilsPackage.GetTID(r.Context()), //TODO: tid直接写这里，就不用写tid中间件了
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	// 若是 result 实现了接口，自动使用它的 code / message
-	if r, ok := interface{}(result).(HGResultProtocol); ok {
-		resp.Code = r.ResponseCode()
-		resp.Message = r.ResponseMessage()
-	}
-
-	writeResult(resp, w)
-	// json.MarshlIndent会在每个字段之间自动换行，并缩进2格
-	// jsonBytes, err := json.MarshalIndent(resp, "", " ") // "" = 前缀，"  " = 每级缩进两个空格
-	// if err != nil {
-	// 	http.Error(w, "JSON encode failed ❌", http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// w.Write(jsonBytes)
-}
-
-func writeResult(resp interface{}, w http.ResponseWriter) {
-
-	// json.NewEncoder(w).Encode(userMap) //不缩进，自动输出 JSON
-	// json.MarshlIndent会在每个字段之间自动换行，并缩进2格
-	jsonBytes, err := json.MarshalIndent(resp, "", " ") // "" = 前缀，"  " = 每级缩进两个空格
-	if err != nil {
-		http.Error(w, "JSON encode failed ❌", http.StatusInternalServerError)
+// WriteJSON 兼容旧 HGResultProtocol，同时允许显式协商新响应。
+func WriteJSON(w http.ResponseWriter, r *http.Request, result HGResultProtocol) {
+	if result.ResponseCode() != OKCode {
+		HGFailStatus(w, r, 0, HGErrorResult{result.ResponseCode(), result.ResponseMessage()})
 		return
 	}
-
-	w.Write(jsonBytes)
+	if HGUsesBusinessEnvelope(r) {
+		SuccessResult(w, r, result)
+		return
+	}
+	hgWriteEnvelope(w, 0, "application/json", HGAPIResponseModel[HGResultProtocol]{Code: OKCode, Message: result.ResponseMessage(), Result: result, TID: UtilsPackage.GetTID(r.Context()), Timestamp: time.Now().UnixMilli()})
 }

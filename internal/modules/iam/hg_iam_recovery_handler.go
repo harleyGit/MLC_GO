@@ -41,8 +41,17 @@ func hgRecoveryHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 		hgHTTPError(w, r, err)
 		return
 	}
-	w.WriteHeader(status)
-	HGResponsePackage.FailResult[string](w, r, HGResponsePackage.HGErrorResult{Code: code, Message: err.Error()})
+	legacy := HGResponsePackage.HGSafeLegacyResult(code)
+	// 公开哨兵是已审核提示，不等同于包装错误的 Error()；保留找回流程的操作指引。
+	for _, public := range []error{Mail.HGErrSenderConfig, Mail.HGErrUnavailable, Mail.HGErrRateLimited,
+		hgErrRecoveryDisabled, hgErrRecoveryCode, hgErrRecoveryPassword, hgErrRecoveryFactor,
+		hgErrRecoveryEmail, hgErrRecoveryMFA, hgErrRecoveryCooldown, hgErrRecoveryTaken, hgErrRecoveryChanged} {
+		if errors.Is(err, public) {
+			legacy.Message = public.Error()
+			break
+		}
+	}
+	HGResponsePackage.HGFailStatus(w, r, status, legacy)
 }
 
 // HGOwnMFAEnroll 所有用户仅能登记本人的 MFA，原 IAM 管理员路由不变。

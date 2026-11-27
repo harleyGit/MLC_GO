@@ -43,10 +43,19 @@ func ChainInterceptors(base http.Handler, middlewares ...Middleware) http.Handle
 // RecoverMiddleware 统一拦截 panic，防止请求链路异常中断。
 func RecoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hgTracked, ok := w.(*hgAccessLogResponseWriter)
+		if !ok {
+			hgTracked = &hgAccessLogResponseWriter{ResponseWriter: w}
+			w = hgTracked
+		}
 		defer func() {
 			if err := recover(); err != nil {
-				HGResponsePakcage.FailResult[any](w, r,
-					HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "panic"},
+				// 已发送的流或 JSON 不可再追加错误体，交给 net/http 中止连接。
+				if hgTracked.status != 0 {
+					panic(http.ErrAbortHandler)
+				}
+				HGResponsePakcage.HGFailStatus(w, r, http.StatusInternalServerError,
+					HGResponsePakcage.HGErrorResult{Code: HGResponsePakcage.InternalErrorCode, Message: "服务器繁忙，请稍后重试"},
 				)
 			}
 		}()
@@ -258,9 +267,9 @@ func fnv32aString(value string) uint32 {
 }
 
 type hgAccessLogResponseWriter struct {
-	http.ResponseWriter
-	status int
-	bytes  int64
+	http.ResponseWriter       // 底层连接，供 ResponseController 通过 Unwrap 查找流式能力。
+	status              int   // 首次提交的 HTTP 状态，零表示尚未写头。
+	bytes               int64 // 已写入响应体字节数。
 }
 
 func (w *hgAccessLogResponseWriter) WriteHeader(status int) {
@@ -281,6 +290,9 @@ func (w *hgAccessLogResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *hgAccessLogResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// HGResponseCommitted 供唯一响应出口查询是否已经写头，不能用于把半个响应改判成功。
+func (w *hgAccessLogResponseWriter) HGResponseCommitted() bool { return w.status != 0 }
 
 func (w *hgAccessLogResponseWriter) ReadFrom(reader io.Reader) (int64, error) {
 	if w.status == 0 {

@@ -77,6 +77,5 @@ func hgWriteAuthorError(w http.ResponseWriter, r *http.Request, err error) {
 		result = HGResponsePakcage.UserNotFound
 		status = http.StatusNotFound
 	}
-	w.WriteHeader(status)
-	HGResponsePakcage.FailResult[string](w, r, result)
+	HGResponsePakcage.HGFailStatus(w, r, status, result)
 }
